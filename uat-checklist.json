@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 605,
+    "totalRequirements": 606,
     "coveredByAutomatedTest": 121,
-    "notCoveredByAutomatedTest": 484,
+    "notCoveredByAutomatedTest": 485,
     "releaseReadinessPercent": 20.0
   },
   "items": [
@@ -6657,6 +6657,17 @@
       "category": "CLI",
       "feature": "`limitrange` get/set/delete verbs",
       "step": "Given no LimitRange for tenant \"acme\" exists, When \"gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m\", Then PUT /limitranges/acme creates it and \"gimle get limitrange acme\" returns minRequest {memory: \"64Mi\", cpu: \"50m\"}.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-606",
+      "module": "gimle-andvari",
+      "category": "Artifact Registry",
+      "feature": "Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate",
+      "step": "Given a multi-file application directory published as a kind: bundle ArtifactSet entry with command [java, -jar, quarkus-run.jar], When a coordinate-only vessel deployment references it, Then the node agent pulls the zip, verifies its digest, unpacks it beside its entrypoint, launches the command in the unpacked directory, and the instance reaches ACTIVE. Given a coordinate already stored as kind JAR, When the same coordinate is re-pushed as kind BUNDLE, Then the push is refused with 409. Given a BUNDLE coordinate, When a Deployment names it without a vessel: block, Then admission rejects the submission.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

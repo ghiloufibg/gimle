@@ -1,5 +1,5 @@
 {
-  "title": "Giml\u00e9 Requirements Traceability Matrix (RTM)",
+  "title": "Gimlé Requirements Traceability Matrix (RTM)",
   "metadata": {
     "baselineDocument": "REQUIREMENTS_MATRIX.md",
     "baselineCommit": "919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640",
@@ -8,10 +8,10 @@
     "branch": "claude/kubernetes-kinds-gimle-gap-o5499m",
     "rebaseAcknowledgment": "this branch was rebased onto `origin/master` for this scan. Between the baseline commit and `origin/master`'s current tip there is exactly **one** new commit -- `6bd450f` (\"test: add Norn deterministic Raft fault-injection simulation\"), which adds three new test-only files to `gimle-mimir` and modifies nothing else (`git diff 919bd40..origin/master --stat` confirms 3 files changed, 807 insertions, 0 deletions, 0 files touched elsewhere). Consequently **every one of the 564 baseline requirements is unchanged (`Active`)** -- none are `Modified` or `Removed` -- and exactly **one new requirement** (`GIMLE-565`) was discovered and added.",
     "scanDate": "2026-08-23",
-    "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster \u2014 matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite \u2014 **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios \u2014 do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
-    "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files \u2014 `raft-resilience.feature` \u2014 exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
+    "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
+    "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 605,
+  "requirementCount": 606,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -52,7 +52,7 @@
     {
       "id": "GIMLE-003",
       "module": "gimle-core",
-      "feature": "Module descriptor validation (request \u2264 limit invariant)",
+      "feature": "Module descriptor validation (request ≤ limit invariant)",
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
@@ -106,7 +106,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given ResourceSpec{memory:\"128Mi\", cpu:\"250m\"}, When memoryBytes()/cpuMillicores() called, Then 134217728 and 250 respectively.",
-      "otherTestCoverage": "Indirect via ModuleDescriptorTest, VesselSpecTest \u2014 NONE direct",
+      "otherTestCoverage": "Indirect via ModuleDescriptorTest, VesselSpecTest — NONE direct",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/ResourceSpec.java`",
         "`ResourceQuantity.java`"
@@ -554,13 +554,13 @@
     {
       "id": "GIMLE-030",
       "module": "gimle-core",
-      "feature": "Agent\u2194worker control-channel protocol and codec",
+      "feature": "Agent↔worker control-channel protocol and codec",
       "category": "Internal/Infra / Protocol",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Agent\u2194worker control-channel protocol and codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `core`'s own unit test does.",
+      "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Agent↔worker control-channel protocol and codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `core`'s own unit test does.",
       "otherTestCoverage": "`ControlMessageCodecTest` (module id with qualifier round trips, rejects empty line/unknown type/missing fields/malformed module id)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java`",
@@ -830,7 +830,7 @@
     {
       "id": "GIMLE-045",
       "module": "gimle-module",
-      "feature": "Module lifecycle state machine (INSTALLED\u2192RESOLVED\u2192STARTING\u2192ACTIVE\u2192STOPPING\u2192UNINSTALLED, plus FAILED/COMPLETED)",
+      "feature": "Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED, plus FAILED/COMPLETED)",
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
@@ -1129,13 +1129,13 @@
     {
       "id": "GIMLE-060",
       "module": "gimle-module",
-      "feature": "Module artifact reading \u2014 real-JPMS-module and descriptor-presence validation",
+      "feature": "Module artifact reading — real-JPMS-module and descriptor-presence validation",
       "category": "Module System",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Module artifact reading \u2014 real-JPMS-module and descriptor-presence validation\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `module`'s own unit test does.",
+      "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Module artifact reading — real-JPMS-module and descriptor-presence validation\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `module`'s own unit test does.",
       "otherTestCoverage": "exercised via `TestModuleBuilderTest`; NONE dedicated `ModuleArtifactReaderTest` found",
       "sourceLocations": [
         "`gimle-module/src/main/java/com/gimle/module/artifact/ModuleArtifactReader.java`"
@@ -1238,7 +1238,7 @@
     {
       "id": "GIMLE-066",
       "module": "gimle-os",
-      "feature": "Tier 3 (namespace isolation) \u2014 deliberately unsupported by the current limiter",
+      "feature": "Tier 3 (namespace isolation) — deliberately unsupported by the current limiter",
       "category": "Resource Limiting",
       "status": "Active",
       "statusNote": "",
@@ -1253,16 +1253,16 @@
     {
       "id": "GIMLE-067",
       "module": "gimle-os",
-      "feature": "Kernel-level (cgroup v2) resource enforcement \u2014 deferred",
+      "feature": "Kernel-level (cgroup v2) resource enforcement — deferred",
       "category": "Resource Limiting",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: N/A \u2014 not implemented",
+      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: N/A — not implemented",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
-        "N/A \u2014 no cgroup-writing code exists anywhere in gimle-os; only PortableJvmFlagsResourceLimiter exists"
+        "N/A — no cgroup-writing code exists anywhere in gimle-os; only PortableJvmFlagsResourceLimiter exists"
       ]
     },
     {
@@ -1419,7 +1419,7 @@
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a certificate's validity window, When RenewalSchedule.of(certificate) is called, Then renewAt falls within the last 20\u201330% of validity.",
+      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a certificate's validity window, When RenewalSchedule.of(certificate) is called, Then renewAt falls within the last 20–30% of validity.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/RenewalSchedule.java`"
@@ -1646,7 +1646,7 @@
     {
       "id": "GIMLE-089",
       "module": "gimle-worker",
-      "feature": "Module-tier self-healing \u2014 restart on repeated liveness failure with backoff and budget exhaustion",
+      "feature": "Module-tier self-healing — restart on repeated liveness failure with backoff and budget exhaustion",
       "category": "Worker Supervision / Self-Healing",
       "status": "Active",
       "statusNote": "",
@@ -1898,7 +1898,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given the supervisor's stop() sets closed=true and calls process.destroyForcibly()",
-      "otherTestCoverage": "Implicit in `WorkerProcessSupervisorTest` setup/teardown paths; no dedicated `@Test` name asserting this directly \u2014 NONE explicit",
+      "otherTestCoverage": "Implicit in `WorkerProcessSupervisorTest` setup/teardown paths; no dedicated `@Test` name asserting this directly — NONE explicit",
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/WorkerProcessSupervisor.java` (`stop`, `onExit`'s `closed` guard)"
       ]
@@ -1961,7 +1961,7 @@
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module descriptor declares IsolationTier.TIER_3",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
-        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`reconcileAssignments`, `startVesselInstance` \u2014 both call `resourceLimiter.supports`/`GimleIsolationException.tierUnsupported`)"
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`reconcileAssignments`, `startVesselInstance` — both call `resourceLimiter.supports`/`GimleIsolationException.tierUnsupported`)"
       ]
     },
     {
@@ -1982,7 +1982,7 @@
     {
       "id": "GIMLE-110",
       "module": "gimle-agent",
-      "feature": "Tier 1 density \u2014 shared-worker reuse for multiple module instances",
+      "feature": "Tier 1 density — shared-worker reuse for multiple module instances",
       "category": "Worker Supervision",
       "status": "Active",
       "statusNote": "",
@@ -2323,7 +2323,7 @@
     {
       "id": "GIMLE-131",
       "module": "gimle-agent",
-      "feature": "Whitelisted control-plane read relay (worker\u2192agent\u2192control plane) with independent re-validation",
+      "feature": "Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation",
       "category": "Fabric / Config",
       "status": "Active",
       "statusNote": "",
@@ -2907,7 +2907,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "Covered indirectly by `RaftCodecTest` mutation round-trips \u2014 NONE direct StateStoreTest method found",
+      "otherTestCoverage": "Covered indirectly by `RaftCodecTest` mutation round-trips — NONE direct StateStoreTest method found",
       "sourceLocations": [
         "`StateStore#addRollingIndex`/`#getRollingIndices`",
         "`#addSurgeIndex`/`#getSurgeIndices`",
@@ -2976,7 +2976,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "Covered indirectly via `rpc.StoreClientClusterTest`/`StoreNodeTest` \u2014 NONE direct",
+      "otherTestCoverage": "Covered indirectly via `rpc.StoreClientClusterTest`/`StoreNodeTest` — NONE direct",
       "sourceLocations": [
         "`StateStore#putQuotaViolation`",
         "`#isQuotaViolating`"
@@ -3332,7 +3332,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Deliberately incompatible with Holmgang's own model, not merely untested by it: Norn is an in-process, virtual-time harness over real `RaftNode` objects with no sockets and no `RaftTransport` (see `NornCluster`'s own javadoc) -- its entire value is running far more election/partition/recovery activity per real second than a live-timer test could afford. Holmgang's model is the opposite: real, separately-spawned OS subprocesses talking over real sockets at real wall-clock speed (`raft-resilience.feature` already covers the real-process equivalent: killing a real store node/leader mid-workload). A Cucumber scenario cannot replay one of Norn's seeded virtual-time fault schedules against a real Holmgang cluster without rebuilding Norn's whole in-process/virtual-clock mechanism on top of real subprocesses -- at which point it would no longer be Norn. This gap is a permanent, structural one, not a backlog item.",
-      "otherTestCoverage": "`NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` \u2014 20 seeds x 40 rounds, asserting Election Safety and Log Matching after every round plus eventual liveness after each seed's storm ends",
+      "otherTestCoverage": "`NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds, asserting Election Safety and Log Matching after every round plus eventual liveness after each seed's storm ends",
       "sourceLocations": [
         "`gimle-mimir/src/test/java/com/gimle/mimir/raft/NornCluster.java`",
         "`NornScheduler.java`",
@@ -3809,7 +3809,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Reflective Cross-Module Method Dispatch\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fabric`'s own unit test does.",
-      "otherTestCoverage": "Exercised indirectly through `FabricServiceRegistryInvokeByNameTest`/`FabricServerTest` \u2014 NONE dedicated",
+      "otherTestCoverage": "Exercised indirectly through `FabricServiceRegistryInvokeByNameTest`/`FabricServerTest` — NONE dedicated",
       "sourceLocations": [
         "`com.gimle.fabric.transport.ReflectiveDispatch#findInterface`",
         "`#resolveParamTypes`",
@@ -3841,7 +3841,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given multiple registered nodes with differing free memory/CPU; When a replica is placed for a deployment; Then the node with the most free memory (tie-broken by free CPU) among tier-eligible, uncordoned nodes is chosen.",
-      "otherTestCoverage": "`SchedulerTest` \u2014 `places_on_the_only_feasible_node`, `prefers_the_node_with_more_free_capacity`, `throws_when_no_node_has_enough_free_capacity`",
+      "otherTestCoverage": "`SchedulerTest` — `places_on_the_only_feasible_node`, `prefers_the_node_with_more_free_capacity`, `throws_when_no_node_has_enough_free_capacity`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`",
         "`NodeCandidate.java`"
@@ -3857,7 +3857,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a node that does not declare support for TIER_2; When a TIER_2 replica is placed; Then that node is excluded and placement fails if no other node supports the tier.",
-      "otherTestCoverage": "`SchedulerTest` \u2014 `rejects_a_node_that_does_not_support_the_requested_tier`, `throws_when_no_node_supports_the_requested_tier`",
+      "otherTestCoverage": "`SchedulerTest` — `rejects_a_node_that_does_not_support_the_requested_tier`, `throws_when_no_node_supports_the_requested_tier`",
       "sourceLocations": [
         "`Scheduler.filterByTier`"
       ]
@@ -3878,7 +3878,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`SchedulerTest` \u2014 `cordon_excludes_a_cordoned_node_from_placement`, `cordon_fails_outright_when_every_capable_node_is_cordoned`; `DaemonSetReconcilerTest#cordoning_a_node_removes_its_assignment_on_the_next_tick`",
+      "otherTestCoverage": "`SchedulerTest` — `cordon_excludes_a_cordoned_node_from_placement`, `cordon_fails_outright_when_every_capable_node_is_cordoned`; `DaemonSetReconcilerTest#cordoning_a_node_removes_its_assignment_on_the_next_tick`",
       "sourceLocations": [
         "`Scheduler.filterByCordon`; `ApiServer.handleCordon` (`POST /nodes/{id}/cordon|uncordon`)"
       ]
@@ -3893,7 +3893,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given anti-affinity is requested and every eligible node already runs a replica; When another replica is placed; Then placement fails outright rather than co-locating.",
-      "otherTestCoverage": "`SchedulerTest` \u2014 `anti_affinity_excludes_nodes_already_running_a_replica_of_the_same_deployment`, `anti_affinity_fails_outright_rather_than_placing_on_an_occupied_node`",
+      "otherTestCoverage": "`SchedulerTest` — `anti_affinity_excludes_nodes_already_running_a_replica_of_the_same_deployment`, `anti_affinity_fails_outright_rather_than_placing_on_an_occupied_node`",
       "sourceLocations": [
         "`Scheduler.filterByAntiAffinity`",
         "`GimleSchedulingException.antiAffinityViolated`"
@@ -3909,7 +3909,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a node already running Tier 2 instances for tenant A; When a Tier 2 replica for tenant B is scheduled; Then that node is excluded; if every candidate hosts a different tenant, placement fails outright.",
-      "otherTestCoverage": "`SchedulerTest` \u2014 `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant`",
+      "otherTestCoverage": "`SchedulerTest` — `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant`",
       "sourceLocations": [
         "`Scheduler.filterByTenant`/`enforcesTenantIsolation`; `DeploymentReconciler.buildCandidates`"
       ]
@@ -3924,7 +3924,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a manifest declares placement.requiredLabels; When placement runs; Then only nodes carrying every required label are candidates; fails outright if none qualify.",
-      "otherTestCoverage": "`SchedulerTest` \u2014 `required_labels_excludes_a_node_missing_one_of_them`, `required_labels_fails_outright_when_no_capable_node_carries_them`",
+      "otherTestCoverage": "`SchedulerTest` — `required_labels_excludes_a_node_missing_one_of_them`, `required_labels_fails_outright_when_no_capable_node_carries_them`",
       "sourceLocations": [
         "`Scheduler.filterByLabels`"
       ]
@@ -3939,7 +3939,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given index 3 was previously placed on node-A; When index 3 needs re-placement; Then it is placed on node-A again if eligible, and fails outright (never relocated) if node-A is unavailable.",
-      "otherTestCoverage": "`SchedulerTest` \u2014 `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone`",
+      "otherTestCoverage": "`SchedulerTest` — `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone`",
       "sourceLocations": [
         "`Scheduler.place` (stickyNodeId overload)",
         "`Scheduler.placeSticky`",
@@ -3956,7 +3956,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given several nodes, some cordoned, some missing required labels; When DaemonSetReconciler computes eligible nodes; Then every node passing tier/cordon/tenant/label filters is returned, no single-winner pick.",
-      "otherTestCoverage": "`SchedulerTest` \u2014 `eligible_nodes_returns_every_node_that_passes_every_filter`, `eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies`; `DaemonSetReconcilerTest#places_an_assignment_on_every_registered_node`",
+      "otherTestCoverage": "`SchedulerTest` — `eligible_nodes_returns_every_node_that_passes_every_filter`, `eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies`; `DaemonSetReconcilerTest#places_an_assignment_on_every_registered_node`",
       "sourceLocations": [
         "`Scheduler.eligibleNodes`; `DaemonSetReconciler.reconcileDaemonSet`"
       ]
@@ -3982,7 +3982,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`DeploymentReconcilerTest` \u2014 `creates_assignments_for_every_missing_index_when_capacity_exists`, `an_arbitrary_starting_snapshot_converges_the_same_as_a_fresh_reconcile`",
+      "otherTestCoverage": "`DeploymentReconcilerTest` — `creates_assignments_for_every_missing_index_when_capacity_exists`, `an_arbitrary_starting_snapshot_converges_the_same_as_a_fresh_reconcile`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java`"
       ]
@@ -4012,7 +4012,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Artifact-hash drift detection at reconcile time\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`DeploymentReconcilerTest` \u2014 `places_new_instances_when_the_recorded_artifact_hash_still_matches_the_jar_on_disk`, `refuses_to_place_new_instances_once_the_jar_on_disk_no_longer_matches_the_recorded_hash`",
+      "otherTestCoverage": "`DeploymentReconcilerTest` — `places_new_instances_when_the_recorded_artifact_hash_still_matches_the_jar_on_disk`, `refuses_to_place_new_instances_once_the_jar_on_disk_no_longer_matches_the_recorded_hash`",
       "sourceLocations": [
         "`DeploymentReconciler.validateArtifact`"
       ]
@@ -4103,7 +4103,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given an instance's heartbeat reports alive=false or lifecycleState=FAILED; When HealthReconciler ticks; Then it is rescheduled after growing delay; once maxAttemptsPerWindow is exhausted it's marked permanently failed.",
-      "otherTestCoverage": "`HealthReconcilerTest` \u2014 `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states`",
+      "otherTestCoverage": "`HealthReconcilerTest` — `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`",
         "`RestartTracker`"
@@ -4140,7 +4140,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`QuotaReconcilerTest` \u2014 `marks_a_deployment_violating_when_its_tenant_exceeds_quota`, `clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state`, `proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists`",
+      "otherTestCoverage": "`QuotaReconcilerTest` — `marks_a_deployment_violating_when_its_tenant_exceeds_quota`, `clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state`, `proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/QuotaReconciler.java`",
         "`TenantUsage`"
@@ -4149,7 +4149,7 @@
     {
       "id": "GIMLE-229",
       "module": "gimle-controlplane",
-      "feature": "Horizontal autoscaling \u2014 multi-signal (`AutoscaleReconciler`)",
+      "feature": "Horizontal autoscaling — multi-signal (`AutoscaleReconciler`)",
       "category": "Reconciliation / Scheduling",
       "status": "Active",
       "statusNote": "",
@@ -4162,7 +4162,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`AutoscaleReconcilerTest` \u2014 `scales_up_by_one_replica_per_tick_under_sustained_high_utilization`, `queue_depth_alone_can_drive_scale_up_when_cpu_is_under_target`, `converges_correctly_from_an_arbitrary_out_of_range_persisted_replica_count`",
+      "otherTestCoverage": "`AutoscaleReconcilerTest` — `scales_up_by_one_replica_per_tick_under_sustained_high_utilization`, `queue_depth_alone_can_drive_scale_up_when_cpu_is_under_target`, `converges_correctly_from_an_arbitrary_out_of_range_persisted_replica_count`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/autoscale/AutoscaleReconciler.java`"
       ]
@@ -4177,7 +4177,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given combinationMode=WEIGHTED with per-signal weights; When two signals disagree; Then effective count is driven by the weighted-average blended ratio.",
-      "otherTestCoverage": "`AutoscaleReconcilerTest` \u2014 `weighted_mode_blends_two_signals_instead_of_taking_the_max`, `weighted_mode_with_no_weights_configured_behaves_like_an_unweighted_average`",
+      "otherTestCoverage": "`AutoscaleReconcilerTest` — `weighted_mode_blends_two_signals_instead_of_taking_the_max`, `weighted_mode_with_no_weights_configured_behaves_like_an_unweighted_average`",
       "sourceLocations": [
         "`AutoscaleReconciler.computeWeightedIdeal`"
       ]
@@ -4222,7 +4222,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given index 0 is not yet ready; When StatefulSetReconciler ticks; Then index 1 is never placed.",
-      "otherTestCoverage": "`StatefulSetReconcilerTest` \u2014 `does_not_place_index_one_until_index_zero_reports_ready`, `places_index_one_once_index_zero_becomes_ready`",
+      "otherTestCoverage": "`StatefulSetReconcilerTest` — `does_not_place_index_one_until_index_zero_reports_ready`, `places_index_one_once_index_zero_becomes_ready`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`"
       ]
@@ -4252,7 +4252,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a Job's current attempt fails and backoffLimit allows another; When JobReconciler ticks; Then a new attempt is placed; once exhausted, the Job is marked FAILED.",
-      "otherTestCoverage": "`JobReconcilerTest` \u2014 `a_failed_observation_retries_the_next_attempt_when_backoff_budget_remains`, `exhausting_the_backoff_limit_marks_the_job_permanently_failed`, `an_arbitrary_starting_snapshot_with_two_coexisting_runs_converges_to_the_highest_attempt`",
+      "otherTestCoverage": "`JobReconcilerTest` — `a_failed_observation_retries_the_next_attempt_when_backoff_budget_remains`, `exhausting_the_backoff_limit_marks_the_job_permanently_failed`, `an_arbitrary_starting_snapshot_with_two_coexisting_runs_converges_to_the_highest_attempt`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/JobReconciler.java`"
       ]
@@ -4282,7 +4282,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a CronJobSpec with schedule \"* * * * *\" and no prior lastSchedule; When first ticked; Then baseline is recorded with no retroactive burst; on the next due tick a Job named \"{name}-{epochSeconds}\" is materialized.",
-      "otherTestCoverage": "`CronJobReconcilerTest` \u2014 `first_tick_records_a_baseline_and_materializes_nothing`, `a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix`",
+      "otherTestCoverage": "`CronJobReconcilerTest` — `first_tick_records_a_baseline_and_materializes_nothing`, `a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`"
       ]
@@ -4297,7 +4297,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given the previous firing is still non-terminal and concurrencyPolicy=FORBID; When a new firing is due; Then it is skipped and logged.",
-      "otherTestCoverage": "`CronJobReconcilerTest` \u2014 `concurrency_policy_forbid_skips_a_firing_while_the_previous_one_is_still_running`, `concurrency_policy_replace_removes_the_still_running_job_before_placing_the_new_one`, `concurrency_policy_allow_lets_a_new_firing_run_alongside_a_still_running_one`",
+      "otherTestCoverage": "`CronJobReconcilerTest` — `concurrency_policy_forbid_skips_a_firing_while_the_previous_one_is_still_running`, `concurrency_policy_replace_removes_the_still_running_job_before_placing_the_new_one`, `concurrency_policy_allow_lets_a_new_firing_run_alongside_a_still_running_one`",
       "sourceLocations": [
         "`CronJobReconciler.materializeFiring`"
       ]
@@ -4365,7 +4365,7 @@
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Reconciler-leader election via non-replicated lease\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
       "otherTestCoverage": "Indirect (multi-replica smoke/holmgang tests)",
       "sourceLocations": [
-        "`ControlPlaneMain` \u2014 `leaseTick`",
+        "`ControlPlaneMain` — `leaseTick`",
         "`StoreClient.tryAcquireOrRenewLease`"
       ]
     },
@@ -4379,7 +4379,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Independent-executor ticking (lease/reconcile/cert-rotation isolation)\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`ControlPlaneSchedulingTest` \u2014 `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_is_blocked_forever`, `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_throws_every_time`",
+      "otherTestCoverage": "`ControlPlaneSchedulingTest` — `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_is_blocked_forever`, `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_throws_every_time`",
       "sourceLocations": [
         "`ControlPlaneMain.scheduleIndependentTickers`"
       ]
@@ -4409,7 +4409,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Admission chain extension point\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`AdmissionChainTest` \u2014 `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated`",
+      "otherTestCoverage": "`AdmissionChainTest` — `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/AdmissionChain.java`",
         "`AdmissionPlugin.java`",
@@ -4432,7 +4432,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`TenantQuotaPluginTest` \u2014 `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected`",
+      "otherTestCoverage": "`TenantQuotaPluginTest` — `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/TenantQuotaPlugin.java`",
         "`TenantUsage.java`"
@@ -4448,7 +4448,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given tenant T has policy.maxReplicasPerDeployment=10; When a submission requests 15 replicas; Then admission rejects citing the ceiling.",
-      "otherTestCoverage": "`PolicyConfigPluginTest` \u2014 `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed`",
+      "otherTestCoverage": "`PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/PolicyConfigPlugin.java`"
       ]
@@ -4563,7 +4563,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given node-42 has an active instance for tenant T; When it calls GET /endpoints/{workload-of-T}; Then access is granted; a request for a tenant it has no assignment for is rejected 403.",
-      "otherTestCoverage": "`ApiServerEndpointsAuthzTest` \u2014 `a_node_with_an_active_assignment_for_the_deployments_tenant_may_read_its_endpoints`, `a_node_with_no_assignment_for_the_deployments_tenant_is_forbidden`",
+      "otherTestCoverage": "`ApiServerEndpointsAuthzTest` — `a_node_with_an_active_assignment_for_the_deployments_tenant_may_read_its_endpoints`, `a_node_with_no_assignment_for_the_deployments_tenant_is_forbidden`",
       "sourceLocations": [
         "`ApiServer.authorizeEndpointsRead`",
         "`Authorizer.isTenantAssignedToNode`"
@@ -4590,7 +4590,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`ApiServerTlsTest` \u2014 `https_request_with_a_valid_client_cert_succeeds`, `https_request_without_a_client_cert_is_rejected`",
+      "otherTestCoverage": "`ApiServerTlsTest` — `https_request_with_a_valid_client_cert_succeeds`, `https_request_without_a_client_cert_is_rejected`",
       "sourceLocations": [
         "`ApiServer.createHttpServer`",
         "`resolvePrincipal`",
@@ -4639,7 +4639,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Bootstrap node join via single-use token + CSR\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`NodeBootstrapCsrTest` \u2014 `fresh_agent_obtains_a_signed_certificate_and_completes_mtls_handshake`, `invalid_bootstrap_token_is_rejected`; `BootstrapTokenRegistryTest` \u2014 `issued_token_can_be_consumed_exactly_once`, `expired_token_cannot_be_consumed`",
+      "otherTestCoverage": "`NodeBootstrapCsrTest` — `fresh_agent_obtains_a_signed_certificate_and_completes_mtls_handshake`, `invalid_bootstrap_token_is_rejected`; `BootstrapTokenRegistryTest` — `issued_token_can_be_consumed_exactly_once`, `expired_token_cannot_be_consumed`",
       "sourceLocations": [
         "`ApiServer.handleNodeJoinRequest`",
         "`BootstrapTokenRegistry`"
@@ -4655,7 +4655,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Operator-approval-gated CSR flow\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`HumanOperatorCsrTest` \u2014 `operator_csr_sits_pending_until_an_existing_operator_approves_it`, `approve_without_a_client_certificate_is_rejected`",
+      "otherTestCoverage": "`HumanOperatorCsrTest` — `operator_csr_sits_pending_until_an_existing_operator_approves_it`, `approve_without_a_client_certificate_is_rejected`",
       "sourceLocations": [
         "`ApiServer.handleOperatorJoinRequest`",
         "`PendingCsrStore`",
@@ -4672,7 +4672,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Certificate rotation (self-rotation and subject-preserving renewal)\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`CertificateRotationTest` \u2014 `rotation_issues_a_new_cert_for_the_same_subject_and_it_works_immediately`, `rotation_csr_with_a_mismatched_subject_is_rejected`",
+      "otherTestCoverage": "`CertificateRotationTest` — `rotation_issues_a_new_cert_for_the_same_subject_and_it_works_immediately`, `rotation_csr_with_a_mismatched_subject_is_rejected`",
       "sourceLocations": [
         "`ApiServer.handleRotationRequest`; `checkAndRotateOwnCertificateIfDue`",
         "`reloadTlsMaterial`"
@@ -4770,7 +4770,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Andvari-client multi-endpoint failover with rotation\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`AndvariClientTest` \u2014 `a_head_call_fails_over_from_an_unreachable_endpoint_to_a_reachable_one`, `unreachable_on_every_configured_endpoint_answers_unreachable`",
+      "otherTestCoverage": "`AndvariClientTest` — `a_head_call_fails_over_from_an_unreachable_endpoint_to_a_reachable_one`, `unreachable_on_every_configured_endpoint_answers_unreachable`",
       "sourceLocations": [
         "`AndvariClient.withEndpoints`",
         "`head`",
@@ -4787,7 +4787,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"`/logs/*` proxy with Muninn fallback\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`ApiServerLogsFallbackTest` \u2014 `a_node_with_no_registration_falls_through_to_muninn_when_configured`, `a_registered_but_unreachable_agent_falls_through_to_muninn_when_configured`, `a_live_reachable_agent_is_still_served_directly_not_from_muninn`, `a_muninn_fallback_fails_over_to_a_second_configured_endpoint_when_the_first_is_unreachable`",
+      "otherTestCoverage": "`ApiServerLogsFallbackTest` — `a_node_with_no_registration_falls_through_to_muninn_when_configured`, `a_registered_but_unreachable_agent_falls_through_to_muninn_when_configured`, `a_live_reachable_agent_is_still_served_directly_not_from_muninn`, `a_muninn_fallback_fails_over_to_a_second_configured_endpoint_when_the_first_is_unreachable`",
       "sourceLocations": [
         "`ApiServer.handleInstanceLogsProxy`/`handleNodeLogsProxy`",
         "`MuninnClient.get`"
@@ -4839,7 +4839,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Unified `AssignedInstance` wire shape across every workload kind\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `controlplane`'s own unit test does.",
-      "otherTestCoverage": "`ApiServerEndpointsTest` \u2014 `a_job_run_is_listed_under_its_own_endpoints_route`, `a_daemonset_assignment_is_listed_under_its_own_endpoints_route`, `a_statefulset_assignment_is_listed_under_its_own_endpoints_route`",
+      "otherTestCoverage": "`ApiServerEndpointsTest` — `a_job_run_is_listed_under_its_own_endpoints_route`, `a_daemonset_assignment_is_listed_under_its_own_endpoints_route`, `a_statefulset_assignment_is_listed_under_its_own_endpoints_route`",
       "sourceLocations": [
         "`ApiServer.handleAssignments`"
       ]
@@ -4908,7 +4908,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`ApiServerTest` \u2014 extensive PUT/GET/DELETE/list round-trip coverage",
+      "otherTestCoverage": "`ApiServerTest` — extensive PUT/GET/DELETE/list round-trip coverage",
       "sourceLocations": [
         "`ApiServer.handleDeployment`/`handleJob`/`handleDaemonSet`/`handleStatefulSet`"
       ]
@@ -4950,7 +4950,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`SecretCipherTest` \u2014 `round_trips_plaintext_through_encryption_and_decryption`, `round_trips_through_a_specific_key_id`, `ciphertext_never_contains_the_plaintext_bytes`, `the_same_plaintext_encrypts_differently_each_time_due_to_a_random_iv`",
+      "otherTestCoverage": "`SecretCipherTest` — `round_trips_plaintext_through_encryption_and_decryption`, `round_trips_through_a_specific_key_id`, `ciphertext_never_contains_the_plaintext_bytes`, `the_same_plaintext_encrypts_differently_each_time_due_to_a_random_iv`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SecretCipher.java`"
       ]
@@ -4997,7 +4997,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`KeyFileManagerTest` \u2014 `generates_a_key_on_first_run_and_reuses_it_on_later_runs`, `a_key_loaded_via_a_second_manager_instance_can_decrypt_what_the_first_encrypted`",
+      "otherTestCoverage": "`KeyFileManagerTest` — `generates_a_key_on_first_run_and_reuses_it_on_later_runs`, `a_key_loaded_via_a_second_manager_instance_can_decrypt_what_the_first_encrypted`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java`"
       ]
@@ -5033,7 +5033,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Key-ring fingerprinting for cross-replica drift detection\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fafnir`'s own unit test does.",
-      "otherTestCoverage": "`KeyRingTest` \u2014 `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager`",
+      "otherTestCoverage": "`KeyRingTest` — `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyRing.java`"
       ]
@@ -5054,7 +5054,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`FafnirCryptoTest` \u2014 `rotate_reencrypts_every_existing_encrypted_entry_under_the_new_active_key`, `rotate_never_loses_a_previously_encrypted_value_still_decryptable_after_multiple_rounds`, `a_plain_unencrypted_entry_is_untouched_by_rotation`",
+      "otherTestCoverage": "`FafnirCryptoTest` — `rotate_reencrypts_every_existing_encrypted_entry_under_the_new_active_key`, `rotate_never_loses_a_previously_encrypted_value_still_decryptable_after_multiple_rounds`, `a_plain_unencrypted_entry_is_untouched_by_rotation`",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirCrypto.java`"
       ]
@@ -5153,7 +5153,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`FafnirSecretsAuthzTest` \u2014 `a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets`, `a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key`, `a_node_may_never_write_a_secret_even_with_an_active_assignment`",
+      "otherTestCoverage": "`FafnirSecretsAuthzTest` — `a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets`, `a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key`, `a_node_may_never_write_a_secret_even_with_an_active_assignment`",
       "sourceLocations": [
         "`FafnirServer.decideAllowed`; `Authorizer.isTenantAssignedToNode`"
       ]
@@ -5168,7 +5168,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Authorization-failure throttling and dual audit logging\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fafnir`'s own unit test does.",
-      "otherTestCoverage": "`FafnirObservabilityTest` \u2014 `repeated_authorization_failures_from_the_same_principal_are_eventually_throttled`, `a_successful_authorization_clears_prior_recorded_failures`, `audit_log_records_the_decision_without_ever_logging_the_secret_value`",
+      "otherTestCoverage": "`FafnirObservabilityTest` — `repeated_authorization_failures_from_the_same_principal_are_eventually_throttled`, `a_successful_authorization_clears_prior_recorded_failures`, `audit_log_records_the_decision_without_ever_logging_the_secret_value`",
       "sourceLocations": [
         "`FafnirServer.authorizeSecrets`",
         "`recordAudit`",
@@ -5200,7 +5200,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"mTLS HTTP server with dynamic TLS material reload\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fafnir`'s own unit test does.",
-      "otherTestCoverage": "`FafnirServerTlsTest` \u2014 `a_real_mtls_request_with_a_ca_signed_client_cert_succeeds`, `reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server`",
+      "otherTestCoverage": "`FafnirServerTlsTest` — `a_real_mtls_request_with_a_ca_signed_client_cert_succeeds`, `reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server`",
       "sourceLocations": [
         "`FafnirServer.reloadTlsMaterial`; `FafnirMain`'s cert-rotation ticker"
       ]
@@ -5221,7 +5221,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`FafnirServerAuthTest` \u2014 `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
+      "otherTestCoverage": "`FafnirServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
       "sourceLocations": [
         "`FafnirServer.handleAuthLogin`/`handleAuthLogout`/`handleAuthSession`"
       ]
@@ -5257,7 +5257,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Bundled web console static serving (Fafnir)\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `fafnir`'s own unit test does.",
-      "otherTestCoverage": "`FafnirServerConsoleTest` \u2014 `console_static_files_are_served_once_wired`, `the_real_bundled_console_jar_resolves_and_serves_its_own_index_html`",
+      "otherTestCoverage": "`FafnirServerConsoleTest` — `console_static_files_are_served_once_wired`, `the_real_bundled_console_jar_resolves_and_serves_its_own_index_html`",
       "sourceLocations": [
         "`FafnirServer.serveConsole`; `FafnirMain`"
       ]
@@ -5333,7 +5333,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given moduleId:version was never pushed; When pushed with jar bytes X; Then CREATED; re-pushing identical X is IDENTICAL (no-op); re-pushing different Y is CONFLICT (409).",
-      "otherTestCoverage": "`ArtifactStoreTest` \u2014 `an_identical_re_push_is_idempotent`, `a_differing_re_push_is_a_conflict_and_the_stored_bytes_are_untouched`; `AndvariServerTest` \u2014 `a_differing_re_push_is_refused_as_immutable`, `an_identical_re_push_is_idempotent`",
+      "otherTestCoverage": "`ArtifactStoreTest` — `an_identical_re_push_is_idempotent`, `a_differing_re_push_is_a_conflict_and_the_stored_bytes_are_untouched`; `AndvariServerTest` — `a_differing_re_push_is_refused_as_immutable`, `an_identical_re_push_is_idempotent`",
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java`"
       ]
@@ -5396,7 +5396,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Periodic full-store integrity scrub\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `andvari`'s own unit test does.",
-      "otherTestCoverage": "`IntegrityScrubberTest` \u2014 `a_coordinate_whose_bytes_no_longer_match_its_recorded_digest_is_reported`, `an_uncorrupted_coordinate_is_never_reported`, `a_version_missing_its_jar_is_skipped_rather_than_reported_as_corrupted`",
+      "otherTestCoverage": "`IntegrityScrubberTest` — `a_coordinate_whose_bytes_no_longer_match_its_recorded_digest_is_reported`, `an_uncorrupted_coordinate_is_never_reported`, `a_version_missing_its_jar_is_skipped_rather_than_reported_as_corrupted`",
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/IntegrityScrubber.java`; `AndvariMain`"
       ]
@@ -5411,7 +5411,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given -Dgimle.andvari.retention.enabled=true with maxVersionsPerModule=10; When a module has 15 versions; Then the 5 oldest-by-push-time versions are retired, dual-audited under a synthetic system principal.",
-      "otherTestCoverage": "`ArtifactRetentionSweeperTest` \u2014 `retires_the_oldest_versions_once_a_module_exceeds_the_configured_count`, `retires_versions_older_than_the_configured_age`, `a_version_over_both_limits_is_reported_once_with_a_combined_reason`, `neither_policy_configured_retires_nothing`",
+      "otherTestCoverage": "`ArtifactRetentionSweeperTest` — `retires_the_oldest_versions_once_a_module_exceeds_the_configured_count`, `retires_versions_older_than_the_configured_age`, `a_version_over_both_limits_is_reported_once_with_a_combined_reason`, `neither_policy_configured_retires_nothing`",
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/ArtifactRetentionSweeper.java`"
       ]
@@ -5432,7 +5432,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`AndvariPeerSyncTest` \u2014 `a_sync_tick_pulls_an_artifact_that_only_exists_on_a_peer`, `a_push_to_one_replica_becomes_visible_through_another_after_a_sync_tick`, `an_already_present_coordinate_is_never_re_pulled`",
+      "otherTestCoverage": "`AndvariPeerSyncTest` — `a_sync_tick_pulls_an_artifact_that_only_exists_on_a_peer`, `a_push_to_one_replica_becomes_visible_through_another_after_a_sync_tick`, `an_already_present_coordinate_is_never_re_pulled`",
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariPeerSync.java`"
       ]
@@ -5473,7 +5473,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`AndvariServerTest` \u2014 `push_head_and_download_round_trip_with_the_digest_in_the_header`, `the_catalog_and_version_listing_reflect_pushed_artifacts`, `delete_removes_the_artifact`",
+      "otherTestCoverage": "`AndvariServerTest` — `push_head_and_download_round_trip_with_the_digest_in_the_header`, `the_catalog_and_version_listing_reflect_pushed_artifacts`, `delete_removes_the_artifact`",
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java`"
       ]
@@ -5488,7 +5488,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a jar is pushed via mvn deploy to /repository/com/gimle/.../provider-1.0.0.jar; When fetched via GET /artifacts/com.gimle.examples.greeter.provider/1.0.0; Then identical bytes are returned.",
-      "otherTestCoverage": "`AndvariServerMavenRepositoryTest` \u2014 `a_jar_pushed_through_the_repository_path_is_readable_from_the_operational_surface`, `a_jar_pushed_through_the_operational_surface_is_downloadable_via_the_repository_path`, `a_differing_re_push_through_the_repository_path_is_still_refused_as_immutable`",
+      "otherTestCoverage": "`AndvariServerMavenRepositoryTest` — `a_jar_pushed_through_the_repository_path_is_readable_from_the_operational_surface`, `a_jar_pushed_through_the_operational_surface_is_downloadable_via_the_repository_path`, `a_differing_re_push_through_the_repository_path_is_still_refused_as_immutable`",
       "sourceLocations": [
         "`AndvariServer.handleRepository`",
         "`MavenCoordinates`"
@@ -5519,7 +5519,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given three versions pushed out of order; When GET .../maven-metadata.xml; Then the document lists every version in semver order and names the correct latest/release.",
-      "otherTestCoverage": "`AndvariServerMavenRepositoryTest` \u2014 `maven_metadata_lists_every_pushed_version_and_names_the_latest`, `maven_metadata_checksum_is_computed_over_the_generated_document`, `a_single_segment_module_has_an_empty_group_id_in_the_generated_metadata`; `ArtifactStoreTest#versions_sort_semver_aware_not_lexicographically`",
+      "otherTestCoverage": "`AndvariServerMavenRepositoryTest` — `maven_metadata_lists_every_pushed_version_and_names_the_latest`, `maven_metadata_checksum_is_computed_over_the_generated_document`, `a_single_segment_module_has_an_empty_group_id_in_the_generated_metadata`; `ArtifactStoreTest#versions_sort_semver_aware_not_lexicographically`",
       "sourceLocations": [
         "`AndvariServer.handleRepositoryMetadata`",
         "`generateMavenMetadataXml`; `ArtifactStore.versions`/`compareVersions`"
@@ -5535,7 +5535,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Maven GAV coordinate translation\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `andvari`'s own unit test does.",
-      "otherTestCoverage": "`MavenCoordinatesTest` \u2014 `a_multi_segment_group_joins_with_the_artifact_id_by_dots`, `distinct_gavs_can_alias_to_the_same_module_coordinate`",
+      "otherTestCoverage": "`MavenCoordinatesTest` — `a_multi_segment_group_joins_with_the_artifact_id_by_dots`, `distinct_gavs_can_alias_to_the_same_module_coordinate`",
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/MavenCoordinates.java`"
       ]
@@ -5565,7 +5565,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a principal holds a permission scoped to only module com.example.foo; When it pushes/pulls that module; Then granted; catalog listing (whole registry) is denied.",
-      "otherTestCoverage": "`AndvariServerTlsTest` \u2014 `a_module_scoped_permission_grants_access_to_only_that_module`, `a_module_scoped_permission_cannot_list_the_full_catalog`",
+      "otherTestCoverage": "`AndvariServerTlsTest` — `a_module_scoped_permission_grants_access_to_only_that_module`, `a_module_scoped_permission_cannot_list_the_full_catalog`",
       "sourceLocations": [
         "`AndvariServer.authorizeArtifacts`"
       ]
@@ -5613,7 +5613,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a valid Account exists; When logging in via Andvari's /auth/login; Then a distinct gimle_andvari_session cookie is issued and the bundled SPA is served at /console.",
-      "otherTestCoverage": "`AndvariServerAuthTest` \u2014 `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
+      "otherTestCoverage": "`AndvariServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
       "sourceLocations": [
         "`AndvariServer.handleAuthLogin`/`handleAuthLogout`/`handleAuthSession`/`serveConsole`; `AndvariMain`"
       ]
@@ -5658,7 +5658,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Andvari observability instrumentation and Muninn shipping\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `andvari`'s own unit test does.",
-      "otherTestCoverage": "`AndvariObservabilityTest` \u2014 `a_real_request_is_recorded_in_andvari_metrics`, `every_registered_route_is_independently_tagged`",
+      "otherTestCoverage": "`AndvariObservabilityTest` — `a_real_request_is_recorded_in_andvari_metrics`, `every_registered_route_is_independently_tagged`",
       "sourceLocations": [
         "`AndvariServer.instrument`; `com.gimle.observability.AndvariMetrics`; `AndvariMain`"
       ]
@@ -6130,13 +6130,13 @@
     {
       "id": "GIMLE-348",
       "module": "gimle-observability",
-      "feature": "Micrometer meter \u2192 NDJSON codec",
+      "feature": "Micrometer meter → NDJSON codec",
       "category": "Internal/Infra",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Micrometer meter \u2192 NDJSON codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `observability`'s own unit test does.",
+      "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"Micrometer meter → NDJSON codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `observability`'s own unit test does.",
       "otherTestCoverage": "`MeterSnapshotCodecTest#one_line_per_meter_with_the_meters_own_name`, `#a_timer_with_percentiles_ships_a_percentiles_map`, `#a_timer_without_percentiles_omits_the_percentiles_key`, `#an_empty_registry_produces_an_empty_string`",
       "sourceLocations": [
         "`MeterSnapshotCodec.java`"
@@ -6145,13 +6145,13 @@
     {
       "id": "GIMLE-349",
       "module": "gimle-observability",
-      "feature": "OpenTelemetry span \u2192 NDJSON codec",
+      "feature": "OpenTelemetry span → NDJSON codec",
       "category": "Internal/Infra",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"OpenTelemetry span \u2192 NDJSON codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `observability`'s own unit test does.",
+      "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"OpenTelemetry span → NDJSON codec\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `observability`'s own unit test does.",
       "otherTestCoverage": "`SpanLineCodecTest#one_line_per_span_with_attributes_flattened_onto_it`, `#an_empty_batch_produces_an_empty_string`",
       "sourceLocations": [
         "`SpanLineCodec.java`"
@@ -6182,7 +6182,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module registered under a thread-name prefix \"gimle-<module>-<version>-\"",
-      "otherTestCoverage": "`ThreadNameJfrAttributorTest#construction_and_shutdown_do_not_throw`, `#register_and_unregister_module_do_not_throw`, `#unregistering_a_module_never_registered_does_not_throw` (no test directly asserts a classified sample producing a counter increment \u2014 JFR event emission isn't driven from the test)",
+      "otherTestCoverage": "`ThreadNameJfrAttributorTest#construction_and_shutdown_do_not_throw`, `#register_and_unregister_module_do_not_throw`, `#unregistering_a_module_never_registered_does_not_throw` (no test directly asserts a classified sample producing a counter increment — JFR event emission isn't driven from the test)",
       "sourceLocations": [
         "`ThreadNameJfrAttributor.java`"
       ]
@@ -6351,8 +6351,8 @@
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a deployment with zero live/ready endpoints",
       "otherTestCoverage": "`GatewayDispatcherTest#a_vessel_route_for_a_deployment_with_no_usable_endpoints_returns_a_clear_error_not_a_200`, `#a_vessel_route_reports_a_target_that_refuses_the_connection_as_a_clean_502`; `VesselEndpointCacheTest#an_empty_endpoint_list_is_a_clear_error_not_a_silent_200`",
       "sourceLocations": [
-        "`VesselEndpointCache.java` (`resolve` \u2014 the 503 case)",
-        "`VesselProxyClient.java` (`proxy` \u2014 IOException \u2192 502)"
+        "`VesselEndpointCache.java` (`resolve` — the 503 case)",
+        "`VesselProxyClient.java` (`proxy` — IOException → 502)"
       ]
     },
     {
@@ -6459,7 +6459,7 @@
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a vessel target that reads a custom request header",
       "otherTestCoverage": "`GatewayDispatcherTest#a_vessel_route_proxies_to_the_real_target_with_method_path_body_and_response_intact` confirms what *is* forwarded; no test exercises header forwarding since none exists",
       "sourceLocations": [
-        "`VesselProxyClient.java` (class javadoc, `proxy` method \u2014 only method/path/body set on the outbound request)"
+        "`VesselProxyClient.java` (class javadoc, `proxy` method — only method/path/body set on the outbound request)"
       ]
     },
     {
@@ -7224,13 +7224,13 @@
     {
       "id": "GIMLE-418",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:agent` \u2014 spawn a real node agent (plus its worker command tail)",
+      "feature": "`mvn gimle:agent` — spawn a real node agent (plus its worker command tail)",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:agent` \u2014 spawn a real node agent (plus its worker command tail)\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:agent` — spawn a real node agent (plus its worker command tail)\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/AgentMojo.java`",
@@ -7241,13 +7241,13 @@
     {
       "id": "GIMLE-419",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:bootstrap` \u2014 full local-dev cluster orchestration in one foreground command",
+      "feature": "`mvn gimle:bootstrap` — full local-dev cluster orchestration in one foreground command",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:bootstrap` \u2014 full local-dev cluster orchestration in one foreground command\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:bootstrap` — full local-dev cluster orchestration in one foreground command\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/BootstrapMojo.java`"
@@ -7271,13 +7271,13 @@
     {
       "id": "GIMLE-421",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:deploy` \u2014 apply a deployment manifest via a real CLI subprocess",
+      "feature": "`mvn gimle:deploy` — apply a deployment manifest via a real CLI subprocess",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:deploy` \u2014 apply a deployment manifest via a real CLI subprocess\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:deploy` — apply a deployment manifest via a real CLI subprocess\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/DeployMojo.java`"
@@ -7286,13 +7286,13 @@
     {
       "id": "GIMLE-422",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:doctor` \u2014 run hilmir doctor against the invoking project's own built jar",
+      "feature": "`mvn gimle:doctor` — run hilmir doctor against the invoking project's own built jar",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:doctor` \u2014 run hilmir doctor against the invoking project's own built jar\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:doctor` — run hilmir doctor against the invoking project's own built jar\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "`DoctorMojoTest` (4 tests, against the pure buildCommand seam)",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/DoctorMojo.java`"
@@ -7301,13 +7301,13 @@
     {
       "id": "GIMLE-423",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:init` \u2014 scaffold manifests for the invoking project's own built jar",
+      "feature": "`mvn gimle:init` — scaffold manifests for the invoking project's own built jar",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:init` \u2014 scaffold manifests for the invoking project's own built jar\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:init` — scaffold manifests for the invoking project's own built jar\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "`InitMojoTest` (3 tests)",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/InitMojo.java`"
@@ -7316,13 +7316,13 @@
     {
       "id": "GIMLE-424",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:publish` \u2014 push a built module jar to the artifact registry",
+      "feature": "`mvn gimle:publish` — push a built module jar to the artifact registry",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:publish` \u2014 push a built module jar to the artifact registry\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:publish` — push a built module jar to the artifact registry\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/PublishMojo.java`"
@@ -7331,13 +7331,13 @@
     {
       "id": "GIMLE-425",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:docs` \u2014 full documentation site build pipeline",
+      "feature": "`mvn gimle:docs` — full documentation site build pipeline",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:docs` \u2014 full documentation site build pipeline\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:docs` — full documentation site build pipeline\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/DocsMojo.java`"
@@ -7346,13 +7346,13 @@
     {
       "id": "GIMLE-426",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:flaky-tests` \u2014 run known-flaky-tagged tests in isolated standalone reactors",
+      "feature": "`mvn gimle:flaky-tests` — run known-flaky-tagged tests in isolated standalone reactors",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:flaky-tests` \u2014 run known-flaky-tagged tests in isolated standalone reactors\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:flaky-tests` — run known-flaky-tagged tests in isolated standalone reactors\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "`FlakyTestsMojoTest` (pure-function seams)",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/FlakyTestsMojo.java`"
@@ -7361,13 +7361,13 @@
     {
       "id": "GIMLE-427",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:saga` \u2014 ensure a Saga test-report server is running",
+      "feature": "`mvn gimle:saga` — ensure a Saga test-report server is running",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:saga` \u2014 ensure a Saga test-report server is running\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:saga` — ensure a Saga test-report server is running\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "`SagaServerTest`, `SagaClientTest`",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SagaMojo.java`",
@@ -7379,13 +7379,13 @@
     {
       "id": "GIMLE-428",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:verify` \u2014 full build run under Saga tracking",
+      "feature": "`mvn gimle:verify` — full build run under Saga tracking",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:verify` \u2014 full build run under Saga tracking\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:verify` — full build run under Saga tracking\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "`SagaVerifyMojoTest` (pure-function seams); `SagaEventsTest`; `SurefireReportsTest`",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SagaVerifyMojo.java`",
@@ -7397,13 +7397,13 @@
     {
       "id": "GIMLE-429",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:saga-import` \u2014 standalone sweep-and-import of existing surefire reports",
+      "feature": "`mvn gimle:saga-import` — standalone sweep-and-import of existing surefire reports",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:saga-import` \u2014 standalone sweep-and-import of existing surefire reports\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:saga-import` — standalone sweep-and-import of existing surefire reports\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SagaImportMojo.java`"
@@ -7412,13 +7412,13 @@
     {
       "id": "GIMLE-430",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:saga-stop` \u2014 best-effort local Saga server shutdown",
+      "feature": "`mvn gimle:saga-stop` — best-effort local Saga server shutdown",
       "category": "Build Tooling",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:saga-stop` \u2014 best-effort local Saga server shutdown\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"`mvn gimle:saga-stop` — best-effort local Saga server shutdown\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SagaStopMojo.java`"
@@ -7427,13 +7427,13 @@
     {
       "id": "GIMLE-431",
       "module": "gimle-maven-plugin",
-      "feature": "Internal \u2014 Aether-based cross-module runtime classpath resolution",
+      "feature": "Internal — Aether-based cross-module runtime classpath resolution",
       "category": "Internal/Infra",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"Internal \u2014 Aether-based cross-module runtime classpath resolution\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"Internal — Aether-based cross-module runtime classpath resolution\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/GimleProcesses.java`"
@@ -7442,13 +7442,13 @@
     {
       "id": "GIMLE-432",
       "module": "gimle-maven-plugin",
-      "feature": "Internal \u2014 host-matching java/mvn executable resolution and subprocess supervision",
+      "feature": "Internal — host-matching java/mvn executable resolution and subprocess supervision",
       "category": "Internal/Infra",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"Internal \u2014 host-matching java/mvn executable resolution and subprocess supervision\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"Internal — host-matching java/mvn executable resolution and subprocess supervision\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "`GimleProcessesTest` (6 tests)",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/GimleProcesses.java`"
@@ -7457,13 +7457,13 @@
     {
       "id": "GIMLE-433",
       "module": "gimle-maven-plugin",
-      "feature": "Internal \u2014 git commit/branch capture for run identification",
+      "feature": "Internal — git commit/branch capture for run identification",
       "category": "Internal/Infra",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"Internal \u2014 git commit/branch capture for run identification\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"Internal — git commit/branch capture for run identification\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/GitInfo.java`"
@@ -7472,13 +7472,13 @@
     {
       "id": "GIMLE-434",
       "module": "gimle-maven-plugin",
-      "feature": "Internal \u2014 surefire report discovery and totals aggregation, including flaky-testcase counting",
+      "feature": "Internal — surefire report discovery and totals aggregation, including flaky-testcase counting",
       "category": "Internal/Infra",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"Internal \u2014 surefire report discovery and totals aggregation, including flaky-testcase counting\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
+      "gapNote": "Build-time tooling invoked via `mvn gimle:*`, not cluster runtime behavior -- there is no natural Holmgang cluster scenario for \"Internal — surefire report discovery and totals aggregation, including flaky-testcase counting\" at all; this is validated (or not) by the plugin's own Mojo tests, never by a real-cluster Gherkin scenario.",
       "otherTestCoverage": "`SurefireReportsTest`",
       "sourceLocations": [
         "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SurefireReports.java`"
@@ -7494,7 +7494,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Operator session login / logout\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`src/stores/useAuthStore.test.ts` \u2014 \"a successful login sets status authenticated and clears any previous error\", \"login failure surfaces a generic error and leaves status unauthenticated\"",
+      "otherTestCoverage": "`src/stores/useAuthStore.test.ts` — \"a successful login sets status authenticated and clears any previous error\", \"login failure surfaces a generic error and leaves status unauthenticated\"",
       "sourceLocations": [
         "`gimle-console/src/routes/login.tsx`",
         "`src/stores/useAuthStore.ts`",
@@ -7511,7 +7511,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Session bootstrap & 401 handling\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`useAuthStore.test.ts` \u2014 \"init() only calls session() once even if invoked twice\", \"handleUnauthorized clears principal and sets status unauthenticated\"",
+      "otherTestCoverage": "`useAuthStore.test.ts` — \"init() only calls session() once even if invoked twice\", \"handleUnauthorized clears principal and sets status unauthenticated\"",
       "sourceLocations": [
         "`src/stores/useAuthStore.ts`",
         "`src/repositories/http/apiClient.ts`",
@@ -8040,7 +8040,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Andvari operator login/logout (session-cookie auth)\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`src/repositories/__tests__/repositories.test.ts` \u2014 \"returns an anonymous principal by default\", \"rejects empty credentials\"",
+      "otherTestCoverage": "`src/repositories/__tests__/repositories.test.ts` — \"returns an anonymous principal by default\", \"rejects empty credentials\"",
       "sourceLocations": [
         "`gimle-andvari-console/src/routes/login.tsx`",
         "`src/stores/authStore.ts`",
@@ -8075,7 +8075,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Artifact catalog browsing & search\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`repositories.test.ts` \u2014 \"returns a sorted catalog of module ids\"",
+      "otherTestCoverage": "`repositories.test.ts` — \"returns a sorted catalog of module ids\"",
       "sourceLocations": [
         "`src/routes/_shell.artifacts.index.tsx`",
         "`src/stores/artifactsStore.ts`",
@@ -8124,7 +8124,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Push artifact dialog (drag-and-drop upload)\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`repositories.test.ts` \u2014 \"rejects re-pushing an existing version with 409\"",
+      "otherTestCoverage": "`repositories.test.ts` — \"rejects re-pushing an existing version with 409\"",
       "sourceLocations": [
         "`src/components/PushArtifactDialog.tsx`",
         "`src/stores/artifactsStore.ts`"
@@ -8171,7 +8171,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Runs list (no authentication)\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`src/repositories/http/runs.test.ts` \u2014 \"listRuns fetches /api/runs and maps every entry\"",
+      "otherTestCoverage": "`src/repositories/http/runs.test.ts` — \"listRuns fetches /api/runs and maps every entry\"",
       "sourceLocations": [
         "`gimle-saga-console/src/routes/index.tsx`",
         "`src/stores/runsStore.ts`",
@@ -8188,7 +8188,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Live run detail with streaming test feed\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`src/repositories/http/runs.test.ts` \u2014 \"followRunEvents streams new finished-test events and skips the already-known count\"",
+      "otherTestCoverage": "`src/repositories/http/runs.test.ts` — \"followRunEvents streams new finished-test events and skips the already-known count\"",
       "sourceLocations": [
         "`src/routes/runs.$runId.tsx`",
         "`src/components/saga/RunFeed.tsx`",
@@ -8207,7 +8207,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`src/repositories/http/mapping.test.ts` \u2014 \"groups attachment events by kind and skips unparseable or unrecognized payloads\", \"accepts a payload shipped as an array of the shape\"",
+      "otherTestCoverage": "`src/repositories/http/mapping.test.ts` — \"groups attachment events by kind and skips unparseable or unrecognized payloads\", \"accepts a payload shipped as an array of the shape\"",
       "sourceLocations": [
         "`src/components/saga/RunAttachments.tsx`",
         "`src/routes/runs.$runId.tsx`"
@@ -8275,7 +8275,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying \"Saga console theming (no auth surface)\" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.",
-      "otherTestCoverage": "`SagaServerTest.java` \u2014 \"the_bundled_console_is_served_at_console\"",
+      "otherTestCoverage": "`SagaServerTest.java` — \"the_bundled_console_is_served_at_console\"",
       "sourceLocations": [
         "`gimle-saga/src/main/java/com/gimle/saga/SagaServer.java` (no `/auth/*` contexts)",
         "`gimle-saga-console`"
@@ -8291,7 +8291,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Unit-level/wire-format/internal-infra mechanism -- not independently observable as a black-box cluster assertion. A Holmgang scenario could at best exercise \"NDJSON event ingest API\" *indirectly* by driving a higher-level behavior that happens to depend on it (as several existing scenarios already do for the RPC/codec layers under them), but could not verify this specific mechanism the way `saga`'s own unit test does.",
-      "otherTestCoverage": "`SagaServerTest.java` \u2014 \"ingested_events_round_trip_through_the_runs_and_events_apis\", \"a_malformed_ingest_line_is_rejected_with_its_line_number\"; `SagaStoreTest.java#ingest_then_read_round_trips_events_and_meta`",
+      "otherTestCoverage": "`SagaServerTest.java` — \"ingested_events_round_trip_through_the_runs_and_events_apis\", \"a_malformed_ingest_line_is_rejected_with_its_line_number\"; `SagaStoreTest.java#ingest_then_read_round_trips_events_and_meta`",
       "sourceLocations": [
         "`gimle-saga/src/main/java/com/gimle/saga/SagaServer.java`",
         "`SagaStore.ingest`"
@@ -8625,13 +8625,13 @@
     {
       "id": "GIMLE-503",
       "module": "gimle-examples",
-      "feature": "`hello-module` \u2014 minimal inert deployable fixture",
+      "feature": "`hello-module` — minimal inert deployable fixture",
       "category": "Sample Module",
       "status": "Active",
       "statusNote": "",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "This is itself JUnit-based test/example infrastructure -- `hello-module` \u2014 minimal inert deployable fixture is exercised by `gimle-smoke-tests`'/`gimle-testkit`'s own real-process tests (see Other test coverage), never by a Holmgang Cucumber scenario; per the strict rule that does not count as Covered.",
+      "gapNote": "This is itself JUnit-based test/example infrastructure -- `hello-module` — minimal inert deployable fixture is exercised by `gimle-smoke-tests`'/`gimle-testkit`'s own real-process tests (see Other test coverage), never by a Holmgang Cucumber scenario; per the strict rule that does not count as Covered.",
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-examples/hello-module/src/main/resources/META-INF/gimle/gimle-module.yaml`",
@@ -8642,7 +8642,7 @@
     {
       "id": "GIMLE-504",
       "module": "gimle-examples",
-      "feature": "`greeter-provider` \u2014 real fabric service export with lifecycle hooks and health probes",
+      "feature": "`greeter-provider` — real fabric service export with lifecycle hooks and health probes",
       "category": "Sample Module",
       "status": "Active",
       "statusNote": "",
@@ -8663,7 +8663,7 @@
     {
       "id": "GIMLE-505",
       "module": "gimle-examples",
-      "feature": "`greeter-consumer` \u2014 real cross-worker fabric call with MDC-tagged background caller",
+      "feature": "`greeter-consumer` — real cross-worker fabric call with MDC-tagged background caller",
       "category": "Sample Module",
       "status": "Active",
       "statusNote": "",
@@ -8684,7 +8684,7 @@
     {
       "id": "GIMLE-506",
       "module": "gimle-examples",
-      "feature": "`greeter-load-generator` \u2014 HTTP bridge for external load tools driving real fabric traffic",
+      "feature": "`greeter-load-generator` — HTTP bridge for external load tools driving real fabric traffic",
       "category": "Sample Module / Load Testing",
       "status": "Active",
       "statusNote": "",
@@ -10474,6 +10474,24 @@
         "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`limitrange`/`limitranges` dispatch)"
       ],
       "otherTestCoverage": "`GimleCliTest.set_limitrange_then_get_limitranges_round_trips` against a real `ApiServer` (not mocked)."
+    },
+    {
+      "id": "GIMLE-606",
+      "module": "gimle-andvari",
+      "feature": "Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate",
+      "category": "Artifact Registry",
+      "status": "New",
+      "statusNote": "newly added as part of the multi-file (bundle) vessel artifact work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises the bundle path yet -- registry-deploy.feature covers only the single-jar coordinate flow. The end-to-end proof today is BundleVesselIT in gimle-smoke-tests (real subprocess cluster, real proxy push, real agent unpack, ACTIVE), which per this file's own coverage rule does not count as Covered. Closing the gap means a bundle-deploy.feature mirroring registry-deploy.feature: push a kind: bundle ArtifactSet entry through ClusterApi, deploy it coordinate-only as a vessel, assert ACTIVE via Heimdall.",
+      "sourceLocations": [
+        "`gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java`",
+        "`gimle-module/src/main/java/com/gimle/module/artifact/ArtifactPullCache.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java`"
+      ],
+      "otherTestCoverage": "`ArtifactStoreBundleTest`/`AndvariServerBundleTest`/`AndvariPeerSyncTest` (registry), `ArtifactPullCacheTest` (agent-side unpack), `ArtifactResolverTest` (metadata-only resolution), `AgentBundleLaunchTest` (launch command/workdir), `ArtifactSetManifestParserTest`/`ArtifactSetCommandTest`/`ArtifactSetMojoTest` (publishing surface), and `BundleVesselIT` in gimle-smoke-tests (real-cluster end to end)"
     }
   ]
 }

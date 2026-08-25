@@ -221,6 +221,26 @@ own `pom.xml`:
 | `gimle.artifactset.server` | `127.0.0.1:8080` | Control plane address, same as `gimle:publish`. |
 | `gimle.artifactset.cliVersion` | `${plugin.version}` | Version of `gimle-cli` to resolve and spawn, same convention as `gimle:publish`. |
 
+A submodule whose build output isn't a plain module jar declares that in its own `pom.xml` with the
+same per-module-property shape (each per-module only — there is no reactor-wide default for these):
+
+| Per-module property | Meaning |
+|---|---|
+| `gimle.artifactset.kind` | `module` (the default when absent), `vessel` (a plain runnable jar), or `bundle` (a multi-file application directory — see the [manifest schema's bundle entry](./manifest-schema.md#artifactset-manifest)). |
+| `gimle.artifactset.artifact` | Overrides the entry's artifact path, relative to the submodule's own base directory. Effectively required for `bundle` — a Quarkus fast-jar build outputs `target/quarkus-app`, which the goal cannot guess. |
+| `gimle.artifactset.command` | `bundle` only, required: the entrypoint argv, comma-separated (`java,-jar,quarkus-run.jar`). |
+| `gimle.artifactset.workdir` | `bundle` only, optional launch directory inside the unpacked bundle. |
+| `gimle.artifactset.name` / `.version` | Override the `vessel`/`bundle` coordinate; defaults are `{groupId}.{artifactId}` and the project's own version. |
+
+```xml
+<!-- orders-report-ui/pom.xml — a Quarkus fast-jar submodule -->
+<properties>
+  <gimle.artifactset.kind>bundle</gimle.artifactset.kind>
+  <gimle.artifactset.artifact>target/quarkus-app</gimle.artifactset.artifact>
+  <gimle.artifactset.command>java,-jar,quarkus-run.jar</gimle.artifactset.command>
+</properties>
+```
+
 ```bash
 mvn gimle:artifactset-push -Dgimle.artifactset.tenantId=orders-platform -pl gimle-examples/orders-platform -am
 ```
