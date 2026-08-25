@@ -1,6 +1,7 @@
 package com.gimle.module.artifactset;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.manifest.ApiVersion;
 import com.gimle.core.vessel.VesselEntrypoint;
 import java.io.ByteArrayInputStream;
 import java.nio.file.Path;
@@ -20,7 +21,11 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * {@code kind:} field -- the same contract every sibling manifest parser in this codebase already
  * has, since the caller (a CLI's {@code kind:}-dispatch, or a Maven goal that only ever generates
  * one of these itself) already knows it's holding an {@code ArtifactSet} document before this class
- * ever sees it.
+ * ever sees it. The optional top-level {@code apiVersion:} is read (and an unsupported one
+ * rejected) here, though: {@code v1} is a straight promotion of the alpha schema -- an {@code
+ * artifact:} entry is a local build output being pushed <em>into</em> the registry, resolved
+ * against this manifest file's own directory, so unlike the workload kinds there is nothing to
+ * deprecate between the two versions and both parse identically.
  *
  * <p>A list item is either a bare string -- an ordinary module jar path, today's exact original
  * shape, whose real {@code moduleId}/{@code version} are left to a caller reading the jar itself
@@ -31,6 +36,9 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * to the manifest file's own directory.
  */
 public final class ArtifactSetManifestParser {
+
+  private static final Set<ApiVersion> SUPPORTED_VERSIONS =
+      Set.of(ApiVersion.V1ALPHA1, ApiVersion.V1);
 
   private ArtifactSetManifestParser() {}
 
@@ -48,6 +56,9 @@ public final class ArtifactSetManifestParser {
     if (!(raw instanceof Map<?, ?> root)) {
       throw new GimleManifestException(manifestFile + " must contain a YAML mapping at the root");
     }
+    // Validation only: v1 and v1alpha1 parse identically for this kind (see the class javadoc),
+    // but an unknown or malformed apiVersion still fails loudly instead of being ignored.
+    ApiVersion.of(root, "ArtifactSet", SUPPORTED_VERSIONS);
     Path manifestDir = Optional.ofNullable(manifestFile.getParent()).orElse(Path.of(""));
 
     List<ArtifactSetEntry> flattened = new ArrayList<>();

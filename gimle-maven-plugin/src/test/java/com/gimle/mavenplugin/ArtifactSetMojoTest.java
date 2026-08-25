@@ -68,6 +68,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         tenant:
           orders-platform:
@@ -87,6 +88,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         modules:
           - /repo/some-module/target/app-1.0.0.jar
@@ -112,6 +114,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         modules:
           - artifact: /repo/some-module/target/report-2.0.0.jar
@@ -134,6 +137,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         tenant:
           orders-platform:
@@ -190,6 +194,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         modules:
           - /repo/some-module/target/app-1.0.0.jar

@@ -155,7 +155,9 @@ public final class ArtifactSetMojo extends AbstractGimleRootMojo {
               + " reactor that builds at least one artifact");
     }
 
-    StringBuilder yaml = new StringBuilder("kind: ArtifactSet\n");
+    // A generated manifest always pins its apiVersion explicitly: regenerated output leaning on
+    // the unversioned default would silently change meaning if that default ever moved.
+    StringBuilder yaml = new StringBuilder("apiVersion: v1\nkind: ArtifactSet\n");
     if (!byTenant.isEmpty()) {
       yaml.append("tenant:\n");
       for (Map.Entry<String, List<List<String>>> entry : byTenant.entrySet()) {
