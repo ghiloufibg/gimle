@@ -29,6 +29,56 @@ public final class ManifestSteps {
     submit(path, "kind: " + kind + "\nname: whatever\n");
   }
 
+  /**
+   * The apiVersion mechanics against the real admission surface: {@code v1alpha1} (the same ruleset
+   * an unversioned manifest gets) still accepts a local {@code artifactPath}, {@code v1} rejects
+   * the field outright in favor of the artifact registry, and an unknown version is rejected rather
+   * than silently defaulted.
+   */
+  @When(
+      "a deployment manifest with apiVersion {string} naming a local artifact path is submitted"
+          + " as {string}")
+  public void aDeploymentManifestWithApiVersionNamingALocalArtifactPathIsSubmittedAs(
+      final String apiVersion, final String name) {
+    submit(
+        "/deployments/" + name,
+        """
+        apiVersion: %s
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        """
+            .formatted(
+                apiVersion,
+                name,
+                ExampleModules.moduleName("greeter-provider"),
+                ExampleModules.jar("greeter-provider").toAbsolutePath()));
+  }
+
+  /** No {@code artifactPath} line at all -- the only artifact reference {@code v1} accepts. */
+  @When(
+      "a v1 coordinate-only deployment manifest for module {string} version {string} is submitted"
+          + " as {string}")
+  public void aV1CoordinateOnlyDeploymentManifestIsSubmittedAs(
+      final String artifact, final String version, final String name) {
+    submit(
+        "/deployments/" + name,
+        """
+        apiVersion: v1
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: %s
+        replicas: 1
+        """
+            .formatted(name, ExampleModules.moduleName(artifact), version));
+  }
+
   @When("a deployment manifest with a weighted autoscale policy is submitted as {string}")
   public void aDeploymentManifestWithAWeightedAutoscalePolicyIsSubmittedAs(final String name) {
     submit(

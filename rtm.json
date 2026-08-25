@@ -10536,6 +10536,57 @@
         "`gimle-cli/src/main/java/com/gimle/cli/ArtifactSetCommand.java`"
       ],
       "otherTestCoverage": "`ArtifactStoreBundleTest`/`AndvariServerBundleTest`/`AndvariPeerSyncTest` (registry), `ArtifactPullCacheTest` (agent-side unpack), `ArtifactResolverTest` (metadata-only resolution), `AgentBundleLaunchTest` (launch command/workdir), `ArtifactSetManifestParserTest`/`ArtifactSetCommandTest`/`ArtifactSetMojoTest` (publishing surface), and `BundleVesselIT` in gimle-smoke-tests (real-cluster end to end)"
+    },
+    {
+      "id": "GIMLE-609",
+      "module": "gimle-mimir",
+      "feature": "Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default",
+      "category": "Control Plane API",
+      "status": "New",
+      "statusNote": "newly added as part of the manifest apiVersion / registry-only v1 work",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts",
+          "whyThisCounts": "Submits real deployment manifests against a running cluster's real /deployments admission surface with apiVersion v1alpha1 (accepted -- the same ruleset an unversioned manifest gets), and apiVersion v9 (rejected with a clean 400 rather than silently defaulted), proving the version resolution end to end, not just in the parser's unit tests."
+        }
+      ],
+      "gapNote": "",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/manifest/ApiVersion.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestParser.java`",
+        "`gimle-module/src/main/java/com/gimle/module/artifactset/ArtifactSetManifestParser.java`"
+      ],
+      "otherTestCoverage": "`ApiVersionTest` (gimle-core), `ManifestParserTest` (gimle-mimir), `ArtifactSetManifestParserTest` (gimle-module), `ApiServerTest.an_unsupported_api_version_is_rejected` (gimle-controlplane), `ArtifactSetMojoTest` (generated manifest pins apiVersion: v1)"
+    },
+    {
+      "id": "GIMLE-610",
+      "module": "gimle-mimir",
+      "feature": "Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings",
+      "category": "Control Plane API",
+      "status": "New",
+      "statusNote": "newly added as part of the manifest apiVersion / registry-only v1 work",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/workload-manifests.feature",
+          "scenario": "apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts",
+          "whyThisCounts": "Submits a real apiVersion: v1 deployment manifest naming a local artifactPath against a running cluster's real admission surface and asserts the clean 400 rejection, alongside the accepted v1alpha1 twin -- the enforcement itself, exercised end to end."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/registry-deploy.feature",
+          "scenario": "A v1 manifest deploys by coordinate through the registry",
+          "whyThisCounts": "Pushes a real module jar to a real Andvari replica through the control plane's proxy, submits an apiVersion: v1 coordinate-only deployment for it, and asserts it is accepted and reaches ACTIVE on a real worker JVM -- the whole registry-only path a v1 manifest is forced onto, working."
+        }
+      ],
+      "gapNote": "",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java`"
+      ],
+      "otherTestCoverage": "`ManifestParserTest` (per-kind v1 rejection, alpha warning, coordinate-only), `ApiServerTest` (X-Gimle-Warning header, v1 400), `DeploymentsCommandTest` (stderr-only warning, v1 apply failure through the real CLI)"
     }
   ]
 }

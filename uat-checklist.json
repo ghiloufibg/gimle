@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 608,
-    "coveredByAutomatedTest": 121,
+    "totalRequirements": 610,
+    "coveredByAutomatedTest": 123,
     "notCoveredByAutomatedTest": 487,
-    "releaseReadinessPercent": 19.9
+    "releaseReadinessPercent": 20.2
   },
   "items": [
     {
@@ -6691,6 +6691,28 @@
       "feature": "Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate",
       "step": "Given a multi-file application directory published as a kind: bundle ArtifactSet entry with command [java, -jar, quarkus-run.jar], When a coordinate-only vessel deployment references it, Then the node agent pulls the zip, verifies its digest, unpacks it beside its entrypoint, launches the command in the unpacked directory, and the instance reaches ACTIVE. Given a coordinate already stored as kind JAR, When the same coordinate is re-pushed as kind BUNDLE, Then the push is refused with 409. Given a BUNDLE coordinate, When a Deployment names it without a vessel: block, Then admission rejects the submission.",
       "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-609",
+      "module": "gimle-mimir",
+      "category": "Control Plane API",
+      "feature": "Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default",
+      "step": "Given a manifest with no apiVersion field, When it is submitted, Then it is parsed with the kind's v1alpha1 ruleset -- identical to today's behavior, permanently. Given a manifest declaring apiVersion v9, When it is submitted, Then the control plane rejects it with 400 naming the kind's supported versions, never silently defaulting. Given a manifest declaring a blank or non-string apiVersion, When it is submitted, Then it is rejected outright.",
+      "automatedCoverage": true,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-610",
+      "module": "gimle-mimir",
+      "category": "Control Plane API",
+      "feature": "Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings",
+      "step": "Given a v1alpha1 manifest naming a local artifactPath, When it is applied, Then it is accepted and the operator sees a deprecation warning on stderr explaining the cwd-relative hazard and the registry migration. Given a v1 manifest naming an artifactPath, When it is applied, Then it is rejected with 400 and an error pointing at the registry migration. Given a module pushed to the artifact registry, When a v1 coordinate-only deployment for it is applied, Then it is accepted and reaches ACTIVE on a real worker.",
+      "automatedCoverage": true,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null
