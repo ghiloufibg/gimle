@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 610,
+    "totalRequirements": 611,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 487,
-    "releaseReadinessPercent": 20.2
+    "notCoveredByAutomatedTest": 488,
+    "releaseReadinessPercent": 20.1
   },
   "items": [
     {
@@ -6713,6 +6713,17 @@
       "feature": "Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings",
       "step": "Given a v1alpha1 manifest naming a local artifactPath, When it is applied, Then it is accepted and the operator sees a deprecation warning on stderr explaining the cwd-relative hazard and the registry migration. Given a v1 manifest naming an artifactPath, When it is applied, Then it is rejected with 400 and an error pointing at the registry migration. Given a module pushed to the artifact registry, When a v1 coordinate-only deployment for it is applied, Then it is accepted and reaches ACTIVE on a real worker.",
       "automatedCoverage": true,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-611",
+      "module": "gimle-dist",
+      "category": "Packaging",
+      "feature": "Midgard Docker dev-cluster distribution archive",
+      "step": "Given the unpacked gimle-midgard archive on a machine with Docker, When docker compose up -d runs, Then one container boots a store, control plane, Fafnir, Muninn, Andvari, and a node agent via hilmir up, and the web console serves on the published port 8080. Given the container is up with seeding enabled, When the entrypoint's seed step runs, Then the bundled example jars are pushed to the artifact registry and their v1 coordinate-only deployments reach ACTIVE. Given a running Midgard container, When docker stop is issued, Then the entrypoint tears the cluster down via hilmir down before exiting.",
+      "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
       "signedOffAt": null

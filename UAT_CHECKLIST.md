@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 610
+- **Total requirements**: 611
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 487
-- **Release-readiness (automated coverage)**: 20.2%
+- **Not covered by automated test**: 488
+- **Release-readiness (automated coverage)**: 20.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -39,7 +39,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-examples | 4 | 3 | 1 | 75.0% |
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 31 | 16 | 15 | 51.6% |
-| gimle-dist | 5 | 0 | 5 | 0.0% |
+| gimle-dist | 6 | 0 | 6 | 0.0% |
 | gimle-skald | 1 | 0 | 1 | 0.0% |
 
 ## Checklist
@@ -1661,6 +1661,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-562 | Cluster-machine platform distribution archive | Given `mvn -pl gimle-dist package`, When the platform assembly execution runs, Then `gimle-platform-<version>.tar.gz` contains lib/*.jar (full closure minus gateway), modules/gimle-gateway-*.jar (undeployed), and all four wrapper scripts (bin/gimle, bin/gimle.cmd, bin/hilmir, bin/hilmir.cmd). | No |
 | [ ] | GIMLE-563 | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Given `mvn -pl gimle-dist -am install -P dist-with-jre`, When the profile's exec-maven-plugin executions run, Then a trimmed JRE (--strip-debug --no-header-files --no-man-pages) is jlinked per component; the three archives additionally contain jre/<component>/ for their own components. | No |
 | [ ] | GIMLE-564 | Distribution archive checksums and SBOM generation | Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each. | No |
+| [ ] | GIMLE-611 | Midgard Docker dev-cluster distribution archive | Given the unpacked gimle-midgard archive on a machine with Docker, When docker compose up -d runs, Then one container boots a store, control plane, Fafnir, Muninn, Andvari, and a node agent via hilmir up, and the web console serves on the published port 8080. Given the container is up with seeding enabled, When the entrypoint's seed step runs, Then the bundled example jars are pushed to the artifact registry and their v1 coordinate-only deployments reach ACTIVE. Given a running Midgard container, When docker stop is issued, Then the entrypoint tears the cluster down via hilmir down before exiting. | No |
 
 ### gimle-skald
 

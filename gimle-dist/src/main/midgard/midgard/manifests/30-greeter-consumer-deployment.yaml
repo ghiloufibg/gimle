@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Deployment
+name: greeter-consumer-deployment
+module:
+  name: com.gimle.examples.greeter.consumer
+  version: 1.0.0
+replicas: 1

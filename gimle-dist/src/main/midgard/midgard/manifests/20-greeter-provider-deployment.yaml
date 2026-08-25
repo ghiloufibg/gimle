@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Deployment
+name: greeter-provider-deployment
+module:
+  name: com.gimle.examples.greeter.provider
+  version: 1.0.0
+replicas: 1
