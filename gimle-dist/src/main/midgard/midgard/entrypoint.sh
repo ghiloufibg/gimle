@@ -27,7 +27,7 @@ echo "midgard:   andvari (artifacts) API + console http://localhost:9094  (conso
 
 shut_down() {
   echo "midgard: stopping cluster..."
-  /opt/gimle/bin/hilmir down --data-root "$data_root" || true
+  /opt/gimle/bin/hilmir down --machine midgard --data-root "$data_root" || true
   exit 0
 }
 trap shut_down TERM INT
@@ -46,7 +46,7 @@ while true; do
     consecutive_failures=$((consecutive_failures + 1))
     if [ "$consecutive_failures" -ge 6 ]; then
       echo "midgard: control plane unreachable for ${consecutive_failures} consecutive checks -- exiting" >&2
-      /opt/gimle/bin/hilmir down --data-root "$data_root" || true
+      /opt/gimle/bin/hilmir down --machine midgard --data-root "$data_root" || true
       exit 1
     fi
   fi
