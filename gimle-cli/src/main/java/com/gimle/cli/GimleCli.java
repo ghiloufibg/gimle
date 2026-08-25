@@ -1,5 +1,6 @@
 package com.gimle.cli;
 
+import com.gimle.core.exception.GimleManifestException;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
@@ -129,6 +130,12 @@ public final class GimleCli {
       return 0;
     } catch (CliException e) {
       err.println("error: " + e.getMessage());
+      return 1;
+    } catch (GimleManifestException e) {
+      // Client-side manifest parsing/validation (apply -f reads the file before any HTTP call)
+      // throws the platform's own manifest exception, not CliException -- a user's own YAML
+      // mistake, reported as such rather than through the unexpected-failure catch-all below.
+      err.println("error: invalid manifest: " + e.getMessage());
       return 1;
     } catch (RuntimeException e) {
       err.println("error: unexpected failure: " + e.getMessage());

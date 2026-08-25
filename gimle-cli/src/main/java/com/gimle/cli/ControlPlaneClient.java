@@ -138,6 +138,19 @@ public final class ControlPlaneClient {
 
   /** As {@link #putFile(String, Path)}, with extra request headers -- e.g. a tenant claim. */
   public ApiResponse putFile(String path, Path file, Map<String, String> headers) {
+    // Checked up front rather than left to the body publisher: a directory only fails once the
+    // request body is read, deep inside send(), where the resulting IOException would be
+    // misreported as the control plane being unreachable.
+    if (Files.isDirectory(file)) {
+      throw new CliException(
+          file
+              + " is a directory -- a multi-file application directory is published as a"
+              + " 'kind: bundle' entry in an ArtifactSet manifest (gimle apply -f), not pushed"
+              + " directly");
+    }
+    if (!Files.isRegularFile(file)) {
+      throw new CliException("no such file: " + file);
+    }
     try {
       HttpRequest.Builder builder =
           HttpRequest.newBuilder(resolve(path))

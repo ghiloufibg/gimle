@@ -131,6 +131,15 @@ public final class ArtifactSetMojo extends AbstractGimleRootMojo {
     Map<String, List<List<String>>> byTenant = new LinkedHashMap<>();
     List<List<String>> untenanted = new ArrayList<>();
     for (MavenProject reactorProject : reactorProjects) {
+      // A pom-packaged project builds no {finalName}.jar, so the default module-jar entry shape
+      // has nothing to push for it -- an aggregator root would otherwise fail the whole set on
+      // its own nonexistent jar. An explicit gimle.artifactset.kind still opts one in: a
+      // pom-packaged submodule is a legitimate way to wrap a vessel jar or bundle directory
+      // produced by other means.
+      if ("pom".equals(reactorProject.getPackaging())
+          && property(reactorProject, "gimle.artifactset.kind", null) == null) {
+        continue;
+      }
       List<String> entry = entryLines(reactorProject);
       String tenant = effectiveTenant(reactorProject, defaultTenantId);
       if (tenant == null) {
@@ -138,6 +147,12 @@ public final class ArtifactSetMojo extends AbstractGimleRootMojo {
       } else {
         byTenant.computeIfAbsent(tenant, k -> new ArrayList<>()).add(entry);
       }
+    }
+    if (byTenant.isEmpty() && untenanted.isEmpty()) {
+      throw new MojoExecutionException(
+          "no reactor module produces an ArtifactSet entry -- every project in this reactor is"
+              + " pom-packaged with no gimle.artifactset.kind declared; run the goal over a"
+              + " reactor that builds at least one artifact");
     }
 
     StringBuilder yaml = new StringBuilder("kind: ArtifactSet\n");

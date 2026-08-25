@@ -221,6 +221,13 @@ own `pom.xml`:
 | `gimle.artifactset.server` | `127.0.0.1:8080` | Control plane address, same as `gimle:publish`. |
 | `gimle.artifactset.cliVersion` | `${plugin.version}` | Version of `gimle-cli` to resolve and spawn, same convention as `gimle:publish`. |
 
+A `pom`-packaged project (the aggregator root itself, typically) builds no jar and is skipped
+rather than failing the set on its own nonexistent artifact — unless it declares an explicit
+`gimle.artifactset.kind` (below), which opts it back in. The goal also runs correctly under a
+`-pl <submodule>` invocation from the aggregator directory: when the reactor contains no
+execution-root project, it executes once in the reactor's first project instead of silently doing
+nothing.
+
 A submodule whose build output isn't a plain module jar declares that in its own `pom.xml` with the
 same per-module-property shape (each per-module only — there is no reactor-wide default for these):
 

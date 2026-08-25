@@ -178,4 +178,48 @@ class ArtifactSetMojoTest {
         MojoExecutionException.class,
         () -> ArtifactSetMojo.generateManifestYaml(List.of(module), null));
   }
+
+  @Test
+  void a_pom_packaged_aggregator_is_skipped_rather_than_pushed_as_a_nonexistent_jar()
+      throws Exception {
+    MavenProject aggregator = project("reactor-root-1.0.0", null);
+    aggregator.setPackaging("pom");
+    MavenProject app = project("app-1.0.0", null);
+
+    String yaml = ArtifactSetMojo.generateManifestYaml(List.of(aggregator, app), null);
+
+    assertEquals(
+        """
+        kind: ArtifactSet
+        modules:
+          - /repo/some-module/target/app-1.0.0.jar
+        """,
+        yaml);
+  }
+
+  @Test
+  void a_pom_packaged_module_with_an_explicit_kind_is_still_included() throws Exception {
+    MavenProject bundle = coordinateProject("report-2.0.0", null);
+    bundle.setPackaging("pom");
+    bundle.getProperties().setProperty("gimle.artifactset.kind", "bundle");
+    bundle.getProperties().setProperty("gimle.artifactset.artifact", "target/quarkus-app");
+    bundle.getProperties().setProperty("gimle.artifactset.command", "java,-jar,quarkus-run.jar");
+
+    String yaml = ArtifactSetMojo.generateManifestYaml(List.of(bundle), null);
+
+    assertTrue(yaml.contains("kind: bundle"), yaml);
+    assertTrue(yaml.contains("name: com.acme.report"), yaml);
+  }
+
+  @Test
+  void a_reactor_of_only_kindless_pom_projects_fails_with_a_clear_message() {
+    MavenProject aggregator = project("reactor-root-1.0.0", null);
+    aggregator.setPackaging("pom");
+
+    MojoExecutionException failure =
+        assertThrows(
+            MojoExecutionException.class,
+            () -> ArtifactSetMojo.generateManifestYaml(List.of(aggregator), null));
+    assertTrue(failure.getMessage().contains("no reactor module"), failure.getMessage());
+  }
 }

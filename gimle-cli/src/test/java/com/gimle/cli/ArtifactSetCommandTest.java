@@ -436,4 +436,52 @@ class ArtifactSetCommandTest {
     assertEquals(1, exitCode);
     assertTrue(errBuffer.toString(StandardCharsets.UTF_8).contains("kind"));
   }
+
+  @Test
+  void an_invalid_artifactset_manifest_reports_a_clean_manifest_error() throws Exception {
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: ArtifactSet
+        modules:
+          - artifact: some-dir
+            kind: bundle
+            name: com.example.no-command
+            version: 1.0.0
+        """);
+
+    int exitCode = run("apply", "-f", manifest.toString(), "--server", serverAddress);
+
+    assertEquals(1, exitCode);
+    String err = errBuffer.toString(StandardCharsets.UTF_8);
+    assertTrue(err.contains("error: invalid manifest:"), err);
+    assertTrue(err.contains("command"), err);
+    assertTrue(!err.contains("unexpected failure"), err);
+  }
+
+  @Test
+  void pushing_a_directory_directly_points_at_the_bundle_workflow_not_a_network_error()
+      throws Exception {
+    Path directory = Files.createDirectories(tempDir.resolve("quarkus-app-dir"));
+
+    int exitCode =
+        run(
+            "artifact",
+            "push",
+            directory.toString(),
+            "--vessel",
+            "--name",
+            "com.example.confused",
+            "--version",
+            "1.0.0",
+            "--server",
+            serverAddress);
+
+    assertEquals(1, exitCode);
+    String err = errBuffer.toString(StandardCharsets.UTF_8);
+    assertTrue(err.contains("is a directory"), err);
+    assertTrue(err.contains("bundle"), err);
+    assertTrue(!err.contains("could not reach control plane"), err);
+  }
 }
