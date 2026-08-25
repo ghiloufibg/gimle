@@ -3,6 +3,7 @@ package com.gimle.agent.bifrost;
 import com.gimle.agent.networkpolicy.NetworkPolicySource;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.LinkedHashSet;
@@ -38,6 +39,7 @@ public final class BifrostProxy implements AutoCloseable {
   private final ServiceSource source;
   private final NetworkPolicySource networkPolicySource;
   private final Duration pollInterval;
+  private final boolean exposeOnAllInterfaces;
   private final Map<String, ServiceListener> listeners = new ConcurrentHashMap<>();
   private volatile ScheduledExecutorService scheduler;
 
@@ -48,9 +50,26 @@ public final class BifrostProxy implements AutoCloseable {
 
   public BifrostProxy(
       ServiceSource source, NetworkPolicySource networkPolicySource, Duration pollInterval) {
+    this(source, networkPolicySource, pollInterval, false);
+  }
+
+  /**
+   * {@code exposeOnAllInterfaces} is the NodePort analogue, off by default: {@code true} binds each
+   * service's listener on the wildcard address at the service's own port instead of its synthesized
+   * per-service loopback ClusterIP, making the service dialable from off this node at {@code
+   * <nodeHost>:<servicePort>}. The tradeoff is the same one NodePort itself carries -- one port
+   * namespace for the whole node, so two services declaring the same port can't both be exposed;
+   * the second bind fails and is logged, exactly like any other bind failure below.
+   */
+  public BifrostProxy(
+      ServiceSource source,
+      NetworkPolicySource networkPolicySource,
+      Duration pollInterval,
+      boolean exposeOnAllInterfaces) {
     this.source = source;
     this.networkPolicySource = networkPolicySource;
     this.pollInterval = pollInterval;
+    this.exposeOnAllInterfaces = exposeOnAllInterfaces;
   }
 
   /** Runs one poll immediately, then schedules subsequent polls every {@code pollInterval}. */
@@ -139,9 +158,15 @@ public final class BifrostProxy implements AutoCloseable {
       ServiceEndpoints endpoints = spec.get();
       ServiceListener listener = listeners.get(name);
       if (listener == null) {
+        // Wildcard-bound when exposing (the NodePort analogue -- reachable from off-node, one
+        // port namespace shared across every exposed service), per-service loopback ClusterIP
+        // otherwise.
+        InetSocketAddress bindAddress =
+            exposeOnAllInterfaces
+                ? new InetSocketAddress((InetAddress) null, endpoints.port())
+                : new InetSocketAddress(LoopbackAddressAllocator.allocate(name), endpoints.port());
         try {
-          listener =
-              new ServiceListener(name, LoopbackAddressAllocator.allocate(name), endpoints.port());
+          listener = new ServiceListener(name, bindAddress);
         } catch (IOException e) {
           log.warn("bifrost failed to bind listener for service {}: {}", name, e.getMessage());
           continue;

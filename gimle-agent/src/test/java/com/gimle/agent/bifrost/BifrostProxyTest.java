@@ -102,6 +102,32 @@ class BifrostProxyTest {
 
   @Test
   @Timeout(15)
+  void expose_mode_binds_the_wildcard_address_at_the_service_port() throws Exception {
+    ServiceEndpoint backend = startTaggedBackend("A");
+    int servicePort = freePort();
+    source.put("orders", servicePort, List.of(backend));
+    proxy = new BifrostProxy(source, List::of, Duration.ofMinutes(5), true);
+    proxy.pollOnce();
+
+    InetSocketAddress bound = proxy.boundAddressFor("orders").orElseThrow();
+
+    assertEquals(servicePort, bound.getPort());
+    assertTrue(
+        bound.getAddress().isAnyLocalAddress(),
+        "expose mode must bind the wildcard address, not a loopback ClusterIP");
+    assertEquals(
+        "A", readTagFrom(new InetSocketAddress(InetAddress.getLoopbackAddress(), servicePort)));
+  }
+
+  /** A port that was free a moment ago -- bound and released so the proxy can claim it. */
+  private static int freePort() throws IOException {
+    try (ServerSocket probe = new ServerSocket(0)) {
+      return probe.getLocalPort();
+    }
+  }
+
+  @Test
+  @Timeout(15)
   void a_service_disappearing_from_the_source_closes_its_listener() throws Exception {
     ServiceEndpoint backend = startTaggedBackend("A");
     source.put("orders", 9101, List.of(backend));

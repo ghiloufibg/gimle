@@ -222,6 +222,11 @@ public final class AgentMain {
     // governs unrelated work.
     boolean bifrostEnabled =
         Boolean.parseBoolean(System.getProperty("gimle.agent.bifrostEnabled", "false"));
+    // The NodePort analogue: wildcard-bind each Bifrost listener at its service's own port so
+    // callers off this node can dial <nodeHost>:<servicePort>. Off by default -- loopback-only,
+    // today's posture.
+    boolean bifrostExposeServices =
+        Boolean.parseBoolean(System.getProperty("gimle.agent.bifrostExposeServices", "false"));
     Duration bifrostPollInterval =
         Duration.ofMillis(
             Long.parseLong(System.getProperty("gimle.agent.bifrostPollIntervalMillis", "5000")));
@@ -360,9 +365,15 @@ public final class AgentMain {
     if (bifrostEnabled) {
       BifrostProxy bifrostProxy =
           new BifrostProxy(
-              new HttpServiceSource(httpClient, baseUrl), networkPolicySource, bifrostPollInterval);
+              new HttpServiceSource(httpClient, baseUrl),
+              networkPolicySource,
+              bifrostPollInterval,
+              bifrostExposeServices);
       bifrostProxy.start();
-      log.info("agent {} started bifrost service proxy", nodeId);
+      log.info(
+          "agent {} started bifrost service proxy{}",
+          nodeId,
+          bifrostExposeServices ? " (exposing services on all interfaces)" : "");
     }
 
     // Same self-scheduled-poller shape as BifrostProxy just above, relaying down to every

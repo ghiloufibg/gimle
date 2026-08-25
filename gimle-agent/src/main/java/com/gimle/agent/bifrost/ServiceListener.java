@@ -40,9 +40,18 @@ final class ServiceListener implements AutoCloseable {
   private volatile boolean closed;
 
   ServiceListener(String serviceName, InetAddress clusterIp, int port) throws IOException {
+    this(serviceName, new InetSocketAddress(clusterIp, port));
+  }
+
+  /**
+   * {@code bindAddress} is either a synthesized per-service loopback ClusterIP (the default) or the
+   * wildcard address when {@code BifrostProxy} is exposing services off-node -- this listener
+   * itself doesn't care which; every behavior below is address-agnostic.
+   */
+  ServiceListener(String serviceName, InetSocketAddress bindAddress) throws IOException {
     this.serviceName = serviceName;
     this.serverSocket = new ServerSocket();
-    serverSocket.bind(new InetSocketAddress(clusterIp, port));
+    serverSocket.bind(bindAddress);
     this.boundAddress = (InetSocketAddress) serverSocket.getLocalSocketAddress();
     Thread.ofVirtual().name("gimle-bifrost-listener-" + serviceName).start(this::acceptLoop);
   }

@@ -107,6 +107,14 @@ kind. `gimle-skald` (see [Node topology](./node-topology.md#skald)) resolves the
 endpoint data by name over DNS instead of by loopback address, for callers outside the fabric
 entirely.
 
+Off-node exposure — the NodePort analogue — is a second opt-in on top
+(`-Dgimle.agent.bifrostExposeServices=true`): instead of a per-service loopback ClusterIP, each
+listener wildcard-binds at its Service's own declared port, making the Service dialable from off
+the node at `<nodeHost>:<servicePort>`. The tradeoff is NodePort's own: one port namespace for the
+whole node, so two Services declaring the same port can't both be exposed — the second bind fails
+and is logged, and everything else (round-robin forwarding, fail-closed under a NetworkPolicy)
+behaves identically to the loopback mode.
+
 ## Membership: gossip, not the control plane
 
 Failure detection between machines is a SWIM-style gossip protocol running peer-to-peer between
