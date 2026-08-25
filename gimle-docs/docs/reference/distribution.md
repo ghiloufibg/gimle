@@ -45,7 +45,8 @@ unpacks anywhere Docker runs, and nothing in it is executed on the host directly
 ## The wrapper scripts
 
 `bin/hilmir`/`bin/hilmir.cmd` and `bin/gimle`/`bin/gimle.cmd` are the same four files reused
-verbatim across all three archives — a POSIX `sh` script for Linux/macOS and a Windows `.cmd`
+verbatim across the archives (the Midgard archive ships only the POSIX pair — everything in it
+runs inside a Linux container) — a POSIX `sh` script for Linux/macOS and a Windows `.cmd`
 counterpart, kept behaviorally identical. Each resolves its own directory (so `../lib` /
 `..\lib` is found regardless of the caller's working directory), builds a classpath from every jar
 under that `lib/`, and launches `java -cp "$CLASSPATH" com.gimle.hilmir.HilmirMain "$@"` (or
@@ -116,9 +117,12 @@ advertising `127.0.0.1`; every listener binds the wildcard address, which is why
 published ports still reach them). Once the machine is up, the entrypoint pushes the bundled
 example modules (`hello-module`, `greeter-provider`, `greeter-consumer`) to the Andvari registry
 through the control plane's `/artifacts/*` proxy and applies an `apiVersion: v1`
-registry-coordinate deployment for each, so the cluster starts with real running workloads — set
-`MIDGARD_SEED: "false"` in the compose file to boot empty instead. `docker stop` tears the cluster
-down through `hilmir down` from the same entrypoint's signal trap.
+registry-coordinate deployment for each, so the cluster starts with real running workloads.
+Seeding happens once per data volume (marked on the volume itself), so a restart never re-applies
+the bundled manifests over changes made to the example deployments since; set `MIDGARD_SEED:
+"false"` in the compose file to boot empty instead, or re-run the bundled
+`midgard/seed-examples.sh` inside the container to reset the examples deliberately. `docker stop`
+tears the cluster down through `hilmir down` from the same entrypoint's signal trap.
 
 Published ports: `8080` (control plane API and web console at `/console`), `9092` (Fafnir API and
 console), `9093` (Muninn), `9094` (Andvari API and console). The cluster is plaintext and
@@ -142,9 +146,9 @@ reason. See the archive's own `README.md` for the day-to-day commands (pointing 
 - **No cryptographic signing.** Each archive gets a `sha256sum`-compatible checksum file, not a
   signature — who signs a real release and where that key lives is an operational/security decision
   left for later, not a placeholder step invented here.
-- **One combined SBOM, not three scoped ones.** `cyclonedx-maven-plugin` has no per-artifact
+- **One combined SBOM, not four scoped ones.** `cyclonedx-maven-plugin` has no per-artifact
   include/exclude filter — only whole-project-dependency-graph or reactor-aggregate modes — so
-  genuinely scoping a separate SBOM to each archive's own narrower jar set would need three separate
+  genuinely scoping a separate SBOM to each archive's own narrower jar set would need four separate
   Maven modules. `gimle-dist` generates one CycloneDX SBOM covering its own full resolved dependency
   set (a superset of any single archive's own jars) and copies it to each archive's own
   `-cyclonedx.json` name. This SBOM never lists a bundled JRE either way (see below) — a jlink-built
@@ -155,7 +159,8 @@ reason. See the archive's own `README.md` for the day-to-day commands (pointing 
 ## Bundling a JRE into the archives
 
 `-P dist-with-jre` is an opt-in, additive build option: `mvn -pl gimle-dist -am install
--P dist-with-jre` builds the same three archives the default build produces, each additionally
+-P dist-with-jre` builds the same archives the default build produces, with the platform, CLI,
+and Hilmir ones each additionally
 carrying a per-component jlink-trimmed JRE under a new top-level `jre/` directory. It never changes
 what the default (no-profile) build produces — no `jre/` directory exists in an archive built
 without this flag.

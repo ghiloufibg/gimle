@@ -55,9 +55,12 @@ bundled `gimle-module.yaml`), then `gimle apply -f` an `apiVersion: v1` workload
 that `module: {name, version}` — the node agent pulls the jar from Andvari, so no path on any
 machine is involved.
 
-To boot an empty cluster instead of a pre-seeded one, set `MIDGARD_SEED: "false"` in
-`docker-compose.yaml` (or re-run the seeding later with
-`docker exec gimle-midgard /opt/gimle/midgard/seed-examples.sh`).
+Seeding runs once per data volume (a `midgard-seeded` marker under `/var/lib/gimle` records it), so
+restarting the container never re-applies the bundled manifests over changes you've made to the
+example deployments — a scale-up or a deletion survives a restart. To boot an empty cluster
+instead, set `MIDGARD_SEED: "false"` in `docker-compose.yaml`; to reset the examples to their
+bundled manifests at any time, run
+`docker exec gimle-midgard /opt/gimle/midgard/seed-examples.sh`.
 
 ## Stop / reset
 

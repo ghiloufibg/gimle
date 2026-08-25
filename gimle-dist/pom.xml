@@ -140,11 +140,13 @@
         inherited=false and covers the whole reactor, not any one module's own jar set; see the
         root pom's own comment on cyclonedx-maven-plugin). One combined SBOM covering the union of
         everything gimle-dist depends on is generated here and then copied to a per-archive
-        filename by postprocess.sh; three genuinely scoped SBOMs (one per archive's own narrower
-        jar set) were judged not worth the complexity, since cyclonedx-maven-plugin has no
-        artifact-level include/exclude filter of its own, only reactor-aggregate or
-        whole-project-dependency-graph modes, which would otherwise require three separate
-        Maven modules just to get three separate dependency graphs.
+        filename by the postprocess-archives antrun execution below; four genuinely scoped SBOMs
+        (one per archive's own narrower jar set) were judged not worth the complexity, since
+        cyclonedx-maven-plugin has no artifact-level include/exclude filter of its own, only
+        reactor-aggregate or whole-project-dependency-graph modes, which would otherwise require
+        four separate Maven modules just to get four separate dependency graphs. Union means
+        superset per archive: the shared SBOM also lists the provided-scope example module jars
+        that only the midgard archive actually ships.
       -->
       <plugin>
         <groupId>org.cyclonedx</groupId>

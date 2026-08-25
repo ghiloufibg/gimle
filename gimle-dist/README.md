@@ -20,7 +20,8 @@ never calls any of this code — each assembly descriptor selects its own subset
 | `gimle-midgard-<version>.tar.gz` | `src/main/assembly/midgard.xml` | The Midgard dev cluster: a self-contained Docker build context that boots a complete single-machine Gimlé cluster (store, control plane, Fafnir, Muninn, Andvari, one node agent) inside one container via the platform's own `hilmir up`, pre-seeded with the bundled example modules (`hello-module`, `greeter-provider`, `greeter-consumer` under `examples/`, declared `provided`-scope in this module's pom so the other archives' runtime-scoped dependency sets never see them). Same flat `lib/` + `modules/` layout as the platform archive, plus `Dockerfile`, `docker-compose.yaml`, and `midgard/` (topology, entrypoint, seeding script, deployment manifests) from `src/main/midgard/`. Unpack and `docker compose up -d` — see the archive's own `README.md` (shipped from `src/main/midgard/README.md`). |
 
 Each archive's `bin/` scripts (`src/main/dist/bin/{gimle,hilmir}` for `sh`, `src/main/dist/bin/
-{gimle,hilmir}.cmd` for Windows) build their classpath from every jar under their own sibling
+{gimle,hilmir}.cmd` for Windows; the Midgard archive ships only the `sh` pair, since everything in
+it runs inside a Linux container) build their classpath from every jar under their own sibling
 `lib/` directory at runtime, regardless of the caller's working directory. Java selection
 precedence in every script: an explicit `JAVA_HOME` always wins; otherwise a bundled
 `jre/<component>/` is preferred if present (see below); otherwise plain `java` on `PATH`. The
@@ -62,6 +63,6 @@ is never a Maven dependency, so it never appears in that SBOM regardless of this
 ## Building
 
 ```sh
-mvn -pl gimle-dist -am install                  # three archives, no bundled JRE
-mvn clean install -pl gimle-dist -am -P dist-with-jre   # same three archives, each with a bundled JRE
+mvn -pl gimle-dist -am install                  # four archives, no bundled JRE
+mvn clean install -pl gimle-dist -am -P dist-with-jre   # same four archives, JREs bundled into three
 ```

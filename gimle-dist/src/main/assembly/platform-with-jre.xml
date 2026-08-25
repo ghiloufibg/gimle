@@ -24,28 +24,9 @@
   <includeBaseDirectory>true</includeBaseDirectory>
   <baseDirectory>gimle-platform-${project.version}</baseDirectory>
 
-  <dependencySets>
-    <dependencySet>
-      <outputDirectory>lib</outputDirectory>
-      <useProjectArtifact>false</useProjectArtifact>
-      <useTransitiveDependencies>true</useTransitiveDependencies>
-      <unpack>false</unpack>
-      <scope>runtime</scope>
-      <excludes>
-        <exclude>com.gimle:gimle-gateway</exclude>
-      </excludes>
-    </dependencySet>
-    <dependencySet>
-      <outputDirectory>modules</outputDirectory>
-      <useProjectArtifact>false</useProjectArtifact>
-      <useTransitiveDependencies>false</useTransitiveDependencies>
-      <unpack>false</unpack>
-      <scope>runtime</scope>
-      <includes>
-        <include>com.gimle:gimle-gateway</include>
-      </includes>
-    </dependencySet>
-  </dependencySets>
+  <componentDescriptors>
+    <componentDescriptor>src/main/assembly/component-cluster-jars.xml</componentDescriptor>
+  </componentDescriptors>
 
   <fileSets>
     <fileSet>

@@ -4,10 +4,11 @@
   <!--
     The Midgard dev-cluster archive: a self-contained Docker build context that boots a complete
     single-machine Gimlé cluster inside one container (see src/main/midgard/README.md, shipped at
-    the archive root). Same flat lib/ + modules/ layout as the platform archive, plus the example
-    module jars under examples/ (declared provided-scope in this module's pom precisely so the
-    runtime-scoped dependency sets here and in every other descriptor never pick them up), and the
-    Docker/topology/entrypoint/seeding files under the archive root and midgard/.
+    the archive root). The shared cluster jar layout (see component-cluster-jars.xml for lib/ and
+    modules/), plus the example module jars under examples/ (declared provided-scope in this
+    module's pom precisely so the runtime-scoped dependency sets in the shared component and every
+    other descriptor never pick them up), and the Docker/topology/entrypoint/seeding files under
+    the archive root and midgard/.
   -->
   <id>midgard</id>
   <formats>
@@ -16,27 +17,11 @@
   <includeBaseDirectory>true</includeBaseDirectory>
   <baseDirectory>gimle-midgard-${project.version}</baseDirectory>
 
+  <componentDescriptors>
+    <componentDescriptor>src/main/assembly/component-cluster-jars.xml</componentDescriptor>
+  </componentDescriptors>
+
   <dependencySets>
-    <dependencySet>
-      <outputDirectory>lib</outputDirectory>
-      <useProjectArtifact>false</useProjectArtifact>
-      <useTransitiveDependencies>true</useTransitiveDependencies>
-      <unpack>false</unpack>
-      <scope>runtime</scope>
-      <excludes>
-        <exclude>com.gimle:gimle-gateway</exclude>
-      </excludes>
-    </dependencySet>
-    <dependencySet>
-      <outputDirectory>modules</outputDirectory>
-      <useProjectArtifact>false</useProjectArtifact>
-      <useTransitiveDependencies>false</useTransitiveDependencies>
-      <unpack>false</unpack>
-      <scope>runtime</scope>
-      <includes>
-        <include>com.gimle:gimle-gateway</include>
-      </includes>
-    </dependencySet>
     <dependencySet>
       <outputDirectory>examples</outputDirectory>
       <useProjectArtifact>false</useProjectArtifact>

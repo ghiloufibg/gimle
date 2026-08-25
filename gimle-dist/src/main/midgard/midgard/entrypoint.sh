@@ -1,8 +1,8 @@
 #!/bin/bash
-# Container entrypoint: boots the bundled single-machine Gimlé cluster via "hilmir up", optionally
-# seeds the example modules, then stays in the foreground watching the control plane's port so the
-# container's own lifetime tracks the cluster's. On SIGTERM/SIGINT (docker stop), tears the whole
-# cluster back down through "hilmir down" before exiting.
+# Container entrypoint: boots the bundled single-machine Gimlé cluster via "hilmir up", seeds the
+# example modules on first boot, then stays in the foreground watching the control plane's port so
+# the container's own lifetime tracks the cluster's. On SIGTERM/SIGINT (docker stop), tears the
+# whole cluster back down through "hilmir down" before exiting.
 #
 # "hilmir up" spawns each platform process detached and returns once everything on this machine is
 # reachable; the spawned processes are reparented to PID 1, which is why the image must run under
@@ -12,11 +12,43 @@ set -eu
 
 data_root=/var/lib/gimle
 topology=/opt/gimle/midgard/topology.yaml
+seed_marker="$data_root/midgard-seeded"
+
+shut_down() {
+  echo "midgard: stopping cluster..."
+  /opt/gimle/bin/hilmir down --machine midgard --data-root "$data_root" || true
+  exit 0
+}
+# Installed before "hilmir up", not after: a docker stop arriving mid-boot must still tear down
+# whatever was already spawned (hilmir writes a partial run ledger exactly for that case). Bash
+# defers the trap until the currently-running foreground command returns, so a stop during boot
+# takes effect the moment "hilmir up" itself finishes.
+trap shut_down TERM INT
 
 /opt/gimle/bin/hilmir up -f "$topology" --machine midgard
 
-if [ "${MIDGARD_SEED:-true}" != "false" ]; then
-  /opt/gimle/midgard/seed-examples.sh
+# Seed once per data volume, marked on the volume itself: re-applying the bundled manifests on
+# every restart would silently revert anything a user changed about the example deployments
+# (a scale-up, a deletion) -- exactly the state the volume promises to keep. A failed attempt is
+# retried, and a seeding failure never takes the just-booted cluster down with it: the cluster
+# stays up unseeded and the marker stays absent, so the next restart (or a manual
+# "docker exec gimle-midgard /opt/gimle/midgard/seed-examples.sh") tries again.
+if [ "${MIDGARD_SEED:-true}" != "false" ] && [ ! -f "$seed_marker" ]; then
+  seeded=false
+  for attempt in 1 2 3; do
+    if /opt/gimle/midgard/seed-examples.sh; then
+      seeded=true
+      break
+    fi
+    echo "midgard: seeding attempt ${attempt} failed, retrying..." >&2
+    sleep 5
+  done
+  if [ "$seeded" = true ]; then
+    touch "$seed_marker"
+  else
+    echo "midgard: seeding failed after 3 attempts -- cluster is up but unseeded; run" >&2
+    echo "midgard: docker exec gimle-midgard /opt/gimle/midgard/seed-examples.sh to retry" >&2
+  fi
 fi
 
 echo "midgard: cluster is up"
@@ -24,13 +56,6 @@ echo "midgard:   control plane API + web console  http://localhost:8080  (consol
 echo "midgard:   fafnir (secrets) API + console   http://localhost:9092  (console at /console)"
 echo "midgard:   muninn (observability) API       http://localhost:9093"
 echo "midgard:   andvari (artifacts) API + console http://localhost:9094  (console at /console)"
-
-shut_down() {
-  echo "midgard: stopping cluster..."
-  /opt/gimle/bin/hilmir down --machine midgard --data-root "$data_root" || true
-  exit 0
-}
-trap shut_down TERM INT
 
 # Cheap liveness watch: a bare TCP connect to the control plane port every few seconds, tolerating
 # short blips (a control plane restarting under a supervisor should not kill the whole container).
