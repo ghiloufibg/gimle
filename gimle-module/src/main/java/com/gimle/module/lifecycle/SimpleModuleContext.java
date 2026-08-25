@@ -4,9 +4,11 @@ import com.gimle.core.module.ModuleId;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Default {@link ModuleContext}: an atomic in-flight counter, a thin delegate onto a shared {@link
@@ -27,11 +29,19 @@ public final class SimpleModuleContext implements ModuleContext {
   private static final Function<String, RelayResult> NO_OP_RELAY =
       path -> new RelayResult(501, "control-plane relay is not available on this context");
 
+  /**
+   * The default {@code instanceInfo} for a caller that doesn't wire the real registry-backed
+   * collaborator -- the documented "identity not known here" answer, matching {@link
+   * #NO_OP_RELAY}'s posture for the same situation.
+   */
+  private static final Supplier<Optional<InstanceInfo>> NO_OP_INSTANCE_INFO = Optional::empty;
+
   private final ModuleId id;
   private final ServiceRegistry serviceRegistry;
   private final Map<String, String> configValues;
   private final Optional<Path> dataDirectory;
   private final Function<String, RelayResult> relay;
+  private final Supplier<Optional<InstanceInfo>> instanceInfo;
   private final AtomicInteger inFlight = new AtomicInteger();
   private final Map<String, Integer> reportedPorts = new ConcurrentHashMap<>();
 
@@ -58,11 +68,27 @@ public final class SimpleModuleContext implements ModuleContext {
       Map<String, String> configValues,
       Optional<Path> dataDirectory,
       Function<String, RelayResult> relay) {
+    this(id, serviceRegistry, configValues, dataDirectory, relay, NO_OP_INSTANCE_INFO);
+  }
+
+  /**
+   * The full constructor: {@code instanceInfo} is read live on every {@link #instanceInfo()} call,
+   * never snapshotted, since an instance's identity can be registered (or re-registered on an
+   * in-place rename) after this context already exists.
+   */
+  public SimpleModuleContext(
+      ModuleId id,
+      ServiceRegistry serviceRegistry,
+      Map<String, String> configValues,
+      Optional<Path> dataDirectory,
+      Function<String, RelayResult> relay,
+      Supplier<Optional<InstanceInfo>> instanceInfo) {
     this.id = id;
     this.serviceRegistry = serviceRegistry;
     this.configValues = configValues;
     this.dataDirectory = dataDirectory;
     this.relay = relay;
+    this.instanceInfo = instanceInfo;
   }
 
   @Override
@@ -105,6 +131,16 @@ public final class SimpleModuleContext implements ModuleContext {
   @Override
   public Optional<String> config(String key) {
     return Optional.ofNullable(configValues.get(key));
+  }
+
+  @Override
+  public Set<String> configKeys() {
+    return Set.copyOf(configValues.keySet());
+  }
+
+  @Override
+  public Optional<InstanceInfo> instanceInfo() {
+    return instanceInfo.get();
   }
 
   @Override

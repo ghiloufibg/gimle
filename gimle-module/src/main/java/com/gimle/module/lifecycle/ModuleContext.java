@@ -3,6 +3,7 @@ package com.gimle.module.lifecycle;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A module's view into the platform, passed to its lifecycle hooks. This is a placeholder: the full
@@ -52,6 +53,28 @@ public interface ModuleContext {
    * rest. Absent if the key was never delivered.
    */
   Optional<String> config(String key);
+
+  /**
+   * Every key currently visible via {@link #config} — a snapshot, not a live view, so a module can
+   * iterate it while config delivery is happening concurrently. Lets a module that treats its
+   * config as a namespace (a prefix of related keys, a set whose names it doesn't know at compile
+   * time) enumerate what it actually received instead of probing key by key.
+   */
+  Set<String> configKeys();
+
+  /**
+   * This instance's own placement identity as the platform sees it: which deployment it backs,
+   * which replica index it is, which node it runs on, and which tenant owns it. Empty when no
+   * identity was ever reported for this module — a directly-embedded controller in a test, or an
+   * install that carried no deployment name. Looked up live on every call, never cached: an
+   * in-place retarget (a surge instance promoted to a new index) changes the answer without the
+   * module restarting.
+   */
+  Optional<InstanceInfo> instanceInfo();
+
+  /** The identity {@link #instanceInfo} answers with. */
+  record InstanceInfo(
+      String deploymentName, int instanceIndex, String nodeId, Optional<String> tenantId) {}
 
   /**
    * The host path this instance's persistent volume was allocated at, present only if the module's
