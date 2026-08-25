@@ -94,6 +94,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -275,6 +276,12 @@ public final class AgentMain {
     // Tier 1 density-packed instance's logs live under a different instance's own worker
     // directory (see SupervisedInstance#workerKey), and this is how a log request finds it.
     Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+    // StatefulSet-kind persistent storage -- a sibling data root to gimle.log.root above,
+    // defaulting alongside it rather than under it, matching the same
+    // "own top-level directory, own property" convention gimle.log.root itself established.
+    // Created before the log server below so its /volumes surface can serve off it.
+    Path dataRoot = Path.of(System.getProperty("gimle.data.root", "gimle-data"));
+    VolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     AgentLogServer logServer =
         new AgentLogServer(
             logRoot,
@@ -282,17 +289,22 @@ public final class AgentMain {
             key -> {
               SupervisedInstance instance = supervised.get(key);
               return instance != null && instance.workerKey != null ? instance.workerKey : key;
-            });
+            },
+            volumeManager,
+            () ->
+                supervised.values().stream()
+                    .filter(instance -> instance.volumeHandle.isPresent())
+                    .map(
+                        instance ->
+                            instance.assigned.deploymentName()
+                                + "#"
+                                + instance.assigned.instanceIndex())
+                    .collect(Collectors.toUnmodifiableSet()));
     logServer.start();
     String apiAddress = resolveAdvertisedHost() + ":" + logServer.port();
     log.info("agent {} serving logs at {}", nodeId, apiAddress);
 
     ResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
-    // StatefulSet-kind persistent storage -- a sibling data root to gimle.log.root above,
-    // defaulting alongside it rather than under it, matching the same
-    // "own top-level directory, own property" convention gimle.log.root itself established.
-    Path dataRoot = Path.of(System.getProperty("gimle.data.root", "gimle-data"));
-    VolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     // Registry-pulled jars land beside the volume roots under the same gimle.data.root -- one
     // node-local data directory, not a second property.
     ArtifactPullCache artifactCache = new ArtifactPullCache(dataRoot.resolve("artifact-cache"));
@@ -384,6 +396,26 @@ public final class AgentMain {
     networkPolicyRelay.start();
     log.info("agent {} started network policy relay", nodeId);
 
+    // Same relay shape once more, for config and secrets: re-fetch on an interval and re-send
+    // only what changed, so a config edit or rotated secret reaches a running instance instead
+    // of waiting for its next restart. 0 disables the relay entirely (initial-delivery-only,
+    // the pre-relay behavior).
+    long configRelayIntervalMillis =
+        Long.parseLong(System.getProperty("gimle.agent.configRelayIntervalMillis", "30000"));
+    if (configRelayIntervalMillis > 0) {
+      // Captures the startup HttpClient, the same way HttpNetworkPolicySource/HttpServiceSource
+      // above already do -- the tick loop's cert-rotation swap below reassigns the local, which a
+      // lambda can't capture directly.
+      final HttpClient relayHttpClient = httpClient;
+      ConfigRelay configRelay =
+          new ConfigRelay(
+              instance -> fetchConfigEntries(instance, relayHttpClient, baseUrl, fafnirBaseUrl),
+              Duration.ofMillis(configRelayIntervalMillis),
+              supervised);
+      configRelay.start();
+      log.info("agent {} started config relay (interval {}ms)", nodeId, configRelayIntervalMillis);
+    }
+
     while (!Thread.currentThread().isInterrupted()) {
       long tickStartNanos = System.nanoTime();
       boolean tickFailed = false;
@@ -409,7 +441,14 @@ public final class AgentMain {
             gossipMember,
             catalog,
             logRoot);
-        sendHeartbeat(httpClient, baseUrl, nodeId, supervised, supervisedVessels, capacityTracker);
+        sendHeartbeat(
+            httpClient,
+            baseUrl,
+            nodeId,
+            supervised,
+            supervisedVessels,
+            capacityTracker,
+            volumeManager);
         RotationOutcome rotationOutcome = rotateCertificateIfDue(httpClient, baseUrl);
         httpClient = rotationOutcome.httpClient();
         if (rotationOutcome.rotated()) {
@@ -745,7 +784,8 @@ public final class AgentMain {
       String nodeId,
       Map<String, SupervisedInstance> supervised,
       Map<String, SupervisedVessel> supervisedVessels,
-      CapacityTracker capacityTracker)
+      CapacityTracker capacityTracker,
+      VolumeManager volumeManager)
       throws IOException, InterruptedException {
     CapacityTracker.Snapshot snapshot = capacityTracker.snapshot();
     Map<String, Object> capacity = new LinkedHashMap<>();
@@ -756,6 +796,7 @@ public final class AgentMain {
 
     List<Map<String, Object>> instances = new ArrayList<>();
     for (SupervisedInstance instance : supervised.values()) {
+      sampleVolumeUsageIfDue(instance, volumeManager);
       instances.add(observationJson(instance));
     }
     for (SupervisedVessel vessel : supervisedVessels.values()) {
@@ -806,6 +847,38 @@ public final class AgentMain {
     }
   }
 
+  /** How stale a volume-usage sample may get before the next heartbeat re-walks the directory. */
+  private static final Duration VOLUME_USAGE_SAMPLE_INTERVAL = Duration.ofMinutes(1);
+
+  /**
+   * Refreshes {@link SupervisedInstance#volumeUsageBytes} by walking the volume directory -- but at
+   * most once per {@link #VOLUME_USAGE_SAMPLE_INTERVAL}, not on every heartbeat tick: the sample is
+   * a soft, advisory observation (the same posture as {@code VolumeRequest#sizeBytes} itself), and
+   * re-walking a large data directory every few seconds would cost real I/O for no added truth.
+   */
+  private static void sampleVolumeUsageIfDue(
+      SupervisedInstance instance, VolumeManager volumeManager) {
+    if (instance.volumeHandle.isEmpty()) {
+      return;
+    }
+    long now = System.currentTimeMillis();
+    if (now - instance.volumeUsageSampledAtMillis < VOLUME_USAGE_SAMPLE_INTERVAL.toMillis()) {
+      return;
+    }
+    try {
+      instance.volumeUsageBytes =
+          volumeManager.usedBytes(
+              instance.assigned.deploymentName(), instance.assigned.instanceIndex());
+      instance.volumeUsageSampledAtMillis = now;
+    } catch (RuntimeException e) {
+      log.warn(
+          "failed to sample volume usage for {}#{}: {}",
+          instance.assigned.deploymentName(),
+          instance.assigned.instanceIndex(),
+          e.getMessage());
+    }
+  }
+
   static Map<String, Object> observationJson(SupervisedInstance instance) {
     String state = instance.lifecycleState;
     // alive is an EXCLUSION check ("not known-crashed"), not an inclusion check ("is one of the
@@ -834,6 +907,7 @@ public final class AgentMain {
     observation.put("errorRatePerSecond", instance.errorRatePerSecond);
     observation.put("queueDepth", instance.queueDepth);
     observation.put("ports", instance.ports);
+    observation.put("volumeUsageBytes", instance.volumeUsageBytes);
     return observation;
   }
 
@@ -1147,7 +1221,7 @@ public final class AgentMain {
     return result;
   }
 
-  private record ConfigValue(String key, String value, boolean wasEncrypted) {}
+  record ConfigValue(String key, String value, boolean wasEncrypted) {}
 
   // ---- reconciling the locally-supervised set against the control plane's assignments ----
 
@@ -2382,9 +2456,23 @@ public final class AgentMain {
       URI baseUrl,
       URI fafnirBaseUrl)
       throws IOException {
+    for (ConfigValue entry : fetchConfigEntries(instance, httpClient, baseUrl, fafnirBaseUrl)) {
+      connection.send(
+          new ControlMessage.ConfigDelivered(entry.key(), entry.value(), entry.wasEncrypted()));
+    }
+  }
+
+  /**
+   * The fetch half of {@link #deliverConfig}, shared with {@link ConfigRelay} so a later change to
+   * a value (or a rotated secret) is re-fetched by the identical logic that fetched it at instance
+   * start -- same tenant scoping, same {@code configMapRefs}/{@code secretMapRefs} narrowing, same
+   * "a failed half never takes the other half down" posture.
+   */
+  static List<ConfigValue> fetchConfigEntries(
+      SupervisedInstance instance, HttpClient httpClient, URI baseUrl, URI fafnirBaseUrl) {
     Optional<String> tenantId = instance.assigned.tenantId();
     if (tenantId.isEmpty()) {
-      return;
+      return List.of();
     }
     List<String> configMapRefs = instance.assigned.configMapRefs();
     List<ConfigValue> entries = new ArrayList<>();
@@ -2395,7 +2483,7 @@ public final class AgentMain {
               : fetchConfigMaps(httpClient, baseUrl, tenantId.get(), configMapRefs));
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      return;
+      return List.of();
     } catch (IOException | RuntimeException e) {
       // No early return: secret delivery below is deliberately independent of the control
       // plane's own /config surface (see this method's javadoc), so a denied or failed plain
@@ -2419,7 +2507,7 @@ public final class AgentMain {
                 : fetchSecretMaps(httpClient, fafnirBaseUrl, tenantId.get(), secretMapRefs));
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        return;
+        return List.copyOf(entries);
       } catch (IOException | RuntimeException e) {
         // Same reasoning as the config fetch above: Fafnir being briefly unreachable (or not
         // configured to match a stale -Dgimle.agent.fafnirEndpoint) must not abort instance
@@ -2431,10 +2519,7 @@ public final class AgentMain {
             e.getMessage());
       }
     }
-    for (ConfigValue entry : entries) {
-      connection.send(
-          new ControlMessage.ConfigDelivered(entry.key(), entry.value(), entry.wasEncrypted()));
-    }
+    return List.copyOf(entries);
   }
 
   /**

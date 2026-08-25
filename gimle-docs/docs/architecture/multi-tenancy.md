@@ -114,6 +114,17 @@ needed one. `encrypted == true` is no longer a variant of this same entry: an en
 is a **secret**, a distinct resource kind (`ResourceKind.SECRET` vs. `ResourceKind.CONFIG`), served
 by a distinct process, covered next.
 
+Delivery to a running instance is no longer one-shot. Initial delivery still happens synchronously
+during an instance's install sequence, but each agent additionally runs a **config relay**
+(`ConfigRelay`, interval `-Dgimle.agent.configRelayIntervalMillis`, default 30s, `0` disables):
+the identical fetch logic re-runs on the interval — same tenant scoping, same
+`configMapRefs`/`secretMapRefs` narrowing — and any value that changed since the relay last sent it
+to that instance is re-pushed over the control channel, so a config edit or a rotated secret
+reaches a running instance's very next `ModuleContext.config(key)` read instead of waiting for its
+restart. Only creates and updates propagate: a deleted key is never retracted from a running
+instance (the control channel has no removal message, and a module that already read the value
+holds it anyway) — the next restart starts from the current set.
+
 ## Secrets
 
 Secret material is owned entirely by **Fafnir** (`gimle-fafnir`), a dedicated process extracted out
