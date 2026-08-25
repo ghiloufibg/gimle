@@ -81,6 +81,7 @@ import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
+import com.gimle.mimir.manifest.ParsedManifest;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
@@ -720,11 +721,30 @@ public final class ApiServer implements AutoCloseable {
   /**
    * A PUT action that receives the manifest {@link #dispatchResourceRequest} already parsed --
    * once, to resolve the tenant to authorize the write against -- rather than re-reading {@code
-   * exchange}'s own request body itself, which can only be consumed once.
+   * exchange}'s own request body itself, which can only be consumed once. {@code warnings} rides
+   * alongside so the handler can attach them only at its own genuine success point (see {@link
+   * #attachWarnings}) -- never eagerly before the handler has decided whether this PUT actually
+   * succeeds, which would leak a deprecation warning onto an unrelated 400/409 rejection.
    */
   @FunctionalInterface
   private interface PutResourceAction {
-    void run(HttpExchange exchange, String name, WorkloadSpec submitted) throws IOException;
+    void run(HttpExchange exchange, String name, WorkloadSpec submitted, List<String> warnings)
+        throws IOException;
+  }
+
+  /**
+   * Attaches each deprecation warning as its own {@code X-Gimle-Warning} response header and logs
+   * it -- called by each {@code handlePut*} handler immediately before its own {@code respond(200,
+   * "ok")}, never before that handler has decided the PUT actually succeeds. A rejected PUT (name
+   * mismatch, admission conflict, wrong kind) must never carry a warning about a field that, since
+   * nothing was applied, had no effect at all.
+   */
+  private void attachWarnings(
+      HttpExchange exchange, List<String> warnings, String requestNoun, String name) {
+    for (String warning : warnings) {
+      log.warn("{} {} manifest: {}", requestNoun, name, warning);
+      exchange.getResponseHeaders().add("X-Gimle-Warning", warning);
+    }
   }
 
   /**
@@ -791,7 +811,8 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          WorkloadSpec submitted = ManifestParser.parse(exchange.getRequestBody());
+          ParsedManifest parsed = ManifestParser.parse(exchange.getRequestBody());
+          WorkloadSpec submitted = parsed.spec();
           Optional<String> submittedTenant = submitted.tenantId();
           Optional<Optional<String>> existing = existingTenant.lookup(name);
           boolean authorized = requireAuthorized(exchange, kind, Verb.WRITE, submittedTenant);
@@ -799,7 +820,12 @@ public final class ApiServer implements AutoCloseable {
             authorized = requireAuthorized(exchange, kind, Verb.WRITE, existing.get());
           }
           if (authorized && !rejectIfReservedSystemTenant(exchange, submittedTenant)) {
-            put.run(exchange, name, submitted);
+            // Deprecation warnings ride response headers back to the submitting operator (the
+            // CLI prints them on stderr) -- but only attached by the per-kind handler at its own
+            // genuine success point (see attachWarnings), never here: a manifest that fails
+            // admission or name/kind validation inside put.run must not carry a warning about a
+            // field that, since nothing was applied, had no effect at all.
+            put.run(exchange, name, submitted, parsed.warnings());
           }
         }
         case "GET" -> {
@@ -828,13 +854,13 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  private void handlePutDeployment(HttpExchange exchange, String name, WorkloadSpec parsed)
+  private void handlePutDeployment(
+      HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
-    // Parsed and kind-checked at the real operator-facing admission surface by ManifestParser,
-    // already done once by dispatchResourceRequest to resolve the tenant to authorize against;
-    // DeploymentManifestParser itself stays kind-agnostic (see its own updated javadoc), still used
-    // directly only by StateStore's own reload-on-restart path and this class's parser-shape unit
-    // tests.
+    // Parsed and kind/apiVersion-checked at the real operator-facing admission surface by
+    // ManifestParser, already done once by dispatchResourceRequest to resolve the tenant to
+    // authorize against; DeploymentManifestParser itself stays kind-agnostic (see its own updated
+    // javadoc), used directly only by its own parser-shape unit tests.
     if (!(parsed instanceof DeploymentSpec parsedSpec)) {
       respond(
           exchange,
@@ -881,6 +907,7 @@ public final class ApiServer implements AutoCloseable {
                   nextRevisionFor("Deployment", allow.spec(), OptionalInt.empty())));
         }
         storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
+        attachWarnings(exchange, warnings, "deployment", name);
         respond(exchange, 200, "ok");
       }
     }
@@ -1642,7 +1669,8 @@ public final class ApiServer implements AutoCloseable {
         this::handleDeleteJob);
   }
 
-  private void handlePutJob(HttpExchange exchange, String name, WorkloadSpec parsed)
+  private void handlePutJob(
+      HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     if (!(parsed instanceof JobSpec parsedSpec)) {
       respond(exchange, 400, "manifest kind does not match /jobs route (expected kind: Job)");
@@ -1674,6 +1702,7 @@ public final class ApiServer implements AutoCloseable {
     // real, undocumented-elsewhere gap worth flagging here rather than silently matching
     // handlePutDeployment's shape without actually doing the check.
     storeClient.propose(new StateMutation.PutJobSpec(spec));
+    attachWarnings(exchange, warnings, "job", name);
     respond(exchange, 200, "ok");
   }
 
@@ -1808,7 +1837,8 @@ public final class ApiServer implements AutoCloseable {
     return Optional.empty();
   }
 
-  private void handlePutCronJob(HttpExchange exchange, String name, WorkloadSpec parsed)
+  private void handlePutCronJob(
+      HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     if (!(parsed instanceof CronJobSpec spec)) {
       respond(
@@ -1823,6 +1853,7 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     storeClient.propose(new StateMutation.PutCronJobSpec(spec));
+    attachWarnings(exchange, warnings, "cronjob", name);
     respond(exchange, 200, "ok");
   }
 
@@ -1955,7 +1986,8 @@ public final class ApiServer implements AutoCloseable {
     return Optional.empty();
   }
 
-  private void handlePutDaemonSet(HttpExchange exchange, String name, WorkloadSpec parsed)
+  private void handlePutDaemonSet(
+      HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     if (!(parsed instanceof DaemonSetSpec parsedSpec)) {
       respond(
@@ -1992,6 +2024,7 @@ public final class ApiServer implements AutoCloseable {
               nextRevisionFor("DaemonSet", spec, OptionalInt.empty())));
     }
     storeClient.propose(new StateMutation.PutDaemonSetSpec(spec));
+    attachWarnings(exchange, warnings, "daemonset", name);
     respond(exchange, 200, "ok");
   }
 
@@ -2179,7 +2212,8 @@ public final class ApiServer implements AutoCloseable {
     return Optional.empty();
   }
 
-  private void handlePutStatefulSet(HttpExchange exchange, String name, WorkloadSpec parsed)
+  private void handlePutStatefulSet(
+      HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     if (!(parsed instanceof StatefulSetSpec parsedSpec)) {
       respond(
@@ -2218,6 +2252,7 @@ public final class ApiServer implements AutoCloseable {
               nextRevisionFor("StatefulSet", spec, OptionalInt.empty())));
     }
     storeClient.propose(new StateMutation.PutStatefulSetSpec(spec));
+    attachWarnings(exchange, warnings, "statefulset", name);
     respond(exchange, 200, "ok");
   }
 

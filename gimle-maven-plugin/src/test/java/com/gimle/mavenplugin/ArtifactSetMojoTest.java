@@ -54,6 +54,42 @@ class ArtifactSetMojoTest {
     assertNull(ArtifactSetMojo.effectiveTenant(noTenantAtAll, null));
   }
 
+  /**
+   * Regression coverage for a real bug found end-to-end: {@code -Dgimle.artifactset.tenantId=}
+   * (e.g. an unset shell variable interpolated into the property) passes an empty string, not a
+   * null property value -- {@code defaultTenantId} must be blank-normalized the same way a
+   * submodule's own {@code own} property already is, or the blank string became a literal
+   * blank-string tenant key, corrupting the generated manifest's {@code tenant:} mapping.
+   */
+  @Test
+  void a_blank_default_tenant_id_means_untenanted_same_as_null() {
+    MavenProject noOwnTenant = project("shared-lib-1.0.0", null);
+
+    assertNull(ArtifactSetMojo.effectiveTenant(noOwnTenant, ""));
+    assertNull(ArtifactSetMojo.effectiveTenant(noOwnTenant, "   "));
+  }
+
+  /**
+   * The same blank-default bug, exercised through the actual manifest generator rather than {@code
+   * effectiveTenant} alone: a blank reactor-wide default must produce the same {@code modules:}
+   * (untenanted) shape a null default already does, never a corrupt {@code tenant:} mapping with a
+   * blank key.
+   */
+  @Test
+  void a_blank_default_tenant_id_generates_an_untenanted_manifest_not_a_blank_tenant_key()
+      throws Exception {
+    String yaml = ArtifactSetMojo.generateManifestYaml(List.of(project("app-1.0.0", null)), "");
+
+    assertEquals(
+        """
+        apiVersion: v1
+        kind: ArtifactSet
+        modules:
+          - /repo/some-module/target/app-1.0.0.jar
+        """,
+        yaml);
+  }
+
   @Test
   void groups_reactor_modules_by_tenant_and_lists_the_rest_as_untenanted() throws Exception {
     // No reactor-wide default here -- each tenanted module names its own tenant explicitly, so
@@ -68,6 +104,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         tenant:
           orders-platform:
@@ -87,6 +124,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         modules:
           - /repo/some-module/target/app-1.0.0.jar
@@ -112,6 +150,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         modules:
           - artifact: /repo/some-module/target/report-2.0.0.jar
@@ -134,6 +173,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         tenant:
           orders-platform:
@@ -190,6 +230,7 @@ class ArtifactSetMojoTest {
 
     assertEquals(
         """
+        apiVersion: v1
         kind: ArtifactSet
         modules:
           - /repo/some-module/target/app-1.0.0.jar

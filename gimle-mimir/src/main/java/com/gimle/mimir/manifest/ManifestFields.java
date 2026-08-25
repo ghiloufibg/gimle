@@ -1,6 +1,7 @@
 package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.manifest.ApiVersion;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ResourceSpec;
@@ -41,13 +42,25 @@ final class ManifestFields {
   }
 
   /**
-   * The one shared reading of {@code artifactPath} across every workload kind: absent means
-   * "resolve the module coordinate from the artifact registry" ({@link
-   * ArtifactReference#REGISTRY_COORDINATE}), present must be a non-blank local path -- an
-   * explicitly blank value is rejected rather than silently treated as the registry state, so a
-   * typo like {@code artifactPath: ""} fails loudly instead of changing resolution semantics.
+   * The one shared reading of {@code artifactPath} across every workload kind, and the one place
+   * the field's per-{@code apiVersion} treatment lives. Under {@code v1} the key's very presence is
+   * rejected -- even {@code artifactPath: ""} or a bare {@code artifactPath:} -- since that version
+   * resolves every module coordinate from the artifact registry. Under {@code v1alpha1} the
+   * historical semantics hold exactly: absent means "resolve the module coordinate from the
+   * artifact registry" ({@link ArtifactReference#REGISTRY_COORDINATE}), present must be a non-blank
+   * local path (an explicitly blank value is rejected rather than silently treated as the registry
+   * state, so a typo like {@code artifactPath: ""} fails loudly instead of changing resolution
+   * semantics) -- but a local path now also records a deprecation warning, since the path is
+   * resolved against the reading process's own working directory, not the manifest file.
    */
-  static String optionalArtifactPath(Map<?, ?> map) {
+  static String optionalArtifactPath(Map<?, ?> map, ApiVersion version, List<String> warnings) {
+    if (version == ApiVersion.V1 && map.containsKey("artifactPath")) {
+      throw new GimleManifestException(
+          "'artifactPath' is not accepted in apiVersion v1 -- push the jar to the artifact"
+              + " registry (gimle artifact push, or kind: ArtifactSet for a set) and let"
+              + " module: {name, version} resolve it from there; only v1alpha1 manifests"
+              + " (deprecated) may name a local path");
+    }
     Object value = map.get("artifactPath");
     if (value == null) {
       return ArtifactReference.REGISTRY_COORDINATE;
@@ -57,6 +70,10 @@ final class ManifestFields {
           "'artifactPath' must be a non-blank string when present -- omit it entirely to resolve"
               + " the module name/version from the artifact registry");
     }
+    warnings.add(
+        "'artifactPath' is deprecated and resolved against the reading process's own working"
+            + " directory, not this manifest file -- omit it and push the artifact to the"
+            + " registry instead (rejected outright in apiVersion v1)");
     return s;
   }
 

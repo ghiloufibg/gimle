@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 608
-- **Covered by automated (Holmgang Cucumber) test**: 121
+- **Total requirements**: 610
+- **Covered by automated (Holmgang Cucumber) test**: 123
 - **Not covered by automated test**: 487
-- **Release-readiness (automated coverage)**: 19.9%
+- **Release-readiness (automated coverage)**: 20.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 40 | 6 | 34 | 15.0% |
-| gimle-mimir | 52 | 33 | 19 | 63.5% |
+| gimle-mimir | 54 | 35 | 19 | 64.8% |
 | gimle-fabric | 32 | 1 | 31 | 3.1% |
 | gimle-controlplane | 70 | 14 | 56 | 20.0% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
@@ -570,6 +570,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-582 | Deployment `configMapRefs` field with admission-time collision rejection | Given a tenant's flat config already declares key `shared`, When a Deployment manifest declares `configMapRefs` naming a ConfigMap that also declares `shared`, Then the submission is rejected with a 409 naming both the ConfigMap and the flat-config collision, not silently admitted. | No |
+
+#### Control Plane API
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | Given a manifest with no apiVersion field, When it is submitted, Then it is parsed with the kind's v1alpha1 ruleset -- identical to today's behavior, permanently. Given a manifest declaring apiVersion v9, When it is submitted, Then the control plane rejects it with 400 naming the kind's supported versions, never silently defaulting. Given a manifest declaring a blank or non-string apiVersion, When it is submitted, Then it is rejected outright. | Yes |
+| [ ] | GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | Given a v1alpha1 manifest naming a local artifactPath, When it is applied, Then it is accepted and the operator sees a deprecation warning on stderr explaining the cwd-relative hazard and the registry migration. Given a v1 manifest naming an artifactPath, When it is applied, Then it is rejected with 400 and an error pointing at the registry migration. Given a module pushed to the artifact registry, When a v1 coordinate-only deployment for it is applied, Then it is accepted and reaches ACTIVE on a real worker. | Yes |
 
 #### Internal-Infra
 

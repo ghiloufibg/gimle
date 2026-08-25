@@ -1,9 +1,11 @@
 package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.manifest.ApiVersion;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,6 +24,12 @@ public final class DeploymentManifestParser {
 
   private DeploymentManifestParser() {}
 
+  /**
+   * A standalone, version-blind convenience entry used by this parser's own shape unit tests:
+   * parses at {@code v1alpha1} (exactly what an unversioned manifest means) and discards warnings.
+   * The real operator-facing path is {@link ManifestParser}, which resolves {@code kind:}/{@code
+   * apiVersion:} itself and calls {@link #parseRoot} directly.
+   */
   public static DeploymentSpec parse(InputStream yamlContent) {
     Object raw;
     try {
@@ -36,17 +44,17 @@ public final class DeploymentManifestParser {
       throw new GimleManifestException(
           "deployment manifest must contain a YAML mapping at the root");
     }
-    return parseRoot(root);
+    return parseRoot(root, ApiVersion.V1ALPHA1, new ArrayList<>());
   }
 
   // Package-visible, not private: ManifestParser calls this directly after peeling off the
-  // manifest's top-level kind: field, so both entry points share this exact parsing logic instead
-  // of duplicating it. Deliberately still ignorant of kind: itself -- this method's only job is
-  // "given a root map, build a DeploymentSpec," the same contract it had before kind: existed.
-  static DeploymentSpec parseRoot(Map<?, ?> root) {
+  // manifest's top-level kind:/apiVersion: fields, so both entry points share this exact parsing
+  // logic instead of duplicating it. Deliberately still ignorant of kind: itself -- this method's
+  // only job is "given a root map and a version, build a DeploymentSpec."
+  static DeploymentSpec parseRoot(Map<?, ?> root, ApiVersion version, List<String> warnings) {
     String name = ManifestFields.requireString(root, "name");
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
-    String artifactPath = ManifestFields.optionalArtifactPath(root);
+    String artifactPath = ManifestFields.optionalArtifactPath(root, version, warnings);
     int replicas = parseReplicas(root);
     PlacementConstraints placement = ManifestFields.parsePlacement(root);
     Optional<AutoscalePolicy> autoscale = parseAutoscale(root);

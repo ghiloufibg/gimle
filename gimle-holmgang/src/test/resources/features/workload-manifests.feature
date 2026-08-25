@@ -47,6 +47,16 @@ Feature: Workload manifest parsing and validation
     Then the submission is rejected with status 400
 
   @raft-store-coverage
+  Scenario: apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts
+    Given a running cluster from topology "minimal"
+    When a deployment manifest with apiVersion "v1alpha1" naming a local artifact path is submitted as "alpha-path-dep"
+    Then the manifest submission is accepted
+    When a deployment manifest with apiVersion "v1" naming a local artifact path is submitted as "v1-path-dep"
+    Then the submission is rejected with status 400
+    When a deployment manifest with apiVersion "v9" naming a local artifact path is submitted as "unknown-version-dep"
+    Then the submission is rejected with status 400
+
+  @raft-store-coverage
   Scenario: A CronJob schedule fires on the day-of-month/day-of-week OR quirk
     Given a running cluster from topology "minimal"
     When a cronjob manifest scheduled for today's weekday but a different day of month is submitted as "or-quirk-cronjob"

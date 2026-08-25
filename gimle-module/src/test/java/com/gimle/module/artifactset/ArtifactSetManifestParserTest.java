@@ -341,4 +341,60 @@ class ArtifactSetManifestParserTest {
                         version: 1.0.0
                     """)));
   }
+
+  @Test
+  void v1_parses_identically_to_an_unversioned_manifest() {
+    // ArtifactSet's v1 is a straight promotion of the alpha schema: artifact: entries are local
+    // push inputs, so unlike the workload kinds nothing is deprecated between the two versions.
+    String body =
+        """
+        kind: ArtifactSet
+        modules:
+          - shared-lib/target/shared-lib-1.0.0.jar
+        """;
+
+    ArtifactSetManifest unversioned = ArtifactSetManifestParser.parse(MANIFEST, yaml(body));
+    ArtifactSetManifest v1 =
+        ArtifactSetManifestParser.parse(MANIFEST, yaml("apiVersion: v1\n" + body));
+    ArtifactSetManifest alpha =
+        ArtifactSetManifestParser.parse(MANIFEST, yaml("apiVersion: v1alpha1\n" + body));
+
+    assertEquals(unversioned, v1);
+    assertEquals(unversioned, alpha);
+  }
+
+  @Test
+  void an_unknown_api_version_throws_naming_the_kind() {
+    GimleManifestException failure =
+        assertThrows(
+            GimleManifestException.class,
+            () ->
+                ArtifactSetManifestParser.parse(
+                    MANIFEST,
+                    yaml(
+                        """
+                        apiVersion: v2
+                        kind: ArtifactSet
+                        modules:
+                          - shared-lib/target/shared-lib-1.0.0.jar
+                        """)));
+    assertTrue(failure.getMessage().contains("unsupported apiVersion 'v2'"), failure.getMessage());
+    assertTrue(failure.getMessage().contains("kind ArtifactSet"), failure.getMessage());
+  }
+
+  @Test
+  void a_blank_api_version_throws_rather_than_defaulting() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ArtifactSetManifestParser.parse(
+                MANIFEST,
+                yaml(
+                    """
+                    apiVersion: " "
+                    kind: ArtifactSet
+                    modules:
+                      - shared-lib/target/shared-lib-1.0.0.jar
+                    """)));
+  }
 }

@@ -215,4 +215,55 @@ class DeploymentsCommandTest {
     String out = outBuffer.toString(StandardCharsets.UTF_8);
     assertTrue(out.contains("UNHEALTHY(1)"), out);
   }
+
+  @Test
+  void apply_prints_the_artifact_path_deprecation_warning_on_stderr_only() throws Exception {
+    Path jar = buildFixtureJar(tempDir.resolve("jars3"));
+    Path manifest = tempDir.resolve("alpha-deployment.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: Deployment
+        name: alpha-orders
+        module:
+          name: com.gimle.fixture.limitrange
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        """
+            .formatted(jar.toAbsolutePath()));
+
+    assertEquals(
+        0, run("apply", "-f", manifest.toString(), "--server", serverAddress), errBuffer::toString);
+
+    String err = errBuffer.toString(StandardCharsets.UTF_8);
+    assertTrue(err.contains("warning:"), err);
+    assertTrue(err.contains("deprecated"), err);
+    String out = outBuffer.toString(StandardCharsets.UTF_8);
+    assertFalse(out.contains("warning:"), out);
+  }
+
+  @Test
+  void apply_of_a_v1_manifest_with_artifact_path_fails_with_the_migration_error() throws Exception {
+    Path jar = buildFixtureJar(tempDir.resolve("jars4"));
+    Path manifest = tempDir.resolve("v1-deployment.yaml");
+    Files.writeString(
+        manifest,
+        """
+        apiVersion: v1
+        kind: Deployment
+        name: v1-orders
+        module:
+          name: com.gimle.fixture.limitrange
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        """
+            .formatted(jar.toAbsolutePath()));
+
+    assertEquals(1, run("apply", "-f", manifest.toString(), "--server", serverAddress));
+
+    String err = errBuffer.toString(StandardCharsets.UTF_8);
+    assertTrue(err.contains("not accepted in apiVersion v1"), err);
+  }
 }

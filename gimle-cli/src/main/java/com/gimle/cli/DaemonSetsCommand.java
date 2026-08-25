@@ -38,12 +38,14 @@ public final class DaemonSetsCommand {
     OutputFormat.printObject(output, client.getObject("/daemonsets/" + name), out);
   }
 
-  public void apply(List<String> args) {
+  public void apply(List<String> args, PrintStream err) {
     Path file = ManifestFiles.requireFileFlag(args);
     byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
     String name = ManifestFiles.extractName(file, manifestBytes);
-    client.expectSuccess(
-        client.put("/daemonsets/" + name, new String(manifestBytes, StandardCharsets.UTF_8)));
+    ApiResponse response =
+        client.put("/daemonsets/" + name, new String(manifestBytes, StandardCharsets.UTF_8));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
     OutputFormat.printResult(
         output, resultBody("applied", name), "daemonset/" + name + " applied", out);
   }

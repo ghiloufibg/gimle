@@ -1,10 +1,13 @@
 package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.manifest.ApiVersion;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.yaml.snakeyaml.LoaderOptions;
@@ -27,11 +30,9 @@ public final class JobManifestParser {
   private JobManifestParser() {}
 
   /**
-   * A standalone entry point independent of {@link ManifestParser}'s {@code kind:} dispatch --
-   * mirrors {@link DeploymentManifestParser#parse}, including its reason for existing: {@code
-   * StateStore}'s own reload-on-restart path (a different package, so it needs a {@code public}
-   * entry point, not just {@link #parseRoot}'s package visibility) reuses this rather than
-   * duplicating YAML-loading and root-shape validation a second time.
+   * A standalone, version-blind convenience entry mirroring {@link DeploymentManifestParser#parse}
+   * exactly: parses at {@code v1alpha1} (what an unversioned manifest means), discarding warnings,
+   * for this parser's own shape unit tests.
    */
   public static JobSpec parse(InputStream yamlContent) {
     Object raw;
@@ -44,15 +45,15 @@ public final class JobManifestParser {
     if (!(raw instanceof Map<?, ?> root)) {
       throw new GimleManifestException("job manifest must contain a YAML mapping at the root");
     }
-    return parseRoot(root);
+    return parseRoot(root, ApiVersion.V1ALPHA1, new ArrayList<>());
   }
 
-  // Package-visible, not private: ManifestParser calls this directly after peeling off kind:,
-  // mirroring DeploymentManifestParser.parseRoot's own visibility exactly.
-  static JobSpec parseRoot(Map<?, ?> root) {
+  // Package-visible, not private: ManifestParser calls this directly after peeling off kind: and
+  // apiVersion:, mirroring DeploymentManifestParser.parseRoot's own visibility exactly.
+  static JobSpec parseRoot(Map<?, ?> root, ApiVersion version, List<String> warnings) {
     String name = ManifestFields.requireString(root, "name");
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
-    String artifactPath = ManifestFields.optionalArtifactPath(root);
+    String artifactPath = ManifestFields.optionalArtifactPath(root, version, warnings);
     PlacementConstraints placement = ManifestFields.parsePlacement(root);
     Optional<Duration> activeDeadline = parseActiveDeadline(root);
     int backoffLimit = parseBackoffLimit(root);

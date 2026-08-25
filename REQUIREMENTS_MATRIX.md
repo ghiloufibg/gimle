@@ -618,6 +618,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | Complete | Yes |
 | GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | Admission Control | Complete | Yes |
 | GIMLE-608 | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | Artifact Registry | Complete | Yes |
+| GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | Control Plane API | Complete | Yes |
+| GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | Control Plane API | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3400,6 +3402,36 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order.
   Given an empty or nested batch; When constructed; Then it is rejected outright.
+  ```
+
+#### GIMLE-609 — Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default
+
+- **Category**: Control Plane API
+- **User story**: As a platform operator evolving my manifests, I want every gimle apply kind to accept an optional Kubernetes-style apiVersion field -- omitted meaning the kind's alpha ruleset forever, declared meaning exactly that version or a loud rejection -- so a schema change can be introduced without silently breaking or re-interpreting any manifest I already have.
+- **Status**: Complete. ApiVersion (gimle-core, com.gimle.core.manifest) is the one shared definition of the field: tokens v1alpha1/v1, absent-means-v1alpha1 permanently (a stable contract, never a latest pointer -- opting into v1 or any future version always requires declaring it), exact case-sensitive matching, and a structured GimleManifestException for a blank/non-string value or a version outside the kind's supported set, naming that set. ManifestParser resolves it right after kind: (kind is always read first; a version selects a ruleset within a kind, never the kind) and threads it through every workload parser's parseRoot; ArtifactSetManifestParser validates it client-side with the identical helper, v1 being a straight schema-unchanged promotion for that kind. Versioning is parse-time only: one internal spec model, no storage/codec/wire change, and the submitted version is not persisted. ManifestParser now returns ParsedManifest (spec + warnings) so deprecation warnings travel to the API layer; mvn gimle:artifactset-push pins apiVersion: v1 in its generated manifest so regenerated output never leans on the default.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/manifest/ApiVersion.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestParser.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ParsedManifest.java`, `gimle-module/src/main/java/com/gimle/module/artifactset/ArtifactSetManifestParser.java`, `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ArtifactSetMojo.java` (generated manifest pins apiVersion: v1)
+- **Test coverage**: `ApiVersionTest` (defaulting, exact matching, unknown/blank/non-string rejection, supported-set message), `ManifestParserTest` (unversioned identical to explicit v1alpha1, unknown/blank/non-string apiVersion rejected through the real dispatch, case sensitivity), `ArtifactSetManifestParserTest` (v1 identical to alpha, unknown version rejected naming the kind), `ApiServerTest.an_unsupported_api_version_is_rejected` (real HTTP 400), `ArtifactSetMojoTest` (generated manifest pins apiVersion: v1), plus the workload-manifests.feature Holmgang scenario against a real cluster.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a manifest with no apiVersion field, When it is submitted, Then it is parsed with the kind's v1alpha1 ruleset -- identical to today's behavior, permanently.
+  Given a manifest declaring apiVersion v9, When it is submitted, Then the control plane rejects it with 400 naming the kind's supported versions, never silently defaulting.
+  Given a manifest declaring a blank or non-string apiVersion, When it is submitted, Then it is rejected outright.
+  ```
+
+#### GIMLE-610 — Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings
+
+- **Category**: Control Plane API
+- **User story**: As a platform operator bitten by artifactPath resolving against the control plane's own working directory instead of my manifest file, I want v1 workload manifests to reject the field outright in favor of registry-coordinate resolution, and unversioned (v1alpha1) manifests that still use it to keep working but warn me visibly at apply time, so the broken-by-cwd failure mode has a loud, migratable exit instead of a silent one.
+- **Status**: Complete. ManifestFields.optionalArtifactPath is the one shared per-version treatment for all five workload kinds (CronJob via jobTemplate): under v1 the key's very presence -- even artifactPath: "" or a bare artifactPath: -- throws a structured rejection pointing at the migration (push via gimle artifact push or kind: ArtifactSet, deploy by module: {name, version}); under v1alpha1 the historical semantics hold exactly, but a local path records a deprecation warning explaining the reading-process-cwd resolution hazard. Warnings ride X-Gimle-Warning response headers on the manifest PUT (set centrally in ApiServer.dispatchResourceRequest, one header per warning, plus a server-side SLF4J warn) and the CLI prints each as a warning: line on stderr -- stdout's -o json output stays clean for scripts. The alpha relative-path behavior itself is deliberately unchanged (deprecated, not fixed): the supported remedy is migration to v1, and dev loops/tests keep using unversioned manifests with no forced registry round trip.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (optionalArtifactPath per-version treatment), `gimle-mimir/src/main/java/com/gimle/mimir/manifest/CronJobManifestParser.java` (jobTemplate threading), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (X-Gimle-Warning headers on manifest PUT), `gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java` (printWarnings to stderr), `gimle-cli/src/main/java/com/gimle/cli/ApiResponse.java` / `ControlPlaneClient.java` (warning-header plumbing)
+- **Test coverage**: `ManifestParserTest` (v1 rejection for every workload kind incl. blank-value presence and CronJob's jobTemplate, alpha local path warns, coordinate-only yields no warnings, v1 coordinate-only parses to the registry reference), `ApiServerTest` (deprecation warning header on a real PUT, v1+artifactPath 400 with no warning header), `DeploymentsCommandTest` (warning printed on stderr only, v1 apply fails with the migration error through the real CLI), plus the workload-manifests.feature and registry-deploy.feature Holmgang scenarios against real clusters.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a v1alpha1 manifest naming a local artifactPath, When it is applied, Then it is accepted and the operator sees a deprecation warning on stderr explaining the cwd-relative hazard and the registry migration.
+  Given a v1 manifest naming an artifactPath, When it is applied, Then it is rejected with 400 and an error pointing at the registry migration.
+  Given a module pushed to the artifact registry, When a v1 coordinate-only deployment for it is applied, Then it is accepted and reaches ACTIVE on a real worker.
   ```
 
 ### gimle-fabric

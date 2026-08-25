@@ -124,6 +124,71 @@ class ApiServerTest {
     assertEquals(3L, status.get("unplacedCount"));
   }
 
+  @Test
+  void a_local_artifact_path_put_carries_a_deprecation_warning_header() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 3)))
+                .build());
+
+    assertEquals(200, put.statusCode());
+    List<String> warnings = put.headers().allValues("X-Gimle-Warning");
+    assertEquals(1, warnings.size());
+    assertTrue(warnings.get(0).contains("deprecated"), warnings.get(0));
+  }
+
+  @Test
+  void a_v1_manifest_declaring_artifact_path_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "apiVersion: v1\n" + deploymentYaml("orders-service", 3)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+    assertTrue(put.body().contains("not accepted in apiVersion v1"), put.body());
+    assertEquals(List.of(), put.headers().allValues("X-Gimle-Warning"));
+  }
+
+  /**
+   * Regression coverage for a real bug found end-to-end: the deprecation warning must never ride a
+   * response that isn't the manifest's own actual success -- a manifest can parse cleanly (warnings
+   * non-empty) and still be rejected downstream by the per-kind handler itself (name mismatch here,
+   * but the same reasoning covers an admission conflict or a wrong-kind manifest) for a reason
+   * entirely unrelated to the deprecated field. Attaching the header before that handler has
+   * decided the outcome -- the bug's actual mechanism -- would claim a deprecated field caused
+   * something that, since nothing was applied, never happened at all.
+   */
+  @Test
+  void a_deprecation_warning_never_rides_an_unrelated_rejection() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/name-does-not-match"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 3)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+    assertTrue(put.body().contains("does not match URL path"), put.body());
+    assertEquals(List.of(), put.headers().allValues("X-Gimle-Warning"));
+  }
+
+  @Test
+  void an_unsupported_api_version_is_rejected() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .PUT(
+                    HttpRequest.BodyPublishers.ofString(
+                        "apiVersion: v9\n" + deploymentYaml("orders-service", 3)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+    assertTrue(put.body().contains("unsupported apiVersion 'v9'"), put.body());
+  }
+
   private static String deploymentYamlWithAutoscale(String name) {
     return """
         kind: Deployment

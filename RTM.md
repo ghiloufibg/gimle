@@ -623,6 +623,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | New | Not Covered | — |
 | GIMLE-607 | Admission-time rejection of a manifest/artifact module-identity mismatch | New | Not Covered | — |
 | GIMLE-608 | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | New | Not Covered | — |
+| GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | New | Covered | `workload-manifests.feature` — "apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts" |
+| GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | New | Covered | `workload-manifests.feature` — "apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts"; `registry-deploy.feature` — "A v1 manifest deploys by coordinate through the registry" |
 
 ## Detailed Requirements
 
@@ -2560,6 +2562,30 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Internal replication-efficiency mechanism -- not independently observable as a black-box cluster assertion. Every existing Holmgang scenario that deploys or rolls a workload already exercises batched proposals indirectly through DeploymentReconciler, but a scenario could not verify the one-entry-per-burst property the way gimle-mimir's own unit tests do.
 - **Other test coverage (non-Holmgang, informational only)**: `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry`
 - **Source location(s)**: `com.gimle.mimir.raft.StateMutation.Batch`, `com.gimle.mimir.raft.MutationSink#proposeAll`, `com.gimle.controlplane.reconcile.DeploymentReconciler`, `com.gimle.controlplane.reconcile.StatefulSetReconciler`, `com.gimle.controlplane.reconcile.DaemonSetReconciler`, `com.gimle.controlplane.reconcile.JobReconciler`, `com.gimle.controlplane.reconcile.CronJobReconciler`, `com.gimle.controlplane.reconcile.HealthReconciler`, `com.gimle.controlplane.reconcile.ReplicaCountReconciler`
+
+#### GIMLE-609 — Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default
+
+- **Category**: Control Plane API
+- **Status**: New  _(newly added as part of the manifest apiVersion / registry-only v1 work)_
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/workload-manifests.feature` — Scenario: *apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts*
+  - _Why this counts_: Submits real deployment manifests against a running cluster's real /deployments admission surface with apiVersion v1alpha1 (accepted -- the same ruleset an unversioned manifest gets), and apiVersion v9 (rejected with a clean 400 rather than silently defaulted), proving the version resolution end to end, not just in the parser's unit tests.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiVersionTest` (gimle-core), `ManifestParserTest` (gimle-mimir), `ArtifactSetManifestParserTest` (gimle-module), `ApiServerTest.an_unsupported_api_version_is_rejected` (gimle-controlplane), `ArtifactSetMojoTest` (generated manifest pins apiVersion: v1)
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/manifest/ApiVersion.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestParser.java`, `gimle-module/src/main/java/com/gimle/module/artifactset/ArtifactSetManifestParser.java`
+
+#### GIMLE-610 — Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings
+
+- **Category**: Control Plane API
+- **Status**: New  _(newly added as part of the manifest apiVersion / registry-only v1 work)_
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/workload-manifests.feature` — Scenario: *apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts*
+  - _Why this counts_: Submits a real apiVersion: v1 deployment manifest naming a local artifactPath against a running cluster's real admission surface and asserts the clean 400 rejection, alongside the accepted v1alpha1 twin -- the enforcement itself, exercised end to end.
+  - `gimle-holmgang/src/test/resources/features/registry-deploy.feature` — Scenario: *A v1 manifest deploys by coordinate through the registry*
+  - _Why this counts_: Pushes a real module jar to a real Andvari replica through the control plane's proxy, submits an apiVersion: v1 coordinate-only deployment for it, and asserts it is accepted and reaches ACTIVE on a real worker JVM -- the whole registry-only path a v1 manifest is forced onto, working.
+- **Other test coverage (non-Holmgang, informational only)**: `ManifestParserTest` (per-kind v1 rejection, alpha warning, coordinate-only), `ApiServerTest` (X-Gimle-Warning header, v1 400), `DeploymentsCommandTest` (stderr-only warning, v1 apply failure through the real CLI)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java`
 
 ### gimle-fabric
 
@@ -6460,7 +6486,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**487 of 608 requirements are Not Covered.**
+**487 of 610 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|

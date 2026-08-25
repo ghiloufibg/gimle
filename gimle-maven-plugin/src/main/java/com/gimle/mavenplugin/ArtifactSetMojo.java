@@ -155,7 +155,9 @@ public final class ArtifactSetMojo extends AbstractGimleRootMojo {
               + " reactor that builds at least one artifact");
     }
 
-    StringBuilder yaml = new StringBuilder("kind: ArtifactSet\n");
+    // A generated manifest always pins its apiVersion explicitly: regenerated output leaning on
+    // the unversioned default would silently change meaning if that default ever moved.
+    StringBuilder yaml = new StringBuilder("apiVersion: v1\nkind: ArtifactSet\n");
     if (!byTenant.isEmpty()) {
       yaml.append("tenant:\n");
       for (Map.Entry<String, List<List<String>>> entry : byTenant.entrySet()) {
@@ -281,10 +283,18 @@ public final class ArtifactSetMojo extends AbstractGimleRootMojo {
    * A submodule's own {@code gimle.artifactset.tenantId} property in its own {@code pom.xml} wins
    * over the reactor-wide {@code defaultTenantId} -- ordinary Maven properties inheritance, nothing
    * plugin-specific, the same override shape most Maven plugin settings already follow. {@code
-   * null} means untenanted.
+   * null} means untenanted -- and so does a blank {@code defaultTenantId}: {@code -D
+   * gimle.artifactset.tenantId=} (an unset shell variable interpolated into the property, say)
+   * passes an empty string rather than a null property value, and without this guard that empty
+   * string became a literal blank-string tenant key, corrupting the generated manifest's {@code
+   * tenant:} mapping (a key with nothing before the colon, invalid YAML) rather than being treated
+   * as "no default" the way an omitted property already is.
    */
   static String effectiveTenant(MavenProject reactorProject, String defaultTenantId) {
     String own = reactorProject.getProperties().getProperty("gimle.artifactset.tenantId");
-    return own != null && !own.isBlank() ? own : defaultTenantId;
+    if (own != null && !own.isBlank()) {
+      return own;
+    }
+    return defaultTenantId == null || defaultTenantId.isBlank() ? null : defaultTenantId;
   }
 }
