@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Deployment
+name: hello-deployment
+module:
+  name: com.gimle.examples.hello
+  version: 1.0.0
+replicas: 1

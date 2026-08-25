@@ -1,0 +1,42 @@
+# The single-machine cluster this image boots: every process kind Hilmir can place -- store,
+# control plane, Fafnir, Muninn, Andvari, one node agent -- on one machine named "midgard".
+#
+# host is 127.0.0.1 deliberately: every server in the platform binds the wildcard address and
+# only *advertises* this host, so processes inside the container reach each other over loopback
+# while Docker's published ports still reach every listener from outside the container.
+#
+# The -Xmx caps keep the whole seven-JVM cluster (six platform processes plus each module's own
+# worker JVM) comfortably inside a ~2 GiB container. Worker JVMs are deliberately left uncapped
+# here: each worker's heap ceiling is assigned per module from its own manifest's resource limit,
+# and a topology-wide -Xmx would silently override it.
+name: midgard
+machines:
+  - {name: midgard, host: 127.0.0.1}
+runtime:
+  classpath: "/opt/gimle/lib/*"
+  dataRoot: /var/lib/gimle
+store:
+  replicas:
+    - {machine: midgard}
+controlPlane:
+  replicas:
+    - {machine: midgard}
+fafnir:
+  keyFile: /var/lib/gimle/fafnir-secret.key
+  replicas:
+    - {machine: midgard}
+muninn:
+  replicas:
+    - {machine: midgard}
+andvari:
+  replicas:
+    - {machine: midgard}
+agents:
+  - {machine: midgard, nodeId: midgard-node}
+jvm:
+  store: ["-Xmx192m"]
+  controlPlane: ["-Xmx256m"]
+  fafnir: ["-Xmx128m"]
+  muninn: ["-Xmx160m"]
+  andvari: ["-Xmx160m"]
+  agent: ["-Xmx160m"]

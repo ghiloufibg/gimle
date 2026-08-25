@@ -1,0 +1,99 @@
+<assembly xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3 http://maven.apache.org/xsd/assembly-1.1.3.xsd">
+  <!--
+    The Midgard dev-cluster archive: a self-contained Docker build context that boots a complete
+    single-machine Gimlé cluster inside one container (see src/main/midgard/README.md, shipped at
+    the archive root). Same flat lib/ + modules/ layout as the platform archive, plus the example
+    module jars under examples/ (declared provided-scope in this module's pom precisely so the
+    runtime-scoped dependency sets here and in every other descriptor never pick them up), and the
+    Docker/topology/entrypoint/seeding files under the archive root and midgard/.
+  -->
+  <id>midgard</id>
+  <formats>
+    <format>tar.gz</format>
+  </formats>
+  <includeBaseDirectory>true</includeBaseDirectory>
+  <baseDirectory>gimle-midgard-${project.version}</baseDirectory>
+
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>lib</outputDirectory>
+      <useProjectArtifact>false</useProjectArtifact>
+      <useTransitiveDependencies>true</useTransitiveDependencies>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+      <excludes>
+        <exclude>com.gimle:gimle-gateway</exclude>
+      </excludes>
+    </dependencySet>
+    <dependencySet>
+      <outputDirectory>modules</outputDirectory>
+      <useProjectArtifact>false</useProjectArtifact>
+      <useTransitiveDependencies>false</useTransitiveDependencies>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+      <includes>
+        <include>com.gimle:gimle-gateway</include>
+      </includes>
+    </dependencySet>
+    <dependencySet>
+      <outputDirectory>examples</outputDirectory>
+      <useProjectArtifact>false</useProjectArtifact>
+      <useTransitiveDependencies>false</useTransitiveDependencies>
+      <unpack>false</unpack>
+      <scope>provided</scope>
+      <includes>
+        <include>com.gimle:hello-module</include>
+        <include>com.gimle:greeter-provider</include>
+        <include>com.gimle:greeter-consumer</include>
+      </includes>
+    </dependencySet>
+  </dependencySets>
+
+  <fileSets>
+    <fileSet>
+      <directory>${project.basedir}/src/main/dist/bin</directory>
+      <outputDirectory>bin</outputDirectory>
+      <fileMode>0755</fileMode>
+      <includes>
+        <include>hilmir</include>
+        <include>gimle</include>
+      </includes>
+    </fileSet>
+    <fileSet>
+      <directory>${project.basedir}/src/main/midgard</directory>
+      <outputDirectory></outputDirectory>
+      <includes>
+        <include>Dockerfile</include>
+        <include>README.md</include>
+      </includes>
+    </fileSet>
+    <!-- Filtered so the compose file's image tag tracks the real project version. -->
+    <fileSet>
+      <directory>${project.basedir}/src/main/midgard</directory>
+      <outputDirectory></outputDirectory>
+      <filtered>true</filtered>
+      <includes>
+        <include>docker-compose.yaml</include>
+      </includes>
+    </fileSet>
+    <fileSet>
+      <directory>${project.basedir}/src/main/midgard/midgard</directory>
+      <outputDirectory>midgard</outputDirectory>
+      <fileMode>0755</fileMode>
+      <includes>
+        <include>entrypoint.sh</include>
+        <include>seed-examples.sh</include>
+      </includes>
+    </fileSet>
+    <fileSet>
+      <directory>${project.basedir}/src/main/midgard/midgard</directory>
+      <outputDirectory>midgard</outputDirectory>
+      <includes>
+        <include>topology.yaml</include>
+        <include>manifests/*.yaml</include>
+      </includes>
+    </fileSet>
+  </fileSets>
+</assembly>

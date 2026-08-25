@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 608,
+  "requirementCount": 611,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10587,6 +10587,23 @@
         "`gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java`"
       ],
       "otherTestCoverage": "`ManifestParserTest` (per-kind v1 rejection, alpha warning, coordinate-only), `ApiServerTest` (X-Gimle-Warning header, v1 400), `DeploymentsCommandTest` (stderr-only warning, v1 apply failure through the real CLI)"
+    },
+    {
+      "id": "GIMLE-611",
+      "module": "gimle-dist",
+      "feature": "Midgard Docker dev-cluster distribution archive",
+      "category": "Packaging",
+      "status": "New",
+      "statusNote": "newly added as part of the Midgard Docker dev-cluster work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario boots the Docker image -- Holmgang deliberately spawns bare subprocess clusters, and requiring a Docker daemon inside the validation profile is a real environmental dependency it does not take on today. The pieces Midgard composes (hilmir up boot order/readiness, registry-coordinate v1 deploys, artifact push through the control-plane proxy) each have their own Holmgang coverage; the Docker composition itself is verified manually per the requirements matrix.",
+      "sourceLocations": [
+        "`gimle-dist/src/main/assembly/midgard.xml`",
+        "`gimle-dist/pom.xml`",
+        "`gimle-dist/src/main/midgard/`"
+      ],
+      "otherTestCoverage": "Manual end-to-end verification: docker compose up from the built archive boots all process kinds to readiness, seeded example deployments reach ACTIVE from registry coordinates, console serves on the published port, docker stop tears down via hilmir down."
     }
   ]
 }

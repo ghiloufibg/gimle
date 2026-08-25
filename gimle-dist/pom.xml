@@ -15,16 +15,17 @@
 
   <name>Gimle Dist</name>
   <description>
-    Packages the platform's own already-built jars into three audience-specific distribution
-    tarballs (a cluster-machine platform archive, a standalone CLI archive, and a standalone
-    Hilmir archive) -- no Java sources of its own, only assembly descriptors and the two shell
-    wrapper scripts every archive ships.
+    Packages the platform's own already-built jars into four audience-specific distribution
+    tarballs (a cluster-machine platform archive, a standalone CLI archive, a standalone Hilmir
+    archive, and the Midgard Docker dev-cluster build context) -- no Java sources of its own,
+    only assembly descriptors, the two shell wrapper scripts every archive ships, and the Midgard
+    archive's Docker/topology/seeding files.
   </description>
 
   <!--
     Every dependency this module declares exists so maven-assembly-plugin has a resolved
     dependency graph to pick jars out of; gimle-dist itself never calls any of this code. The
-    three assembly descriptors under src/main/assembly each select their own subset of this graph
+    assembly descriptors under src/main/assembly each select their own subset of this graph
     via <includes>/<excludes>; see each descriptor's own comment for which subset and why.
   -->
   <dependencies>
@@ -72,6 +73,30 @@
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-gateway</artifactId>
+    </dependency>
+    <!--
+      The example modules the Midgard dev-cluster archive seeds its cluster with, provided scope
+      deliberately: every other descriptor's dependency sets select scope "runtime", so declaring
+      these provided keeps them (and this addition itself) invisible to the platform/cli/hilmir
+      archives; only midgard.xml's own examples/ dependency set (scope "provided") picks them up.
+    -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>hello-module</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>greeter-provider</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>greeter-consumer</artifactId>
+      <version>${project.version}</version>
+      <scope>provided</scope>
     </dependency>
   </dependencies>
 
@@ -181,6 +206,25 @@
               <appendAssemblyId>false</appendAssemblyId>
             </configuration>
           </execution>
+          <!--
+            Deliberately not given a -with-jre override by the dist-with-jre profile: the Midgard
+            image runs everything on its base image's own full JRE (see the Dockerfile's comment
+            for why a trimmed runtime is wrong for an image that hosts arbitrary module code).
+          -->
+          <execution>
+            <id>midgard</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/main/assembly/midgard.xml</descriptor>
+              </descriptors>
+              <finalName>gimle-midgard-${project.version}</finalName>
+              <appendAssemblyId>false</appendAssemblyId>
+            </configuration>
+          </execution>
         </executions>
       </plugin>
 
@@ -215,12 +259,16 @@
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <checksum file="${project.build.directory}/gimle-hilmir-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
+                <checksum file="${project.build.directory}/gimle-midgard-${project.version}.tar.gz"
+                          algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <copy file="${project.build.directory}/bom.json"
                       tofile="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json"/>
                 <copy file="${project.build.directory}/bom.json"
                       tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"/>
                 <copy file="${project.build.directory}/bom.json"
                       tofile="${project.build.directory}/gimle-hilmir-${project.version}-cyclonedx.json"/>
+                <copy file="${project.build.directory}/bom.json"
+                      tofile="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json"/>
               </target>
             </configuration>
           </execution>

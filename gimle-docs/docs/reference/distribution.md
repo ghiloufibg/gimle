@@ -4,11 +4,12 @@ sidebar_position: 6
 
 # Distribution archives
 
-`gimle-dist` packages the platform's own already-built jars into three audience-specific tarballs —
-no Java sources of its own, only `maven-assembly-plugin` descriptors and two wrapper scripts, each
-shipped as both a POSIX `sh` version and a Windows `.cmd` version. It's an opt-in reactor member
-the same way `gimle-docs` is: `mvn install` builds every module including `gimle-dist`, since
-`gimle-dist` is a plain (always-in) module, not a profile-gated one.
+`gimle-dist` packages the platform's own already-built jars into four audience-specific tarballs —
+no Java sources of its own, only `maven-assembly-plugin` descriptors, two wrapper scripts (each
+shipped as both a POSIX `sh` version and a Windows `.cmd` version), and the Midgard archive's
+Docker/topology/seeding files. It's an opt-in reactor member the same way `gimle-docs` is: `mvn
+install` builds every module including `gimle-dist`, since `gimle-dist` is a plain (always-in)
+module, not a profile-gated one.
 
 ## Building
 
@@ -17,27 +18,29 @@ mvn -pl gimle-dist -am install
 ```
 
 `-am` builds every module `gimle-dist` depends on first (every process-kind module, plus
-`gimle-hilmir`, `gimle-cli`, and `gimle-gateway`); `gimle-dist` itself then assembles three tarballs
-under `gimle-dist/target/`, each with a `.sha256` checksum file and a CycloneDX SBOM
-(`*-cyclonedx.json`) beside it.
+`gimle-hilmir`, `gimle-cli`, `gimle-gateway`, and the example modules the Midgard archive bundles);
+`gimle-dist` itself then assembles four tarballs under `gimle-dist/target/`, each with a `.sha256`
+checksum file and a CycloneDX SBOM (`*-cyclonedx.json`) beside it.
 
 Add `-P dist-with-jre` to also bundle a per-component jlink JRE into each archive (see [Bundling a
 JRE into the archives](#bundling-a-jre-into-the-archives) below) — the default build above is
 completely unaffected by this profile's existence.
 
-## The three archives
+## The four archives
 
 | Archive | Audience | Contents |
 |---|---|---|
 | `gimle-platform-<version>.tar.gz` | Cluster machines | `bin/hilmir`(`.cmd`), `bin/gimle`(`.cmd`), a flat `lib/` holding every process-kind jar (`StoreMain`, `ControlPlaneMain`, `AgentMain`, `WorkerMain`, `FafnirMain`, `MuninnMain`, `AndvariMain`, `PkiBootstrapMain`) plus `gimle-hilmir`/`gimle-cli` themselves and their full deduplicated runtime dependency closure, and a `modules/` directory holding `gimle-gateway`'s own jar (the hosted-module payload for a future `hilmir enable gateway` verb — not on any process's own classpath). |
 | `gimle-cli-<version>.tar.gz` | A workstation that only needs the `gimle` client | `bin/gimle`(`.cmd`) plus exactly `gimle-cli`'s own runtime dependency closure. Nothing else. |
 | `gimle-hilmir-<version>.tar.gz` | A workstation that only needs to run `hilmir`'s release verbs against an already-running cluster | `bin/hilmir`(`.cmd`) plus exactly `gimle-hilmir`'s own runtime dependency closure. Nothing else. |
+| `gimle-midgard-<version>.tar.gz` | Local development and manual QA | The [Midgard dev cluster](#the-midgard-dev-cluster-image): a self-contained Docker build context booting a complete single-machine cluster inside one container, pre-seeded with the example modules. |
 
 Unpacking any archive creates its own top-level directory (`gimle-platform-<version>/`,
-`gimle-cli-<version>/`, `gimle-hilmir-<version>/`); the intended install location on a cluster
-machine is `/opt/gimle/<version>`, matching `gimle-hilmir`'s own topology YAML convention of
-pointing `runtime.classpath` at an already-unpacked `lib/` (see [`gimle-hilmir`
-reference](./hilmir-reference.md)).
+`gimle-cli-<version>/`, `gimle-hilmir-<version>/`, `gimle-midgard-<version>/`); the intended
+install location on a cluster machine is `/opt/gimle/<version>`, matching `gimle-hilmir`'s own
+topology YAML convention of pointing `runtime.classpath` at an already-unpacked `lib/` (see
+[`gimle-hilmir` reference](./hilmir-reference.md)). The Midgard archive is the exception: it
+unpacks anywhere Docker runs, and nothing in it is executed on the host directly.
 
 ## The wrapper scripts
 
@@ -86,6 +89,48 @@ moment it notices the process has exited — it does not need to wait out the wh
 still cannot notice sooner than its own next poll tick after the process actually crashes). Either
 run `up` from inside a platform archive, or set `runtime.classpath` explicitly in the topology
 document to point at a platform archive's `lib/` elsewhere on that machine.
+
+## The Midgard dev cluster image
+
+`gimle-midgard-<version>.tar.gz` is Gimlé's minikube equivalent: unpack it anywhere Docker (with
+Compose v2) runs and
+
+```bash
+docker compose up -d
+```
+
+builds an image and boots a complete, ready-to-use single-machine Gimlé cluster inside one
+container — real development and manual QA against the actual platform with nothing on the host
+but Docker. The archive is a self-contained Docker build context: the platform archive's own flat
+`lib/` and `modules/` layout plus the two wrapper scripts, the example module jars under
+`examples/`, a `Dockerfile` (based on a full JRE image, deliberately — the same
+arbitrary-module-code reasoning that keeps the agent and worker out of `-P dist-with-jre` applies
+to an image that hosts arbitrary deployed modules), a `docker-compose.yaml`, and a `midgard/`
+directory holding the topology, entrypoint, seeding script, and example deployment manifests. No
+JDK, Maven, or source checkout is needed on the host.
+
+Inside the container, boot is the platform's own mechanism, not a parallel one: the entrypoint
+runs `hilmir up` against the bundled single-machine topology (`midgard/topology.yaml` — one store
+replica, one control plane, Fafnir, Muninn, Andvari, and one node agent named `midgard-node`, all
+advertising `127.0.0.1`; every listener binds the wildcard address, which is why Docker's
+published ports still reach them). Once the machine is up, the entrypoint pushes the bundled
+example modules (`hello-module`, `greeter-provider`, `greeter-consumer`) to the Andvari registry
+through the control plane's `/artifacts/*` proxy and applies an `apiVersion: v1`
+registry-coordinate deployment for each, so the cluster starts with real running workloads — set
+`MIDGARD_SEED: "false"` in the compose file to boot empty instead. `docker stop` tears the cluster
+down through `hilmir down` from the same entrypoint's signal trap.
+
+Published ports: `8080` (control plane API and web console at `/console`), `9092` (Fafnir API and
+console), `9093` (Muninn), `9094` (Andvari API and console). The cluster is plaintext and
+unauthenticated, like every other local-dev Gimlé setup — never publish these ports beyond the
+local machine. Cluster state (store data, secrets, pushed artifacts, per-process logs) lives in
+the `midgard-data` named volume mounted at `/var/lib/gimle`, so state survives container
+recreation; `docker compose down -v` resets to a fresh cluster. The compose file's `init: true` is
+required, not cosmetic: `hilmir up` spawns each platform process detached, so they reparent to PID
+1 and need a real init process reaping them — plain `docker run` needs `--init` for the same
+reason. See the archive's own `README.md` for the day-to-day commands (pointing a host-side
+`gimle` CLI at `--server localhost:8080`, `docker exec` equivalents, deploying your own module by
+`gimle artifact push` + a coordinate-only manifest).
 
 ## What v1 deliberately leaves out
 

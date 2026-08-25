@@ -620,6 +620,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-608 | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | Artifact Registry | Complete | Yes |
 | GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | Control Plane API | Complete | Yes |
 | GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | Control Plane API | Complete | Yes |
+| GIMLE-611 | Midgard Docker dev-cluster distribution archive | Packaging | Complete | Partial |
 
 ## Detailed Requirements
 
@@ -9017,6 +9018,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each.
+  ```
+
+#### GIMLE-611 — Midgard Docker dev-cluster distribution archive
+
+- **Category**: Packaging
+- **User story**: As a developer or QA engineer, I want a minikube-equivalent Gimle dev cluster -- one docker compose up from an unpacked distribution archive boots a complete single-machine cluster (store, control plane, Fafnir, Muninn, Andvari, one node agent) inside one container, pre-seeded with the example modules -- so I can exercise the real platform, consoles, and CLI locally with nothing installed on the host but Docker.
+- **Status**: Complete. The midgard assembly execution in gimle-dist produces gimle-midgard-<version>.tar.gz, a self-contained Docker build context: the platform archive's flat lib/ + modules/ layout and wrapper scripts, the example module jars under examples/ (hello-module, greeter-provider, greeter-consumer, declared provided-scope in gimle-dist's pom so the runtime-scoped platform/cli/hilmir dependency sets never pick them up), a Dockerfile on a full-JRE base (the same arbitrary-module-code reasoning that excludes agent/worker from dist-with-jre), docker-compose.yaml (filtered image tag, init: true for PID-1 reaping of hilmir-spawned processes, named midgard-data volume at /var/lib/gimle, ports 8080/9092/9093/9094), and midgard/ holding the single-machine topology (127.0.0.1 advertised host; every listener binds the wildcard address so published ports work), the entrypoint (hilmir up on boot, hilmir down on SIGTERM, TCP liveness watch on the control plane port), the idempotent seeding script (gimle artifact push of every bundled example jar through the control plane's /artifacts/* proxy, then apply of the bundled manifests), and apiVersion: v1 registry-coordinate deployment manifests for the three examples. MIDGARD_SEED=false boots an empty cluster. The archive gets the same .sha256 and -cyclonedx.json postprocessing as the other three.
+- **Confidence**: High
+- **Source location(s)**: `gimle-dist/src/main/assembly/midgard.xml` (archive layout), `gimle-dist/pom.xml` (midgard assembly execution, provided-scope example deps, checksum/SBOM postprocess), `gimle-dist/src/main/midgard/Dockerfile`, `gimle-dist/src/main/midgard/docker-compose.yaml`, `gimle-dist/src/main/midgard/midgard/topology.yaml`, `gimle-dist/src/main/midgard/midgard/entrypoint.sh` / `seed-examples.sh`, `gimle-dist/src/main/midgard/midgard/manifests/` (v1 coordinate-only deployments)
+- **Test coverage**: Verified manually end to end: built the archive, docker compose up from the unpacked build context, all six platform processes reached readiness via hilmir up inside the container, the three seeded deployments reached ACTIVE (greeters resolved from the Andvari registry by coordinate), the web console served at :8080/console from the host, and docker stop tore the cluster down through hilmir down. No automated suite boots Docker; the underlying hilmir up boot path and registry-coordinate deploy path have their own Holmgang coverage.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the unpacked gimle-midgard archive on a machine with Docker, When docker compose up -d runs, Then one container boots a store, control plane, Fafnir, Muninn, Andvari, and a node agent via hilmir up, and the web console serves on the published port 8080.
+  Given the container is up with seeding enabled, When the entrypoint's seed step runs, Then the bundled example jars are pushed to the artifact registry and their v1 coordinate-only deployments reach ACTIVE.
+  Given a running Midgard container, When docker stop is issued, Then the entrypoint tears the cluster down via hilmir down before exiting.
   ```
 
 ### gimle-skald

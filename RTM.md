@@ -625,6 +625,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-608 | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | New | Not Covered | — |
 | GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | New | Covered | `workload-manifests.feature` — "apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts" |
 | GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | New | Covered | `workload-manifests.feature` — "apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts"; `registry-deploy.feature` — "A v1 manifest deploys by coordinate through the registry" |
+| GIMLE-611 | Midgard Docker dev-cluster distribution archive | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -6471,6 +6472,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-dist/pom.xml` (cyclonedx-maven-plugin and maven-antrun-plugin executions)
 
+#### GIMLE-611 — Midgard Docker dev-cluster distribution archive
+
+- **Category**: Packaging
+- **Status**: New  _(newly added as part of the Midgard Docker dev-cluster work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario boots the Docker image -- Holmgang deliberately spawns bare subprocess clusters, and requiring a Docker daemon inside the validation profile is a real environmental dependency it does not take on today. The pieces Midgard composes (hilmir up boot order/readiness, registry-coordinate v1 deploys, artifact push through the control-plane proxy) each have their own Holmgang coverage; the Docker composition itself is verified manually per the requirements matrix.
+- **Other test coverage (non-Holmgang, informational only)**: Manual end-to-end verification: docker compose up from the built archive boots all process kinds to readiness, seeded example deployments reach ACTIVE from registry coordinates, console serves on the published port, docker stop tears down via hilmir down.
+- **Source location(s)**: `gimle-dist/src/main/assembly/midgard.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/midgard/`
+
 ### gimle-skald
 
 #### GIMLE-569 — gimle-skald: cluster DNS server resolving Service names to live endpoints
@@ -6486,7 +6496,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**487 of 610 requirements are Not Covered.**
+**488 of 611 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6803,6 +6813,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-562 | gimle-dist | Cluster-machine platform distribution archive | Packaging | NONE recorded in the baseline |
 | GIMLE-563 | gimle-dist | Opt-in bundled-JRE distribution variant (`dist-with-jre` profile) | Packaging | NONE recorded in the baseline |
 | GIMLE-564 | gimle-dist | Distribution archive checksums and SBOM generation | Packaging | NONE recorded in the baseline |
+| GIMLE-611 | gimle-dist | Midgard Docker dev-cluster distribution archive | Packaging | Manual end-to-end verification: docker compose up from the built archive boots all process kinds to readiness, seeded example deployments reach ACTIVE from registry coordinates, console serves on the published port, docker stop tears down via hilmir down. |
 | GIMLE-559 | gimle-holmgang | Docker Compose manual validation topologies (bundled-JRE and full-JRE) | Packaging / Internal-Infra | NONE recorded in the baseline |
 | GIMLE-139 | gimle-mimir | Conflicting-Entry Truncation | Raft Consensus | `RaftNodeSafetyMechanicsTest#a_follower_truncates_a_conflicting_entry_and_everything_after_it_before_appending` |
 | GIMLE-140 | gimle-mimir | Leader-Only-Commits-Own-Term Rule (Figure 8) | Raft Consensus | `RaftNodeSafetyMechanicsTest#the_leader_only_commits_an_entry_from_its_own_current_term` |
