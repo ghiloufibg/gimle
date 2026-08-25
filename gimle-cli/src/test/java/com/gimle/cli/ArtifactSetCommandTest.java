@@ -308,4 +308,132 @@ class ArtifactSetCommandTest {
 
     assertEquals(200, response.statusCode());
   }
+
+  // ---- vessel and bundle entries ----
+
+  @Test
+  void deploying_a_bundle_coordinate_without_a_vessel_block_is_rejected() throws Exception {
+    Path appDir = tempDir.resolve("quarkus-app-admission");
+    Files.createDirectories(appDir);
+    Files.writeString(appDir.resolve("quarkus-run.jar"), "pretend-run-jar");
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: ArtifactSet
+        modules:
+          - artifact: quarkus-app-admission
+            kind: bundle
+            name: com.example.report
+            version: 5.0.0
+            command: [java, -jar, quarkus-run.jar]
+        """);
+    assertEquals(0, run("apply", "-f", manifest.toString(), "--server", serverAddress));
+
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    ApiResponse response =
+        client.put(
+            "/deployments/report-deployment",
+            """
+            kind: Deployment
+            name: report-deployment
+            module:
+              name: com.example.report
+              version: 5.0.0
+            replicas: 1
+            """);
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("vessel"));
+  }
+
+  @Test
+  void a_vessel_entry_pushes_under_its_declared_coordinate() throws Exception {
+    Path vesselJar = tempDir.resolve("billing-vessel.jar");
+    Files.writeString(vesselJar, "pretend-plain-runnable-jar");
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: ArtifactSet
+        tenant:
+          billing:
+            - artifact: billing-vessel.jar
+              kind: vessel
+              name: com.example.billing-vessel
+              version: 1.0.0
+        """);
+
+    int exitCode = run("apply", "-f", manifest.toString(), "--server", serverAddress);
+
+    assertEquals(0, exitCode, errBuffer.toString(StandardCharsets.UTF_8));
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    ControlPlaneClient.HeadResult head = client.head("/artifacts/com.example.billing-vessel/1.0.0");
+    assertEquals(200, head.statusCode());
+    assertEquals("JAR", head.kind().orElseThrow());
+    assertEquals("billing", head.tenantId().orElseThrow());
+  }
+
+  @Test
+  void a_bundle_entry_zips_the_directory_and_pushes_it_as_a_bundle() throws Exception {
+    Path appDir = tempDir.resolve("quarkus-app");
+    Files.createDirectories(appDir.resolve("lib"));
+    Files.writeString(appDir.resolve("quarkus-run.jar"), "pretend-run-jar");
+    Files.writeString(appDir.resolve("lib/dep.jar"), "pretend-dep-jar");
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: ArtifactSet
+        modules:
+          - artifact: quarkus-app
+            kind: bundle
+            name: com.example.report
+            version: 2.0.0
+            command: [java, -jar, quarkus-run.jar]
+        """);
+
+    int exitCode = run("apply", "-f", manifest.toString(), "--server", serverAddress);
+
+    assertEquals(0, exitCode, errBuffer.toString(StandardCharsets.UTF_8));
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    ControlPlaneClient.HeadResult head = client.head("/artifacts/com.example.report/2.0.0");
+    assertEquals(200, head.statusCode());
+    assertEquals("BUNDLE", head.kind().orElseThrow());
+
+    // Re-applying the identical manifest must reproduce the identical zip digest -- the
+    // deterministic-zip guarantee -- and land as the idempotent already-present outcome.
+    outBuffer.reset();
+    assertEquals(0, run("apply", "-f", manifest.toString(), "--server", serverAddress));
+    assertTrue(outBuffer.toString(StandardCharsets.UTF_8).contains("already-present"));
+  }
+
+  @Test
+  void a_bundle_entry_conflicting_with_a_stored_jar_kind_fails_preflight() throws Exception {
+    Path jarsDir = tempDir.resolve("jars");
+    Path jar = buildModule("com.example.report", "3.0.0", jarsDir);
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    client.expectSuccess(client.putFile("/artifacts/com.example.report/3.0.0", jar));
+
+    Path appDir = tempDir.resolve("quarkus-app-conflict");
+    Files.createDirectories(appDir);
+    Files.writeString(appDir.resolve("quarkus-run.jar"), "pretend-run-jar");
+    Path manifest = tempDir.resolve("artifactset.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: ArtifactSet
+        modules:
+          - artifact: quarkus-app-conflict
+            kind: bundle
+            name: com.example.report
+            version: 3.0.0
+            command: [java, -jar, quarkus-run.jar]
+        """);
+
+    int exitCode = run("apply", "-f", manifest.toString(), "--server", serverAddress);
+
+    assertEquals(1, exitCode);
+    assertTrue(errBuffer.toString(StandardCharsets.UTF_8).contains("kind"));
+  }
 }

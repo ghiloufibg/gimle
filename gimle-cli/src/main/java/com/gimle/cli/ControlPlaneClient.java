@@ -167,7 +167,8 @@ public final class ControlPlaneClient {
       return new HeadResult(
           response.statusCode(),
           response.headers().firstValue("X-Gimle-Artifact-Sha256"),
-          response.headers().firstValue("X-Gimle-Artifact-Tenant"));
+          response.headers().firstValue("X-Gimle-Artifact-Tenant"),
+          response.headers().firstValue("X-Gimle-Artifact-Kind"));
     } catch (IOException e) {
       throw new CliException(
           "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
@@ -178,7 +179,8 @@ public final class ControlPlaneClient {
   }
 
   /** The outcome of a {@link #head} request. */
-  public record HeadResult(int statusCode, Optional<String> sha256, Optional<String> tenantId) {}
+  public record HeadResult(
+      int statusCode, Optional<String> sha256, Optional<String> tenantId, Optional<String> kind) {}
 
   /**
    * GETs {@code path} streaming straight into {@code target} (never the whole body in memory),
