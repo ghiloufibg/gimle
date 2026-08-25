@@ -9,7 +9,9 @@ import ZoomableDiagram from '@site/src/components/ZoomableDiagram';
 The operator-facing web UI (`gimle-console`) — real data from a running control plane, no mocks,
 no seeded state. Bun/Vite/React/TanStack Router; embedded into `gimle-controlplane`'s own jar and
 served at `/console` with no separate deploy step (see
-[Project structure](../contributing/project-structure.md)).
+[Project structure](../contributing/project-structure.md)). The bare control-plane address (`/`)
+redirects there too, so pointing a browser at the API server's host with no path lands on the
+console rather than a bare `404`.
 
 The console and `gimle-cli` are two clients of one API surface — the control plane proxies out to
 the three dedicated services rather than either client talking to them directly (source:
