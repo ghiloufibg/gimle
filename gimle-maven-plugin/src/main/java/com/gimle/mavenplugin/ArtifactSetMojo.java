@@ -108,45 +108,158 @@ public final class ArtifactSetMojo extends AbstractGimleRootMojo {
   }
 
   /**
-   * Groups every reactor module's own built jar by its {@link #effectiveTenant} into a {@code kind:
-   * ArtifactSet} document -- plain string-building, not {@code ArtifactSetManifestParser}'s model
-   * types: generating the file is simple enough on its own, and this Mojo has no reason to depend
-   * on {@code gimle-module}'s parser package just to serialize what it already knows structurally.
+   * Groups every reactor module's own built artifact by its {@link #effectiveTenant} into a {@code
+   * kind: ArtifactSet} document -- plain string-building, not {@code ArtifactSetManifestParser}'s
+   * model types: generating the file is simple enough on its own, and this Mojo has no reason to
+   * depend on {@code gimle-module}'s parser package just to serialize what it already knows
+   * structurally.
+   *
+   * <p>A reactor module is an ordinary module jar (a bare path entry) unless its own {@code
+   * pom.xml} says otherwise via {@code gimle.artifactset.kind} ({@code vessel} or {@code bundle}),
+   * the same per-module-property override shape {@code gimle.artifactset.tenantId} already uses. A
+   * {@code vessel}/{@code bundle} module's coordinate defaults to {@code
+   * {groupId}.{artifactId}}/{@code {project.version}} (overridable via {@code
+   * gimle.artifactset.name}/{@code .version}); a bundle additionally requires {@code
+   * gimle.artifactset.command} (comma-separated argv) and usually {@code
+   * gimle.artifactset.artifact} (its build-output directory, relative to the module's own base
+   * directory -- a Quarkus fast-jar build outputs {@code target/quarkus-app}, which this Mojo has
+   * no way to guess). A misconfigured module fails manifest generation here with a Mojo error
+   * naming it, never later as a confusing CLI parse error against a generated file.
    */
-  static String generateManifestYaml(List<MavenProject> reactorProjects, String defaultTenantId) {
-    Map<String, List<String>> byTenant = new LinkedHashMap<>();
-    List<String> untenanted = new ArrayList<>();
+  static String generateManifestYaml(List<MavenProject> reactorProjects, String defaultTenantId)
+      throws MojoExecutionException {
+    Map<String, List<List<String>>> byTenant = new LinkedHashMap<>();
+    List<List<String>> untenanted = new ArrayList<>();
     for (MavenProject reactorProject : reactorProjects) {
-      String jarPath =
-          Path.of(
-                  reactorProject.getBuild().getDirectory(),
-                  reactorProject.getBuild().getFinalName() + ".jar")
-              .toString();
+      List<String> entry = entryLines(reactorProject);
       String tenant = effectiveTenant(reactorProject, defaultTenantId);
       if (tenant == null) {
-        untenanted.add(jarPath);
+        untenanted.add(entry);
       } else {
-        byTenant.computeIfAbsent(tenant, k -> new ArrayList<>()).add(jarPath);
+        byTenant.computeIfAbsent(tenant, k -> new ArrayList<>()).add(entry);
       }
     }
 
     StringBuilder yaml = new StringBuilder("kind: ArtifactSet\n");
     if (!byTenant.isEmpty()) {
       yaml.append("tenant:\n");
-      for (Map.Entry<String, List<String>> entry : byTenant.entrySet()) {
+      for (Map.Entry<String, List<List<String>>> entry : byTenant.entrySet()) {
         yaml.append("  ").append(entry.getKey()).append(":\n");
-        for (String jarPath : entry.getValue()) {
-          yaml.append("    - ").append(jarPath).append('\n');
+        for (List<String> lines : entry.getValue()) {
+          appendListEntry(yaml, lines, "    ");
         }
       }
     }
     if (!untenanted.isEmpty()) {
       yaml.append("modules:\n");
-      for (String jarPath : untenanted) {
-        yaml.append("  - ").append(jarPath).append('\n');
+      for (List<String> lines : untenanted) {
+        appendListEntry(yaml, lines, "  ");
       }
     }
     return yaml.toString();
+  }
+
+  private static void appendListEntry(StringBuilder yaml, List<String> lines, String indent) {
+    yaml.append(indent).append("- ").append(lines.get(0)).append('\n');
+    for (int i = 1; i < lines.size(); i++) {
+      yaml.append(indent).append("  ").append(lines.get(i)).append('\n');
+    }
+  }
+
+  private static List<String> entryLines(MavenProject reactorProject)
+      throws MojoExecutionException {
+    String kind = property(reactorProject, "gimle.artifactset.kind", "module");
+    String artifactOverride = property(reactorProject, "gimle.artifactset.artifact", null);
+    String artifactPath =
+        artifactOverride != null
+            ? reactorProject.getBasedir().toPath().resolve(artifactOverride).toString()
+            : Path.of(
+                    reactorProject.getBuild().getDirectory(),
+                    reactorProject.getBuild().getFinalName() + ".jar")
+                .toString();
+    String command = property(reactorProject, "gimle.artifactset.command", null);
+    String workdir = property(reactorProject, "gimle.artifactset.workdir", null);
+    return switch (kind) {
+      case "module" -> {
+        requireAbsent(reactorProject, "module", command, "gimle.artifactset.command");
+        requireAbsent(reactorProject, "module", workdir, "gimle.artifactset.workdir");
+        yield List.of(artifactPath);
+      }
+      case "vessel" -> {
+        requireAbsent(reactorProject, "vessel", command, "gimle.artifactset.command");
+        requireAbsent(reactorProject, "vessel", workdir, "gimle.artifactset.workdir");
+        yield coordinateLines(reactorProject, artifactPath, "vessel");
+      }
+      case "bundle" -> {
+        if (command == null || command.isBlank()) {
+          throw new MojoExecutionException(
+              reactorProject.getArtifactId()
+                  + " declares gimle.artifactset.kind=bundle but no gimle.artifactset.command --"
+                  + " a bundle needs an entrypoint");
+        }
+        List<String> lines =
+            new ArrayList<>(coordinateLines(reactorProject, artifactPath, "bundle"));
+        lines.add("command: [" + quotedCommandList(command) + "]");
+        if (workdir != null && !workdir.isBlank()) {
+          lines.add("workdir: " + singleQuoted(workdir));
+        }
+        yield List.copyOf(lines);
+      }
+      default ->
+          throw new MojoExecutionException(
+              reactorProject.getArtifactId()
+                  + " declares unknown gimle.artifactset.kind '"
+                  + kind
+                  + "' -- expected module, vessel, or bundle");
+    };
+  }
+
+  private static List<String> coordinateLines(
+      MavenProject reactorProject, String artifactPath, String kind) {
+    String name =
+        property(
+            reactorProject,
+            "gimle.artifactset.name",
+            reactorProject.getGroupId() + "." + reactorProject.getArtifactId());
+    String version =
+        property(reactorProject, "gimle.artifactset.version", reactorProject.getVersion());
+    return List.of(
+        "artifact: " + artifactPath, "kind: " + kind, "name: " + name, "version: " + version);
+  }
+
+  private static String quotedCommandList(String commaSeparated) {
+    List<String> quoted = new ArrayList<>();
+    for (String part : commaSeparated.split(",")) {
+      String trimmed = part.trim();
+      if (!trimmed.isEmpty()) {
+        quoted.add(singleQuoted(trimmed));
+      }
+    }
+    return String.join(", ", quoted);
+  }
+
+  private static String singleQuoted(String value) {
+    return "'" + value.replace("'", "''") + "'";
+  }
+
+  private static void requireAbsent(
+      MavenProject reactorProject, String kind, String value, String propertyName)
+      throws MojoExecutionException {
+    if (value != null && !value.isBlank()) {
+      throw new MojoExecutionException(
+          reactorProject.getArtifactId()
+              + " declares "
+              + propertyName
+              + " but gimle.artifactset.kind="
+              + kind
+              + " -- that property only applies to a bundle");
+    }
+  }
+
+  private static String property(
+      MavenProject reactorProject, String propertyName, String defaultValue) {
+    String value = reactorProject.getProperties().getProperty(propertyName);
+    return value != null && !value.isBlank() ? value : defaultValue;
   }
 
   /**
