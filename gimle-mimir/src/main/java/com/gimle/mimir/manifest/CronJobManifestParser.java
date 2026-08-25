@@ -1,6 +1,7 @@
 package com.gimle.mimir.manifest;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.manifest.ApiVersion;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
@@ -32,10 +33,9 @@ public final class CronJobManifestParser {
   private CronJobManifestParser() {}
 
   /**
-   * A standalone entry point independent of {@link ManifestParser}'s {@code kind:} dispatch --
-   * mirrors {@link JobManifestParser#parse}, including its reason for existing: {@code
-   * StateStore}'s own reload-on-restart path reuses this rather than duplicating YAML-loading and
-   * root-shape validation a second time.
+   * A standalone, version-blind convenience entry mirroring {@link JobManifestParser#parse}
+   * exactly: parses at {@code v1alpha1} (what an unversioned manifest means), discarding warnings,
+   * for this parser's own shape unit tests.
    */
   public static CronJobSpec parse(InputStream yamlContent) {
     Object raw;
@@ -48,15 +48,16 @@ public final class CronJobManifestParser {
     if (!(raw instanceof Map<?, ?> root)) {
       throw new GimleManifestException("cronjob manifest must contain a YAML mapping at the root");
     }
-    return parseRoot(root);
+    return parseRoot(root, ApiVersion.V1ALPHA1, new ArrayList<>());
   }
 
-  // Package-visible, not private: ManifestParser calls this directly after peeling off kind:,
-  // mirroring JobManifestParser.parseRoot's own visibility exactly.
-  static CronJobSpec parseRoot(Map<?, ?> root) {
+  // Package-visible, not private: ManifestParser calls this directly after peeling off kind: and
+  // apiVersion:, mirroring JobManifestParser.parseRoot's own visibility exactly.
+  static CronJobSpec parseRoot(Map<?, ?> root, ApiVersion version, List<String> warnings) {
     String name = ManifestFields.requireString(root, "name");
     String schedule = ManifestFields.requireString(root, "schedule");
-    JobTemplate jobTemplate = parseJobTemplate(ManifestFields.requireMap(root, "jobTemplate"));
+    JobTemplate jobTemplate =
+        parseJobTemplate(ManifestFields.requireMap(root, "jobTemplate"), version, warnings);
     Optional<Duration> startingDeadline = parseStartingDeadline(root);
     ConcurrencyPolicy concurrencyPolicy = parseConcurrencyPolicy(root);
     Optional<String> tenantId = parseTenantId(root);
@@ -70,9 +71,10 @@ public final class CronJobManifestParser {
     }
   }
 
-  private static JobTemplate parseJobTemplate(Map<?, ?> template) {
+  private static JobTemplate parseJobTemplate(
+      Map<?, ?> template, ApiVersion version, List<String> warnings) {
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(template, "module"));
-    String artifactPath = ManifestFields.optionalArtifactPath(template);
+    String artifactPath = ManifestFields.optionalArtifactPath(template, version, warnings);
     PlacementConstraints placement = parsePlacement(template);
     Optional<Duration> activeDeadline = parseActiveDeadline(template);
     int backoffLimit = parseBackoffLimit(template);
