@@ -12,6 +12,7 @@ import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.LogFileReader;
+import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
@@ -33,6 +34,7 @@ import com.gimle.core.restart.RestartTracker;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.vessel.VesselEntrypoint;
 import com.gimle.core.vessel.VesselEnvValue;
 import com.gimle.core.vessel.VesselFileMount;
 import com.gimle.core.vessel.VesselProbeSpec;
@@ -45,6 +47,8 @@ import com.gimle.fabric.cluster.GossipMember;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.module.artifact.ArtifactPullCache;
 import com.gimle.module.artifact.ModuleArtifactReader;
+import com.gimle.module.artifact.ResolvedArtifact;
+import com.gimle.module.artifact.VesselEntrypointParser;
 import com.gimle.observability.AgentMetrics;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
@@ -1415,9 +1419,23 @@ public final class AgentMain {
         resolveVesselEnv(vessel, allocatedPorts, assigned.tenantId(), httpClient, fafnirBaseUrl);
     renderVesselFiles(vessel, vesselRoot, assigned.tenantId(), httpClient, baseUrl);
 
-    List<String> command =
-        buildVesselCommand(
-            javaExecutable, resourceLimiter, handle, vessel, assigned.artifactPath());
+    // A bundle resolved from the registry is an unpacked directory; a single-jar vessel (local
+    // path or registry-resolved) is a regular file. The directory carries its own launch
+    // descriptor, re-read here at spawn time -- a cheap local read, and the workdir escape check
+    // below must run against the actual filesystem anyway.
+    Path artifactPath = Path.of(assigned.artifactPath());
+    List<String> command;
+    Optional<Path> workingDirectory;
+    if (Files.isDirectory(artifactPath)) {
+      VesselEntrypoint entrypoint = VesselEntrypointParser.parseFromBundleRoot(artifactPath);
+      command = buildBundleCommand(javaExecutable, resourceLimiter, handle, entrypoint, vessel);
+      workingDirectory = Optional.of(resolveBundleWorkdir(artifactPath, entrypoint));
+    } else {
+      command =
+          buildVesselCommand(
+              javaExecutable, resourceLimiter, handle, vessel, assigned.artifactPath());
+      workingDirectory = Optional.empty();
+    }
     Path applicationLogFile =
         vesselRoot
             .resolve("instances")
@@ -1431,6 +1449,7 @@ public final class AgentMain {
             key,
             command,
             env,
+            workingDirectory,
             restartTracker,
             exhaustedKey -> {
               log.error(
@@ -1553,6 +1572,54 @@ public final class AgentMain {
     command.add(resolvedJarPath);
     command.addAll(vessel.args());
     return command;
+  }
+
+  /**
+   * A bundle's full command line: the entrypoint's own fixed argv, with the manifest's {@code
+   * vessel.args} appended -- never overriding it. {@link ResourceLimiter}'s {@code -Xmx}/{@code
+   * ActiveProcessorCount}-equivalent flags are JVM flags, so they're spliced in only when the
+   * entrypoint actually launches a JVM: a bare {@code java} in the entrypoint is replaced by this
+   * agent's own {@code javaExecutable} (same JVM the agent would launch itself) with the limiter
+   * flags right after it, and an entrypoint already naming that exact executable gets the same
+   * splice. Any other program ({@code bin/run}, a native-image binary) has no {@code -Xmx} to
+   * accept -- the limiter flags have nowhere to attach, and the process runs with no JVM-flag
+   * ceiling, the honest current limit of the portable resource-limiting mechanism. Pure and
+   * side-effect-free so it's independently unit-testable, matching {@link #buildVesselCommand}.
+   */
+  static List<String> buildBundleCommand(
+      String javaExecutable,
+      ResourceLimiter resourceLimiter,
+      ResourceLimitHandle handle,
+      VesselEntrypoint entrypoint,
+      VesselSpec vessel) {
+    List<String> entry = entrypoint.command();
+    List<String> command = new ArrayList<>();
+    String program = entry.get(0);
+    boolean launchesJvm = program.equals("java") || program.equals(javaExecutable);
+    command.add(launchesJvm ? javaExecutable : program);
+    if (launchesJvm) {
+      command.addAll(resourceLimiter.jvmFlags(handle));
+    }
+    command.addAll(entry.subList(1, entry.size()));
+    command.addAll(vessel.args());
+    return command;
+  }
+
+  /**
+   * The launched process's working directory: the unpacked bundle root, or the subdirectory the
+   * entrypoint's {@code workdir} names inside it. Re-verified against the real filesystem here --
+   * not only at parse time -- because the registry deliberately never inspects what it stores, so a
+   * hand-crafted archive can reach this agent without ever passing through the CLI's own generation
+   * path.
+   */
+  static Path resolveBundleWorkdir(Path bundleRoot, VesselEntrypoint entrypoint) {
+    Path normalizedRoot = bundleRoot.normalize();
+    Path resolved = normalizedRoot.resolve(entrypoint.workdir()).normalize();
+    if (!resolved.startsWith(normalizedRoot)) {
+      throw new GimleManifestException(
+          "bundle entrypoint workdir escapes the bundle root: " + entrypoint.workdir());
+    }
+    return resolved;
   }
 
   /**
@@ -2836,12 +2903,31 @@ public final class AgentMain {
               + " from the artifact registry, but this agent has no"
               + " -Dgimle.agent.andvariEndpoint configured");
     }
-    Path jar = artifactCache.resolve(httpClient, andvariBaseUrls, fetched.moduleId());
+    ResolvedArtifact resolved =
+        artifactCache.resolve(httpClient, andvariBaseUrls, fetched.moduleId());
+    if (resolved.kind() == ArtifactKind.BUNDLE) {
+      // Admission already rejects both of these; re-checked here because the registry is written
+      // independently of the control plane, so a coordinate's kind can differ from what admission
+      // saw by the time this node actually pulls it.
+      if (fetched.vessel().isEmpty()) {
+        throw new GimleManifestException(
+            "artifact "
+                + fetched.moduleId()
+                + " is a bundle; bundle artifacts are vessel-only and cannot be loaded as a"
+                + " module");
+      }
+      if (!fetched.vessel().get().jvmFlags().isEmpty()) {
+        throw new GimleManifestException(
+            "vessel jvmFlags cannot apply to bundle artifact "
+                + fetched.moduleId()
+                + " -- its entrypoint command decides how (and whether) a JVM is launched");
+      }
+    }
     return new AssignedInstance(
         fetched.deploymentName(),
         fetched.instanceIndex(),
         fetched.moduleId(),
-        jar.toString(),
+        resolved.path().toString(),
         fetched.tenantId(),
         fetched.renamedFromInstanceIndex(),
         fetched.vessel(),

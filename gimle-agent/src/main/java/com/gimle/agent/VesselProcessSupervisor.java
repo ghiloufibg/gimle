@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,10 @@ final class VesselProcessSupervisor implements AutoCloseable {
   private final String key;
   private final List<String> command;
   private final Map<String, String> env;
+  // Empty for a single-jar vessel (inherits the agent's own cwd, as always); a bundle's unpacked
+  // directory (or a subdirectory its entrypoint names) otherwise, so relative paths in the
+  // entrypoint command resolve against the bundle's own files.
+  private final Optional<Path> workingDirectory;
   private final RestartTracker restartTracker;
   private final Consumer<String> onRestartBudgetExhausted;
   private final Path applicationLogFile;
@@ -49,6 +54,7 @@ final class VesselProcessSupervisor implements AutoCloseable {
       String key,
       List<String> command,
       Map<String, String> env,
+      Optional<Path> workingDirectory,
       RestartTracker restartTracker,
       Consumer<String> onRestartBudgetExhausted,
       Path applicationLogFile,
@@ -56,6 +62,7 @@ final class VesselProcessSupervisor implements AutoCloseable {
     this.key = key;
     this.command = List.copyOf(command);
     this.env = Map.copyOf(env);
+    this.workingDirectory = workingDirectory;
     this.restartTracker = restartTracker;
     this.onRestartBudgetExhausted = onRestartBudgetExhausted;
     this.applicationLogFile = applicationLogFile;
@@ -74,6 +81,7 @@ final class VesselProcessSupervisor implements AutoCloseable {
   private void spawn() throws IOException {
     ProcessBuilder pb = new ProcessBuilder(command);
     pb.environment().putAll(env);
+    workingDirectory.ifPresent(directory -> pb.directory(directory.toFile()));
     pb.redirectErrorStream(true);
     process = pb.start();
     log.info("spawned vessel {} as pid {}", key, process.pid());
