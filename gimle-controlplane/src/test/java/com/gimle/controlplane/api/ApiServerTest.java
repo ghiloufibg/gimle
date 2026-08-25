@@ -153,6 +153,28 @@ class ApiServerTest {
     assertEquals(List.of(), put.headers().allValues("X-Gimle-Warning"));
   }
 
+  /**
+   * Regression coverage for a real bug found end-to-end: the deprecation warning must never ride a
+   * response that isn't the manifest's own actual success -- a manifest can parse cleanly (warnings
+   * non-empty) and still be rejected downstream by the per-kind handler itself (name mismatch here,
+   * but the same reasoning covers an admission conflict or a wrong-kind manifest) for a reason
+   * entirely unrelated to the deprecated field. Attaching the header before that handler has
+   * decided the outcome -- the bug's actual mechanism -- would claim a deprecated field caused
+   * something that, since nothing was applied, never happened at all.
+   */
+  @Test
+  void a_deprecation_warning_never_rides_an_unrelated_rejection() throws Exception {
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/name-does-not-match"))
+                .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 3)))
+                .build());
+
+    assertEquals(400, put.statusCode());
+    assertTrue(put.body().contains("does not match URL path"), put.body());
+    assertEquals(List.of(), put.headers().allValues("X-Gimle-Warning"));
+  }
+
   @Test
   void an_unsupported_api_version_is_rejected() throws Exception {
     HttpResponse<String> put =
