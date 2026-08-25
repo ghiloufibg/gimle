@@ -94,6 +94,13 @@ public final class Authorizer {
     if (BuiltinRoles.CLUSTER_ADMIN.name().equals(roleName)) {
       return Optional.of(BuiltinRoles.CLUSTER_ADMIN);
     }
+    // The per-tenant view/edit/admin templates are synthesized from the name for the same reason
+    // cluster-admin is recognized above: none of them is ever a stored Role, so only resolving
+    // them here makes a binding to one actually grant anything.
+    Optional<Role> tenantTemplate = BuiltinRoles.tenantRole(roleName);
+    if (tenantTemplate.isPresent()) {
+      return tenantTemplate;
+    }
     return store.getRole(roleName);
   }
 

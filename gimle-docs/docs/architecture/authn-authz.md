@@ -72,6 +72,27 @@ certificate already has unconditional full access, so defaulting the operator gr
 `cluster-admin` changes nothing until an operator narrows another operator's access with a custom
 `Role`/`RoleBinding`.
 
+**Per-tenant role templates** are built in the same way `cluster-admin` is — synthesized from the
+role name by `BuiltinRoles.tenantRole(...)`, never stored, never editable via `/roles`. Binding a
+subject to `tenant-view:<tenantId>` grants read-only visibility into that tenant (secrets
+deliberately excluded, the same posture Kubernetes' own `view` role takes); `tenant-edit:<tenantId>`
+adds create/update/delete of the tenant's workloads, config, and secrets; `tenant-admin:<tenantId>`
+additionally manages the tenant's own guardrails (NetworkPolicies, LimitRanges). Every permission a
+template synthesizes is scoped to exactly the named tenant, so a binding to one can never leak
+authority into another tenant, let alone cluster-wide:
+
+```bash
+gimle set rolebinding acme-dev --subject user:dev@acme --role tenant-edit:acme
+```
+
+**`GET /authz/can-i?resource=<ResourceKind>&verb=<Verb>[&tenant=...][&target=...]`** is the
+self-subject access review: it answers whether the *calling* principal would be authorized for that
+action, without performing it, computed by the identical `Authorizer.authorize(...)` walk every real
+request goes through — so the answer can never drift from what enforcement would actually decide.
+Any authenticated caller may ask about itself (and only itself — there is no principal parameter),
+it is never audited (a hypothetical is a read-shaped question), and in plaintext mode it honestly
+answers `true` for everything, since nothing is actually gated in that mode.
+
 `Roles`/`RoleBindings`/`Accounts` are ordinary Raft-replicated resources — new
 `StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, nothing special-cased.
 

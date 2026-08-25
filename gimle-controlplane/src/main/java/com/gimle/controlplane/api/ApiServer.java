@@ -450,6 +450,7 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/auth/login", instrument("auth-login", this::handleAuthLogin));
     target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
     target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
+    target.createContext("/authz/can-i", instrument("authz-can-i", this::handleCanI));
     if (certificateAuthority.isPresent()) {
       target.createContext(
           "/bootstrap/csr", instrument("bootstrap-csr", this::handleBootstrapCsrSubmit));
@@ -4616,6 +4617,77 @@ public final class ApiServer implements AutoCloseable {
     map.put("groups", List.copyOf(principal.groups()));
     map.put("anonymous", anonymous);
     return map;
+  }
+
+  // ---- /authz/can-i ----
+
+  /**
+   * The self-subject access review: {@code GET
+   * /authz/can-i?resource=DEPLOYMENT&verb=WRITE[&tenant=acme][&target=node-1]} answers whether the
+   * *calling* principal would be authorized for that action, without performing it. Deliberately
+   * ungated by {@link #requireAuthorized}: asking "may I?" needs no permission of its own (any
+   * authenticated caller may ask about itself, and only about itself -- there is no principal
+   * parameter to review someone else), and the answer is computed by the identical {@link
+   * Authorizer#authorize} walk every real request goes through, so it can never drift from what
+   * enforcement would actually decide. Not audited: a hypothetical is a read-shaped question, and
+   * recording it would drown the audit trail's real mutating decisions in console UI probes.
+   * Plaintext mode answers {@code true} for everything, matching {@link #requireAuthorized}'s own
+   * carve-out -- the honest answer, since nothing is actually gated in that mode.
+   */
+  private void handleCanI(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Map<String, String> query = parseQuery(exchange);
+      ResourceKind resource;
+      Verb verb;
+      try {
+        resource = ResourceKind.valueOf(require(query, "resource"));
+        verb = Verb.valueOf(require(query, "verb"));
+      } catch (IllegalArgumentException e) {
+        respond(exchange, 400, e.getMessage());
+        return;
+      }
+      Optional<String> tenant = Optional.ofNullable(query.get("tenant"));
+      Optional<String> targetId = Optional.ofNullable(query.get("target"));
+      Principal principal;
+      boolean allowed;
+      if (!(exchange instanceof HttpsExchange)) {
+        principal = new Principal("anonymous", Set.of());
+        allowed = true;
+      } else {
+        Optional<Principal> resolved = resolvePrincipal(exchange);
+        if (resolved.isEmpty()) {
+          respondQuietly(exchange, 401, "authentication required");
+          return;
+        }
+        principal = resolved.get();
+        allowed = authorizer.authorize(principal, resource, verb, tenant, targetId);
+      }
+      Map<String, Object> body = new LinkedHashMap<>();
+      body.put("principal", principal.name());
+      body.put("resource", resource.name());
+      body.put("verb", verb.name());
+      tenant.ifPresent(t -> body.put("tenant", t));
+      targetId.ifPresent(t -> body.put("target", t));
+      body.put("allowed", allowed);
+      respondJson(exchange, 200, body);
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /** A required query parameter, or an {@link IllegalArgumentException} naming what's missing. */
+  private static String require(Map<String, String> query, String name) {
+    String value = query.get(name);
+    if (value == null || value.isBlank()) {
+      throw new IllegalArgumentException("missing required query parameter '" + name + "'");
+    }
+    return value;
   }
 
   // ---- /logs/controlplane, /logs/nodes/{nodeId}, /logs/instances/{name}/{idx} ----

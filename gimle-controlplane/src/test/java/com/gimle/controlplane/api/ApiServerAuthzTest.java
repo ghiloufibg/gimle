@@ -1317,6 +1317,75 @@ class ApiServerAuthzTest {
     return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }
 
+  /**
+   * The self-subject access review answers from the identical {@link
+   * com.gimle.mimir.authz.Authorizer} walk enforcement uses -- proven here through a per-tenant
+   * built-in template binding, so this also covers template resolution at the real HTTP layer.
+   */
+  @Test
+  void can_i_answers_for_the_calling_principal_without_performing_anything() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("grace", PasswordHashes.hash("pw".toCharArray())));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("grace"), "tenant-edit:acme"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "grace", "pw");
+
+      assertTrue(canI(client, baseUrl, cookie, "resource=DEPLOYMENT&verb=WRITE&tenant=acme"));
+      assertTrue(canI(client, baseUrl, cookie, "resource=SECRET&verb=READ&tenant=acme"));
+      assertFalse(canI(client, baseUrl, cookie, "resource=DEPLOYMENT&verb=WRITE&tenant=umbrella"));
+      assertFalse(canI(client, baseUrl, cookie, "resource=NETWORK_POLICY&verb=WRITE&tenant=acme"));
+
+      // A malformed review is a 400 naming the problem, and an unauthenticated one a 401 --
+      // asking about yourself needs an identity, just not any permission.
+      HttpResponse<String> badResource =
+          client.send(
+              HttpRequest.newBuilder(
+                      URI.create(baseUrl + "/authz/can-i?resource=NOT_A_KIND&verb=READ"))
+                  .header("Cookie", cookie)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(400, badResource.statusCode());
+
+      HttpResponse<String> anonymous =
+          client.send(
+              HttpRequest.newBuilder(
+                      URI.create(baseUrl + "/authz/can-i?resource=DEPLOYMENT&verb=READ"))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(401, anonymous.statusCode());
+    }
+  }
+
+  private static boolean canI(HttpClient client, String baseUrl, String cookie, String queryString)
+      throws IOException, InterruptedException {
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/authz/can-i?" + queryString))
+                .header("Cookie", cookie)
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, response.statusCode());
+    return Boolean.TRUE.equals(Json.asObject(Json.parse(response.body())).get("allowed"));
+  }
+
   private static String login(HttpClient client, String baseUrl, String username, String password)
       throws IOException, InterruptedException {
     HttpResponse<String> response =
