@@ -281,6 +281,33 @@ if its module isn't already listed, adding its artifactId to `FlakyTestsMojo`'s 
 `mvn verify` then skips it for free (root `pom.xml`'s `excludedGroups=flaky`), and `mvn
 gimle:flaky-tests` runs it on its own, one module at a time.
 
+## 2026-08-26 full-reactor test, QA bug-fix branch
+
+- **`WorkerRuntimeTest#a_module_that_recovers_before_failing_again_gets_a_fresh_restart_budget`**
+  (`gimle-worker`) and **`AndvariServerTlsTest#a_nodes_group_certificate_may_pull_only_coordinates_assigned_to_its_node`**
+  (`gimle-andvari`) — both hit their own fixed `@Timeout`/condition-poll windows (15s and 10s
+  respectively) in one full-reactor `mvn test -Dmaven.build.cache.enabled=false` run. Both pass
+  clean run as their own module's only test target, confirmed. Matches the general "sandbox CPU/IO
+  stall blows through a fixed timeout" pattern documented at the top of this file.
+- **`ApiServerAccountManagementTest` (both methods) / `ApiServerDeploymentConcurrencyTest`
+  (repetitions 2-3) / `ApiServerStatefulSetDaemonSetRollbackTest` / `JobReconcilerTest` /
+  `ApiServerDeploymentRollbackTest`** (`gimle-controlplane`) — same store-infrastructure signatures
+  as the 2026-08-25 entry below ("no reachable store leader", a garbled HTTP status line, a
+  0x1503-prefixed "wire frame length" TLS-alert-read-as-length). All five pass clean run together
+  as `-pl gimle-controlplane -Dtest=...` with only those classes selected. Same standing
+  full-reactor `-T 1C` cross-module contention pattern; not re-diagnosed further here.
+- **Real fixture gap, fixed, not flaky**: `ApiServerTest`'s three `secrets_*` tests,
+  `ApiServerSecretMapTest`'s four secretmap-proxy tests, `ApiServerSealTest`'s
+  `seal_commit_on_a_secretmap...` test, and `ApiServerAuthzTest#config_and_secret_permissions_are_independently_enforced_and_filtered`
+  all wrote through the real Fafnir proxy under a tenant id (`acme`/`tenant-1`) the test never
+  registered via `store.putTenant(...)` -- a since-added tenant-existence check on Fafnir's own
+  write path (rejecting a write against an unregistered tenant) turned these into deterministic
+  `400`s, not sandbox timing. Fixed by registering the tenant each test already assumed existed,
+  matching the same fixture pattern `gimle-fafnir`'s and `gimle-cli`'s own test suites needed for
+  the identical reason. Also updated one assertion (`ApiServerAuthzTest`, deleting a nonexistent
+  config key) from an old `404` expectation to the `200` idempotent-delete behavior a separate,
+  deliberate fix gave every resource kind's delete-of-a-never-existed-name path.
+
 ## 2026-08-25 full-reactor verify, bundle-artifact branch
 
 - **`ApiServerDeploymentRollbackTest` / `ApiServerStatefulSetDaemonSetRollbackTest` /

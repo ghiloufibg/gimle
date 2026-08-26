@@ -16,6 +16,8 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -1730,6 +1732,7 @@ class ApiServerTest {
 
   @Test
   void secrets_put_and_get_round_trip_through_the_fafnir_proxy() throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     HttpResponse<String> put =
         send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
@@ -1753,6 +1756,7 @@ class ApiServerTest {
   @Test
   void secrets_list_never_proxies_a_value_field_and_is_absent_from_plain_config_list()
       throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
             .PUT(
@@ -1777,6 +1781,7 @@ class ApiServerTest {
 
   @Test
   void secrets_delete_removes_the_secret() throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/temp"))
             .PUT(HttpRequest.BodyPublishers.ofString(Json.write(Map.of("value", encode("x")))))

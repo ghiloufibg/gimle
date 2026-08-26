@@ -416,6 +416,7 @@ class ApiServerAuthzTest {
         new RoleBinding("b1", RoleBinding.userSubject("config-user"), "config-only"));
     store.putRoleBinding(
         new RoleBinding("b2", RoleBinding.userSubject("secret-user"), "secret-only"));
+    store.putTenant(new Tenant("tenant-1", new ResourceQuota(1_000_000_000L, 4000, 10)));
 
     InProcessFafnir inProcessFafnir =
         InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
@@ -456,8 +457,10 @@ class ApiServerAuthzTest {
       assertEquals(403, deleteConfig(client, baseUrl, configCookie, "tenant-1", "secret-key"));
       assertEquals(403, deleteConfig(client, baseUrl, secretCookie, "tenant-1", "plain-key"));
 
-      // A nonexistent key is 404 -- looked up before authorization can even pick a resource kind.
-      assertEquals(404, deleteConfig(client, baseUrl, configCookie, "tenant-1", "does-not-exist"));
+      // A nonexistent key deletes idempotently (200, matching every other resource kind's own
+      // delete-of-a-never-existed-name convention) rather than 404 -- with nothing stored to read
+      // an `encrypted` flag from, authorization defaults to CONFIG, which configCookie holds.
+      assertEquals(200, deleteConfig(client, baseUrl, configCookie, "tenant-1", "does-not-exist"));
 
       // Each caller can delete their own kind.
       assertEquals(200, deleteConfig(client, baseUrl, configCookie, "tenant-1", "plain-key"));

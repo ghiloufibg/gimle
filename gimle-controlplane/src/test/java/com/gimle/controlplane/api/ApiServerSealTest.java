@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.secret.SealCipher;
 import java.io.IOException;
 import java.net.URI;
@@ -54,6 +56,9 @@ class ApiServerSealTest {
   @BeforeEach
   void startServer() throws IOException {
     inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    inProcessStore
+        .store()
+        .putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     inProcessFafnir =
         InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
     server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client());
