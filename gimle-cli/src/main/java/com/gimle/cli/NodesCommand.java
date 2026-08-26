@@ -35,9 +35,12 @@ public final class NodesCommand {
     List<Map<String, Object>> nodes = client.getList("/nodes");
     // Humanization is table-only: -o json keeps the raw capabilities/capacity fields at full
     // fidelity (exact byte/millicore counts) for scripting, since only the table renderer has
-    // nowhere else to put a nested object but one unreadable JSON-blob cell.
+    // nowhere else to put a nested object but one unreadable JSON-blob cell. The one exception is
+    // "status": the table's own heartbeat-freshness computation has no server-side counterpart at
+    // all, so a JSON consumer would otherwise have no way to reproduce it -- it's added to the raw
+    // shape rather than left table-only like everything else here.
     OutputFormat.printList(
-        output, output == OutputFormat.Kind.TABLE ? humanize(nodes) : nodes, out);
+        output, output == OutputFormat.Kind.TABLE ? humanize(nodes) : withStatus(nodes), out);
   }
 
   public void assignments(String nodeId) {
@@ -90,6 +93,23 @@ public final class NodesCommand {
         row.put("totalCpu", "-");
         row.put("totalMemory", "-");
       }
+      rows.add(row);
+    }
+    return rows;
+  }
+
+  /**
+   * Adds the same {@code status} value {@link #humanize} computes for the table's own column, keyed
+   * under the identical field name, to the otherwise-untouched raw node shape -- so a {@code -o
+   * json} consumer can read the same heartbeat-freshness verdict without recomputing it, and every
+   * other raw field ({@code capabilities}, {@code capacity}, ...) stays exactly as the API returned
+   * it.
+   */
+  private static List<Map<String, Object>> withStatus(List<Map<String, Object>> nodes) {
+    List<Map<String, Object>> rows = new ArrayList<>();
+    for (Map<String, Object> node : nodes) {
+      Map<String, Object> row = new LinkedHashMap<>(node);
+      row.put("status", statusOf(node.get("lastHeartbeatAt")));
       rows.add(row);
     }
     return rows;
