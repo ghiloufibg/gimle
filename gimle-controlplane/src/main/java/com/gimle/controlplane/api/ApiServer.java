@@ -92,6 +92,7 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadTokenRecord;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.observability.ApiServerMetrics;
 import com.gimle.pki.CertificateAuthority;
@@ -118,6 +119,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
@@ -125,10 +129,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -207,6 +213,7 @@ public final class ApiServer implements AutoCloseable {
   // unlike a secret's config-entry value which persists indefinitely. Stays local to ApiServer
   // precisely because it's not secret-value material Fafnir's own security boundary is about.
   private final SecretKey sessionSigningKey;
+  private final SecureRandom secureRandom = new SecureRandom();
   private final Authorizer authorizer;
   // Per-resource-kind opt-in for auditing READ decisions too -- WRITE/DELETE are
   // always audited (see #requireAuthorized), but a console page-load's worth of GETs would dwarf
@@ -453,6 +460,14 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/authz/can-i", instrument("authz-can-i", this::handleCanI));
     target.createContext("/volumes/", instrument("volumes", this::handleVolumeDestroy));
     target.createContext("/volumes", instrument("volumes", this::handleVolumesList));
+    target.createContext(
+        "/certificates/revoked/",
+        instrument("cert-revocations", this::handleCertificateRevocation));
+    target.createContext(
+        "/certificates/revoked",
+        instrument("cert-revocations", this::handleCertificateRevocations));
+    target.createContext(
+        "/workload-tokens", instrument("workload-tokens", this::handleWorkloadTokenMint));
     if (certificateAuthority.isPresent()) {
       target.createContext(
           "/bootstrap/csr", instrument("bootstrap-csr", this::handleBootstrapCsrSubmit));
@@ -1526,19 +1541,20 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 400, "missing tenantId");
       return;
     }
-    Optional<Set<String>> deploymentNames = Optional.empty();
-    if (body.get("deploymentNames") instanceof List<?> rawNames && !rawNames.isEmpty()) {
-      Set<String> names = new LinkedHashSet<>();
-      for (Object rawName : rawNames) {
-        names.add(String.valueOf(rawName));
-      }
-      deploymentNames = Optional.of(names);
-    }
-    Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
-    if (body.get("allowedCallerTenantIds") instanceof List<?> rawTenants) {
-      for (Object rawTenant : rawTenants) {
-        allowedCallerTenantIds.add(String.valueOf(rawTenant));
-      }
+    Optional<Set<String>> deploymentNames =
+        scopingSetFromJson(body.get("deploymentNames"), "deploymentNames");
+    Optional<Set<String>> serviceInterfaceNames =
+        scopingSetFromJson(body.get("serviceInterfaceNames"), "serviceInterfaceNames");
+    Optional<Set<String>> allowedCallerTenantIds =
+        directionSetFromJson(body.get("allowedCallerTenantIds"), "allowedCallerTenantIds");
+    Optional<Set<String>> allowedCalleeTenantIds =
+        directionSetFromJson(body.get("allowedCalleeTenantIds"), "allowedCalleeTenantIds");
+    if (allowedCallerTenantIds.isEmpty() && allowedCalleeTenantIds.isEmpty()) {
+      respond(
+          exchange,
+          400,
+          "a network policy must restrict at least one direction (ingress or egress)");
+      return;
     }
 
     Optional<String> existingTenant =
@@ -1551,10 +1567,53 @@ public final class ApiServer implements AutoCloseable {
     }
     if (authorized && !rejectIfReservedSystemTenant(exchange, Optional.of(tenantId))) {
       NetworkPolicySpec spec =
-          new NetworkPolicySpec(name, tenantId, deploymentNames, allowedCallerTenantIds);
+          new NetworkPolicySpec(
+              name,
+              tenantId,
+              deploymentNames,
+              serviceInterfaceNames,
+              allowedCallerTenantIds,
+              allowedCalleeTenantIds);
       networkPolicyRegistry.put(spec);
       respond(exchange, 200, "ok");
     }
+  }
+
+  /** A scoping set (deployments, service interfaces): empty or missing both mean unscoped. */
+  private static Optional<Set<String>> scopingSetFromJson(Object rawValue, String field) {
+    if (rawValue == null) {
+      return Optional.empty();
+    }
+    if (!(rawValue instanceof List<?> rawNames)) {
+      throw new IllegalArgumentException(field + " must be a JSON array");
+    }
+    if (rawNames.isEmpty()) {
+      return Optional.empty();
+    }
+    Set<String> names = new LinkedHashSet<>();
+    for (Object rawName : rawNames) {
+      names.add(String.valueOf(rawName));
+    }
+    return Optional.of(names);
+  }
+
+  /**
+   * A direction set (allowed caller/callee tenants): a missing field means the policy does not
+   * restrict that direction, while a present-but-empty array means "deny every cross-tenant peer"
+   * -- the two states are distinct here, unlike a scoping set's.
+   */
+  private static Optional<Set<String>> directionSetFromJson(Object rawValue, String field) {
+    if (rawValue == null) {
+      return Optional.empty();
+    }
+    if (!(rawValue instanceof List<?> rawTenants)) {
+      throw new IllegalArgumentException(field + " must be a JSON array");
+    }
+    Set<String> tenants = new LinkedHashSet<>();
+    for (Object rawTenant : rawTenants) {
+      tenants.add(String.valueOf(rawTenant));
+    }
+    return Optional.of(tenants);
   }
 
   /** Every NetworkPolicy, in the same shape {@link #handleGetNetworkPolicy} returns for one. */
@@ -1615,18 +1674,24 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * {@code deploymentNames} always serializes as a present (possibly empty) array, never an absent
-   * field -- {@code gimle-agent}'s own poller (see {@code HttpNetworkPolicySource}) treats an empty
-   * array as "tenant-wide" the same way {@link NetworkPolicySpec}'s own {@code Optional.empty()}
-   * does, without needing to distinguish "field absent" from "field present but empty" over the
-   * wire.
+   * The scoping sets ({@code deploymentNames}, {@code serviceInterfaceNames}) always serialize as a
+   * present (possibly empty) array, never an absent field -- {@code gimle-agent}'s own poller (see
+   * {@code HttpNetworkPolicySource}) treats an empty array as "unscoped" the same way {@link
+   * NetworkPolicySpec}'s own {@code Optional.empty()} does. The two direction sets serialize only
+   * when present, because for them "absent" (no restriction) and "empty" (deny every cross-tenant
+   * peer) are distinct states.
    */
   private static Map<String, Object> networkPolicyToJson(NetworkPolicySpec spec) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("name", spec.name());
     map.put("tenantId", spec.tenantId());
     map.put("deploymentNames", spec.deploymentNames().map(List::copyOf).orElse(List.of()));
-    map.put("allowedCallerTenantIds", List.copyOf(spec.allowedCallerTenantIds()));
+    map.put(
+        "serviceInterfaceNames", spec.serviceInterfaceNames().map(List::copyOf).orElse(List.of()));
+    spec.allowedCallerTenantIds()
+        .ifPresent(tenants -> map.put("allowedCallerTenantIds", List.copyOf(tenants)));
+    spec.allowedCalleeTenantIds()
+        .ifPresent(tenants -> map.put("allowedCalleeTenantIds", List.copyOf(tenants)));
     return map;
   }
 
@@ -4696,6 +4761,200 @@ public final class ApiServer implements AutoCloseable {
     return value;
   }
 
+  // ---- /workload-tokens ----
+
+  /** How long a minted workload-identity token verifies before its agent must re-mint. */
+  private static final Duration WORKLOAD_TOKEN_TTL = Duration.ofHours(1);
+
+  /**
+   * Mints a workload-identity token for one deployment's instances on one node -- the
+   * ServiceAccount analogue's issuance path. The caller is the node's own agent: under mTLS a
+   * {@code gimle:nodes} principal may mint only for its own {@code nodeId} and only for a
+   * deployment the store currently assigns to that node (the same assignment-scoped least-privilege
+   * check Fafnir's node secret fetch already applies); an operator may mint for any node. The token
+   * itself is {@code key ":" random}; only its SHA-256 is replicated (see {@link
+   * WorkloadTokenRecord}), keyed {@code deploymentName#nodeId} so a re-mint replaces exactly this
+   * node's token. Untenanted deployments are refused: a workload identity exists to carry
+   * tenant-scoped RBAC, and an untenanted workload has no tenant to scope to.
+   */
+  private void handleWorkloadTokenMint(HttpExchange exchange) {
+    try {
+      if (!"POST".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
+      String deploymentName = String.valueOf(body.get("deploymentName"));
+      String nodeId = String.valueOf(body.get("nodeId"));
+      if (deploymentName.isBlank()
+          || "null".equals(deploymentName)
+          || nodeId.isBlank()
+          || "null".equals(nodeId)) {
+        respond(exchange, 400, "deploymentName and nodeId are required");
+        return;
+      }
+      Optional<DeploymentSpec> deployment = storeClient.getDeployment(deploymentName);
+      if (deployment.isEmpty()) {
+        respond(exchange, 404, "unknown deployment: " + deploymentName);
+        return;
+      }
+      if (deployment.get().tenantId().isEmpty()) {
+        respond(
+            exchange,
+            400,
+            "deployment " + deploymentName + " is untenanted; no workload identity to mint");
+        return;
+      }
+      if (exchange instanceof HttpsExchange) {
+        Optional<Principal> principal = resolvePrincipal(exchange);
+        if (principal.isEmpty()) {
+          respondQuietly(exchange, 401, "authentication required");
+          return;
+        }
+        boolean operator = principal.get().groups().contains(BuiltinRoles.GROUP_OPERATORS);
+        boolean owningNode =
+            principal.get().groups().contains(BuiltinRoles.GROUP_NODES)
+                && principal.get().name().equals(nodeId)
+                && storeClient.listAssignmentsFor(deploymentName).stream()
+                    .anyMatch(assignment -> assignment.nodeId().equals(nodeId));
+        if (!operator && !owningNode) {
+          respondQuietly(exchange, 403, "forbidden");
+          return;
+        }
+      }
+      String key = deploymentName + "#" + nodeId;
+      byte[] random = new byte[32];
+      secureRandom.nextBytes(random);
+      String token = key + ":" + HexFormat.of().formatHex(random);
+      long expiresAtEpochMilli = System.currentTimeMillis() + WORKLOAD_TOKEN_TTL.toMillis();
+      storeClient.propose(
+          new StateMutation.PutWorkloadToken(
+              new WorkloadTokenRecord(
+                  key,
+                  sha256Hex(token),
+                  deployment.get().tenantId(),
+                  deploymentName,
+                  expiresAtEpochMilli),
+              System.currentTimeMillis()));
+      respondJson(
+          exchange, 200, Map.of("token", token, "expiresAtEpochMilli", expiresAtEpochMilli));
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * Verifies a presented bearer token against its replicated record: parse the {@code
+   * deploymentName#nodeId} key out of the token itself, look the record up on the store (any
+   * replica -- the whole reason these are store-backed rather than signed with a per-replica key),
+   * compare hashes constant-time, and check expiry. The principal a live token resolves to is
+   * {@code svc:<tenantId>:<deploymentName>} in group {@code gimle:workloads} -- bindable in RBAC
+   * exactly like a user (e.g. {@code --subject user:svc:acme:orders}), with no implicit grants at
+   * all: an unbound workload principal is denied everything, deny-by-default.
+   */
+  private Optional<Principal> verifyWorkloadToken(String token) {
+    int separator = token.indexOf(':');
+    if (separator <= 0) {
+      return Optional.empty();
+    }
+    String key = token.substring(0, separator);
+    Optional<WorkloadTokenRecord> record = storeClient.getWorkloadToken(key);
+    if (record.isEmpty()) {
+      return Optional.empty();
+    }
+    byte[] presented = sha256Hex(token).getBytes(StandardCharsets.UTF_8);
+    byte[] stored = record.get().tokenSha256Hex().getBytes(StandardCharsets.UTF_8);
+    if (!MessageDigest.isEqual(presented, stored)) {
+      return Optional.empty();
+    }
+    if (System.currentTimeMillis() > record.get().expiresAtEpochMilli()) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        new Principal(
+            "svc:" + record.get().tenantId().orElse("") + ":" + record.get().deploymentName(),
+            Set.of("gimle:workloads")));
+  }
+
+  private static String sha256Hex(String value) {
+    try {
+      return HexFormat.of()
+          .formatHex(
+              MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 unavailable", e);
+    }
+  }
+
+  // ---- /certificates/revoked, /certificates/revoked/{serial} ----
+
+  /** {@code GET /certificates/revoked}: every currently-revoked serial, sorted. */
+  private void handleCertificateRevocations(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(
+          exchange, ResourceKind.CERTIFICATE_REQUEST, Verb.READ, Optional.empty())) {
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          Map.of(
+              "revokedSerials",
+              storeClient.listRevokedCertificateSerials().stream().sorted().toList()));
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * {@code PUT /certificates/revoked/{serial}} revokes, {@code DELETE} un-revokes. The serial is
+   * lowercase hex (the {@code openssl x509 -serial} form); it is normalized here so an operator's
+   * uppercase paste still matches the lowercase form {@code resolvePrincipal} derives. Guarded by
+   * {@code CERTIFICATE_REQUEST} -- revocation is the flip side of issuance, not its own kind.
+   * Deliberately reversible: revocation is a store entry, so an operator who revoked the wrong
+   * serial can undo it, unlike a destroyed secret.
+   */
+  private void handleCertificateRevocation(HttpExchange exchange) {
+    try {
+      String serial = pathSegmentAfter(exchange, "/certificates/revoked/").toLowerCase(Locale.ROOT);
+      if (serial.isBlank() || !serial.chars().allMatch(c -> Character.digit(c, 16) >= 0)) {
+        respond(exchange, 400, "expected a hex certificate serial number");
+        return;
+      }
+      boolean revoke;
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> revoke = true;
+        case "DELETE" -> revoke = false;
+        default -> {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+      }
+      if (!requireAuthorized(
+          exchange,
+          ResourceKind.CERTIFICATE_REQUEST,
+          revoke ? Verb.WRITE : Verb.DELETE,
+          Optional.empty(),
+          Optional.of(serial))) {
+        return;
+      }
+      storeClient.propose(new StateMutation.PutCertificateRevocation(serial, revoke));
+      respondJson(exchange, 200, Map.of("serial", serial, "revoked", revoke));
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
   // ---- /volumes, /volumes/{nodeId}/{statefulSetName}/{instanceIndex} ----
 
   /**
@@ -5749,13 +6008,50 @@ public final class ApiServer implements AutoCloseable {
    * agents never send a session cookie, the console never presents a client certificate).
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
+    // A bearer workload token, when presented, is the request's identity -- deliberately checked
+    // before the peer certificate, because the one caller that sends both is a node agent
+    // relaying a hosted module's read: the module must act as its own (narrower, deny-by-default)
+    // workload principal, never ride the relaying agent's node identity. An invalid or expired
+    // bearer resolves nothing at all rather than falling back to the certificate -- an explicit
+    // credential that fails must fail, not silently escalate to the transport's broader one.
+    Optional<String> bearer = bearerToken(exchange);
+    if (bearer.isPresent()) {
+      return verifyWorkloadToken(bearer.get());
+    }
     Optional<X509Certificate> certificate = peerCertificate(exchange);
     if (certificate.isPresent()) {
+      // The portable revocation check: a compromised leaf's serial lands on the store-backed
+      // denylist and every request it makes from then on resolves no principal at all -- checked
+      // before any authorization runs, the same per-request level-triggered store read the
+      // Authorizer itself already makes. Keyed by serial, so a legitimately re-issued certificate
+      // for the same identity is untouched.
+      String serial = certificateSerial(certificate.get());
+      if (storeClient.isCertificateRevoked(serial)) {
+        log.warn(
+            "rejecting revoked certificate serial {} presented by {}",
+            serial,
+            certificate.get().getSubjectX500Principal());
+        return Optional.empty();
+      }
       return Optional.of(Subjects.principalFrom(certificate.get()));
     }
     return sessionCookie(exchange)
         .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
         .map(username -> new Principal(username, Set.of()));
+  }
+
+  /** Lowercase hex, the form {@code openssl x509 -serial} prints -- what operators paste back. */
+  private static String certificateSerial(X509Certificate certificate) {
+    return certificate.getSerialNumber().toString(16).toLowerCase(Locale.ROOT);
+  }
+
+  private static Optional<String> bearerToken(HttpExchange exchange) {
+    String header = exchange.getRequestHeaders().getFirst("Authorization");
+    if (header == null || !header.startsWith("Bearer ")) {
+      return Optional.empty();
+    }
+    String token = header.substring("Bearer ".length()).trim();
+    return token.isBlank() ? Optional.empty() : Optional.of(token);
   }
 
   private static Optional<String> sessionCookie(HttpExchange exchange) {

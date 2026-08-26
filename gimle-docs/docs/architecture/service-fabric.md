@@ -83,15 +83,21 @@ exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (re
 `{"name","port","targetPort","endpoints":[{"host","port"}]}`), RBAC-gated via `ResourceKind.SERVICE`.
 
 A `NetworkPolicySpec` record (same package) is declared alongside `ServiceSpec` as the NetworkPolicy
-analogue — a deny-by-default restriction on which other tenants may call into a tenant's own
-Services — but it has **no enforcement wired up yet**: nothing outside its own package and its own
-test reads it. Real cross-tenant enforcement landed on the listener side instead, independent of
-`NetworkPolicySpec`: `FabricServer.dispatch` now re-checks a target's own `ServiceExport
-.allowedTenantIds` against the caller's wire-carried tenant identity before invoking it, rather than
-trusting that whatever caller-side filtering ran first was the only gate — closing the bypass where
-a caller dials the raw catalog address directly instead of going through that filter. This is the
-same "forwarded claim, independently re-checked at the far end" posture Fafnir/Muninn/Andvari each
-apply to identity, applied here to cross-tenant fabric traffic.
+analogue, relayed to every worker (`NetworkPolicyRelay` → `ControlMessage.NetworkPoliciesUpdated` →
+`FabricServer.updateNetworkPolicies`) and enforced at the listener in both directions.
+**Ingress**: rules owned by the target's tenant gate who may call in
+(`allowedCallerTenantIds`, deny-by-default once a restriction exists), scoped optionally to named
+deployments (`deploymentNames`) and to named exported service interfaces (`serviceInterfaceNames`).
+**Egress**: rules owned by the *caller's* tenant gate who that tenant may call out to
+(`allowedCalleeTenantIds`), enforced at the callee deliberately — the callee is the one enforcement
+point a misbehaving caller cannot skip — for caller-tenant-wide rules (a caller-deployment-scoped
+egress rule names an identity the wire doesn't carry, so it can only ever be proven to apply at the
+caller). Independently of `NetworkPolicySpec`, `FabricServer.dispatch` also re-checks a target's own
+`ServiceExport.allowedTenantIds` against the caller's wire-carried tenant identity before invoking
+it — closing the bypass where a caller dials the raw catalog address directly instead of going
+through the caller-side filter. Both are the same "forwarded claim, independently re-checked at the
+far end" posture Fafnir/Muninn/Andvari each apply to identity, applied to cross-tenant fabric
+traffic.
 
 ### `gimle-bifrost`: the per-node service proxy
 

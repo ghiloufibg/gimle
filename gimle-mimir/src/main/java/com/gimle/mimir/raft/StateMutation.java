@@ -23,6 +23,7 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.time.Instant;
 import java.util.List;
 
@@ -342,6 +343,41 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.putNodeCordon(nodeId, cordoned);
+    }
+  }
+
+  /**
+   * Marks (or clears) one issued certificate's serial number as revoked -- the portable revocation
+   * answer for a compromised leaf: {@code ApiServer#resolvePrincipal} refuses a peer certificate
+   * whose serial is on this list before any authorization runs, without CRL/OCSP infrastructure.
+   * Keyed by serial rather than subject so revoking a compromised certificate never blocks a later,
+   * legitimately re-issued one for the same identity.
+   */
+  record PutCertificateRevocation(String serialNumber, boolean revoked) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putCertificateRevocation(serialNumber, revoked);
+    }
+  }
+
+  /**
+   * Replaces one {@code deploymentName#nodeId} key's live workload-identity token record. {@code
+   * mintedAtEpochMilli} is stamped once by the minting replica and carried in the mutation, so the
+   * opportunistic expired-entry sweep it drives inside {@code StateStore#putWorkloadToken} makes
+   * the identical decision on every replica at every replay -- a wall-clock read there would not.
+   */
+  record PutWorkloadToken(WorkloadTokenRecord record, long mintedAtEpochMilli)
+      implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putWorkloadToken(record, mintedAtEpochMilli);
+    }
+  }
+
+  record RemoveWorkloadToken(String key) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.removeWorkloadToken(key);
     }
   }
 

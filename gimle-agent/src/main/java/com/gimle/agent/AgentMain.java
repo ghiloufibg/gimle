@@ -2621,7 +2621,7 @@ public final class AgentMain {
                     target.ports = metrics.ports();
                   });
         } else if (message instanceof ControlMessage.RelayControlPlaneRead relayRead) {
-          handleRelayRead(relayRead, connection, httpClient, baseUrl);
+          handleRelayRead(relayRead, connection, httpClient, baseUrl, instance, nodeId);
         }
       }
       log.info("instance {} control channel closed", key);
@@ -2642,12 +2642,47 @@ public final class AgentMain {
    * synthesized as a {@code 502} rather than left to propagate out of this method and take this
    * connection's whole read loop down with it.
    */
+  /**
+   * A path is relayable in one of two ways. A <em>tenanted</em> instance relays under its own
+   * workload identity: this agent mints (and caches) a per-{@code deploymentName#nodeId} token from
+   * the control plane and attaches it as a bearer credential, and the control plane's own RBAC then
+   * governs what that workload principal may read -- any {@code GET} path is forwarded, the server
+   * decides. The token is mandatory on this path: without one the request is refused locally rather
+   * than relayed bare, so a hosted module can never ride this agent's own node identity. An
+   * <em>untenanted</em> instance has no tenant for a workload identity to scope to (the mint
+   * endpoint refuses it), so it keeps the original hard-coded {@link #RELAY_WHITELIST_PATTERN}
+   * instead -- exactly {@code GET /endpoints/{name}}, the pre-identity contract, unchanged. Under
+   * Tier 1 density the attributed identity is the connection-owning instance's deployment -- a
+   * packed sibling of a different deployment (same tenant, by construction) relays under the
+   * hosting instance's identity, an accepted coarseness the wire protocol doesn't carry enough to
+   * refine.
+   */
   private static void handleRelayRead(
       ControlMessage.RelayControlPlaneRead request,
       WorkerConnection connection,
       HttpClient httpClient,
-      URI baseUrl) {
-    if (!RELAY_WHITELIST_PATTERN.matcher(request.path()).matches()) {
+      URI baseUrl,
+      SupervisedInstance instance,
+      String nodeId) {
+    Optional<String> workloadToken = Optional.empty();
+    if (instance.assigned.tenantId().isPresent()) {
+      if (!RELAYABLE_PATH_PATTERN.matcher(request.path()).matches()
+          || request.path().contains("..")) {
+        log.warn("rejecting malformed control-plane relay path: {}", request.path());
+        sendRelayResult(
+            connection, request.correlationId(), 400, "malformed relay path: " + request.path());
+        return;
+      }
+      workloadToken = workloadTokenFor(instance, nodeId, httpClient, baseUrl);
+      if (workloadToken.isEmpty()) {
+        sendRelayResult(
+            connection,
+            request.correlationId(),
+            502,
+            "no workload identity available for this instance; relay refused");
+        return;
+      }
+    } else if (!RELAY_WHITELIST_PATTERN.matcher(request.path()).matches()) {
       log.warn("rejecting non-whitelisted control-plane relay path: {}", request.path());
       sendRelayResult(
           connection,
@@ -2657,13 +2692,14 @@ public final class AgentMain {
       return;
     }
     try {
-      HttpRequest httpRequest =
+      HttpRequest.Builder builder =
           HttpRequest.newBuilder(baseUrl.resolve(request.path()))
               .timeout(Duration.ofSeconds(10))
-              .GET()
-              .build();
+              .GET();
+      workloadToken.ifPresent(token -> builder.header("Authorization", "Bearer " + token));
       HttpResponse<String> response =
-          httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+          httpClient.send(
+              builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       sendRelayResult(connection, request.correlationId(), response.statusCode(), response.body());
     } catch (IOException | InterruptedException e) {
       if (e instanceof InterruptedException) {
@@ -2676,6 +2712,75 @@ public final class AgentMain {
           502,
           "agent could not reach the control plane: " + e.getMessage());
     }
+  }
+
+  /**
+   * Sanity shape for a workload-identified relay path (the RBAC decision itself is the control
+   * plane's): one absolute, printable-ASCII path with an optional query string, no fragment -- plus
+   * the separate {@code ".."} rejection at the call site above.
+   */
+  private static final Pattern RELAYABLE_PATH_PATTERN = Pattern.compile("^/[!-~&&[^#]]*$");
+
+  /** A minted workload token and when it stops verifying -- see {@link #workloadTokenFor}. */
+  private record MintedWorkloadToken(String token, long expiresAtEpochMilli) {}
+
+  /** Refresh a cached token this long before it would expire, so a relay never races expiry. */
+  private static final Duration WORKLOAD_TOKEN_REFRESH_MARGIN = Duration.ofMinutes(5);
+
+  private static final Map<String, MintedWorkloadToken> workloadTokenCache =
+      new ConcurrentHashMap<>();
+
+  /**
+   * The cached-or-freshly-minted workload token for {@code instance}'s deployment on this node --
+   * {@code POST /workload-tokens}, authorized by this agent's own node identity plus the store's
+   * assignment check on the control-plane side. A failed mint falls back to a still-unexpired
+   * cached token if one exists (the control plane briefly unreachable must not break relays that a
+   * valid token can still serve), and otherwise resolves empty -- the caller refuses the relay.
+   */
+  private static Optional<String> workloadTokenFor(
+      SupervisedInstance instance, String nodeId, HttpClient httpClient, URI baseUrl) {
+    String cacheKey = instance.assigned.deploymentName() + "#" + nodeId;
+    long now = System.currentTimeMillis();
+    MintedWorkloadToken cached = workloadTokenCache.get(cacheKey);
+    if (cached != null
+        && now < cached.expiresAtEpochMilli() - WORKLOAD_TOKEN_REFRESH_MARGIN.toMillis()) {
+      return Optional.of(cached.token());
+    }
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("deploymentName", instance.assigned.deploymentName());
+    body.put("nodeId", nodeId);
+    try {
+      HttpRequest request =
+          HttpRequest.newBuilder(baseUrl.resolve("/workload-tokens"))
+              .timeout(Duration.ofSeconds(10))
+              .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+              .build();
+      HttpResponse<String> response =
+          httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      if (response.statusCode() != 200) {
+        log.warn("workload token mint for {} answered {}", cacheKey, response.statusCode());
+        return stillValid(cached, now);
+      }
+      Map<String, Object> result = Json.asObject(Json.parse(response.body()));
+      MintedWorkloadToken minted =
+          new MintedWorkloadToken(
+              String.valueOf(result.get("token")),
+              ((Number) result.get("expiresAtEpochMilli")).longValue());
+      workloadTokenCache.put(cacheKey, minted);
+      return Optional.of(minted.token());
+    } catch (IOException | RuntimeException e) {
+      log.warn("workload token mint for {} failed: {}", cacheKey, e.getMessage());
+      return stillValid(cached, now);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return stillValid(cached, now);
+    }
+  }
+
+  private static Optional<String> stillValid(MintedWorkloadToken cached, long now) {
+    return cached != null && now < cached.expiresAtEpochMilli()
+        ? Optional.of(cached.token())
+        : Optional.empty();
   }
 
   private static void sendRelayResult(

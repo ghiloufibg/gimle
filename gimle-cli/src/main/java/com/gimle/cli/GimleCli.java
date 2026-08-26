@@ -546,6 +546,9 @@ public final class GimleCli {
           cert request --purpose operator|node --out-cert <path> --out-key <path>
           cert status <request-id> --out-cert <path>
           cert approve <request-id>
-          cert renew [--force]""";
+          cert renew [--force]
+          cert revoke <serialHex>
+          cert unrevoke <serialHex>
+          cert revocations""";
   }
 }

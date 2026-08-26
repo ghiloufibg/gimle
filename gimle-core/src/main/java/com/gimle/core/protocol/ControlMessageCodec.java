@@ -303,10 +303,18 @@ public final class ControlMessageCodec {
       Map<String, Object> entry = new LinkedHashMap<>();
       entry.put("name", rule.name());
       entry.put("tenantId", rule.tenantId());
-      // Always a present (possibly empty) array, never an absent field, the same convention
-      // ApiServer#networkPolicyToJson already establishes: an empty array means tenant-wide.
+      // Scoping sets are always a present (possibly empty) array, the same convention
+      // ApiServer#networkPolicyToJson establishes: an empty array means unscoped. The two
+      // direction sets are present exactly when the rule restricts that direction, because
+      // there an empty set (deny every cross-tenant peer) is distinct from absence.
       entry.put("deploymentNames", rule.deploymentNames().map(List::copyOf).orElse(List.of()));
-      entry.put("allowedCallerTenantIds", List.copyOf(rule.allowedCallerTenantIds()));
+      entry.put(
+          "serviceInterfaceNames",
+          rule.serviceInterfaceNames().map(List::copyOf).orElse(List.of()));
+      rule.allowedCallerTenantIds()
+          .ifPresent(tenants -> entry.put("allowedCallerTenantIds", List.copyOf(tenants)));
+      rule.allowedCalleeTenantIds()
+          .ifPresent(tenants -> entry.put("allowedCalleeTenantIds", List.copyOf(tenants)));
       array.add(entry);
     }
     return Json.write(array);
@@ -318,22 +326,36 @@ public final class ControlMessageCodec {
     List<NetworkPolicyRule> rules = new ArrayList<>(raw.size());
     for (Object entryValue : raw) {
       Map<String, Object> entry = Json.asObject(entryValue);
-      Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
-      for (Object tenantId : Json.asArray(entry.get("allowedCallerTenantIds"))) {
-        allowedCallerTenantIds.add((String) tenantId);
-      }
-      Set<String> deploymentNames = new LinkedHashSet<>();
-      for (Object deploymentName : Json.asArray(entry.get("deploymentNames"))) {
-        deploymentNames.add((String) deploymentName);
-      }
       rules.add(
           new NetworkPolicyRule(
               (String) entry.get("name"),
               (String) entry.get("tenantId"),
-              deploymentNames.isEmpty() ? Optional.empty() : Optional.of(deploymentNames),
-              allowedCallerTenantIds));
+              emptyMeansAbsent(entry.get("deploymentNames")),
+              emptyMeansAbsent(entry.get("serviceInterfaceNames")),
+              absentMeansUnrestricted(entry.get("allowedCallerTenantIds")),
+              absentMeansUnrestricted(entry.get("allowedCalleeTenantIds"))));
     }
     return rules;
+  }
+
+  private static Optional<Set<String>> emptyMeansAbsent(Object jsonArray) {
+    Set<String> values = stringSet(jsonArray);
+    return values.isEmpty() ? Optional.empty() : Optional.of(values);
+  }
+
+  private static Optional<Set<String>> absentMeansUnrestricted(Object jsonArray) {
+    return jsonArray == null ? Optional.empty() : Optional.of(stringSet(jsonArray));
+  }
+
+  private static Set<String> stringSet(Object jsonArray) {
+    if (jsonArray == null) {
+      return Set.of();
+    }
+    Set<String> values = new LinkedHashSet<>();
+    for (Object value : Json.asArray(jsonArray)) {
+      values.add((String) value);
+    }
+    return values;
   }
 
   /**

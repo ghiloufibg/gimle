@@ -180,12 +180,15 @@ public final class BifrostProxy implements AutoCloseable {
   }
 
   /**
-   * Whether any currently-held {@link NetworkPolicyRule} applies to {@code service} -- its tenant
-   * matches and either the rule is tenant-wide or its {@code deploymentNames} overlaps the
-   * service's own. Mere applicability is enough to restrict, regardless of the rule's own {@code
-   * allowedCallerTenantIds}: {@code NetworkPolicySpec}'s own existence already means "a restriction
-   * now applies" (see its javadoc), and this proxy has no caller identity to check that allow list
-   * against in the first place -- see {@link ServiceListener#setRestricted}.
+   * Whether any currently-held ingress-restricting {@link NetworkPolicyRule} applies to {@code
+   * service} -- its tenant matches and either the rule is tenant-wide or its {@code
+   * deploymentNames} overlaps the service's own. Mere applicability is enough to restrict,
+   * regardless of the rule's own {@code allowedCallerTenantIds} (this proxy has no caller identity
+   * to check that allow list against -- see {@link ServiceListener#setRestricted}) and regardless
+   * of any {@code serviceInterfaceNames} scoping (an interface-scoped rule names fabric service
+   * interfaces, which this opaque-byte proxy cannot resolve, so it fails closed rather than assume
+   * the traffic it relays is out of the rule's scope). An egress-only rule never restricts a
+   * listener: it constrains what the covered workloads may dial out to, not who may reach them.
    */
   private static boolean isRestricted(ServiceSummary service, List<NetworkPolicyRule> policies) {
     if (service.tenantId().isEmpty()) {
@@ -193,6 +196,9 @@ public final class BifrostProxy implements AutoCloseable {
     }
     String tenantId = service.tenantId().get();
     for (NetworkPolicyRule rule : policies) {
+      if (!rule.restrictsIngress()) {
+        continue;
+      }
       if (!rule.tenantId().equals(tenantId)) {
         continue;
       }

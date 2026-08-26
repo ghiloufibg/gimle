@@ -31,6 +31,7 @@ import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
+import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -211,6 +212,26 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   public boolean isNodeCordoned(String nodeId) {
     return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsNodeCordoned(nodeId))).value();
+  }
+
+  @Override
+  public boolean isCertificateRevoked(String serialNumber) {
+    return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsCertificateRevoked(serialNumber)))
+        .value();
+  }
+
+  @Override
+  public Optional<WorkloadTokenRecord> getWorkloadToken(String key) {
+    StoreRpc.WorkloadTokenResult result =
+        (StoreRpc.WorkloadTokenResult) sendRead(new StoreRpc.GetWorkloadToken(key));
+    return result.present() ? Optional.of(result.value()) : Optional.empty();
+  }
+
+  @Override
+  public Set<String> listRevokedCertificateSerials() {
+    return Set.copyOf(
+        ((StoreRpc.StringSetResult) sendRead(new StoreRpc.ListRevokedCertificateSerials()))
+            .values());
   }
 
   public List<InstanceAssignment> listAssignments() {

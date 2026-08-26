@@ -127,6 +127,22 @@ class StateStoreTest {
   }
 
   @Test
+  void certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke() {
+    StateStore store = new StateStore();
+    store.putCertificateRevocation("0a1b2c", true);
+    assertTrue(store.isCertificateRevoked("0a1b2c"));
+    assertEquals(Set.of("0a1b2c"), store.listRevokedCertificateSerials());
+
+    StateStore reloaded = new StateStore();
+    reloaded.restoreFromSnapshot(store.snapshot());
+    assertTrue(reloaded.isCertificateRevoked("0a1b2c"));
+
+    reloaded.putCertificateRevocation("0a1b2c", false);
+    assertTrue(!reloaded.isCertificateRevoked("0a1b2c"));
+    assertTrue(reloaded.listRevokedCertificateSerials().isEmpty());
+  }
+
+  @Test
   void network_policy_round_trips_through_a_snapshot_into_a_fresh_store() {
     StateStore store = new StateStore();
     NetworkPolicySpec spec =

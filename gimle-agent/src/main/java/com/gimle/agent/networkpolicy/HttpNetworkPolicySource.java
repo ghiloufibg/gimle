@@ -53,24 +53,40 @@ public final class HttpNetworkPolicySource implements NetworkPolicySource {
     List<NetworkPolicyRule> rules = new ArrayList<>(raw.size());
     for (Object entryValue : raw) {
       Map<String, Object> entry = Json.asObject(entryValue);
-      Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
-      for (Object tenantId : Json.asArray(entry.get("allowedCallerTenantIds"))) {
-        allowedCallerTenantIds.add((String) tenantId);
-      }
-      // An empty array is ApiServer#networkPolicyToJson's own convention for "tenant-wide" --
-      // mirrors NetworkPolicySpec#deploymentNames' Optional.empty() the same way that write side
-      // does, without needing to distinguish "field absent" from "field present but empty".
-      Set<String> deploymentNames = new LinkedHashSet<>();
-      for (Object deploymentName : Json.asArray(entry.get("deploymentNames"))) {
-        deploymentNames.add((String) deploymentName);
-      }
       rules.add(
           new NetworkPolicyRule(
               (String) entry.get("name"),
               (String) entry.get("tenantId"),
-              deploymentNames.isEmpty() ? Optional.empty() : Optional.of(deploymentNames),
-              allowedCallerTenantIds));
+              // An empty scoping array is ApiServer#networkPolicyToJson's own convention for
+              // "unscoped" -- mirrors NetworkPolicySpec's Optional.empty() the same way that
+              // write side does. The direction sets are the opposite: their key is present
+              // exactly when the policy restricts that direction, because there an empty set
+              // (deny every cross-tenant peer) is distinct from absence.
+              emptyMeansUnscoped(entry.get("deploymentNames")),
+              emptyMeansUnscoped(entry.get("serviceInterfaceNames")),
+              absentMeansUnrestricted(entry.get("allowedCallerTenantIds")),
+              absentMeansUnrestricted(entry.get("allowedCalleeTenantIds"))));
     }
     return rules;
+  }
+
+  private static Optional<Set<String>> emptyMeansUnscoped(Object jsonArray) {
+    Set<String> values = stringSet(jsonArray);
+    return values.isEmpty() ? Optional.empty() : Optional.of(values);
+  }
+
+  private static Optional<Set<String>> absentMeansUnrestricted(Object jsonArray) {
+    return jsonArray == null ? Optional.empty() : Optional.of(stringSet(jsonArray));
+  }
+
+  private static Set<String> stringSet(Object jsonArray) {
+    if (jsonArray == null) {
+      return Set.of();
+    }
+    Set<String> values = new LinkedHashSet<>();
+    for (Object value : Json.asArray(jsonArray)) {
+      values.add((String) value);
+    }
+    return values;
   }
 }

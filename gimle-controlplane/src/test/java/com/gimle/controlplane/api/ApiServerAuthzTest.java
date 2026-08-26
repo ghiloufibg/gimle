@@ -24,6 +24,7 @@ import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import com.gimle.pki.CertificateAuthority;
@@ -1371,6 +1372,156 @@ class ApiServerAuthzTest {
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(401, anonymous.statusCode());
     }
+  }
+
+  /**
+   * The portable revocation flow end to end: a valid, in-date operator certificate authenticates
+   * until its serial lands on the store-backed denylist, is refused with a bare 401 from the very
+   * next request on (no authorization ever runs for it), reappears in the revocation listing, and
+   * authenticates again once un-revoked -- revocation is a reversible store entry, not a destroyed
+   * credential.
+   */
+  @Test
+  void a_revoked_certificate_stops_authenticating_until_unrevoked() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+
+      KeyPair keyPair = generateRsaKeyPair();
+      PKCS10CertificationRequest csr =
+          CertificateSigningRequests.generate(
+              keyPair, new X500Name("O=gimle:operators,CN=revocable-operator"));
+      X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
+      Path certFile = writePem("revocable-cert.pem", Pem.encodeCertificate(leaf));
+      Path keyFile = writePem("revocable-key.pem", Pem.encodePrivateKey(keyPair.getPrivate()));
+      HttpClient revocable =
+          HttpClient.newBuilder()
+              .sslContext(SslContexts.forMutualTls(new TlsSettings(certFile, keyFile, caFile)))
+              .build();
+      String serial = leaf.getSerialNumber().toString(16);
+      HttpClient admin = mutualTlsClient(ca, "O=gimle:operators,CN=root-operator");
+
+      assertEquals(200, get(revocable, baseUrl + "/tenants").statusCode());
+
+      HttpResponse<String> revoke =
+          admin.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/certificates/revoked/" + serial))
+                  .PUT(HttpRequest.BodyPublishers.noBody())
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, revoke.statusCode());
+
+      assertEquals(401, get(revocable, baseUrl + "/tenants").statusCode());
+      HttpResponse<String> listing = get(admin, baseUrl + "/certificates/revoked");
+      assertEquals(200, listing.statusCode());
+      assertTrue(listing.body().contains(serial));
+
+      HttpResponse<String> unrevoke =
+          admin.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/certificates/revoked/" + serial))
+                  .DELETE()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, unrevoke.statusCode());
+      assertEquals(200, get(revocable, baseUrl + "/tenants").statusCode());
+    }
+  }
+
+  /**
+   * The ServiceAccount-analogue flow end to end over real mTLS: the owning node's agent identity
+   * mints a token for its assigned deployment (a foreign node is refused), the token alone -- no
+   * client certificate at all -- resolves the workload principal, which is denied everything until
+   * an operator binds it a role, then reads exactly its own tenant's resources; garbage tokens
+   * resolve nothing.
+   */
+  @Test
+  void a_workload_token_carries_deny_by_default_rbac_identity() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 10_000, 100)));
+    store.putDeployment(
+        new DeploymentSpec(
+            "orders-service",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/tmp/orders.jar",
+            1,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.of("acme")));
+    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient owningNode = mutualTlsClient(ca, "O=gimle:nodes,CN=node-a");
+      HttpClient foreignNode = mutualTlsClient(ca, "O=gimle:nodes,CN=node-b");
+      HttpClient tokenOnly =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+      String mintBody = "{\"deploymentName\": \"orders-service\", \"nodeId\": \"node-a\"}";
+      // A foreign node may not mint for node-a's assignment; the owning node may.
+      assertEquals(403, mint(foreignNode, baseUrl, mintBody).statusCode());
+      HttpResponse<String> minted = mint(owningNode, baseUrl, mintBody);
+      assertEquals(200, minted.statusCode());
+      String token = String.valueOf(Json.asObject(Json.parse(minted.body())).get("token"));
+
+      // The bare token resolves the workload principal -- authenticated but deny-by-default.
+      assertEquals(
+          403, bearerGet(tokenOnly, baseUrl, "/deployments/orders-service", token).statusCode());
+      // Garbage resolves nothing at all.
+      assertEquals(
+          401,
+          bearerGet(tokenOnly, baseUrl, "/deployments/orders-service", "junk:beef").statusCode());
+
+      store.putRoleBinding(
+          new RoleBinding(
+              "wb1", RoleBinding.userSubject("svc:acme:orders-service"), "tenant-view:acme"));
+
+      HttpResponse<String> read =
+          bearerGet(tokenOnly, baseUrl, "/deployments/orders-service", token);
+      assertEquals(200, read.statusCode());
+    }
+  }
+
+  private static HttpResponse<String> mint(HttpClient client, String baseUrl, String body)
+      throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/workload-tokens"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+            .build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private static HttpResponse<String> bearerGet(
+      HttpClient client, String baseUrl, String path, String token) throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + path))
+            .header("Authorization", "Bearer " + token)
+            .GET()
+            .build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private static HttpResponse<String> get(HttpClient client, String url) throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(URI.create(url)).GET().build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }
 
   private static boolean canI(HttpClient client, String baseUrl, String cookie, String queryString)

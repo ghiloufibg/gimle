@@ -111,7 +111,7 @@ class ApiServerNetworkPoliciesTest {
             .POST(
                 HttpRequest.BodyPublishers.ofString(
                     """
-                    {"name": "deny-all", "tenantId": "acme"}
+                    {"name": "deny-all", "tenantId": "acme", "allowedCallerTenantIds": []}
                     """))
             .build());
 
@@ -291,7 +291,7 @@ class ApiServerNetworkPoliciesTest {
             .POST(
                 HttpRequest.BodyPublishers.ofString(
                     """
-                    {"name": "scoped", "tenantId": "acme", "deploymentNames": ["orders-service"]}
+                    {"name": "scoped", "tenantId": "acme", "deploymentNames": ["orders-service"], "allowedCallerTenantIds": []}
                     """))
             .build());
 

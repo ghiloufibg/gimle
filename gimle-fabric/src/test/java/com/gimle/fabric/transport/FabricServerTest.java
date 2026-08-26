@@ -522,6 +522,155 @@ class FabricServerTest {
 
   @Test
   @Timeout(10)
+  void an_interface_scoped_ingress_rule_restricts_only_calls_to_its_named_interfaces()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    // Scoped to an interface this call doesn't target: the call must pass untouched.
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "scoped-elsewhere",
+                "tenant-a",
+                Optional.empty(),
+                Optional.of(Set.of("com.example.SomeOtherService")),
+                Optional.of(Set.of()),
+                Optional.empty())));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    assertInstanceOf(
+        FabricFrame.InvokeResponse.class,
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b"))));
+
+    // The identical rule scoped to the called interface itself: now the call is denied.
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "scoped-here",
+                "tenant-a",
+                Optional.empty(),
+                Optional.of(Set.of(Greeter.class.getName())),
+                Optional.of(Set.of()),
+                Optional.empty())));
+
+    assertInstanceOf(
+        FabricFrame.InvokeError.class,
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b"))));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_egress_restricted_callers_tenant_is_denied_at_a_callee_outside_its_allow_list()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    // The rule is owned by the CALLER's tenant (tenant-b): its egress restriction follows the
+    // caller to every callee, enforced here because the callee is the one enforcement point a
+    // misbehaving caller cannot skip.
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "tenant-b-egress-lockdown",
+                "tenant-b",
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(Set.of()))));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+    Object thrown =
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeError) response).serializedThrowable(),
+            getClass().getClassLoader());
+    assertInstanceOf(GimleFabricAuthorizationException.class, thrown);
+  }
+
+  @Test
+  @Timeout(10)
+  void an_egress_allow_list_naming_the_callees_tenant_permits_the_call() throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "tenant-b-egress-partner",
+                "tenant-b",
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(Set.of("tenant-a")))));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    assertInstanceOf(
+        FabricFrame.InvokeResponse.class,
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b"))));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_caller_deployment_scoped_egress_rule_is_not_enforced_at_the_callee() throws Exception {
+    // The wire carries no caller deployment identity, so a deployment-scoped egress rule can only
+    // ever be proven to apply at the caller -- the callee must not assume it applies.
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "tenant-b-one-deployment-egress",
+                "tenant-b",
+                Optional.of(Set.of("some-deployment")),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(Set.of()))));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    assertInstanceOf(
+        FabricFrame.InvokeResponse.class,
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b"))));
+  }
+
+  @Test
+  @Timeout(10)
+  void same_tenant_egress_is_always_permitted_regardless_of_the_allow_list() throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-b"));
+    server.updateNetworkPolicies(
+        List.of(
+            new NetworkPolicyRule(
+                "tenant-b-egress-lockdown",
+                "tenant-b",
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.of(Set.of()))));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    assertInstanceOf(
+        FabricFrame.InvokeResponse.class,
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b"))));
+  }
+
+  @Test
+  @Timeout(10)
   void an_untenanted_worker_is_never_restricted_by_a_network_policy() throws Exception {
     // NetworkPolicySpec's own constructor rejects a blank tenantId, so an untenanted worker can
     // never be a policy's own target -- selfTenantId absent must short-circuit the check entirely.

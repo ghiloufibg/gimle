@@ -91,8 +91,42 @@ public final class CertCommand {
       case "status" -> status(rest);
       case "approve" -> approve(rest);
       case "renew" -> renew(rest);
+      case "revoke" -> setRevocation(rest, true);
+      case "unrevoke" -> setRevocation(rest, false);
+      case "revocations" -> listRevocations();
       default -> throw new CliException(usage());
     }
+  }
+
+  /**
+   * {@code gimle cert revoke|unrevoke <serialHex>} -- {@code PUT}/{@code DELETE
+   * /certificates/revoked/{serial}}. The serial is the hex form {@code openssl x509 -serial}
+   * prints; every process that authenticates the revoked leaf refuses it from its next request on.
+   */
+  private void setRevocation(List<String> args, boolean revoke) {
+    if (args.size() != 1) {
+      throw new CliException(
+          "usage: gimle cert " + (revoke ? "revoke" : "unrevoke") + " <serialHex>");
+    }
+    String serial = args.get(0);
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    String path = "/certificates/revoked/" + serial;
+    ApiResponse response = revoke ? client.put(path, "") : client.delete(path);
+    Map<String, Object> result = Json.asObject(Json.parse(client.expectSuccess(response)));
+    OutputFormat.printResult(
+        output,
+        result,
+        (revoke ? "revoked" : "unrevoked") + " certificate serial " + result.get("serial"),
+        out);
+  }
+
+  /** {@code gimle cert revocations} -- {@code GET /certificates/revoked}. */
+  private void listRevocations() {
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    Map<String, Object> result =
+        Json.asObject(Json.parse(client.expectSuccess(client.get("/certificates/revoked"))));
+    OutputFormat.printResult(
+        output, result, "revoked serials: " + result.get("revokedSerials"), out);
   }
 
   /** {@code gimle cert token create [--ttl <duration>]} -- {@code POST /bootstrap/tokens}. */
@@ -306,6 +340,9 @@ public final class CertCommand {
                gimle cert request --purpose operator|node --out-cert <path> --out-key <path>
                gimle cert status <request-id> --out-cert <path>
                gimle cert approve <request-id>
-               gimle cert renew [--force]""";
+               gimle cert renew [--force]
+               gimle cert revoke <serialHex>
+               gimle cert unrevoke <serialHex>
+               gimle cert revocations""";
   }
 }

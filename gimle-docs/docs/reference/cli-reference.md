@@ -107,6 +107,9 @@ gimle cert request --purpose operator|node --out-cert <path> --out-key <path> [-
 gimle cert status <request-id> --out-cert <path>
 gimle cert approve <request-id>
 gimle cert renew [--force]
+gimle cert revoke <serialHex>
+gimle cert unrevoke <serialHex>
+gimle cert revocations
 ```
 
 The `cert` verbs are the operator-facing half of the node-bootstrap-CSR and certificate-rotation

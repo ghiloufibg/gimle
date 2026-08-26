@@ -119,7 +119,8 @@ class ApiServerNodeServiceAndNetworkPolicyAuthzTest {
               HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies"))
                   .POST(
                       HttpRequest.BodyPublishers.ofString(
-                          "{\"name\":\"np1\",\"tenantId\":\"acme\"}"))
+                          "{\"name\":\"np1\",\"tenantId\":\"acme\","
+                              + "\"allowedCallerTenantIds\":[]}"))
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(403, policyWrite.statusCode());

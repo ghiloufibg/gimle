@@ -31,6 +31,7 @@ import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
+import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -331,7 +332,11 @@ class RaftCodecTest {
                 new ControllerRevision(
                     "Deployment", "greeter", 1, deploymentSpec(), 1_000L, OptionalInt.empty())),
             List.of(),
-            Map.of());
+            Map.of(),
+            Set.of("0a1b2c"),
+            List.of(
+                new WorkloadTokenRecord(
+                    "orders#node-1", "ab12cd", Optional.of("tenant-1"), "orders", 9_999L)));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -363,6 +368,8 @@ class RaftCodecTest {
     assertEquals(snapshot.services(), decoded.services());
     assertEquals(snapshot.networkPolicies(), decoded.networkPolicies());
     assertEquals(snapshot.controllerRevisions(), decoded.controllerRevisions());
+    assertEquals(snapshot.revokedCertificateSerials(), decoded.revokedCertificateSerials());
+    assertEquals(snapshot.workloadTokens(), decoded.workloadTokens());
   }
 
   @Test

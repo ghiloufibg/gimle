@@ -10,15 +10,20 @@ import java.util.Set;
  * gimle-core}), so a {@link com.gimle.core.protocol.ControlMessage} carried over the
  * agent&harr;worker control channel can't reference the manifest type directly.
  *
- * <p>{@code deploymentNames} mirrors {@code NetworkPolicySpec}'s own field exactly: {@code
- * Optional.empty()} means the whole tenant, a present set scopes the rule to just those deployment
- * names. See {@link #appliesToDeployment(Optional)}.
+ * <p>{@code deploymentNames} and {@code serviceInterfaceNames} mirror {@code NetworkPolicySpec}'s
+ * own fields exactly: {@code Optional.empty()} means unscoped in that dimension, a present set
+ * scopes the rule to just those names. {@code allowedCallerTenantIds} (ingress) and {@code
+ * allowedCalleeTenantIds} (egress) are each independently optional -- an absent direction imposes
+ * no restriction in that direction, an empty set denies every cross-tenant peer in it. See {@link
+ * #appliesToDeployment(Optional)} and {@link #appliesToServiceInterface(String)}.
  */
 public record NetworkPolicyRule(
     String name,
     String tenantId,
     Optional<Set<String>> deploymentNames,
-    Set<String> allowedCallerTenantIds) {
+    Optional<Set<String>> serviceInterfaceNames,
+    Optional<Set<String>> allowedCallerTenantIds,
+    Optional<Set<String>> allowedCalleeTenantIds) {
 
   public NetworkPolicyRule {
     if (name == null || name.isBlank()) {
@@ -30,27 +35,88 @@ public record NetworkPolicyRule(
     if (deploymentNames == null) {
       throw new IllegalArgumentException("deploymentNames must be Optional.empty(), not null");
     }
+    if (serviceInterfaceNames == null) {
+      throw new IllegalArgumentException(
+          "serviceInterfaceNames must be Optional.empty(), not null");
+    }
     if (allowedCallerTenantIds == null) {
-      throw new IllegalArgumentException("allowedCallerTenantIds must not be null");
+      throw new IllegalArgumentException(
+          "allowedCallerTenantIds must be Optional.empty(), not null");
+    }
+    if (allowedCalleeTenantIds == null) {
+      throw new IllegalArgumentException(
+          "allowedCalleeTenantIds must be Optional.empty(), not null");
     }
     deploymentNames = deploymentNames.map(Set::copyOf);
-    allowedCallerTenantIds = Set.copyOf(allowedCallerTenantIds);
+    serviceInterfaceNames = serviceInterfaceNames.map(Set::copyOf);
+    allowedCallerTenantIds = allowedCallerTenantIds.map(Set::copyOf);
+    allowedCalleeTenantIds = allowedCalleeTenantIds.map(Set::copyOf);
   }
 
-  /** Back-compat: a tenant-wide rule, the only shape this type used to be able to express. */
+  /** Convenience: a tenant-wide, ingress-only rule. */
   public NetworkPolicyRule(String name, String tenantId, Set<String> allowedCallerTenantIds) {
-    this(name, tenantId, Optional.empty(), allowedCallerTenantIds);
+    this(
+        name,
+        tenantId,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(allowedCallerTenantIds),
+        Optional.empty());
+  }
+
+  /** Convenience: a deployment-scoped, ingress-only rule. */
+  public NetworkPolicyRule(
+      String name,
+      String tenantId,
+      Optional<Set<String>> deploymentNames,
+      Set<String> allowedCallerTenantIds) {
+    this(
+        name,
+        tenantId,
+        deploymentNames,
+        Optional.empty(),
+        Optional.of(allowedCallerTenantIds),
+        Optional.empty());
+  }
+
+  /** Whether this rule restricts inbound (ingress) fabric traffic at all. */
+  public boolean restrictsIngress() {
+    return allowedCallerTenantIds.isPresent();
+  }
+
+  /** Whether this rule restricts outbound (egress) fabric traffic at all. */
+  public boolean restrictsEgress() {
+    return allowedCalleeTenantIds.isPresent();
   }
 
   /**
-   * Whether {@code callerTenantId} may call into a Service this rule's own {@code tenantId} owns.
+   * Whether {@code callerTenantId} may call into a workload this rule's own {@code tenantId} owns.
    * Identical semantics to {@code NetworkPolicySpec#permitsCallerTenant} -- same-tenant traffic is
-   * always allowed, an untenanted caller is never permitted once a rule exists.
+   * always allowed, an untenanted caller is never permitted once an ingress restriction exists, and
+   * a rule with no ingress restriction permits every caller.
    */
   public boolean permitsCallerTenant(Optional<String> callerTenantId) {
+    if (allowedCallerTenantIds.isEmpty()) {
+      return true;
+    }
     return callerTenantId.isPresent()
         && (callerTenantId.get().equals(tenantId)
-            || allowedCallerTenantIds.contains(callerTenantId.get()));
+            || allowedCallerTenantIds.get().contains(callerTenantId.get()));
+  }
+
+  /**
+   * Whether a workload this rule covers may call out to {@code calleeTenantId} -- {@link
+   * #permitsCallerTenant} mirrored in the outbound direction: same-tenant callees always permitted,
+   * an untenanted callee never permitted once an egress restriction exists, no egress restriction
+   * permits every callee.
+   */
+  public boolean permitsCalleeTenant(Optional<String> calleeTenantId) {
+    if (allowedCalleeTenantIds.isEmpty()) {
+      return true;
+    }
+    return calleeTenantId.isPresent()
+        && (calleeTenantId.get().equals(tenantId)
+            || allowedCalleeTenantIds.get().contains(calleeTenantId.get()));
   }
 
   /**
@@ -65,5 +131,14 @@ public record NetworkPolicyRule(
     return deploymentNames.isEmpty()
         || (targetDeploymentName.isPresent()
             && deploymentNames.get().contains(targetDeploymentName.get()));
+  }
+
+  /**
+   * Whether this rule covers a fabric call targeting {@code interfaceName} -- an interface-unscoped
+   * rule covers every call; a scoped rule covers only calls to the named exported service
+   * interfaces.
+   */
+  public boolean appliesToServiceInterface(String interfaceName) {
+    return serviceInterfaceNames.isEmpty() || serviceInterfaceNames.get().contains(interfaceName);
   }
 }

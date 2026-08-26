@@ -47,6 +47,7 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -176,38 +177,50 @@ public final class DomainCodec {
       throws IOException {
     out.writeUTF(spec.name());
     out.writeUTF(spec.tenantId());
-    Optional<Set<String>> deploymentNames = spec.deploymentNames();
-    out.writeBoolean(deploymentNames.isPresent());
-    if (deploymentNames.isPresent()) {
-      out.writeInt(deploymentNames.get().size());
-      for (String deploymentName : deploymentNames.get()) {
-        out.writeUTF(deploymentName);
-      }
-    }
-    out.writeInt(spec.allowedCallerTenantIds().size());
-    for (String tenantId : spec.allowedCallerTenantIds()) {
-      out.writeUTF(tenantId);
-    }
+    writeOptionalStringSet(out, spec.deploymentNames());
+    writeOptionalStringSet(out, spec.serviceInterfaceNames());
+    writeOptionalStringSet(out, spec.allowedCallerTenantIds());
+    writeOptionalStringSet(out, spec.allowedCalleeTenantIds());
   }
 
   public static NetworkPolicySpec readNetworkPolicySpec(DataInputStream in) throws IOException {
     String name = in.readUTF();
     String tenantId = in.readUTF();
-    Optional<Set<String>> deploymentNames = Optional.empty();
-    if (in.readBoolean()) {
-      int deploymentNameCount = in.readInt();
-      Set<String> names = new LinkedHashSet<>();
-      for (int i = 0; i < deploymentNameCount; i++) {
-        names.add(in.readUTF());
+    Optional<Set<String>> deploymentNames = readOptionalStringSet(in);
+    Optional<Set<String>> serviceInterfaceNames = readOptionalStringSet(in);
+    Optional<Set<String>> allowedCallerTenantIds = readOptionalStringSet(in);
+    Optional<Set<String>> allowedCalleeTenantIds = readOptionalStringSet(in);
+    return new NetworkPolicySpec(
+        name,
+        tenantId,
+        deploymentNames,
+        serviceInterfaceNames,
+        allowedCallerTenantIds,
+        allowedCalleeTenantIds);
+  }
+
+  private static void writeOptionalStringSet(DataOutputStream out, Optional<Set<String>> values)
+      throws IOException {
+    out.writeBoolean(values.isPresent());
+    if (values.isPresent()) {
+      out.writeInt(values.get().size());
+      for (String value : values.get()) {
+        out.writeUTF(value);
       }
-      deploymentNames = Optional.of(names);
     }
-    int allowedCallerTenantIdCount = in.readInt();
-    Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
-    for (int i = 0; i < allowedCallerTenantIdCount; i++) {
-      allowedCallerTenantIds.add(in.readUTF());
+  }
+
+  private static Optional<Set<String>> readOptionalStringSet(DataInputStream in)
+      throws IOException {
+    if (!in.readBoolean()) {
+      return Optional.empty();
     }
-    return new NetworkPolicySpec(name, tenantId, deploymentNames, allowedCallerTenantIds);
+    int count = in.readInt();
+    Set<String> values = new LinkedHashSet<>();
+    for (int i = 0; i < count; i++) {
+      values.add(in.readUTF());
+    }
+    return Optional.of(values);
   }
 
   public static void writeLimitRangeSpec(DataOutputStream out, LimitRangeSpec spec)
@@ -922,6 +935,28 @@ public final class DomainCodec {
   public static ResourceUsageSnapshot readResourceUsageSnapshot(DataInputStream in)
       throws IOException {
     return new ResourceUsageSnapshot(in.readLong(), in.readLong(), in.readLong(), in.readLong());
+  }
+
+  public static void writeWorkloadTokenRecord(DataOutputStream out, WorkloadTokenRecord record)
+      throws IOException {
+    out.writeUTF(record.key());
+    out.writeUTF(record.tokenSha256Hex());
+    out.writeBoolean(record.tenantId().isPresent());
+    if (record.tenantId().isPresent()) {
+      out.writeUTF(record.tenantId().get());
+    }
+    out.writeUTF(record.deploymentName());
+    out.writeLong(record.expiresAtEpochMilli());
+  }
+
+  public static WorkloadTokenRecord readWorkloadTokenRecord(DataInputStream in) throws IOException {
+    String key = in.readUTF();
+    String tokenSha256Hex = in.readUTF();
+    Optional<String> tenantId = in.readBoolean() ? Optional.of(in.readUTF()) : Optional.empty();
+    String deploymentName = in.readUTF();
+    long expiresAtEpochMilli = in.readLong();
+    return new WorkloadTokenRecord(
+        key, tokenSha256Hex, tenantId, deploymentName, expiresAtEpochMilli);
   }
 
   public static void writeInstanceObservation(DataOutputStream out, InstanceObservation obs)

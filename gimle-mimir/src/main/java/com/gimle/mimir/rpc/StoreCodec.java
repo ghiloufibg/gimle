@@ -166,6 +166,10 @@ public final class StoreCodec {
   private static final byte TAG_LIMIT_RANGE_LIST_RESULT = 109;
   private static final byte TAG_IS_LIMIT_RANGE_VIOLATING = 110;
   private static final byte TAG_GET_LIMIT_RANGE_VIOLATION_REASON = 111;
+  private static final byte TAG_IS_CERTIFICATE_REVOKED = 112;
+  private static final byte TAG_LIST_REVOKED_CERTIFICATE_SERIALS = 113;
+  private static final byte TAG_GET_WORKLOAD_TOKEN = 114;
+  private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -265,6 +269,16 @@ public final class StoreCodec {
         case StoreRpc.IsNodeCordoned v -> {
           out.writeByte(TAG_IS_NODE_CORDONED);
           out.writeUTF(v.nodeId());
+        }
+        case StoreRpc.IsCertificateRevoked v -> {
+          out.writeByte(TAG_IS_CERTIFICATE_REVOKED);
+          out.writeUTF(v.serialNumber());
+        }
+        case StoreRpc.ListRevokedCertificateSerials v ->
+            out.writeByte(TAG_LIST_REVOKED_CERTIFICATE_SERIALS);
+        case StoreRpc.GetWorkloadToken v -> {
+          out.writeByte(TAG_GET_WORKLOAD_TOKEN);
+          out.writeUTF(v.key());
         }
         case StoreRpc.ListAssignments v -> out.writeByte(TAG_LIST_ASSIGNMENTS);
         case StoreRpc.GetJobSpec v -> {
@@ -640,6 +654,13 @@ public final class StoreCodec {
             DomainCodec.writeNodeRegistration(out, v.value());
           }
         }
+        case StoreRpc.WorkloadTokenResult v -> {
+          out.writeByte(TAG_WORKLOAD_TOKEN_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeWorkloadTokenRecord(out, v.value());
+          }
+        }
         case StoreRpc.HeartbeatResult v -> {
           out.writeByte(TAG_HEARTBEAT_RESULT);
           out.writeBoolean(v.present());
@@ -779,6 +800,9 @@ public final class StoreCodec {
         case TAG_GET_LIMIT_RANGE_VIOLATION_REASON ->
             new StoreRpc.GetLimitRangeViolationReason(in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
+        case TAG_IS_CERTIFICATE_REVOKED -> new StoreRpc.IsCertificateRevoked(in.readUTF());
+        case TAG_LIST_REVOKED_CERTIFICATE_SERIALS -> new StoreRpc.ListRevokedCertificateSerials();
+        case TAG_GET_WORKLOAD_TOKEN -> new StoreRpc.GetWorkloadToken(in.readUTF());
         case TAG_LIST_ASSIGNMENTS -> new StoreRpc.ListAssignments();
         case TAG_GET_JOB_SPEC -> new StoreRpc.GetJobSpec(in.readUTF());
         case TAG_LIST_JOB_SPECS -> new StoreRpc.ListJobSpecs();
@@ -991,6 +1015,11 @@ public final class StoreCodec {
           boolean present = in.readBoolean();
           yield new StoreRpc.NodeRegistrationResult(
               present, present ? DomainCodec.readNodeRegistration(in) : null);
+        }
+        case TAG_WORKLOAD_TOKEN_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.WorkloadTokenResult(
+              present, present ? DomainCodec.readWorkloadTokenRecord(in) : null);
         }
         case TAG_HEARTBEAT_RESULT -> {
           boolean present = in.readBoolean();

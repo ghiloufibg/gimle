@@ -64,7 +64,7 @@ class ApiServerNetworkPoliciesAuthzTest {
 
   private static String tenantWidePolicyJson(String name, String tenantId) {
     return """
-        {"name": "%s", "tenantId": "%s"}
+        {"name": "%s", "tenantId": "%s", "allowedCallerTenantIds": []}
         """
         .formatted(name, tenantId);
   }

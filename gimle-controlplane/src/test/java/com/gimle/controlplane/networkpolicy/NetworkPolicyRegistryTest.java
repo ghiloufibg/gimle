@@ -77,7 +77,7 @@ class NetworkPolicyRegistryTest {
 
     assertEquals(1, registry.list().size());
     assertEquals(
-        Set.of("partner-b"),
+        Optional.of(Set.of("partner-b")),
         registry.get("deny-by-default").orElseThrow().allowedCallerTenantIds());
   }
 
@@ -107,7 +107,7 @@ class NetworkPolicyRegistryTest {
       replicaA.put(new NetworkPolicySpec("deny-by-default", "acme", Set.of("partner-tenant")));
 
       assertEquals(
-          Set.of("partner-tenant"),
+          Optional.of(Set.of("partner-tenant")),
           replicaB.get("deny-by-default").orElseThrow().allowedCallerTenantIds());
       assertEquals(1, replicaB.list().size());
     }

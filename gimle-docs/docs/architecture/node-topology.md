@@ -95,21 +95,33 @@ traces) already goes out over this same relay-through-the-agent shape; `RelayCon
 `RelayControlPlaneResult` extend it to a narrow, whitelisted read-back into the control plane's own
 HTTP API, so a hosted module can call `ModuleContext#relayControlPlaneRead(path)` — e.g. to look up
 its own siblings' addresses via `GET /endpoints/{name}` — without the module or its worker ever
-holding a certificate of their own.
+holding a certificate of their own. A tenanted module's relayed reads carry its own **workload
+identity** (the ServiceAccount analogue, below), so what it may read is governed by RBAC on the
+control plane rather than by the agent's whitelist; the whitelist remains only for untenanted
+modules, which have no tenant a workload identity could scope to.
 
 The flow: `gimle-worker`'s `ControlPlaneRelay` generates a correlation id, registers a
 `CompletableFuture` keyed by it, sends `RelayControlPlaneRead` over the control channel, and blocks
 the calling thread (never `WorkerMain`'s own single receive-loop thread — that would deadlock the
 worker against itself, since that same thread is what would need to read the eventual response off
 the wire) with a bounded timeout. `gimle-agent`'s `AgentMain` is the trust boundary: it independently
-re-validates the requested path against a hard-coded whitelist (today, exactly
-`GET /endpoints/{name}`) before making any real call — a worker (and the hosted module running
-inside it) is never trusted to only ask for something already allowed. A non-whitelisted path is
-rejected locally with a synthesized `403`, never forwarded to the control plane at all; a whitelisted
-path is fetched with the agent's own already-mTLS-authenticated `HttpClient` (the same one
-`fetchAssignments`/`fetchConfigForTenant` already use) and its real status/body relayed back
-verbatim as `RelayControlPlaneResult`. A transport failure reaching the control plane comes back as
-a synthesized `502` rather than propagating out of the agent's own read loop.
+re-validates every request before making any real call — a worker (and the hosted module running
+inside it) is never trusted to only ask for something already allowed. For a **tenanted** instance,
+the agent mints (and caches) a per-`deploymentName#nodeId` workload token from
+`POST /workload-tokens` — authorized by the agent's own node identity plus the store's assignment
+check on the control-plane side — and attaches it as a `Bearer` credential on the relayed request;
+any `GET` path is then forwarded and the control plane's own RBAC decides, with the token
+*mandatory*: no token means the relay is refused locally (`502`), so a module can never ride its
+agent's broader node identity. Minted tokens are store-backed (only their SHA-256 replicates — see
+`WorkloadTokenRecord`), verify on any control-plane replica, expire after an hour, and resolve the
+principal `svc:<tenantId>:<deploymentName>` in group `gimle:workloads` — deny-by-default until an
+operator binds it a role (e.g. `gimle set rolebinding wb1 --subject user:svc:acme:orders --role
+tenant-view:acme`). For an **untenanted** instance the original hard-coded whitelist (exactly
+`GET /endpoints/{name}`) still applies unchanged, rejected locally with a synthesized `403`
+otherwise. Under Tier 1 density the attributed identity is the connection-owning instance's
+deployment — a packed sibling of a different deployment (same tenant, by construction) relays under
+the hosting instance's identity, an accepted coarseness. A transport failure reaching the control
+plane comes back as a synthesized `502` rather than propagating out of the agent's own read loop.
 
 ## Control Plane
 

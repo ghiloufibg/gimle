@@ -93,6 +93,30 @@ Any authenticated caller may ask about itself (and only itself — there is no p
 it is never audited (a hypothetical is a read-shaped question), and in plaintext mode it honestly
 answers `true` for everything, since nothing is actually gated in that mode.
 
+**Workload identity** is the ServiceAccount analogue: each node's agent mints a short-lived token
+per assigned, tenanted deployment (`POST /workload-tokens` — under mTLS a `gimle:nodes` principal
+may mint only for its own node and only for a deployment the store currently assigns there; an
+operator may mint for any node) and attaches it as a `Bearer` credential when relaying a hosted
+module's control-plane reads. The token is store-backed rather than signed: only its SHA-256
+replicates through Raft (`WorkloadTokenRecord`, keyed `deploymentName#nodeId`), so it verifies on
+whichever replica a request lands on — replicas share no signing key, they share the store — and
+removing the record revokes it instantly. A live token resolves the principal
+`svc:<tenantId>:<deploymentName>` in group `gimle:workloads`, checked *before* any peer
+certificate (the one caller sending both is a relaying agent, and the module must act as its own
+narrower principal, never ride the agent's node identity; an invalid bearer resolves nothing rather
+than falling back). No implicit grants: an unbound workload principal is denied everything until an
+operator binds it a role — `gimle set rolebinding wb1 --subject user:svc:acme:orders --role
+tenant-view:acme` is the typical shape. Untenanted deployments have no workload identity (nothing
+to scope to) and keep the agent-side relay whitelist instead.
+
+**Certificate revocation** is the portable answer to a compromised leaf, with no CRL/OCSP
+infrastructure: `gimle cert revoke <serialHex>` (`PUT /certificates/revoked/{serial}`, guarded by
+`CERTIFICATE_REQUEST` writes) puts the serial — the `openssl x509 -serial` hex form — on a
+Raft-replicated denylist that `resolvePrincipal` checks before any authorization runs, so the
+revoked certificate resolves no principal at all from its very next request. Keyed by serial, not
+subject, so a legitimately re-issued certificate for the same identity is untouched; deliberately
+reversible (`gimle cert unrevoke`), and `gimle cert revocations` lists the current set.
+
 `Roles`/`RoleBindings`/`Accounts` are ordinary Raft-replicated resources — new
 `StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, nothing special-cased.
 
