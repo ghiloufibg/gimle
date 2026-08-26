@@ -259,23 +259,35 @@ public final class DeploymentReconciler {
   private void recordArtifactFailure(
       DeploymentSpec spec, List<Integer> blockedIndices, String message, String cause) {
     for (int index : blockedIndices) {
-      List<InstanceEvent> existing = store.listInstanceEvents(spec.name(), index);
-      if (!existing.isEmpty()
-          && existing.get(0).kind() == InstanceEventKind.TRANSITION_FAILED
-          && existing.get(0).message().equals(message)) {
-        continue;
-      }
-      mutations.propose(
-          new StateMutation.AppendInstanceEvent(
-              new InstanceEvent(
-                  UUID.randomUUID().toString(),
-                  spec.name(),
-                  index,
-                  InstanceEventKind.TRANSITION_FAILED,
-                  message,
-                  Optional.of(cause),
-                  clock.millis())));
+      recordTransitionFailure(spec.name(), index, message, Optional.of(cause));
     }
+  }
+
+  /**
+   * The dedup-against-most-recent-event shape {@link #recordArtifactFailure} established, factored
+   * out so a scheduling failure (see {@link #placeInstances}'s own catch block) can record the same
+   * durable, queryable signal an unreadable artifact already does -- an operator watching only the
+   * log otherwise sees nothing more specific than an eventual {@code CrashLoopBackOff}-style
+   * restart-budget-exhausted event, with no record of *why* a replica was never placed at all.
+   */
+  private void recordTransitionFailure(
+      String deploymentName, int index, String message, Optional<String> cause) {
+    List<InstanceEvent> existing = store.listInstanceEvents(deploymentName, index);
+    if (!existing.isEmpty()
+        && existing.get(0).kind() == InstanceEventKind.TRANSITION_FAILED
+        && existing.get(0).message().equals(message)) {
+      return;
+    }
+    mutations.propose(
+        new StateMutation.AppendInstanceEvent(
+            new InstanceEvent(
+                UUID.randomUUID().toString(),
+                deploymentName,
+                index,
+                InstanceEventKind.TRANSITION_FAILED,
+                message,
+                cause,
+                clock.millis())));
   }
 
   private void placeInstances(
@@ -314,8 +326,13 @@ public final class DeploymentReconciler {
         // Left unplaced; the next tick retries from the same full snapshot, no special-cased
         // retry bookkeeping needed -- this is what "level-triggered, converge from any snapshot"
         // buys: a missed placement this tick is indistinguishable from one that failed and is
-        // being retried.
+        // being retried. The durable event below is what lets an operator tell a permanently
+        // unplaceable replica (e.g. a hard tenant-isolation conflict) apart from a transient one
+        // without pivoting to this process's own log -- deduplicated the same way
+        // recordArtifactFailure's identical message check is, so a still-unplaceable replica
+        // doesn't mint a fresh event every retry tick.
         log.warn("could not place {} instance {}: {}", spec.name(), index, e.getMessage());
+        recordTransitionFailure(spec.name(), index, e.getMessage(), Optional.empty());
       }
     }
     mutations.proposeAll(placements);

@@ -1,6 +1,10 @@
 package com.gimle.core.exception;
 
 import com.gimle.core.module.IsolationTier;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 
 /**
  * The scheduler cannot place a deployment's replica anywhere: no registered node has both the
@@ -42,17 +46,37 @@ public class GimleSchedulingException extends RuntimeException {
   /**
    * A Tier 2/3 replica for a tenant couldn't be placed without co-residing on a node already
    * running a different tenant's instance -- the node-level segregation enforced for tiers with a
-   * real process/kernel isolation boundary.
+   * real process/kernel isolation boundary. Deliberately a hard policy, not a soft preference: this
+   * is never relaxed to let placement succeed anyway, so an operator who hits it needs to know
+   * exactly which node(s) and tenant(s) are blocking, not just that placement failed -- {@code
+   * conflictingTenantsByNode} is every otherwise-eligible node this replica could not use, mapped
+   * to the other tenant(s) already resident there, so the message names the specific conflict
+   * rather than describing the policy in the abstract.
    */
   public static GimleSchedulingException tenantIsolationViolated(
-      String deploymentName, int instanceIndex) {
+      String deploymentName, int instanceIndex, Map<String, Set<String>> conflictingTenantsByNode) {
+    StringBuilder detail = new StringBuilder();
+    // TreeMap/TreeSet: deterministic message text regardless of the caller's own iteration order,
+    // so this exception's message (and the durable event a caller may derive from it) doesn't
+    // flap between otherwise-identical retries.
+    for (Map.Entry<String, Set<String>> entry :
+        new TreeMap<>(conflictingTenantsByNode).entrySet()) {
+      if (!detail.isEmpty()) {
+        detail.append("; ");
+      }
+      detail
+          .append(entry.getKey())
+          .append(" already hosts tenant(s) ")
+          .append(String.join(", ", new TreeSet<>(entry.getValue())));
+    }
     return new GimleSchedulingException(
         "deployment "
             + deploymentName
             + " instance "
             + instanceIndex
-            + " cannot be placed without co-residing with a different tenant's instance on every"
-            + " node with capacity and tier support");
+            + " cannot be placed: tenant isolation forbids co-residing with a different tenant's"
+            + " instance, and every node with capacity and tier support already hosts one -- "
+            + detail);
   }
 
   /**

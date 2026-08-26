@@ -4,9 +4,12 @@ import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Bin-packing across registered nodes' latest heartbeat capacity: first-fit-decreasing over free
@@ -164,7 +167,10 @@ public final class Scheduler {
     if (enforcesTenantIsolation(tier, tenantId)
         && tenantEligible.isEmpty()
         && !affinityEligible.isEmpty()) {
-      throw GimleSchedulingException.tenantIsolationViolated(deploymentName, instanceIndex);
+      throw GimleSchedulingException.tenantIsolationViolated(
+          deploymentName,
+          instanceIndex,
+          conflictingTenantsByNode(affinityEligible, tenantId.get()));
     }
 
     List<NodeCandidate> labelEligible = filterByLabels(tenantEligible, requiredNodeLabels);
@@ -270,6 +276,28 @@ public final class Scheduler {
     return candidates.stream()
         .filter(c -> c.tenantsPresent().stream().allMatch(thisTenant::equals))
         .toList();
+  }
+
+  /**
+   * The tenant-isolation rejection's own explanatory detail: every candidate {@link
+   * #filterByTenant} would exclude for {@code thisTenant} (i.e. one hosting at least one other
+   * tenant already), mapped to exactly which other tenant(s) are there -- named specifics for
+   * {@link GimleSchedulingException#tenantIsolationViolated}'s message, not just "some node
+   * conflicts."
+   */
+  private static Map<String, Set<String>> conflictingTenantsByNode(
+      List<NodeCandidate> candidates, String thisTenant) {
+    Map<String, Set<String>> conflicts = new LinkedHashMap<>();
+    for (NodeCandidate candidate : candidates) {
+      Set<String> otherTenants =
+          candidate.tenantsPresent().stream()
+              .filter(tenant -> !tenant.equals(thisTenant))
+              .collect(Collectors.toSet());
+      if (!otherTenants.isEmpty()) {
+        conflicts.put(candidate.nodeId(), otherTenants);
+      }
+    }
+    return conflicts;
   }
 
   private static List<NodeCandidate> filterByLabels(

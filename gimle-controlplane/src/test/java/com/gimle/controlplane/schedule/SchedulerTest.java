@@ -2,6 +2,7 @@ package com.gimle.controlplane.schedule;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.IsolationTier;
@@ -188,6 +189,61 @@ class SchedulerTest {
                 false,
                 Optional.of("tenant-a"),
                 candidates));
+  }
+
+  /**
+   * An operator hitting this needs to know which node(s) and which other tenant(s) are actually
+   * blocking placement -- an event that just says "tenant isolation violated" with no specifics is
+   * indistinguishable from any other unexplained scheduling failure.
+   */
+  @Test
+  void tenant_isolation_failure_names_the_specific_blocking_node_and_tenant() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants(
+                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+
+    GimleSchedulingException failure =
+        assertThrows(
+            GimleSchedulingException.class,
+            () ->
+                scheduler.place(
+                    "orders",
+                    0,
+                    IsolationTier.TIER_2,
+                    REQUEST,
+                    false,
+                    Optional.of("tenant-a"),
+                    candidates));
+
+    assertTrue(failure.getMessage().contains("node-other-tenant"), failure.getMessage());
+    assertTrue(failure.getMessage().contains("tenant-b"), failure.getMessage());
+  }
+
+  @Test
+  void tenant_isolation_failure_names_every_blocking_node_when_more_than_one_conflicts() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTenants("node-b", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
+            nodeWithTenants("node-c", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-c")));
+
+    GimleSchedulingException failure =
+        assertThrows(
+            GimleSchedulingException.class,
+            () ->
+                scheduler.place(
+                    "orders",
+                    0,
+                    IsolationTier.TIER_2,
+                    REQUEST,
+                    false,
+                    Optional.of("tenant-a"),
+                    candidates));
+
+    assertTrue(failure.getMessage().contains("node-b"), failure.getMessage());
+    assertTrue(failure.getMessage().contains("tenant-b"), failure.getMessage());
+    assertTrue(failure.getMessage().contains("node-c"), failure.getMessage());
+    assertTrue(failure.getMessage().contains("tenant-c"), failure.getMessage());
   }
 
   @Test
