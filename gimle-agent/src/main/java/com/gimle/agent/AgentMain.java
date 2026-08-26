@@ -2164,7 +2164,7 @@ public final class AgentMain {
             Optional.of(systemLogFile),
             WorkerProcessSupervisor.DEFAULT_STABLE_UPTIME_THRESHOLD,
             Optional.of(workerLogRoot),
-            crash -> onWorkerCrash(crash, key, supervised, httpClient, baseUrl, nodeId),
+            crash -> onWorkerCrash(crash, key, supervised, catalog, httpClient, baseUrl, nodeId),
             spawnedWorkerId ->
                 onWorkerRespawned(
                     spawnedWorkerId,
@@ -2228,11 +2228,23 @@ public final class AgentMain {
    * {@link InstanceEventKind#TRANSITION_FAILED} rather than a new kind: adding {@code CRASHED}
    * would break the documented 1:1 mirror with {@code gimle-module}'s own {@code LifecycleEvent}
    * variants for no benefit a {@code causeSummary} doesn't already give a reader.
+   *
+   * <p>Also evicts the crashed worker's own entries from this agent's shared {@link ServiceCatalog}
+   * via {@link ServiceCatalog#evictWorker} -- called here rather than waiting for {@link
+   * #onWorkerRespawned}'s {@link #resetForRespawn} because this callback fires the moment the crash
+   * is detected, before the restart backoff delay and the respawn itself, so every other cluster
+   * member stops routing to the dead worker as promptly as this node can tell it. Uses {@code
+   * instance.fabricWorkerId} -- the id the worker itself reported at its Hello handshake and the
+   * one every catalog entry is actually keyed by -- not {@code spawnedWorkerId}, which is this
+   * agent's own supervision key. Every hosted instance shares the same {@code fabricWorkerId}, so
+   * the first non-null one found is enough; {@code null} means the crashed worker never completed
+   * its Hello handshake and so never registered anything into the catalog to evict.
    */
-  private static void onWorkerCrash(
+  static void onWorkerCrash(
       CrashInfo crash,
       String spawnedWorkerId,
       Map<String, SupervisedInstance> supervised,
+      ServiceCatalog catalog,
       HttpClient httpClient,
       URI baseUrl,
       String nodeId) {
@@ -2246,9 +2258,13 @@ public final class AgentMain {
                   + crash.hsErrLog().orElseThrow();
           case UNKNOWN -> "worker exited unexpectedly (exit code " + crash.exitCode() + ")";
         };
+    String fabricWorkerId = null;
     for (SupervisedInstance instance : supervised.values()) {
       if (!instance.supervisor.workerId().equals(spawnedWorkerId)) {
         continue;
+      }
+      if (fabricWorkerId == null) {
+        fabricWorkerId = instance.fabricWorkerId;
       }
       InstanceEvent event =
           new InstanceEvent(
@@ -2260,6 +2276,9 @@ public final class AgentMain {
               Optional.of(causeSummary),
               Instant.now().toEpochMilli());
       postInstanceEvent(httpClient, baseUrl, nodeId, event);
+    }
+    if (fabricWorkerId != null) {
+      catalog.evictWorker(nodeId, fabricWorkerId);
     }
   }
 
