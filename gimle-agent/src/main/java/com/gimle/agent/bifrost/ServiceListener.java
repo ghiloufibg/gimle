@@ -1,5 +1,9 @@
 package com.gimle.agent.bifrost;
 
+import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.authz.Principal;
+import com.gimle.core.tenant.NetworkPolicyRule;
+import com.gimle.pki.Subjects;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -7,25 +11,38 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLSocket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * One bound loopback listener for a single service: accepts connections on its synthesized
- * ClusterIP and relays each one, byte-for-byte, to one of the service's currently-live endpoints
- * chosen round-robin. One virtual thread runs the accept loop; each accepted connection gets two
- * more, one pumping bytes in each direction, so a slow/stalled reader on one side never blocks the
- * other.
+ * One bound listener for a single service: accepts connections on its synthesized ClusterIP and
+ * relays each one, byte-for-byte, to one of the service's currently-live endpoints. One virtual
+ * thread runs the accept loop; each accepted connection gets two more, one pumping bytes in each
+ * direction, so a slow/stalled reader on one side never blocks the other.
  *
- * <p>Round-robin, not a locality- or load-aware selector: an honest, deliberate scope cut for this
- * component's first cut, not an oversight.
+ * <p>Endpoint selection: with {@code sessionAffinity} declared on the Service, a consistent hash of
+ * the caller's source address over the (stably sorted) endpoint set pins each caller to one backend
+ * -- the {@code sessionAffinity: ClientIP} analogue, deliberately traded against locality since a
+ * pin that moved whenever the local endpoint set changed wouldn't be a pin at all. Otherwise
+ * round-robin, preferring endpoints on this proxy's own node when any are live -- the same
+ * locality-first posture the fabric's own same-worker &rarr; same-machine &rarr; remote ladder
+ * takes, collapsed to its two rungs a byte-relay can distinguish.
  *
- * <p>See {@link #setRestricted} for the other honest scope cut: when a {@code NetworkPolicySpec}
- * applies to this service, every new connection is refused outright rather than proxied, since this
- * listener relays opaque bytes for whatever protocol the caller speaks and has no way to verify who
- * that caller is.
+ * <p>See {@link #forward} for what happens when a {@code NetworkPolicySpec} applies to this
+ * service: with a TLS context this listener verifies the caller's certificate-carried tenant
+ * against the policy's own allow list; without one it can only refuse outright, since a plaintext
+ * byte relay has no caller identity to check.
  */
 final class ServiceListener implements AutoCloseable {
 
@@ -34,23 +51,46 @@ final class ServiceListener implements AutoCloseable {
   private final String serviceName;
   private final ServerSocket serverSocket;
   private final InetSocketAddress boundAddress;
+  private final Optional<String> localNodeId;
+  private final boolean tls;
   private final AtomicInteger cursor = new AtomicInteger();
   private volatile List<ServiceEndpoint> endpoints = List.of();
-  private volatile boolean restricted;
+  private volatile boolean sessionAffinity;
+  private volatile List<NetworkPolicyRule> applicableRules = List.of();
   private volatile boolean closed;
 
   ServiceListener(String serviceName, InetAddress clusterIp, int port) throws IOException {
-    this(serviceName, new InetSocketAddress(clusterIp, port));
+    this(serviceName, new InetSocketAddress(clusterIp, port), Optional.empty(), Optional.empty());
+  }
+
+  ServiceListener(String serviceName, InetSocketAddress bindAddress) throws IOException {
+    this(serviceName, bindAddress, Optional.empty(), Optional.empty());
   }
 
   /**
    * {@code bindAddress} is either a synthesized per-service loopback ClusterIP (the default) or the
-   * wildcard address when {@code BifrostProxy} is exposing services off-node -- this listener
-   * itself doesn't care which; every behavior below is address-agnostic.
+   * wildcard address when {@code BifrostProxy} is exposing services off-node. With {@code
+   * tlsContext} present the listener terminates TLS itself and requires a cluster-CA-signed client
+   * certificate on every connection ({@code needClientAuth}) -- what gives {@link #forward} a
+   * verified caller tenant to enforce a network policy against.
    */
-  ServiceListener(String serviceName, InetSocketAddress bindAddress) throws IOException {
+  ServiceListener(
+      String serviceName,
+      InetSocketAddress bindAddress,
+      Optional<String> localNodeId,
+      Optional<SSLContext> tlsContext)
+      throws IOException {
     this.serviceName = serviceName;
-    this.serverSocket = new ServerSocket();
+    this.localNodeId = localNodeId;
+    this.tls = tlsContext.isPresent();
+    if (tlsContext.isPresent()) {
+      SSLServerSocket sslServerSocket =
+          (SSLServerSocket) tlsContext.get().getServerSocketFactory().createServerSocket();
+      sslServerSocket.setNeedClientAuth(true);
+      this.serverSocket = sslServerSocket;
+    } else {
+      this.serverSocket = new ServerSocket();
+    }
     serverSocket.bind(bindAddress);
     this.boundAddress = (InetSocketAddress) serverSocket.getLocalSocketAddress();
     Thread.ofVirtual().name("gimle-bifrost-listener-" + serviceName).start(this::acceptLoop);
@@ -60,23 +100,26 @@ final class ServiceListener implements AutoCloseable {
     return boundAddress;
   }
 
-  /** Replaces the live endpoint set a new connection will round-robin over. */
+  /** Replaces the live endpoint set a new connection will select over. */
   void updateEndpoints(List<ServiceEndpoint> newEndpoints) {
     this.endpoints = List.copyOf(newEndpoints);
   }
 
+  /** Whether the Service currently declares ClientIP-style session affinity. */
+  void setSessionAffinity(boolean sessionAffinity) {
+    this.sessionAffinity = sessionAffinity;
+  }
+
   /**
-   * Whether {@link BifrostProxy} has determined a {@code NetworkPolicySpec} currently restricts
-   * this service's own tenant/deployment -- when {@code true}, {@link #forward} refuses every new
-   * connection outright rather than choosing an endpoint, since this loopback proxy has no way to
-   * verify a connecting caller's own tenant identity to check against the policy's allow list
-   * (unlike {@code FabricServer}, which decodes the fabric wire protocol and can read the caller's
-   * wire-carried tenant claim, Bifrost blindly relays opaque bytes for any protocol). Failing
-   * closed is the only sound choice given that blind spot: proxying anyway would make Bifrost a
-   * silent bypass of a policy the tenant explicitly opted into.
+   * The ingress-restricting {@code NetworkPolicySpec}s {@link BifrostProxy} determined currently
+   * apply to this service's own tenant/deployments -- empty means unrestricted. Non-empty makes
+   * {@link #forward} enforce them: against the caller's certificate-carried tenant when this
+   * listener terminates TLS, by refusing every connection otherwise (a plaintext byte relay has no
+   * caller identity to check, and proxying anyway would silently bypass a policy the tenant
+   * explicitly opted into).
    */
-  void setRestricted(boolean restricted) {
-    this.restricted = restricted;
+  void setApplicableRules(List<NetworkPolicyRule> rules) {
+    this.applicableRules = List.copyOf(rules);
   }
 
   private void acceptLoop() {
@@ -98,12 +141,8 @@ final class ServiceListener implements AutoCloseable {
   }
 
   private void forward(Socket inbound) {
-    if (restricted) {
-      log.warn(
-          "bifrost declines to proxy service {}: a NetworkPolicySpec restricts its tenant/"
-              + "deployment and this loopback proxy cannot verify the caller's own tenant identity"
-              + " -- failing closed rather than risk silently bypassing the policy",
-          serviceName);
+    List<NetworkPolicyRule> rules = applicableRules;
+    if (!rules.isEmpty() && !policyPermits(rules, inbound)) {
       closeQuietly(inbound);
       return;
     }
@@ -113,7 +152,7 @@ final class ServiceListener implements AutoCloseable {
       closeQuietly(inbound);
       return;
     }
-    ServiceEndpoint target = current.get(Math.floorMod(cursor.getAndIncrement(), current.size()));
+    ServiceEndpoint target = select(current, inbound);
     Socket outbound;
     try {
       outbound = new Socket(target.host(), target.port());
@@ -141,6 +180,90 @@ final class ServiceListener implements AutoCloseable {
     closeQuietly(outbound);
   }
 
+  /**
+   * Whether the applicable policy set permits this connection. Plaintext listeners can never prove
+   * who the caller is, so any applicable rule fails the connection closed. A TLS listener completes
+   * the handshake, reads the verified client certificate's {@code O=gimle:tenant:<id>} group, and
+   * requires every applicable rule's own allow list to permit that tenant -- a caller whose
+   * certificate carries no tenant claim is refused the same way an untenanted fabric caller is.
+   */
+  private boolean policyPermits(List<NetworkPolicyRule> rules, Socket inbound) {
+    if (!tls) {
+      log.warn(
+          "bifrost declines to proxy service {}: a NetworkPolicySpec restricts its tenant/"
+              + "deployment and this plaintext listener cannot verify the caller's own tenant"
+              + " identity -- failing closed rather than risk silently bypassing the policy",
+          serviceName);
+      return false;
+    }
+    Optional<String> callerTenant = callerTenant(inbound);
+    if (callerTenant.isEmpty()) {
+      log.warn(
+          "bifrost refuses a connection to restricted service {}: the caller's certificate"
+              + " carries no gimle:tenant:<id> membership group to check the policy against",
+          serviceName);
+      return false;
+    }
+    for (NetworkPolicyRule rule : rules) {
+      if (!rule.permitsCallerTenant(callerTenant)) {
+        log.warn(
+            "bifrost refuses a connection to service {}: network policy {} does not permit"
+                + " caller tenant {}",
+            serviceName,
+            rule.name(),
+            callerTenant.get());
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** The tenant asserted by the connection's verified client certificate, if any. */
+  private Optional<String> callerTenant(Socket inbound) {
+    if (!(inbound instanceof SSLSocket sslSocket)) {
+      return Optional.empty();
+    }
+    try {
+      sslSocket.startHandshake();
+      Certificate[] peerCertificates = sslSocket.getSession().getPeerCertificates();
+      if (peerCertificates.length == 0 || !(peerCertificates[0] instanceof X509Certificate leaf)) {
+        return Optional.empty();
+      }
+      Principal principal = Subjects.principalFrom(leaf);
+      return BuiltinRoles.tenantOf(principal.groups());
+    } catch (SSLPeerUnverifiedException e) {
+      return Optional.empty();
+    } catch (IOException | RuntimeException e) {
+      log.warn("bifrost TLS handshake failed on service {}: {}", serviceName, e.getMessage());
+      return Optional.empty();
+    }
+  }
+
+  /**
+   * Session affinity pins by consistent hash of the caller's address over a stably-sorted view of
+   * the endpoint set, so the same caller lands on the same backend across connections (and across
+   * polls, as long as that backend stays live). Otherwise round-robin over the same-node subset
+   * when one exists, over everything when it doesn't.
+   */
+  private ServiceEndpoint select(List<ServiceEndpoint> current, Socket inbound) {
+    if (sessionAffinity) {
+      List<ServiceEndpoint> sorted = new ArrayList<>(current);
+      sorted.sort(Comparator.comparing(ServiceEndpoint::host).thenComparing(ServiceEndpoint::port));
+      InetAddress caller = inbound.getInetAddress();
+      int hash = caller == null ? 0 : caller.getHostAddress().hashCode();
+      return sorted.get(Math.floorMod(hash, sorted.size()));
+    }
+    List<ServiceEndpoint> pool = current;
+    if (localNodeId.isPresent()) {
+      List<ServiceEndpoint> local =
+          current.stream().filter(e -> e.nodeId().equals(localNodeId)).toList();
+      if (!local.isEmpty()) {
+        pool = local;
+      }
+    }
+    return pool.get(Math.floorMod(cursor.getAndIncrement(), pool.size()));
+  }
+
   /** Copies bytes from {@code from} to {@code to} until EOF, then half-closes {@code to}. */
   private static void pump(Socket from, Socket to) {
     try {
@@ -153,8 +276,9 @@ final class ServiceListener implements AutoCloseable {
     } finally {
       try {
         to.shutdownOutput();
-      } catch (IOException ignored) {
-        // Already closed by the other direction's own cleanup -- nothing left to shut down.
+      } catch (IOException | UnsupportedOperationException ignored) {
+        // Already closed by the other direction's own cleanup, or an SSLSocket (which does not
+        // support half-close) -- nothing left to shut down either way.
       }
     }
   }

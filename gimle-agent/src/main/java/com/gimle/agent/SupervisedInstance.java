@@ -4,6 +4,7 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.os.VolumeHandle;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -86,13 +87,13 @@ final class SupervisedInstance {
   volatile Map<String, Integer> ports = Map.of();
 
   /**
-   * Present only when {@link #descriptor} declares {@code volume:} and allocation succeeded --
-   * recorded here so {@code stopInstance} can release the exact same handle on permanent removal
-   * without needing to recompute it (and without ever calling {@code VolumeManager.release} on a
-   * rolling-update teardown-then-replace, which must not happen -- see {@code
-   * AgentMain.stopInstance}'s own {@code releaseVolume} parameter).
+   * Non-empty only when {@link #descriptor} declares {@code volumes:} and allocation succeeded for
+   * at least one of them -- recorded here so {@code stopInstance} can release the exact same
+   * handles on permanent removal without needing to recompute them (and without ever calling {@code
+   * VolumeManager.release} on a rolling-update teardown-then-replace, which must not happen -- see
+   * {@code AgentMain.stopInstance}'s own {@code releaseVolume} parameter).
    */
-  volatile Optional<VolumeHandle> volumeHandle = Optional.empty();
+  volatile List<VolumeHandle> volumeHandles = List.of();
 
   /**
    * The last sampled on-disk size of this instance's volume, and when it was sampled -- refreshed

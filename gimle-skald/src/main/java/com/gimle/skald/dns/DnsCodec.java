@@ -43,6 +43,7 @@ public final class DnsCodec {
   private static final int ANSWER_TTL_SECONDS = 5;
 
   public static final int TYPE_A = 1;
+  public static final int TYPE_CNAME = 5;
   public static final int TYPE_AAAA = 28;
   public static final int TYPE_SRV = 33;
   public static final int CLASS_IN = 1;
@@ -127,6 +128,22 @@ public final class DnsCodec {
             "an A record answer must carry exactly 4 address bytes, got " + address.length);
       }
       return new Answer(TYPE_A, address.clone());
+    }
+
+    /**
+     * A {@code CNAME} record answer (RFC 1035 §3.3.1): the canonical name the queried name is an
+     * alias for, encoded uncompressed -- what an ExternalName Service answers with, since the
+     * external host it points at is a name outside this server's zone, not an address it holds.
+     */
+    public static Answer cname(List<String> canonicalLabels) {
+      ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+      DataOutputStream out = new DataOutputStream(buffer);
+      try {
+        writeName(out, canonicalLabels);
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+      return new Answer(TYPE_CNAME, buffer.toByteArray());
     }
 
     /**

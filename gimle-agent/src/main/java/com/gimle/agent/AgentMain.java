@@ -1,6 +1,7 @@
 package com.gimle.agent;
 
 import com.gimle.agent.bifrost.BifrostProxy;
+import com.gimle.agent.bifrost.BifrostSettings;
 import com.gimle.agent.bifrost.HttpServiceSource;
 import com.gimle.agent.networkpolicy.HttpNetworkPolicySource;
 import com.gimle.core.banner.GimleBanner;
@@ -17,6 +18,7 @@ import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
@@ -228,6 +230,13 @@ public final class AgentMain {
     // today's posture.
     boolean bifrostExposeServices =
         Boolean.parseBoolean(System.getProperty("gimle.agent.bifrostExposeServices", "false"));
+    // Bifrost's identity-verifying mode: terminate TLS on every listener and demand a
+    // cluster-CA-signed client certificate, so a NetworkPolicySpec restricting a service is
+    // enforced against the caller's certificate-carried tenant instead of failing the listener
+    // closed. Requires the cluster transport itself to be TLS (the listener presents this agent's
+    // own node certificate).
+    boolean bifrostTls =
+        Boolean.parseBoolean(System.getProperty("gimle.agent.bifrostTlsEnabled", "false"));
     Duration bifrostPollInterval =
         Duration.ofMillis(
             Long.parseLong(System.getProperty("gimle.agent.bifrostPollIntervalMillis", "5000")));
@@ -293,7 +302,7 @@ public final class AgentMain {
             volumeManager,
             () ->
                 supervised.values().stream()
-                    .filter(instance -> instance.volumeHandle.isPresent())
+                    .filter(instance -> !instance.volumeHandles.isEmpty())
                     .map(
                         instance ->
                             instance.assigned.deploymentName()
@@ -369,23 +378,38 @@ public final class AgentMain {
 
     // Independent of the tick loop below (its own self-scheduled poller, same shape as the
     // MuninnShipper construction above): a caller on this node dials a service's synthesized
-    // loopback ClusterIP, and Bifrost forwards to one of that service's live endpoints -- unless a
-    // NetworkPolicySpec restricts that service, in which case Bifrost fails closed (see
-    // BifrostProxy#isRestricted): it relays opaque bytes for whatever protocol the caller speaks,
-    // so unlike FabricServer it has no caller tenant identity to check a policy's allow list
-    // against.
+    // loopback ClusterIP, and Bifrost forwards to one of that service's live endpoints, preferring
+    // ones on this same node. A NetworkPolicySpec restricting a service makes Bifrost fail closed
+    // by default (it relays opaque bytes, so unlike FabricServer it has no caller tenant identity
+    // to check a policy's allow list against) -- unless the TLS-terminating mode is on, which
+    // gives each listener a verified certificate-carried caller tenant to enforce the policy with.
     if (bifrostEnabled) {
+      Optional<SSLContext> bifrostTlsContext = Optional.empty();
+      if (bifrostTls) {
+        if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+          log.warn(
+              "gimle.agent.bifrostTlsEnabled is set but the cluster transport is plaintext --"
+                  + " bifrost has no certificate material to terminate TLS with, starting in"
+                  + " plaintext fail-closed mode instead");
+        } else {
+          bifrostTlsContext = Optional.of(SslContexts.forMutualTls(TlsSettings.fromConfig()));
+        }
+      }
       BifrostProxy bifrostProxy =
           new BifrostProxy(
               new HttpServiceSource(httpClient, baseUrl),
               networkPolicySource,
-              bifrostPollInterval,
-              bifrostExposeServices);
+              new BifrostSettings(
+                  bifrostPollInterval,
+                  bifrostExposeServices,
+                  Optional.of(nodeId),
+                  bifrostTlsContext));
       bifrostProxy.start();
       log.info(
-          "agent {} started bifrost service proxy{}",
+          "agent {} started bifrost service proxy{}{}",
           nodeId,
-          bifrostExposeServices ? " (exposing services on all interfaces)" : "");
+          bifrostExposeServices ? " (exposing services on all interfaces)" : "",
+          bifrostTlsContext.isPresent() ? " (TLS identity-verifying mode)" : "");
     }
 
     // Same self-scheduled-poller shape as BifrostProxy just above, relaying down to every
@@ -858,7 +882,7 @@ public final class AgentMain {
    */
   private static void sampleVolumeUsageIfDue(
       SupervisedInstance instance, VolumeManager volumeManager) {
-    if (instance.volumeHandle.isEmpty()) {
+    if (instance.volumeHandles.isEmpty()) {
       return;
     }
     long now = System.currentTimeMillis();
@@ -1009,7 +1033,11 @@ public final class AgentMain {
     }
     List<VesselFileMount> files = new ArrayList<>();
     for (Map<String, Object> f : Json.asObjectList(map.get("files"))) {
-      files.add(new VesselFileMount((String) f.get("path"), (String) f.get("config")));
+      files.add(
+          new VesselFileMount(
+              (String) f.get("path"),
+              Optional.ofNullable((String) f.get("config")),
+              Optional.ofNullable((String) f.get("secret"))));
     }
     Map<String, Object> probesMap = Json.asObject(map.get("probes"));
     VesselProbes probes =
@@ -1039,6 +1067,12 @@ public final class AgentMain {
     }
     if (map.containsKey("secret")) {
       return new VesselEnvValue.SecretRef((String) map.get("secret"));
+    }
+    if (map.containsKey("volume")) {
+      Map<String, Object> volume = Json.asObject(map.get("volume"));
+      return new VesselEnvValue.VolumeMount(
+          ((Number) volume.get("sizeBytes")).longValue(),
+          ReclaimPolicy.valueOf((String) volume.get("reclaimPolicy")));
     }
     Object port = map.get("port");
     return new VesselEnvValue.PortAllocation(
@@ -1289,6 +1323,7 @@ public final class AgentMain {
             javaExecutable,
             resourceLimiter,
             capacityTracker,
+            volumeManager,
             httpClient,
             baseUrl,
             fafnirBaseUrl,
@@ -1405,7 +1440,10 @@ public final class AgentMain {
     }
     for (String key : List.copyOf(supervisedVessels.keySet())) {
       if (!currentKeys.contains(key)) {
-        stopVesselInstance(key, supervisedVessels, resourceLimiter, capacityTracker);
+        // Genuinely no longer assigned anywhere -- the same "only a real removal releases the
+        // volume" rule stopInstance's releaseVolume parameter documents for module hosting.
+        stopVesselInstance(
+            key, supervisedVessels, resourceLimiter, capacityTracker, volumeManager, true);
       }
     }
     // Probed once per tick (the same 5-second cadence every other agent-side reconciliation runs
@@ -1432,6 +1470,7 @@ public final class AgentMain {
       String javaExecutable,
       ResourceLimiter resourceLimiter,
       CapacityTracker capacityTracker,
+      VolumeManager volumeManager,
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
@@ -1444,7 +1483,9 @@ public final class AgentMain {
           key,
           current.assigned.moduleId(),
           assigned.moduleId());
-      stopVesselInstance(key, supervisedVessels, resourceLimiter, capacityTracker);
+      // A replacement at the same key keeps its volumes -- the data must survive the swap.
+      stopVesselInstance(
+          key, supervisedVessels, resourceLimiter, capacityTracker, volumeManager, false);
     }
     if (!supervisedVessels.containsKey(key)) {
       try {
@@ -1456,6 +1497,7 @@ public final class AgentMain {
             javaExecutable,
             resourceLimiter,
             capacityTracker,
+            volumeManager,
             httpClient,
             baseUrl,
             fafnirBaseUrl,
@@ -1488,6 +1530,7 @@ public final class AgentMain {
       String javaExecutable,
       ResourceLimiter resourceLimiter,
       CapacityTracker capacityTracker,
+      VolumeManager volumeManager,
       HttpClient httpClient,
       URI baseUrl,
       URI fafnirBaseUrl,
@@ -1500,9 +1543,15 @@ public final class AgentMain {
     Path vesselRoot = logRoot.resolve("workers").resolve(key);
 
     Map<String, Integer> allocatedPorts = allocateVesselPorts(vessel);
+    List<VolumeHandle> volumeHandles = allocateVesselVolumes(volumeManager, assigned, vessel);
+    Map<String, String> volumePaths = new LinkedHashMap<>();
+    for (VolumeHandle volumeHandle : volumeHandles) {
+      volumePaths.put(volumeHandle.volumeName(), volumeManager.hostPath(volumeHandle).toString());
+    }
     Map<String, String> env =
-        resolveVesselEnv(vessel, allocatedPorts, assigned.tenantId(), httpClient, fafnirBaseUrl);
-    renderVesselFiles(vessel, vesselRoot, assigned.tenantId(), httpClient, baseUrl);
+        resolveVesselEnv(
+            vessel, allocatedPorts, volumePaths, assigned.tenantId(), httpClient, fafnirBaseUrl);
+    renderVesselFiles(vessel, vesselRoot, assigned.tenantId(), httpClient, baseUrl, fafnirBaseUrl);
 
     // A bundle resolved from the registry is an unpacked directory; a single-jar vessel (local
     // path or registry-resolved) is a regular file. The directory carries its own launch
@@ -1548,7 +1597,8 @@ public final class AgentMain {
             respawnedKey -> onVesselRespawned(respawnedKey, supervisedVessels));
 
     SupervisedVessel instance =
-        new SupervisedVessel(assigned, vessel, supervisor, handle, allocatedPorts, Instant.now());
+        new SupervisedVessel(
+            assigned, vessel, supervisor, handle, allocatedPorts, volumeHandles, Instant.now());
     supervisedVessels.put(key, instance);
     capacityTracker.tryAssign(key, vessel.resourceRequest());
     supervisor.start();
@@ -1558,7 +1608,9 @@ public final class AgentMain {
       String key,
       Map<String, SupervisedVessel> supervisedVessels,
       ResourceLimiter resourceLimiter,
-      CapacityTracker capacityTracker) {
+      CapacityTracker capacityTracker,
+      VolumeManager volumeManager,
+      boolean releaseVolumes) {
     SupervisedVessel instance = supervisedVessels.remove(key);
     if (instance == null) {
       return;
@@ -1566,6 +1618,9 @@ public final class AgentMain {
     instance.supervisor.close();
     resourceLimiter.release(instance.resourceLimitHandle);
     capacityTracker.release(key);
+    if (releaseVolumes) {
+      instance.volumeHandles.forEach(volumeManager::release);
+    }
   }
 
   /**
@@ -1725,6 +1780,38 @@ public final class AgentMain {
     return ports;
   }
 
+  /**
+   * One persistent volume per {@code {volume: ...}} env entry, keyed by the instance's placement
+   * identity plus the entry's own env-var name -- exactly {@code allocateVolumesIfNeeded}'s module
+   * shape, including its "a failed allocation degrades to no volume rather than blocking the start"
+   * posture.
+   */
+  private static List<VolumeHandle> allocateVesselVolumes(
+      VolumeManager volumeManager, AssignedInstance assigned, VesselSpec vessel) {
+    List<VolumeHandle> handles = new ArrayList<>();
+    for (Map.Entry<String, VesselEnvValue> entry : vessel.env().entrySet()) {
+      if (!(entry.getValue() instanceof VesselEnvValue.VolumeMount volumeMount)) {
+        continue;
+      }
+      try {
+        handles.add(
+            volumeManager.allocate(
+                assigned.deploymentName(),
+                assigned.instanceIndex(),
+                entry.getKey(),
+                new VolumeRequest(volumeMount.sizeBytes(), volumeMount.reclaimPolicy())));
+      } catch (RuntimeException e) {
+        log.error(
+            "failed to allocate vessel volume {} for {}#{}: {}",
+            entry.getKey(),
+            assigned.deploymentName(),
+            assigned.instanceIndex(),
+            e.getMessage());
+      }
+    }
+    return List.copyOf(handles);
+  }
+
   private static int allocateFreePort() {
     try (ServerSocket socket = new ServerSocket(0)) {
       return socket.getLocalPort();
@@ -1744,6 +1831,7 @@ public final class AgentMain {
   private static Map<String, String> resolveVesselEnv(
       VesselSpec vessel,
       Map<String, Integer> allocatedPorts,
+      Map<String, String> volumePaths,
       Optional<String> tenantId,
       HttpClient httpClient,
       URI fafnirBaseUrl) {
@@ -1755,6 +1843,14 @@ public final class AgentMain {
         case VesselEnvValue.Literal literal -> env.put(name, literal.value());
         case VesselEnvValue.PortAllocation ignored ->
             env.put(name, String.valueOf(allocatedPorts.get(name)));
+        case VesselEnvValue.VolumeMount ignored -> {
+          // Absent from volumePaths when its allocation failed -- the variable is then simply not
+          // exported, the same degrade-don't-block posture allocateVesselVolumes documents.
+          String volumePath = volumePaths.get(name);
+          if (volumePath != null) {
+            env.put(name, volumePath);
+          }
+        }
         case VesselEnvValue.SecretRef secretRef -> {
           if (secrets == null) {
             secrets = fetchVesselSecretsByKey(tenantId, httpClient, fafnirBaseUrl);
@@ -1797,16 +1893,22 @@ public final class AgentMain {
   /**
    * Renders every {@code vessel.files} entry to disk before the process starts: fetches the
    * tenant's plain config the same way {@link #deliverConfig}'s own plain-config half already does
-   * ({@code GET /config/{tenantId}}), then writes each declared config value's raw content verbatim
-   * -- no templating -- to {@code path}, relative to this instance's own per-instance root, or used
-   * as-is if already absolute.
+   * ({@code GET /config/{tenantId}}) and, when any entry is secret-backed, the tenant's secrets
+   * over this agent's own mTLS node identity ({@link #fetchVesselSecretsByKey}, the same path
+   * secret-backed env vars already take); then writes each declared value's raw content verbatim --
+   * no templating -- to {@code path}, relative to this instance's own per-instance root, or used
+   * as-is if already absolute. A secret-backed file additionally gets owner-only permissions, via
+   * the portable {@code File.setReadable}/{@code setWritable} calls rather than any POSIX-specific
+   * API -- by declaration its content is sensitive, so nothing but the vessel's own user may read
+   * it back.
    */
   private static void renderVesselFiles(
       VesselSpec vessel,
       Path instanceRoot,
       Optional<String> tenantId,
       HttpClient httpClient,
-      URI baseUrl) {
+      URI baseUrl,
+      URI fafnirBaseUrl) {
     if (vessel.files().isEmpty()) {
       return;
     }
@@ -1826,14 +1928,31 @@ public final class AgentMain {
             e.getMessage());
       }
     }
+    Map<String, String> secrets = null;
     for (VesselFileMount mount : vessel.files()) {
-      String value = config.get(mount.configKey());
-      if (value == null) {
-        throw new GimleManifestException(
-            "vessel.files references config key '"
-                + mount.configKey()
-                + "', which has no value for tenant "
-                + tenantId.orElse("(untenanted)"));
+      String value;
+      boolean secretBacked = mount.secretKey().isPresent();
+      if (secretBacked) {
+        if (secrets == null) {
+          secrets = fetchVesselSecretsByKey(tenantId, httpClient, fafnirBaseUrl);
+        }
+        value = secrets.get(mount.secretKey().orElseThrow());
+        if (value == null) {
+          throw new GimleManifestException(
+              "vessel.files references secret key '"
+                  + mount.secretKey().orElseThrow()
+                  + "', which has no value for tenant "
+                  + tenantId.orElse("(untenanted)"));
+        }
+      } else {
+        value = config.get(mount.configKey().orElseThrow());
+        if (value == null) {
+          throw new GimleManifestException(
+              "vessel.files references config key '"
+                  + mount.configKey().orElseThrow()
+                  + "', which has no value for tenant "
+                  + tenantId.orElse("(untenanted)"));
+        }
       }
       Path target = Path.of(mount.path());
       if (!target.isAbsolute()) {
@@ -1845,9 +1964,31 @@ public final class AgentMain {
           Files.createDirectories(parent);
         }
         Files.writeString(target, value, StandardCharsets.UTF_8);
+        if (secretBacked) {
+          restrictToOwner(target);
+        }
       } catch (IOException e) {
         throw new UncheckedIOException("failed to render vessel file " + target, e);
       }
+    }
+  }
+
+  /**
+   * Owner-only read/write via {@code java.io.File}'s portable permission setters -- works on every
+   * platform the JVM does, unlike {@code PosixFilePermissions}. Best-effort: a filesystem that
+   * cannot express the restriction (some FAT mounts) logs rather than fails the spawn, since the
+   * file itself rendered correctly.
+   */
+  private static void restrictToOwner(Path target) {
+    java.io.File file = target.toFile();
+    boolean restricted =
+        file.setReadable(false, false)
+            & file.setWritable(false, false)
+            & file.setExecutable(false, false)
+            & file.setReadable(true, true)
+            & file.setWritable(true, true);
+    if (!restricted) {
+      log.warn("could not fully restrict permissions on secret-backed file {}", target);
     }
   }
 
@@ -2111,8 +2252,8 @@ public final class AgentMain {
    * ControlChannelServer}) is reset to its pre-connection state and re-driven together over the one
    * freshly-accepted connection, exactly like a brand-new worker's first start.
    *
-   * <p>{@code instance.volumeHandle} is deliberately left untouched by the reset: {@link
-   * #allocateVolumeIfNeeded}, called again as part of {@link #sendInstallStartSequence}, resolves
+   * <p>{@code instance.volumeHandles} is deliberately left untouched by the reset: {@link
+   * #allocateVolumesIfNeeded}, called again as part of {@link #sendInstallStartSequence}, resolves
    * to the same on-disk directory for the same {@code (deploymentName, instanceIndex)} pair (see
    * {@code LocalDiskVolumeManager#allocate}'s idempotent {@code createDirectories}), so re-deriving
    * it here would be redundant, not incorrect -- but skipping it keeps this method's intent (reset
@@ -2175,7 +2316,7 @@ public final class AgentMain {
   /**
    * Rolls one {@code SupervisedInstance} back to the state {@link #startInstance} would have given
    * it before its worker ever connected the first time -- everything a respawned worker's blank
-   * slate has invalidated. Never touches {@link SupervisedInstance#volumeHandle} (see {@link
+   * slate has invalidated. Never touches {@link SupervisedInstance#volumeHandles} (see {@link
    * #onWorkerRespawned}'s own javadoc) or {@link SupervisedInstance#assigned}/{@code supervisor}/
    * {@code server}/{@code descriptor}, none of which the crash changed.
    */
@@ -2388,12 +2529,14 @@ public final class AgentMain {
             instance.assigned.artifactPath(),
             instance.assigned.deploymentName(),
             instance.assigned.instanceIndex()));
-    instance.volumeHandle = allocateVolumeIfNeeded(volumeManager, instance);
-    String dataDirectory =
-        instance.volumeHandle.map(volumeManager::hostPath).map(Path::toString).orElse("");
+    instance.volumeHandles = allocateVolumesIfNeeded(volumeManager, instance);
+    Map<String, String> dataDirectories = new LinkedHashMap<>();
+    for (VolumeHandle handle : instance.volumeHandles) {
+      dataDirectories.put(handle.volumeName(), volumeManager.hostPath(handle).toString());
+    }
     connection.send(
         new ControlMessage.ResolveModule(
-            nextCorrelationId(), instance.assigned.moduleId(), dataDirectory));
+            nextCorrelationId(), instance.assigned.moduleId(), dataDirectories));
     // Delivered after Resolve (which is when the worker's ModuleContext is created) and before
     // Start, over this same ordered channel, so every module hook's config(key) lookups are
     // already backed by real values from the moment it starts.
@@ -2403,33 +2546,39 @@ public final class AgentMain {
   }
 
   /**
-   * {@code Optional.empty()} for every module that doesn't declare {@code volume:} (the common
-   * case) -- {@code volumeManager.allocate} is only ever called for a {@code StatefulSet}-shaped
-   * instance's own descriptor. A failed allocation (insufficient disk space, an I/O error) is
-   * logged and treated as "no volume" rather than blocking the instance from starting at all --
+   * Empty for every module that declares no {@code volumes:} (the common case) -- {@code
+   * volumeManager.allocate} is only ever called for a {@code StatefulSet}-shaped instance's own
+   * descriptor. A failed allocation (insufficient disk space, an I/O error) is logged and that
+   * named volume is treated as absent rather than blocking the instance from starting at all --
    * matches {@code prepareResourceLimit}'s own sibling failure posture for CPU/memory, and leaves
-   * {@code ModuleContext.dataDirectory()} empty for a hook to detect and react to on its own terms.
+   * {@code ModuleContext.dataDirectory(name)} empty for a hook to detect and react to on its own
+   * terms.
    */
-  private static Optional<VolumeHandle> allocateVolumeIfNeeded(
+  private static List<VolumeHandle> allocateVolumesIfNeeded(
       VolumeManager volumeManager, SupervisedInstance instance) {
-    Optional<VolumeRequest> request = instance.descriptor.volume();
-    if (request.isEmpty()) {
-      return Optional.empty();
+    Map<String, VolumeRequest> requests = instance.descriptor.volumes();
+    if (requests.isEmpty()) {
+      return List.of();
     }
-    try {
-      return Optional.of(
-          volumeManager.allocate(
-              instance.assigned.deploymentName(),
-              instance.assigned.instanceIndex(),
-              request.get()));
-    } catch (RuntimeException e) {
-      log.error(
-          "failed to allocate volume for {}#{}: {}",
-          instance.assigned.deploymentName(),
-          instance.assigned.instanceIndex(),
-          e.getMessage());
-      return Optional.empty();
+    List<VolumeHandle> handles = new ArrayList<>();
+    for (Map.Entry<String, VolumeRequest> entry : requests.entrySet()) {
+      try {
+        handles.add(
+            volumeManager.allocate(
+                instance.assigned.deploymentName(),
+                instance.assigned.instanceIndex(),
+                entry.getKey(),
+                entry.getValue()));
+      } catch (RuntimeException e) {
+        log.error(
+            "failed to allocate volume {} for {}#{}: {}",
+            entry.getKey(),
+            instance.assigned.deploymentName(),
+            instance.assigned.instanceIndex(),
+            e.getMessage());
+      }
     }
+    return List.copyOf(handles);
   }
 
   /**
@@ -2863,7 +3012,7 @@ public final class AgentMain {
    * from a rolling-update teardown-then-immediate-replace at the very same key ({@code false},
    * called from {@code requiresReplacement}'s branch) -- see {@code VolumeManager}'s own javadoc
    * for why the latter must never release: the whole point of sticky placement is that the data at
-   * {@code volumeHandle}'s host path survives exactly that case.
+   * {@code volumeHandles}' host paths survive exactly that case.
    */
   private static void stopInstance(
       String key,
@@ -2883,7 +3032,7 @@ public final class AgentMain {
       return;
     }
     if (releaseVolume) {
-      instance.volumeHandle.ifPresent(volumeManager::release);
+      instance.volumeHandles.forEach(volumeManager::release);
     }
     WorkerConnection connection = instance.connection;
     if (connection != null) {

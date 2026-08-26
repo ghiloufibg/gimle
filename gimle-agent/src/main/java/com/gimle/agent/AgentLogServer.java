@@ -220,6 +220,7 @@ final class AgentLogServer implements AutoCloseable {
           Map<String, Object> entry = new LinkedHashMap<>();
           entry.put("statefulSet", volume.statefulSetName());
           entry.put("instanceIndex", volume.instanceIndex());
+          entry.put("volumeName", volume.volumeName());
           entry.put("usedBytes", volume.usedBytes());
           entry.put("path", volume.hostPath().toString());
           entry.put(

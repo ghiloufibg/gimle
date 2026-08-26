@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -105,9 +106,9 @@ class ModuleControllerTest {
   @Test
   void resolve_with_a_data_directory_populates_the_context_before_any_hook_runs() {
     Fixture f = fixtureFor("com.gimle.fixture.with_volume");
-    Path volumePath = tempDir.resolve("volumes/orders-statefulset/0");
+    Path volumePath = tempDir.resolve("volumes/orders-statefulset/0/data");
 
-    f.controller().resolve(f.id(), Optional.of(volumePath));
+    f.controller().resolve(f.id(), Map.of("data", volumePath));
 
     assertEquals(
         Optional.of(volumePath), f.controller().context(f.id()).orElseThrow().dataDirectory());
@@ -147,7 +148,7 @@ class ModuleControllerTest {
                 baseArtifact.descriptor().healthProbes(),
                 baseArtifact.descriptor().lifecycleHooksClass(),
                 baseArtifact.descriptor().jobHooksClass(),
-                baseArtifact.descriptor().volume()),
+                baseArtifact.descriptor().volumes()),
             baseArtifact.sha256());
     ModuleId id = registry.register(withMissingDep);
     ModuleResolver resolver = new ModuleResolver(registry);

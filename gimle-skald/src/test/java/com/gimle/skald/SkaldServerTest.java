@@ -67,6 +67,34 @@ final class SkaldServerTest {
   }
 
   @Test
+  void an_external_name_service_answers_a_cname_to_its_external_host() throws IOException {
+    directory.replaceAll(Map.of("billing.acme", List.of(new HostPort("billing.example.com", 443))));
+
+    byte[] response = query(0x21, "billing.acme.svc.gimle.local", 1);
+
+    int flags = unsignedShort(response, 2);
+    assertEquals(0, flags & 0xF); // RCODE: NOERROR -- the name exists, as an alias
+    assertEquals(1, unsignedShort(response, 6)); // ANCOUNT: the one CNAME
+    assertEquals(
+        "billing.example.com",
+        cnameTargetName(answerRdatas(response, "billing.acme.svc.gimle.local").get(0)));
+  }
+
+  @Test
+  void an_srv_query_for_an_external_name_service_targets_the_external_host_itself()
+      throws IOException {
+    directory.replaceAll(
+        Map.of("billing.acme", List.of(new HostPort("billing.example.com", 8443))));
+
+    byte[] response = query(0x22, "billing.acme.svc.gimle.local", 33);
+
+    List<byte[]> rdatas = answerRdatas(response, "billing.acme.svc.gimle.local");
+    assertEquals(1, rdatas.size());
+    assertEquals(8443, unsignedShort(rdatas.get(0), 4)); // SRV port
+    assertEquals("billing.example.com", srvTargetName(rdatas.get(0)));
+  }
+
+  @Test
   void an_a_query_answers_every_endpoint_address_at_once() throws IOException {
     directory.replaceAll(
         Map.of("orders", List.of(new HostPort("10.0.0.5", 8080), new HostPort("10.0.0.6", 8080))));
@@ -292,6 +320,22 @@ final class SkaldServerTest {
       offset += rdLength;
     }
     return rdatas;
+  }
+
+  /** Decodes an uncompressed name starting at offset 0 of a CNAME RDATA into dotted-label form. */
+  private static String cnameTargetName(byte[] cnameRdata) {
+    StringBuilder name = new StringBuilder();
+    int pos = 0;
+    while (cnameRdata[pos] != 0) {
+      int length = cnameRdata[pos] & 0xFF;
+      pos++;
+      if (name.length() > 0) {
+        name.append('.');
+      }
+      name.append(new String(cnameRdata, pos, length, StandardCharsets.US_ASCII));
+      pos += length;
+    }
+    return name.toString();
   }
 
   /** Decodes the uncompressed target name at offset 6 of an SRV RDATA into dotted-label form. */

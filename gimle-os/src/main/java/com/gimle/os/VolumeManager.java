@@ -20,7 +20,8 @@ import java.util.List;
  */
 public interface VolumeManager {
 
-  VolumeHandle allocate(String statefulSetName, int instanceIndex, VolumeRequest request);
+  VolumeHandle allocate(
+      String statefulSetName, int instanceIndex, String volumeName, VolumeRequest request);
 
   Path hostPath(VolumeHandle handle);
 
@@ -33,17 +34,18 @@ public interface VolumeManager {
   List<AllocatedVolume> listAllocated();
 
   /**
-   * Unconditionally deletes the volume directory at {@code (statefulSetName, instanceIndex)},
-   * ignoring any reclaim policy -- the explicit operator action that reclaims a retained orphan,
-   * never called by the platform's own lifecycle (which goes through {@link #release}). A directory
-   * that's already gone is a silent no-op, matching {@link #release}'s idempotent posture.
+   * Unconditionally deletes every named volume directory under {@code (statefulSetName,
+   * instanceIndex)}, ignoring any reclaim policy -- the explicit operator action that reclaims a
+   * retained orphan, never called by the platform's own lifecycle (which goes through {@link
+   * #release}). A directory that's already gone is a silent no-op, matching {@link #release}'s
+   * idempotent posture.
    */
   void destroy(String statefulSetName, int instanceIndex);
 
   /**
-   * The bytes currently occupied by the volume at {@code (statefulSetName, instanceIndex)}, or 0
-   * for one with no directory on disk -- the soft usage observation heartbeats sample, never an
-   * enforced ceiling.
+   * The bytes currently occupied across every named volume of {@code (statefulSetName,
+   * instanceIndex)}, or 0 with no directory on disk -- the soft usage observation heartbeats
+   * sample, never an enforced ceiling.
    */
   long usedBytes(String statefulSetName, int instanceIndex);
 }

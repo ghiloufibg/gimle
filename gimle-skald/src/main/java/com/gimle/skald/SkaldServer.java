@@ -238,24 +238,50 @@ public final class SkaldServer implements AutoCloseable {
         parseIpv4(endpoint.host()).ifPresent(address -> answers.add(DnsCodec.Answer.a(address)));
       }
       if (answers.isEmpty()) {
-        log.warn(
-            "no endpoint host of {} is a dotted-decimal IPv4 address; answering NXDOMAIN",
-            qualifiedName.get());
+        // An ExternalName Service's endpoint host is a name outside this zone, not an address --
+        // the truthful answer is a CNAME alias to it, letting the caller's own resolver finish
+        // the resolution (Kubernetes' own ExternalName contract).
+        Optional<String> externalHost =
+            endpoints.stream()
+                .map(HostPort::host)
+                .filter(host -> parseIpv4(host).isEmpty())
+                .findFirst();
+        if (externalHost.isPresent()) {
+          return DnsCodec.encodeResponse(
+              query,
+              DnsCodec.RCODE_NOERROR,
+              List.of(DnsCodec.Answer.cname(hostLabels(externalHost.get()))),
+              false);
+        }
         return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NXDOMAIN, List.of());
       }
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, answers, false);
     }
     List<DnsCodec.Answer> answers = new ArrayList<>();
     for (HostPort endpoint : endpoints) {
-      if (parseIpv4(endpoint.host()).isEmpty()) {
-        continue;
+      List<String> targetLabels;
+      if (parseIpv4(endpoint.host()).isPresent()) {
+        targetLabels = new ArrayList<>();
+        targetLabels.add(endpoint.host().replace('.', '-'));
+        targetLabels.addAll(query.question().labels());
+      } else {
+        // An external host's own labels verbatim -- there is no dashed in-zone form to point at.
+        targetLabels = hostLabels(endpoint.host());
       }
-      List<String> targetLabels = new ArrayList<>();
-      targetLabels.add(endpoint.host().replace('.', '-'));
-      targetLabels.addAll(query.question().labels());
       answers.add(DnsCodec.Answer.srv(0, 0, endpoint.port(), targetLabels));
     }
     return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, answers, false);
+  }
+
+  /** A hostname's dot-separated labels, empties dropped (a trailing dot yields none). */
+  private static List<String> hostLabels(String host) {
+    List<String> labels = new ArrayList<>();
+    for (String label : host.split("\\.")) {
+      if (!label.isBlank()) {
+        labels.add(label);
+      }
+    }
+    return labels;
   }
 
   private byte[] buildEndpointResponse(DnsCodec.Query query, int qtype, EndpointName endpointName) {

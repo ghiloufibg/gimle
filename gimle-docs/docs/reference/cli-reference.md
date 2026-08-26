@@ -44,8 +44,8 @@ gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
 gimle events <deploymentName> <instanceIndex> [--limit N]
 gimle get services [name]
-gimle set service <name> --deployment <name> [--deployment ...] --port N [--target-port N]
-                          [--tenant <id>]
+gimle set service <name> (--deployment <name> [--deployment ...] | --external-name <host>)
+                          --port N [--target-port N] [--tenant <id>] [--session-affinity]
 gimle delete service <name>
 gimle service endpoints <name>
 gimle get networkpolicies [name]
@@ -103,7 +103,7 @@ gimle get accounts [username]
 gimle set account <username> --password <value>
 gimle delete account <username>
 gimle cert token create [--ttl <duration>]
-gimle cert request --purpose operator|node --out-cert <path> --out-key <path> [--common-name <name>]
+gimle cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path> --out-key <path> [--common-name <name>]
 gimle cert status <request-id> --out-cert <path>
 gimle cert approve <request-id>
 gimle cert renew [--force]
@@ -118,7 +118,11 @@ picture. `token create` and `approve` need this invocation's own configured mTLS
 plus `gimle.tls.certFile`/`keyFile`/`caFile`); `request`/`status` deliberately don't, since they run
 before that identity exists. `renew` only acts if the credential is actually due for renewal, unless
 `--force`. `request`'s `--common-name` sets the CSR Subject's CN, defaulting to the local
-`user.name` system property when omitted.
+`user.name` system property when omitted. `--purpose tenant` (with `--tenant <id>`) is the one
+`request` shape that *does* submit over this invocation's own mTLS identity: it mints a
+tenant-membership client certificate (`O=gimle:tenant:<id>`, stamped server-side) for a caller
+already authorized to approve certificate requests under that tenant's scope — the credential
+`gimle-bifrost`'s TLS identity-verifying mode checks a NetworkPolicy's allow list against.
 
 Unlike `config`, `secret` is a distinct top-level verb rather than a `get`/`set`/`delete` noun —
 it needs two actions (`versions`, `rotate-key`) that three-verb dispatch has no shape for. Every
@@ -207,7 +211,11 @@ whose timeline would otherwise be hundreds of lines.
 in the platform's own network-model design. `set service` POSTs to the `/services` collection
 rather than PUTting a per-name path, since a Service names itself in its own request body;
 `--deployment` may repeat (the set of workload names a Service fronts) and `--target-port` defaults
-to `--port` when omitted (the Service listens and forwards on the same port). `service endpoints`
+to `--port` when omitted (the Service listens and forwards on the same port).
+`--external-name <host>` declares the ExternalName shape instead — the Service resolves to that
+external hostname at the target port, with no in-cluster backing (and therefore no `--deployment`);
+`--session-affinity` asks the Bifrost proxy layer to pin each caller address to one backend by
+consistent hash rather than round-robining. `service endpoints`
 resolves the Service's current live backing-instance set on every call, never a cached value, so it
 never lags a reconcile interval behind. `networkpolicy` manages the accompanying NetworkPolicy
 analogue — a deny-by-default restriction on which other tenants may call into one tenant's own

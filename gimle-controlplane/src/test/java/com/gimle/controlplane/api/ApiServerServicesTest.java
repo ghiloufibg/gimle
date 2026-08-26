@@ -85,6 +85,89 @@ class ApiServerServicesTest {
 
   @Test
   @Timeout(10)
+  void an_external_name_service_round_trips_and_resolves_to_its_external_host() throws Exception {
+    HttpResponse<String> post =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        {"name": "billing", "port": 443, "targetPort": 8443,
+                         "externalName": "billing.example.com"}
+                        """))
+                .build());
+    assertEquals(200, post.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/services/billing")).GET().build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> spec = Json.asObject(Json.parse(get.body()));
+    assertEquals("billing.example.com", spec.get("externalName"));
+    assertEquals(List.of(), spec.get("deploymentNames"));
+
+    HttpResponse<String> endpoints =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services/billing/endpoints"))
+                .GET()
+                .build());
+    assertEquals(200, endpoints.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(endpoints.body()));
+    List<Map<String, Object>> endpointList = Json.asObjectList(body.get("endpoints"));
+    assertEquals(1, endpointList.size());
+    assertEquals("billing.example.com", endpointList.get(0).get("host"));
+    assertEquals(8443, ((Number) endpointList.get(0).get("port")).intValue());
+  }
+
+  @Test
+  @Timeout(10)
+  void an_external_name_service_naming_deployments_too_is_rejected() throws Exception {
+    HttpResponse<String> post =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        {"name": "billing", "deploymentNames": ["orders-service"], "port": 443,
+                         "externalName": "billing.example.com"}
+                        """))
+                .build());
+    assertEquals(400, post.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void session_affinity_round_trips_on_both_service_and_endpoints_shapes() throws Exception {
+    HttpResponse<String> post =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        """
+                        {"name": "orders", "deploymentNames": ["orders-service"], "port": 8080,
+                         "sessionAffinity": true}
+                        """))
+                .build());
+    assertEquals(200, post.statusCode());
+
+    Map<String, Object> spec =
+        Json.asObject(
+            Json.parse(
+                send(HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders")).GET().build())
+                    .body()));
+    assertEquals(true, spec.get("sessionAffinity"));
+
+    Map<String, Object> endpoints =
+        Json.asObject(
+            Json.parse(
+                send(HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders/endpoints"))
+                        .GET()
+                        .build())
+                    .body()));
+    assertEquals(true, endpoints.get("sessionAffinity"));
+  }
+
+  @Test
+  @Timeout(10)
   void post_then_get_a_service_round_trips() throws Exception {
     HttpResponse<String> post =
         send(
@@ -279,7 +362,8 @@ class ApiServerServicesTest {
     Map<String, Object> endpoint = Json.asObject(endpoints.get(0));
     assertEquals("10.0.0.5", endpoint.get("host"));
     assertEquals(51234L, endpoint.get("port"));
-    assertEquals(Set.of("host", "port"), endpoint.keySet());
+    assertEquals("node-1", endpoint.get("nodeId"));
+    assertEquals(Set.of("host", "port", "nodeId"), endpoint.keySet());
   }
 
   @Test

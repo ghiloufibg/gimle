@@ -136,10 +136,12 @@ class AgentLogServerTest {
     Path dataRoot = logRoot.resolve("data");
     LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     Path held =
-        volumeManager.hostPath(volumeManager.allocate("sessions", 0, new VolumeRequest(64)));
+        volumeManager.hostPath(
+            volumeManager.allocate("sessions", 0, "data", new VolumeRequest(64)));
     Files.writeString(held.resolve("live.db"), "12345");
     Path orphan =
-        volumeManager.hostPath(volumeManager.allocate("sessions", 1, new VolumeRequest(64)));
+        volumeManager.hostPath(
+            volumeManager.allocate("sessions", 1, "data", new VolumeRequest(64)));
     Files.writeString(orphan.resolve("old.db"), "123");
     server =
         new AgentLogServer(

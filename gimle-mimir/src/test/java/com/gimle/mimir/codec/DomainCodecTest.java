@@ -3,6 +3,7 @@ package com.gimle.mimir.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceObservation;
@@ -43,8 +44,11 @@ class DomainCodecTest {
                 "LOG_LEVEL", new VesselEnvValue.Literal("INFO"),
                 "DB_PASSWORD", new VesselEnvValue.SecretRef("db.password"),
                 "HTTP_PORT", new VesselEnvValue.PortAllocation(OptionalInt.empty()),
-                "FIXED_PORT", new VesselEnvValue.PortAllocation(OptionalInt.of(9000))),
-            List.of(new VesselFileMount("conf/app.yaml", "app-config")),
+                "FIXED_PORT", new VesselEnvValue.PortAllocation(OptionalInt.of(9000)),
+                "DATA_DIR", new VesselEnvValue.VolumeMount(1_073_741_824L, ReclaimPolicy.DELETE)),
+            List.of(
+                new VesselFileMount("conf/app.yaml", "app-config"),
+                new VesselFileMount("conf/db.pass", Optional.empty(), Optional.of("db.password"))),
             new VesselProbes(
                 Optional.of(new VesselProbeSpec.Http("/health", 20)),
                 Optional.of(new VesselProbeSpec.Tcp(5))),

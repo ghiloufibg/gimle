@@ -14,6 +14,7 @@ import com.gimle.core.module.VolumeRequest;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -68,11 +69,11 @@ public final class ModuleDescriptorParser {
     HealthProbes probes = parseHealth(root);
     Optional<String> hooks = parseLifecycleHooks(root);
     Optional<String> jobHooks = parseJobHooks(root);
-    Optional<VolumeRequest> volume = parseVolume(root);
+    Map<String, VolumeRequest> volumes = parseVolumes(root);
 
     try {
       return new ModuleDescriptor(
-          name, version, requires, exports, tier, request, limit, probes, hooks, jobHooks, volume);
+          name, version, requires, exports, tier, request, limit, probes, hooks, jobHooks, volumes);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid gimle-module.yaml for " + name + ": " + e.getMessage(), e);
@@ -211,27 +212,53 @@ public final class ModuleDescriptorParser {
   }
 
   /**
-   * StatefulSet-kind persistent storage: {@code volume:} at the descriptor's own top level, sibling
-   * to {@code isolation:}/{@code resources:} -- absent means "no persistent storage," the only
-   * shape every pre-existing descriptor has.
+   * StatefulSet-kind persistent storage: {@code volumes:} at the descriptor's own top level,
+   * sibling to {@code isolation:}/{@code resources:} -- a mapping of volume name to that volume's
+   * own {@code sizeBytes}/{@code reclaimPolicy}, each name the key a hook reaches its directory
+   * back through via {@code ModuleContext.dataDirectory(name)}. Absent means "no persistent
+   * storage." The singular {@code volume:} shape declares one volume named {@code data} -- the
+   * common single-volume module's shorthand, not a second parallel schema (it parses into exactly
+   * the same map).
    */
-  private static Optional<VolumeRequest> parseVolume(Map<?, ?> root) {
-    Object volumeObj = root.get("volume");
-    if (volumeObj == null) {
-      return Optional.empty();
+  private static Map<String, VolumeRequest> parseVolumes(Map<?, ?> root) {
+    Object volumesObj = root.get("volumes");
+    Object singularObj = root.get("volume");
+    if (volumesObj != null && singularObj != null) {
+      throw new GimleManifestException("declare either 'volume' or 'volumes', not both");
     }
+    Map<String, VolumeRequest> volumes = new LinkedHashMap<>();
+    if (singularObj != null) {
+      volumes.put("data", parseVolumeEntry(singularObj, "volume"));
+      return volumes;
+    }
+    if (volumesObj == null) {
+      return volumes;
+    }
+    if (!(volumesObj instanceof Map<?, ?> volumesMap)) {
+      throw new GimleManifestException("'volumes' must be a mapping of name to volume");
+    }
+    for (Map.Entry<?, ?> entry : volumesMap.entrySet()) {
+      String volumeName = String.valueOf(entry.getKey());
+      if (volumeName.isBlank()) {
+        throw new GimleManifestException("'volumes' names must not be blank");
+      }
+      volumes.put(volumeName, parseVolumeEntry(entry.getValue(), "volumes." + volumeName));
+    }
+    return volumes;
+  }
+
+  private static VolumeRequest parseVolumeEntry(Object volumeObj, String field) {
     if (!(volumeObj instanceof Map<?, ?> volume)) {
-      throw new GimleManifestException("'volume' must be a mapping");
+      throw new GimleManifestException("'" + field + "' must be a mapping");
     }
     Object sizeBytesObj = volume.get("sizeBytes");
     if (!(sizeBytesObj instanceof Number sizeBytesNumber) || sizeBytesNumber.longValue() <= 0) {
-      throw new GimleManifestException("'volume.sizeBytes' must be a positive number");
+      throw new GimleManifestException("'" + field + ".sizeBytes' must be a positive number");
     }
     try {
-      return Optional.of(
-          new VolumeRequest(sizeBytesNumber.longValue(), parseReclaimPolicy(volume)));
+      return new VolumeRequest(sizeBytesNumber.longValue(), parseReclaimPolicy(volume));
     } catch (IllegalArgumentException e) {
-      throw new GimleManifestException("invalid volume: " + e.getMessage(), e);
+      throw new GimleManifestException("invalid " + field + ": " + e.getMessage(), e);
     }
   }
 

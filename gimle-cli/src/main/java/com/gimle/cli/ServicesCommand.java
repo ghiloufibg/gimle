@@ -9,13 +9,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code get services [name]}, {@code set service <name> --deployment <name> [--deployment
- * <name>...] --port <n> [--target-port <n>] [--tenant <id>]}, {@code delete service <name>}, {@code
- * service endpoints <name>} -- the ClusterIP analogue's CLI surface. {@code set} POSTs to the bare
- * {@code /services} collection rather than PUTting {@code /services/<name>}, matching {@code
- * ApiServer}'s own routing: a {@link com.gimle.mimir.manifest.ServiceSpec} names itself in the
- * request body, unlike every {@code WorkloadSpec} kind's own {@code PUT /deployments/{name}}-shaped
- * routes.
+ * {@code get services [name]}, {@code set service <name> (--deployment <name> [--deployment
+ * <name>...] | --external-name <host>) --port <n> [--target-port <n>] [--tenant <id>]
+ * [--session-affinity]}, {@code delete service <name>}, {@code service endpoints <name>} -- the
+ * ClusterIP analogue's CLI surface. {@code set} POSTs to the bare {@code /services} collection
+ * rather than PUTting {@code /services/<name>}, matching {@code ApiServer}'s own routing: a {@link
+ * com.gimle.mimir.manifest.ServiceSpec} names itself in the request body, unlike every {@code
+ * WorkloadSpec} kind's own {@code PUT /deployments/{name}}-shaped routes.
  */
 public final class ServicesCommand {
 
@@ -43,10 +43,14 @@ public final class ServicesCommand {
       throw new CliException("set service requires <name>");
     }
     String name = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), Set.of("--deployment"));
+    Flags flags =
+        Flags.parse(
+            args.subList(1, args.size()), Set.of("--session-affinity"), Set.of("--deployment"));
     List<String> deploymentNames = flags.getAll("--deployment");
-    if (deploymentNames.isEmpty()) {
-      throw new CliException("set service requires at least one --deployment");
+    String externalName = flags.getOrDefault("--external-name", null);
+    if (deploymentNames.isEmpty() && externalName == null) {
+      throw new CliException(
+          "set service requires at least one --deployment (or --external-name <host>)");
     }
     long port = flags.requireLong("--port");
     String targetPortValue = flags.getOrDefault("--target-port", null);
@@ -61,6 +65,12 @@ public final class ServicesCommand {
     body.put("deploymentNames", List.copyOf(new LinkedHashSet<>(deploymentNames)));
     body.put("port", port);
     body.put("targetPort", targetPort);
+    if (flags.isSet("--session-affinity")) {
+      body.put("sessionAffinity", true);
+    }
+    if (externalName != null) {
+      body.put("externalName", externalName);
+    }
 
     client.expectSuccess(client.post("/services", Json.write(body)));
     OutputFormat.printResult(

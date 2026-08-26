@@ -132,6 +132,61 @@ class ApiServerAuthzTest {
   }
 
   /**
+   * A {@code TENANT_CLIENT} submission is an already-credentialed caller minting a
+   * tenant-membership certificate: an operator gets it signed synchronously with the server-stamped
+   * {@code O=gimle:tenant:<id>} (never the CSR's own subject claim), while a caller with no
+   * approval permission is refused outright -- the certificate that would let a TLS-terminating
+   * proxy trust a caller's tenant must itself only ever come from someone trusted to say so.
+   */
+  @Test
+  void a_tenant_client_certificate_is_minted_by_an_operator_and_carries_the_tenant_group()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient operatorClient = mutualTlsClient(ca, "O=gimle:operators,CN=root-operator");
+
+      KeyPair workloadKeyPair = generateRsaKeyPair();
+      // Self-declares the operators group -- the same escalation shape the node-join test proves
+      // is discarded; only the server-stamped tenant group may survive issuance.
+      PKCS10CertificationRequest csr =
+          CertificateSigningRequests.generate(
+              workloadKeyPair, new X500Name("O=gimle:operators,CN=acme-workload"));
+
+      Map<String, Object> submission = new LinkedHashMap<>();
+      submission.put("purpose", "TENANT_CLIENT");
+      submission.put("csrPem", Pem.encodeCsr(csr));
+      submission.put("tenantId", "acme");
+      HttpRequest request =
+          HttpRequest.newBuilder(URI.create(baseUrl + "/bootstrap/csr"))
+              .header("Content-Type", "application/json")
+              .POST(HttpRequest.BodyPublishers.ofString(Json.write(submission)))
+              .build();
+      HttpResponse<String> response =
+          operatorClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, response.statusCode());
+      String certPem = (String) Json.asObject(Json.parse(response.body())).get("certificatePem");
+      assertNotNull(certPem);
+      String subject = Pem.decodeCertificate(certPem).getSubjectX500Principal().getName();
+      assertTrue(subject.contains("O=gimle:tenant:acme"), subject);
+      assertTrue(!subject.contains("O=gimle:operators"), subject);
+
+      // An unauthenticated caller has no identity to authorize the mint with.
+      HttpResponse<String> unauthenticated =
+          trustOnlyClient()
+              .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(401, unauthenticated.statusCode());
+    }
+  }
+
+  /**
    * {@code /bootstrap/csr/{id}/approve} now requires {@code CERTIFICATE_REQUEST:APPROVE}, not
    * merely "any valid certificate" -- a certificate carrying no group at all (issued directly by
    * the test CA, bypassing the real join flow, which always stamps one of the two built-in groups)

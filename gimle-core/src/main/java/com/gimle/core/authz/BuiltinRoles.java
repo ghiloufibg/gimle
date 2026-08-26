@@ -1,7 +1,9 @@
 package com.gimle.core.authz;
 
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -26,6 +28,35 @@ public final class BuiltinRoles {
 
   /** Stamped into an issued certificate's {@code O=} for a {@code CsrPurpose.NODE_CLIENT}. */
   public static final String GROUP_NODES = "gimle:nodes";
+
+  /**
+   * Prefix of the tenant-membership group a {@code CsrPurpose.TENANT_CLIENT} certificate carries in
+   * its {@code O=}: {@code gimle:tenant:acme} asserts "this caller belongs to tenant {@code acme}".
+   * Like {@link #GROUP_OPERATORS}/{@link #GROUP_NODES} it is stamped server-side at issuance, never
+   * taken from a CSR's own subject -- which is what lets a TLS listener ({@code gimle-bifrost}'s
+   * identity-verifying mode) treat the group as a trustworthy tenant claim.
+   */
+  public static final String GROUP_TENANT_PREFIX = "gimle:tenant:";
+
+  /** The tenant-membership group asserting membership in {@code tenantId}. */
+  public static String tenantGroup(String tenantId) {
+    return GROUP_TENANT_PREFIX + tenantId;
+  }
+
+  /**
+   * The tenant a principal's groups assert membership in, if exactly one {@link
+   * #GROUP_TENANT_PREFIX} group is present -- more than one is treated as no claim at all rather
+   * than picking arbitrarily, since every issuance path stamps exactly one.
+   */
+  public static Optional<String> tenantOf(Collection<String> groups) {
+    List<String> tenants =
+        groups.stream()
+            .filter(group -> group.startsWith(GROUP_TENANT_PREFIX))
+            .map(group -> group.substring(GROUP_TENANT_PREFIX.length()))
+            .filter(tenant -> !tenant.isBlank())
+            .toList();
+    return tenants.size() == 1 ? Optional.of(tenants.get(0)) : Optional.empty();
+  }
 
   public static final Role CLUSTER_ADMIN = new Role("cluster-admin", everyPermission());
 

@@ -9,6 +9,7 @@ import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Synthetic {@link ModuleArtifact}s for resolver/registry tests that never touch a real jar. */
@@ -29,7 +30,7 @@ final class TestArtifacts {
             HealthProbes.NONE,
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Map.of());
     return new ModuleArtifact(
         descriptor.id(), Path.of(name + "-" + version + ".jar"), descriptor, "0".repeat(64));
   }

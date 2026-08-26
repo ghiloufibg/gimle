@@ -95,7 +95,9 @@ class ServiceReconcilerTest {
 
     new ServiceReconciler(registry, store).reconcileOnce();
 
-    assertEquals(List.of(new ServiceEndpoint("10.0.0.5", 51234)), registry.getEndpoints("orders"));
+    assertEquals(
+        List.of(new ServiceEndpoint("10.0.0.5", 51234, Optional.of("node-a"))),
+        registry.getEndpoints("orders"));
   }
 
   @Test
@@ -146,7 +148,9 @@ class ServiceReconcilerTest {
     new ServiceReconciler(registry, store).reconcileOnce();
 
     assertEquals(
-        Set.of(new ServiceEndpoint("10.0.0.5", 51234), new ServiceEndpoint("10.0.0.6", 51235)),
+        Set.of(
+            new ServiceEndpoint("10.0.0.5", 51234, Optional.of("node-a")),
+            new ServiceEndpoint("10.0.0.6", 51235, Optional.of("node-b"))),
         Set.copyOf(registry.getEndpoints("orders")));
   }
 
@@ -166,7 +170,9 @@ class ServiceReconcilerTest {
     new ServiceReconciler(registry, store).reconcileOnce();
 
     assertTrue(registry.getEndpoints("unreachable").isEmpty());
-    assertEquals(List.of(new ServiceEndpoint("10.0.0.5", 51234)), registry.getEndpoints("orders"));
+    assertEquals(
+        List.of(new ServiceEndpoint("10.0.0.5", 51234, Optional.of("node-a"))),
+        registry.getEndpoints("orders"));
   }
 
   @Test

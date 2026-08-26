@@ -77,13 +77,21 @@ public interface ModuleContext {
       String deploymentName, int instanceIndex, String nodeId, Optional<String> tenantId) {}
 
   /**
-   * The host path this instance's persistent volume was allocated at, present only if the module's
-   * own descriptor declares {@code volume:} -- absent for every ordinary (non-{@code StatefulSet})
-   * instance, the only shape every pre-existing hook has ever seen. Already populated by the time
-   * {@code onInstall} runs, not just {@code onStart}: the agent resolves and delivers it before
-   * this context is even created.
+   * The host path this instance's persistent volume was allocated at, present only when the
+   * module's own descriptor declares exactly one volume -- absent for every ordinary (non-{@code
+   * StatefulSet}) instance, and also absent for a multi-volume module, whose hooks must name which
+   * volume they mean via {@link #dataDirectory(String)}. Already populated by the time {@code
+   * onInstall} runs, not just {@code onStart}: the agent resolves and delivers it before this
+   * context is even created.
    */
   Optional<Path> dataDirectory();
+
+  /**
+   * The host path the named volume was allocated at, per the module's own {@code volumes:}
+   * declaration -- absent when no volume of that name was declared (or its allocation failed).
+   * {@link #dataDirectory()} is the sole-volume shorthand over this same map.
+   */
+  Optional<Path> dataDirectory(String name);
 
   /**
    * A narrow, whitelisted read-back into the control plane's own HTTP API, relayed through this

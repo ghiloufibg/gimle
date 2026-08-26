@@ -15,7 +15,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.HashSet;
-import java.util.Optional;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -37,7 +37,7 @@ class VesselEndpointCacheTest {
         new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
         new SimpleServiceRegistry(),
         new ConcurrentHashMap<>(),
-        Optional.empty(),
+        Map.of(),
         relay);
   }
 

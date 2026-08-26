@@ -3,6 +3,7 @@ package com.gimle.mimir.manifest;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.vessel.VesselEnvValue;
@@ -13,6 +14,7 @@ import com.gimle.core.vessel.VesselSpec;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -270,7 +272,9 @@ final class ManifestFields {
     }
     if (!(value instanceof Map<?, ?> map)) {
       throw new GimleManifestException(
-          "'vessel.env." + name + "' must be a string, {secret: ...}, or {port: ...}");
+          "'vessel.env."
+              + name
+              + "' must be a string, {secret: ...}, {port: ...}, or {volume: ...}");
     }
     if (map.containsKey("secret")) {
       return new VesselEnvValue.SecretRef(requireString(map, "secret"));
@@ -286,8 +290,37 @@ final class ManifestFields {
       throw new GimleManifestException(
           "'vessel.env." + name + ".port' must be 'dynamic' or an integer");
     }
+    if (map.containsKey("volume")) {
+      if (!(map.get("volume") instanceof Map<?, ?> volume)) {
+        throw new GimleManifestException("'vessel.env." + name + ".volume' must be a mapping");
+      }
+      Object sizeBytesObj = volume.get("sizeBytes");
+      if (!(sizeBytesObj instanceof Number sizeBytes) || sizeBytes.longValue() <= 0) {
+        throw new GimleManifestException(
+            "'vessel.env." + name + ".volume.sizeBytes' must be a positive number");
+      }
+      ReclaimPolicy reclaimPolicy = ReclaimPolicy.RETAIN;
+      Object policyObj = volume.get("reclaimPolicy");
+      if (policyObj != null) {
+        if (!(policyObj instanceof String policy) || policy.isBlank()) {
+          throw new GimleManifestException(
+              "'vessel.env." + name + ".volume.reclaimPolicy' must be 'Retain' or 'Delete'");
+        }
+        try {
+          reclaimPolicy = ReclaimPolicy.valueOf(policy.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+          throw new GimleManifestException(
+              "'vessel.env."
+                  + name
+                  + ".volume.reclaimPolicy' must be 'Retain' or 'Delete', got '"
+                  + policy
+                  + "'");
+        }
+      }
+      return new VesselEnvValue.VolumeMount(sizeBytes.longValue(), reclaimPolicy);
+    }
     throw new GimleManifestException(
-        "'vessel.env." + name + "' must declare 'secret' or 'port' if it is a mapping");
+        "'vessel.env." + name + "' must declare 'secret', 'port', or 'volume' if it is a mapping");
   }
 
   private static List<VesselFileMount> parseVesselFiles(Map<?, ?> vessel) {
@@ -304,7 +337,15 @@ final class ManifestFields {
         throw new GimleManifestException("every 'vessel.files' entry must be a mapping");
       }
       try {
-        result.add(new VesselFileMount(requireString(map, "path"), requireString(map, "config")));
+        result.add(
+            new VesselFileMount(
+                requireString(map, "path"),
+                map.containsKey("config")
+                    ? Optional.of(requireString(map, "config"))
+                    : Optional.empty(),
+                map.containsKey("secret")
+                    ? Optional.of(requireString(map, "secret"))
+                    : Optional.empty()));
       } catch (IllegalArgumentException e) {
         throw new GimleManifestException("invalid 'vessel.files' entry: " + e.getMessage(), e);
       }

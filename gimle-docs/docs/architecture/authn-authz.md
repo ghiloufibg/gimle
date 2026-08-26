@@ -109,6 +109,18 @@ operator binds it a role — `gimle set rolebinding wb1 --subject user:svc:acme:
 tenant-view:acme` is the typical shape. Untenanted deployments have no workload identity (nothing
 to scope to) and keep the agent-side relay whitelist instead.
 
+**Tenant client certificates** carry a tenant-membership claim in certificate form:
+`gimle cert request --purpose tenant --tenant <id>` submits a CSR over the requester's own mTLS
+identity, and a caller holding `CERTIFICATE_REQUEST:APPROVE` under that tenant's scope (a cluster
+operator, or the tenant's own `tenant-admin:` holder) gets it signed synchronously with the
+server-stamped `O=gimle:tenant:<id>` — like `gimle:operators`/`gimle:nodes`, the group is never
+taken from the CSR's own subject, which is exactly what makes it a trustworthy claim. Its consumer
+today is `gimle-bifrost`'s TLS-terminating identity-verifying mode (see
+[Service fabric](./service-fabric.md)), which reads the group off a verified client certificate to
+enforce a `NetworkPolicySpec`'s allow list against opaque proxied traffic — the same tenant claim
+the fabric wire protocol carries in-band, expressed at the transport layer for callers outside the
+fabric.
+
 **Certificate revocation** is the portable answer to a compromised leaf, with no CRL/OCSP
 infrastructure: `gimle cert revoke <serialHex>` (`PUT /certificates/revoked/{serial}`, guarded by
 `CERTIFICATE_REQUEST` writes) puts the serial — the `openssl x509 -serial` hex form — on a

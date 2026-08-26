@@ -41,7 +41,7 @@ import java.util.List;
  *   gimle uncordon &lt;nodeId&gt;
  *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--limit N]
  *   gimle get services [name]
- *   gimle set service &lt;name&gt; --deployment &lt;name&gt; [--deployment ...] --port N [--target-port N]
+ *   gimle set service &lt;name&gt; (--deployment &lt;name&gt; [--deployment ...] | --external-name &lt;host&gt;) --port N [--target-port N] [--session-affinity]
  *                             [--tenant &lt;id&gt;]
  *   gimle delete service &lt;name&gt;
  *   gimle service endpoints &lt;name&gt;
@@ -484,7 +484,7 @@ public final class GimleCli {
           volume destroy <statefulSet> <instanceIndex> --node <nodeId>
           events <deploymentName> <instanceIndex> [--limit N]
           get services [name]
-          set service <name> --deployment <name> [--deployment ...] --port N [--target-port N]
+          set service <name> (--deployment <name> [--deployment ...] | --external-name <host>) --port N [--target-port N] [--session-affinity]
                               [--tenant <id>]
           delete service <name>
           service endpoints <name>
@@ -543,7 +543,7 @@ public final class GimleCli {
           set account <username> --password <value>
           delete account <username>
           cert token create [--ttl <duration>]
-          cert request --purpose operator|node --out-cert <path> --out-key <path>
+          cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path> --out-key <path>
           cert status <request-id> --out-cert <path>
           cert approve <request-id>
           cert renew [--force]

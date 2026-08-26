@@ -21,6 +21,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -75,7 +76,7 @@ class GatewayDispatcherTest {
         new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
         new SimpleServiceRegistry(),
         new ConcurrentHashMap<>(),
-        Optional.empty(),
+        Map.of(),
         path -> relayResult);
   }
 

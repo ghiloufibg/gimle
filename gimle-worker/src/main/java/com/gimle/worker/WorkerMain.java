@@ -43,6 +43,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -631,9 +632,10 @@ public final class WorkerMain {
               () ->
                   controller.resolve(
                       m.id(),
-                      m.dataDirectory().isBlank()
-                          ? Optional.empty()
-                          : Optional.of(Path.of(m.dataDirectory()))));
+                      m.dataDirectories().entrySet().stream()
+                          .collect(
+                              Collectors.toMap(
+                                  Map.Entry::getKey, entry -> Path.of(entry.getValue())))));
       case ControlMessage.StartModule m ->
           runCommand(
               m.correlationId(),

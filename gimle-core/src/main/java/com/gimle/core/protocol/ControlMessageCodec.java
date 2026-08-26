@@ -89,7 +89,11 @@ public final class ControlMessageCodec {
               escape(m.deploymentName()),
               Integer.toString(m.instanceIndex()));
       case ControlMessage.ResolveModule m ->
-          line("RESOLVE", m.correlationId(), encodeId(m.id()), escape(m.dataDirectory()));
+          line(
+              "RESOLVE",
+              m.correlationId(),
+              encodeId(m.id()),
+              escape(Json.write(new LinkedHashMap<String, Object>(m.dataDirectories()))));
       case ControlMessage.StartModule m -> line("START", m.correlationId(), encodeId(m.id()));
       case ControlMessage.StopModule m -> line("STOP", m.correlationId(), encodeId(m.id()));
       case ControlMessage.UninstallModule m ->
@@ -193,7 +197,9 @@ public final class ControlMessageCodec {
               Integer.parseInt(field(fields, 4)));
       case "RESOLVE" ->
           new ControlMessage.ResolveModule(
-              field(fields, 1), decodeId(field(fields, 2)), unescape(field(fields, 3)));
+              field(fields, 1),
+              decodeId(field(fields, 2)),
+              decodeStringMap(unescape(field(fields, 3))));
       case "START" -> new ControlMessage.StartModule(field(fields, 1), decodeId(field(fields, 2)));
       case "STOP" -> new ControlMessage.StopModule(field(fields, 1), decodeId(field(fields, 2)));
       case "UNINSTALL" ->
@@ -366,6 +372,16 @@ public final class ControlMessageCodec {
    */
   private static String encodePorts(Map<String, Integer> ports) {
     return Json.write(new LinkedHashMap<String, Object>(ports));
+  }
+
+  /** A JSON-object field of string values -- {@code ResolveModule}'s volume-name-to-path map. */
+  private static Map<String, String> decodeStringMap(String json) {
+    Map<String, Object> raw = Json.asObject(Json.parse(json));
+    Map<String, String> values = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> entry : raw.entrySet()) {
+      values.put(entry.getKey(), String.valueOf(entry.getValue()));
+    }
+    return values;
   }
 
   /** Inverse of {@link #encodePorts(Map)}. */

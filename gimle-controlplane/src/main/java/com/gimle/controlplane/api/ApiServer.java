@@ -1357,6 +1357,9 @@ public final class ApiServer implements AutoCloseable {
     }
     int port = ((Number) body.get("port")).intValue();
     int targetPort = body.get("targetPort") instanceof Number n ? n.intValue() : port;
+    boolean sessionAffinity = Boolean.TRUE.equals(body.get("sessionAffinity"));
+    Optional<String> externalName =
+        body.get("externalName") instanceof String s ? Optional.of(s) : Optional.empty();
 
     Optional<Optional<String>> existingTenant =
         serviceRegistry.get(name).map(ServiceSpec::tenantId);
@@ -1366,7 +1369,9 @@ public final class ApiServer implements AutoCloseable {
           requireAuthorized(exchange, ResourceKind.SERVICE, Verb.WRITE, existingTenant.get());
     }
     if (authorized && !rejectIfReservedSystemTenant(exchange, tenantId)) {
-      ServiceSpec spec = new ServiceSpec(name, tenantId, deploymentNames, port, targetPort);
+      ServiceSpec spec =
+          new ServiceSpec(
+              name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName);
       serviceRegistry.put(spec);
       respond(exchange, 200, "ok");
     }
@@ -1472,11 +1477,13 @@ public final class ApiServer implements AutoCloseable {
     map.put("name", spec.name());
     map.put("port", spec.port());
     map.put("targetPort", spec.targetPort());
+    map.put("sessionAffinity", spec.sessionAffinity());
     List<Map<String, Object>> endpoints = new ArrayList<>();
     for (ServiceEndpoint endpoint : ServiceEndpointResolver.resolve(storeClient, spec)) {
       Map<String, Object> entry = new LinkedHashMap<>();
       entry.put("host", endpoint.host());
       entry.put("port", endpoint.port());
+      endpoint.nodeId().ifPresent(nodeId -> entry.put("nodeId", nodeId));
       endpoints.add(entry);
     }
     map.put("endpoints", endpoints);
@@ -1490,6 +1497,8 @@ public final class ApiServer implements AutoCloseable {
     map.put("deploymentNames", List.copyOf(spec.deploymentNames()));
     map.put("port", spec.port());
     map.put("targetPort", spec.targetPort());
+    map.put("sessionAffinity", spec.sessionAffinity());
+    spec.externalName().ifPresent(externalName -> map.put("externalName", externalName));
     return map;
   }
 
@@ -2509,7 +2518,11 @@ public final class ApiServer implements AutoCloseable {
     map.put("env", env);
     List<Map<String, Object>> files = new ArrayList<>();
     for (VesselFileMount file : vessel.files()) {
-      files.add(Map.of("path", file.path(), "config", file.configKey()));
+      Map<String, Object> fileMap = new LinkedHashMap<>();
+      fileMap.put("path", file.path());
+      file.configKey().ifPresent(key -> fileMap.put("config", key));
+      file.secretKey().ifPresent(key -> fileMap.put("secret", key));
+      files.add(fileMap);
     }
     map.put("files", files);
     Map<String, Object> probes = new LinkedHashMap<>();
@@ -2535,6 +2548,14 @@ public final class ApiServer implements AutoCloseable {
           portAllocation.fixedPort().isPresent()
               ? Map.of("port", portAllocation.fixedPort().getAsInt())
               : Map.of("port", "dynamic");
+      case VesselEnvValue.VolumeMount volumeMount ->
+          Map.of(
+              "volume",
+              Map.of(
+                  "sizeBytes",
+                  volumeMount.sizeBytes(),
+                  "reclaimPolicy",
+                  volumeMount.reclaimPolicy().name()));
     };
   }
 
@@ -5609,13 +5630,15 @@ public final class ApiServer implements AutoCloseable {
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
 
   /**
-   * No {@link #requireAuthorized} call here, deliberately: this is the one endpoint that by design
-   * must be reachable without a client certificate -- it exists specifically to issue the cert that
-   * makes mTLS possible everywhere else. Three distinct auth contexts, distinguished entirely by
-   * what the request carries: a verified peer certificate present at all means rotation (subject
-   * must match); none present and {@code purpose == NODE_CLIENT} means a node join, authenticated
-   * by a one-time bootstrap token; none present and {@code purpose == OPERATOR_CLIENT} means a
-   * human operator request, never auto-approved.
+   * No blanket {@link #requireAuthorized} call here, deliberately: this is the one endpoint that by
+   * design must be reachable without a client certificate -- it exists specifically to issue the
+   * cert that makes mTLS possible everywhere else. Four distinct auth contexts, distinguished by
+   * what the request carries: {@code purpose == TENANT_CLIENT} means an already-credentialed caller
+   * minting a tenant-membership certificate (the one branch that does run {@code
+   * requireAuthorized}); otherwise a verified peer certificate present at all means rotation
+   * (subject must match); none present and {@code purpose == NODE_CLIENT} means a node join,
+   * authenticated by a one-time bootstrap token; none present and {@code purpose ==
+   * OPERATOR_CLIENT} means a human operator request, never auto-approved.
    */
   private void handleBootstrapCsrSubmit(HttpExchange exchange) {
     try {
@@ -5627,6 +5650,12 @@ public final class ApiServer implements AutoCloseable {
           csrSubmissionFromJson(Json.asObject(Json.parse(readBody(exchange))));
       PKCS10CertificationRequest csr = Pem.decodeCsr(submission.csrPem());
 
+      // Checked before the rotation branch: a TENANT_CLIENT submission is authenticated by the
+      // submitting operator's own certificate, which would otherwise route it into rotation.
+      if (submission.purpose() == CsrPurpose.TENANT_CLIENT) {
+        handleTenantClientRequest(exchange, csr, submission.tenantId().orElseThrow());
+        return;
+      }
       Optional<X509Certificate> presented = peerCertificate(exchange);
       if (presented.isPresent()) {
         handleRotationRequest(exchange, csr, presented.get());
@@ -5635,6 +5664,7 @@ public final class ApiServer implements AutoCloseable {
       switch (submission.purpose()) {
         case NODE_CLIENT -> handleNodeJoinRequest(exchange, csr, submission.bootstrapToken());
         case OPERATOR_CLIENT -> handleOperatorJoinRequest(exchange, csr);
+        case TENANT_CLIENT -> throw new IllegalStateException("handled above");
       }
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
@@ -5700,6 +5730,27 @@ public final class ApiServer implements AutoCloseable {
       throws IOException {
     String requestId = pendingCsrStore.submit(Pem.encodeCsr(csr));
     respondJson(exchange, 202, csrResultToJson(CsrResult.pending(requestId)));
+  }
+
+  /**
+   * Signed immediately, but only for a caller already authorized to approve certificate requests
+   * under {@code tenantId}'s scope -- a cluster operator, or that tenant's own {@code
+   * tenant-admin:} holder, minting a tenant-membership client certificate for one of the tenant's
+   * callers. The issued certificate's {@code O=gimle:tenant:<id>} is stamped server-side like every
+   * other issuance here, never taken from the CSR's own subject -- what makes the group a
+   * trustworthy tenant claim for a TLS-terminating proxy to enforce a network policy against.
+   */
+  private void handleTenantClientRequest(
+      HttpExchange exchange, PKCS10CertificationRequest csr, String tenantId) throws IOException {
+    if (!requireAuthorized(
+        exchange, ResourceKind.CERTIFICATE_REQUEST, Verb.APPROVE, Optional.of(tenantId))) {
+      return;
+    }
+    respondSigned(
+        exchange,
+        200,
+        csr,
+        Subjects.withOrganization(csr.getSubject(), BuiltinRoles.tenantGroup(tenantId)));
   }
 
   private void respondSigned(
@@ -5840,7 +5891,8 @@ public final class ApiServer implements AutoCloseable {
     CsrPurpose purpose = CsrPurpose.valueOf((String) json.get("purpose"));
     String csrPem = (String) json.get("csrPem");
     Optional<String> bootstrapToken = Optional.ofNullable((String) json.get("bootstrapToken"));
-    return new CsrSubmission(purpose, csrPem, bootstrapToken);
+    Optional<String> tenantId = Optional.ofNullable((String) json.get("tenantId"));
+    return new CsrSubmission(purpose, csrPem, bootstrapToken, tenantId);
   }
 
   private static Map<String, Object> csrResultToJson(CsrResult result) {

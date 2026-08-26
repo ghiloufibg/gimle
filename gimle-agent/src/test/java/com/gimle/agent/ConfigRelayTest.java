@@ -72,7 +72,7 @@ class ConfigRelayTest {
         HealthProbes.NONE,
         Optional.empty(),
         Optional.empty(),
-        Optional.empty());
+        Map.of());
   }
 
   private static SupervisedInstance supervisedInstance(WorkerConnection connection) {

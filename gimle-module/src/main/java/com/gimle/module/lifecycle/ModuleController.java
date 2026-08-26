@@ -232,17 +232,18 @@ public final class ModuleController {
   }
 
   public ModuleWiring resolve(ModuleId id) {
-    return resolve(id, Optional.empty());
+    return resolve(id, Map.of());
   }
 
   /**
-   * {@code dataDirectory} is this instance's persistent-volume host path, already resolved by the
-   * agent and delivered over {@code ControlMessage.ResolveModule} -- present only for a {@code
-   * StatefulSet}-shaped instance whose descriptor declares {@code volume:}. Populated on {@link
-   * SimpleModuleContext#dataDirectory()} before {@code onInstall} fires below, so a hook can rely
-   * on it from its very first callback.
+   * {@code dataDirectories} maps each of this instance's declared volume names to its
+   * persistent-volume host path, already resolved by the agent and delivered over {@code
+   * ControlMessage.ResolveModule} -- non-empty only for a {@code StatefulSet}-shaped instance whose
+   * descriptor declares {@code volumes:}. Populated on {@link
+   * SimpleModuleContext#dataDirectory(String)} before {@code onInstall} fires below, so a hook can
+   * rely on it from its very first callback.
    */
-  public ModuleWiring resolve(ModuleId id, Optional<Path> dataDirectory) {
+  public ModuleWiring resolve(ModuleId id, Map<String, Path> dataDirectories) {
     requireState(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
 
     ModuleWiring wiring;
@@ -283,7 +284,7 @@ public final class ModuleController {
             id,
             serviceRegistry,
             configValues,
-            dataDirectory,
+            dataDirectories,
             relay,
             () -> identityLookup.apply(id));
     contextsByModule.put(id, ctx);

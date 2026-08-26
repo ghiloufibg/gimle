@@ -94,7 +94,7 @@ class AgentMainTest {
         HealthProbes.NONE,
         Optional.empty(),
         Optional.empty(),
-        Optional.empty());
+        Map.of());
   }
 
   @Test
@@ -391,7 +391,7 @@ class AgentMainTest {
         HealthProbes.NONE,
         Optional.empty(),
         Optional.empty(),
-        Optional.empty());
+        Map.of());
   }
 
   private static AssignedInstance assignedInstance(
@@ -591,7 +591,7 @@ class AgentMainTest {
             HealthProbes.NONE,
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Map.of());
     AssignedInstance assignedV2 =
         new AssignedInstance(
             "provider-deployment", 0, v2.id(), "/does/not/matter.jar", Optional.empty());
@@ -694,7 +694,7 @@ class AgentMainTest {
             HealthProbes.NONE,
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Map.of());
     AssignedInstance staleAssigned = assignedInstance("orders-service", v1, Optional.empty());
     SupervisedInstance staleInstance = supervisedInstance(staleAssigned, v1, null);
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();

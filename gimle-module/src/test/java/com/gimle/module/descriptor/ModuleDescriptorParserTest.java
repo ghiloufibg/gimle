@@ -101,7 +101,7 @@ class ModuleDescriptorParserTest {
   void no_volume_leaves_it_empty() {
     ModuleDescriptor descriptor = ModuleDescriptorParser.parse(yaml(BASE));
 
-    assertTrue(descriptor.volume().isEmpty());
+    assertTrue(descriptor.volumes().isEmpty());
   }
 
   @Test
@@ -115,8 +115,46 @@ class ModuleDescriptorParserTest {
                       sizeBytes: 10737418240
                     """));
 
-    assertEquals(10737418240L, descriptor.volume().orElseThrow().sizeBytes());
-    assertEquals(ReclaimPolicy.RETAIN, descriptor.volume().orElseThrow().reclaimPolicy());
+    assertEquals(10737418240L, descriptor.volumes().get("data").sizeBytes());
+    assertEquals(ReclaimPolicy.RETAIN, descriptor.volumes().get("data").reclaimPolicy());
+  }
+
+  @Test
+  void parses_multiple_named_volumes() {
+    ModuleDescriptor descriptor =
+        ModuleDescriptorParser.parse(
+            yaml(
+                BASE
+                    + """
+                    volumes:
+                      data:
+                        sizeBytes: 10737418240
+                      wal:
+                        sizeBytes: 1073741824
+                        reclaimPolicy: Delete
+                    """));
+
+    assertEquals(2, descriptor.volumes().size());
+    assertEquals(10737418240L, descriptor.volumes().get("data").sizeBytes());
+    assertEquals(ReclaimPolicy.RETAIN, descriptor.volumes().get("data").reclaimPolicy());
+    assertEquals(ReclaimPolicy.DELETE, descriptor.volumes().get("wal").reclaimPolicy());
+  }
+
+  @Test
+  void declaring_both_volume_and_volumes_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ModuleDescriptorParser.parse(
+                yaml(
+                    BASE
+                        + """
+                        volume:
+                          sizeBytes: 1024
+                        volumes:
+                          data:
+                            sizeBytes: 1024
+                        """)));
   }
 
   @Test
@@ -131,7 +169,7 @@ class ModuleDescriptorParserTest {
                       reclaimPolicy: Delete
                     """));
 
-    assertEquals(ReclaimPolicy.DELETE, descriptor.volume().orElseThrow().reclaimPolicy());
+    assertEquals(ReclaimPolicy.DELETE, descriptor.volumes().get("data").reclaimPolicy());
   }
 
   @Test

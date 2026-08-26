@@ -9,6 +9,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
@@ -158,6 +159,8 @@ public final class DomainCodec {
     }
     out.writeInt(spec.port());
     out.writeInt(spec.targetPort());
+    out.writeBoolean(spec.sessionAffinity());
+    writeOptionalString(out, spec.externalName());
   }
 
   public static ServiceSpec readServiceSpec(DataInputStream in) throws IOException {
@@ -170,7 +173,10 @@ public final class DomainCodec {
     }
     int port = in.readInt();
     int targetPort = in.readInt();
-    return new ServiceSpec(name, tenantId, deploymentNames, port, targetPort);
+    boolean sessionAffinity = in.readBoolean();
+    Optional<String> externalName = readOptionalString(in);
+    return new ServiceSpec(
+        name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName);
   }
 
   public static void writeNetworkPolicySpec(DataOutputStream out, NetworkPolicySpec spec)
@@ -579,7 +585,10 @@ public final class DomainCodec {
     out.writeInt(v.files().size());
     for (var file : v.files()) {
       out.writeUTF(file.path());
-      out.writeUTF(file.configKey());
+      // One byte discriminates the mount's source kind; exactly one key follows either way.
+      boolean secretBacked = file.secretKey().isPresent();
+      out.writeBoolean(secretBacked);
+      out.writeUTF(secretBacked ? file.secretKey().orElseThrow() : file.configKey().orElseThrow());
     }
     writeOptionalVesselProbeSpec(out, v.probes().liveness());
     writeOptionalVesselProbeSpec(out, v.probes().readiness());
@@ -610,7 +619,14 @@ public final class DomainCodec {
     int fileCount = in.readInt();
     List<VesselFileMount> files = new ArrayList<>();
     for (int i = 0; i < fileCount; i++) {
-      files.add(new VesselFileMount(in.readUTF(), in.readUTF()));
+      String path = in.readUTF();
+      boolean secretBacked = in.readBoolean();
+      String key = in.readUTF();
+      files.add(
+          new VesselFileMount(
+              path,
+              secretBacked ? Optional.empty() : Optional.of(key),
+              secretBacked ? Optional.of(key) : Optional.empty()));
     }
     Optional<VesselProbeSpec> liveness = readOptionalVesselProbeSpec(in);
     Optional<VesselProbeSpec> readiness = readOptionalVesselProbeSpec(in);
@@ -635,6 +651,11 @@ public final class DomainCodec {
         out.writeByte(2);
         writeOptionalInt(out, portAllocation.fixedPort());
       }
+      case VesselEnvValue.VolumeMount volumeMount -> {
+        out.writeByte(3);
+        out.writeLong(volumeMount.sizeBytes());
+        out.writeUTF(volumeMount.reclaimPolicy().name());
+      }
     }
   }
 
@@ -644,6 +665,7 @@ public final class DomainCodec {
       case 0 -> new VesselEnvValue.Literal(in.readUTF());
       case 1 -> new VesselEnvValue.SecretRef(in.readUTF());
       case 2 -> new VesselEnvValue.PortAllocation(readOptionalInt(in));
+      case 3 -> new VesselEnvValue.VolumeMount(in.readLong(), ReclaimPolicy.valueOf(in.readUTF()));
       default -> throw new IllegalStateException("unknown vessel env value tag: " + tag);
     };
   }

@@ -20,10 +20,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The guaranteed-minimum, and today the only, {@link VolumeManager}: no replication, no CSI-style
- * pluggable backend, one directory per {@code (statefulSetName, instanceIndex)} pair under {@code
- * <dataRoot>/volumes/}, checked for free space at {@link #allocate} time only -- soft/advisory,
- * matching {@code PortableJvmFlagsResourceLimiter}'s own no-continuous-enforcement posture extended
- * from CPU/memory to disk, not a new precedent.
+ * pluggable backend, one directory per {@code (statefulSetName, instanceIndex, volumeName)} triple
+ * under {@code <dataRoot>/volumes/}, checked for free space at {@link #allocate} time only --
+ * soft/advisory, matching {@code PortableJvmFlagsResourceLimiter}'s own no-continuous-enforcement
+ * posture extended from CPU/memory to disk, not a new precedent.
  */
 public final class LocalDiskVolumeManager implements VolumeManager {
 
@@ -36,8 +36,9 @@ public final class LocalDiskVolumeManager implements VolumeManager {
   }
 
   @Override
-  public VolumeHandle allocate(String statefulSetName, int instanceIndex, VolumeRequest request) {
-    Path path = hostPath(statefulSetName, instanceIndex);
+  public VolumeHandle allocate(
+      String statefulSetName, int instanceIndex, String volumeName, VolumeRequest request) {
+    Path path = instancePath(statefulSetName, instanceIndex).resolve(volumeName);
     try {
       Files.createDirectories(path);
     } catch (IOException e) {
@@ -48,15 +49,16 @@ public final class LocalDiskVolumeManager implements VolumeManager {
       throw GimleVolumeException.insufficientSpace(
           statefulSetName, instanceIndex, request.sizeBytes(), usableBytes);
     }
-    return new VolumeHandle(statefulSetName, instanceIndex, request);
+    return new VolumeHandle(statefulSetName, instanceIndex, volumeName, request);
   }
 
   @Override
   public Path hostPath(VolumeHandle handle) {
-    return hostPath(handle.statefulSetName(), handle.instanceIndex());
+    return instancePath(handle.statefulSetName(), handle.instanceIndex())
+        .resolve(handle.volumeName());
   }
 
-  private Path hostPath(String statefulSetName, int instanceIndex) {
+  private Path instancePath(String statefulSetName, int instanceIndex) {
     return dataRoot
         .resolve("volumes")
         .resolve(statefulSetName)
@@ -78,9 +80,10 @@ public final class LocalDiskVolumeManager implements VolumeManager {
     Path path = hostPath(handle);
     if (handle.request().reclaimPolicy() == ReclaimPolicy.RETAIN) {
       log.info(
-          "retaining volume data for {}[{}] at {} (reclaimPolicy=RETAIN)",
+          "retaining volume data for {}[{}]/{} at {} (reclaimPolicy=RETAIN)",
           handle.statefulSetName(),
           handle.instanceIndex(),
+          handle.volumeName(),
           path);
       return;
     }
@@ -91,11 +94,11 @@ public final class LocalDiskVolumeManager implements VolumeManager {
   }
 
   /**
-   * Walks {@code <dataRoot>/volumes/<statefulSetName>/<index>} two levels deep -- the exact layout
-   * {@link #allocate} creates -- and sums each leaf directory's file sizes. A subtree that isn't a
-   * well-formed {@code <name>/<numeric-index>} pair is skipped rather than failing the whole
-   * listing: nothing else should ever write under {@code volumes/}, but an operator poking around
-   * with a stray file must not make the inventory unreadable.
+   * Walks {@code <dataRoot>/volumes/<statefulSetName>/<index>/<volumeName>} three levels deep --
+   * the exact layout {@link #allocate} creates -- and sums each leaf directory's file sizes. A
+   * subtree that isn't a well-formed {@code <name>/<numeric-index>/<volumeName>} triple is skipped
+   * rather than failing the whole listing: nothing else should ever write under {@code volumes/},
+   * but an operator poking around with a stray file must not make the inventory unreadable.
    */
   @Override
   public List<AllocatedVolume> listAllocated() {
@@ -122,8 +125,21 @@ public final class LocalDiskVolumeManager implements VolumeManager {
             } catch (NumberFormatException e) {
               continue;
             }
-            volumes.add(
-                new AllocatedVolume(setName.toString(), index, indexDir, directorySize(indexDir)));
+            try (Stream<Path> volumeNames = Files.list(indexDir)) {
+              for (Path volumeDir : volumeNames.filter(Files::isDirectory).sorted().toList()) {
+                Path volumeName = volumeDir.getFileName();
+                if (volumeName == null) {
+                  continue;
+                }
+                volumes.add(
+                    new AllocatedVolume(
+                        setName.toString(),
+                        index,
+                        volumeName.toString(),
+                        volumeDir,
+                        directorySize(volumeDir)));
+              }
+            }
           }
         }
       }
@@ -135,7 +151,7 @@ public final class LocalDiskVolumeManager implements VolumeManager {
 
   @Override
   public void destroy(String statefulSetName, int instanceIndex) {
-    Path path = hostPath(statefulSetName, instanceIndex);
+    Path path = instancePath(statefulSetName, instanceIndex);
     if (!Files.exists(path)) {
       return;
     }
@@ -149,7 +165,7 @@ public final class LocalDiskVolumeManager implements VolumeManager {
 
   @Override
   public long usedBytes(String statefulSetName, int instanceIndex) {
-    Path path = hostPath(statefulSetName, instanceIndex);
+    Path path = instancePath(statefulSetName, instanceIndex);
     if (!Files.isDirectory(path)) {
       return 0;
     }

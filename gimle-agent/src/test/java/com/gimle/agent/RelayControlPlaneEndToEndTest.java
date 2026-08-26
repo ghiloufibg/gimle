@@ -155,7 +155,7 @@ class RelayControlPlaneEndToEndTest {
 
             stubAgent.sendAndAwaitAck(
                 new ControlMessage.ResolveModule(
-                    "corr-resolve", id, dataDirectory.toAbsolutePath().toString()),
+                    "corr-resolve", id, Map.of("data", dataDirectory.toAbsolutePath().toString())),
                 "corr-resolve");
 
             stubAgent.sendAndAwaitAck(

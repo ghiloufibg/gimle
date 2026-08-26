@@ -75,7 +75,8 @@ class ControlMessageCodecTest {
         new ControlMessage.InstallModule("corr-3", "/var/gimle/artifacts/orders-1.4.2.jar"),
         new ControlMessage.RenameInstance("corr-9", ID, "orders-service", 1),
         new ControlMessage.ResolveModule("corr-4", ID),
-        new ControlMessage.ResolveModule("corr-4b", ID, "/var/gimle/volumes/orders-statefulset/0"),
+        new ControlMessage.ResolveModule(
+            "corr-4b", ID, Map.of("data", "/var/gimle/volumes/orders-statefulset/0/data")),
         new ControlMessage.StartModule("corr-5", ID),
         new ControlMessage.StopModule("corr-6", ID),
         new ControlMessage.UninstallModule("corr-7", ID),
