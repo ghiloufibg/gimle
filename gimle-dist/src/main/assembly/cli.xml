@@ -30,6 +30,29 @@
         <include>org.bouncycastle:bcpkix-jdk18on</include>
         <include>org.bouncycastle:bcutil-jdk18on</include>
         <include>org.bouncycastle:bcprov-jdk18on</include>
+        <!-- SealCommand.value calls com.gimle.fafnir.secret.SealCipher directly, entirely
+             offline; gimle-fafnir and its own runtime dependency closure (confirmed via
+             `mvn -pl gimle-fafnir dependency:tree -Dscope=runtime`) must ship here too, or every
+             `seal value` call fails classloading with NoClassDefFoundError. -->
+        <include>com.gimle:gimle-fafnir</include>
+        <include>com.gimle:gimle-fafnir-console</include>
+        <include>com.gimle:gimle-mimir</include>
+        <include>com.gimle:gimle-observability</include>
+        <include>io.micrometer:micrometer-core</include>
+        <include>io.micrometer:micrometer-commons</include>
+        <include>io.micrometer:micrometer-observation</include>
+        <include>org.jspecify:jspecify</include>
+        <include>org.hdrhistogram:HdrHistogram</include>
+        <include>org.latencyutils:LatencyUtils</include>
+        <include>io.opentelemetry:opentelemetry-api</include>
+        <include>io.opentelemetry:opentelemetry-context</include>
+        <include>io.opentelemetry:opentelemetry-common</include>
+        <include>io.opentelemetry:opentelemetry-sdk</include>
+        <include>io.opentelemetry:opentelemetry-sdk-common</include>
+        <include>io.opentelemetry:opentelemetry-sdk-trace</include>
+        <include>io.opentelemetry:opentelemetry-sdk-metrics</include>
+        <include>io.opentelemetry:opentelemetry-sdk-logs</include>
+        <include>io.opentelemetry:opentelemetry-exporter-logging</include>
       </includes>
     </dependencySet>
   </dependencySets>
