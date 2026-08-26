@@ -17,6 +17,7 @@ import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.HttpResponses;
+import com.gimle.core.web.RootRedirectHandler;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.fafnir.secret.SealCipher;
 import com.gimle.fafnir.secretmap.SecretMapCodec;
@@ -198,7 +199,9 @@ public final class FafnirServer implements AutoCloseable {
    * Registers a static-file context at {@code /console} serving Fafnir's own bundled web console
    * (see {@code gimle-fafnir-console}'s {@code pom.xml}) -- the same opt-in, remembered-for-later-
    * re-registration shape {@code ApiServer.serveConsole} already established, sharing its {@link
-   * SpaStaticHandler} rather than each process carrying its own copy.
+   * SpaStaticHandler} rather than each process carrying its own copy. Also registers the same
+   * {@code /} redirect to {@code /console} the control plane has, so the bare root address lands on
+   * the console instead of the JDK server's own {@code 404}.
    */
   public void serveConsole(Path staticRoot) throws IOException {
     consoleStaticRoot = Optional.of(staticRoot);
@@ -209,6 +212,7 @@ public final class FafnirServer implements AutoCloseable {
     String shellFileName =
         Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
     target.createContext("/console", new SpaStaticHandler(staticRoot, shellFileName));
+    target.createContext("/", new RootRedirectHandler("/console"));
   }
 
   /**

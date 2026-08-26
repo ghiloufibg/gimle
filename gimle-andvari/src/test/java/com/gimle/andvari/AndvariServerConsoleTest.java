@@ -1,10 +1,10 @@
-package com.gimle.fafnir;
+package com.gimle.andvari;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.andvari.testsupport.InProcessStore;
 import com.gimle.core.web.BundledSpa;
-import com.gimle.fafnir.testsupport.InProcessStore;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,29 +22,27 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * Fafnir's own web console, served at {@code /console} -- mirrors {@code
- * ApiServerTest#console_static_files_are_served_once_wired}'s synthetic-directory shape, plus one
- * test the control-plane side doesn't have: resolving the *real* bundled {@code
- * gimle-fafnir-console} jar (a genuine dependency of this module, not a test fixture) via {@link
- * BundledSpa}, proving the whole Bun-build-to-served-HTTP-response pipeline end to end rather than
- * just the static-handler mechanics in isolation.
+ * Andvari's own web console, served at {@code /console} -- mirrors {@code FafnirServerConsoleTest}
+ * exactly: the synthetic-directory static-handler mechanics, the bare-root redirect, and resolving
+ * the *real* bundled {@code gimle-andvari-console} jar (a genuine dependency of this module, not a
+ * test fixture) via {@link BundledSpa}, proving the whole Bun-build-to-served-HTTP-response
+ * pipeline end to end.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
-@ResourceLock("gimle-fafnir-server-http")
-class FafnirServerConsoleTest {
+@ResourceLock("gimle-andvari-server-http")
+class AndvariServerConsoleTest {
 
   @TempDir Path tempDir;
 
   private InProcessStore store;
-  private FafnirServer server;
+  private AndvariServer server;
   private final HttpClient client = HttpClient.newHttpClient();
   private String baseUrl;
 
   @BeforeEach
   void setUp() throws Exception {
     store = InProcessStore.start(tempDir.resolve("store"));
-    FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
-    server = new FafnirServer(crypto, 0);
+    server = new AndvariServer(store.client(), 0, tempDir.resolve("data"));
     server.start();
     baseUrl = "http://127.0.0.1:" + server.port();
   }
@@ -74,7 +72,7 @@ class FafnirServerConsoleTest {
     assertEquals(200, asset.statusCode());
     assertEquals("console.log('hi');", asset.body());
 
-    HttpResponse<String> deepLink = get("/console/secrets");
+    HttpResponse<String> deepLink = get("/console/versions");
     assertEquals(200, deepLink.statusCode());
     assertEquals("<html>shell</html>", deepLink.body());
   }
@@ -97,18 +95,18 @@ class FafnirServerConsoleTest {
   @Timeout(10)
   void the_real_bundled_console_jar_resolves_and_serves_its_own_index_html() throws Exception {
     Optional<Path> consoleRoot =
-        BundledSpa.resolve(FafnirServer.class.getClassLoader(), "fafnir-console/index.html");
+        BundledSpa.resolve(AndvariServer.class.getClassLoader(), "andvari-console/index.html");
     assertTrue(
         consoleRoot.isPresent(),
-        "expected gimle-fafnir-console's built dist/ to be on the test classpath as a real"
-            + " dependency of gimle-fafnir -- see that module's own pom.xml");
+        "expected gimle-andvari-console's built dist/ to be on the test classpath as a real"
+            + " dependency of gimle-andvari -- see that module's own pom.xml");
     server.serveConsole(consoleRoot.get());
 
     HttpResponse<String> index = get("/console/");
 
     assertEquals(200, index.statusCode());
     assertTrue(
-        index.body().contains("Gimlé Fafnir Vault"),
+        index.body().contains("Gimlé Andvari Registry"),
         "expected the real built index.html's own <title>, not a stub: " + index.body());
   }
 }

@@ -6,6 +6,7 @@ import com.gimle.core.protocol.Json;
 import com.gimle.core.saga.SagaEvent;
 import com.gimle.core.saga.SagaEventCodec;
 import com.gimle.core.web.HttpResponses;
+import com.gimle.core.web.RootRedirectHandler;
 import com.gimle.core.web.SpaStaticHandler;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -67,9 +68,13 @@ public final class SagaServer implements AutoCloseable {
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
   }
 
-  /** Registers the bundled console SPA (see {@code gimle-saga-console}) at {@code /console}. */
+  /**
+   * Registers the bundled console SPA (see {@code gimle-saga-console}) at {@code /console}, plus
+   * the same {@code /} redirect to {@code /console} every other bundled-console process has.
+   */
   public void serveConsole(Path staticRoot) throws IOException {
     server.createContext("/console", new SpaStaticHandler(staticRoot, "index.html"));
+    server.createContext("/", new RootRedirectHandler("/console"));
   }
 
   public void start() {

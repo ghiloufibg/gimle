@@ -21,6 +21,7 @@ import com.gimle.core.throttle.LoginThrottle;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.core.web.RootRedirectHandler;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -235,7 +236,9 @@ public final class AndvariServer implements AutoCloseable {
    * Registers a static-file context at {@code /console} serving Andvari's own bundled web console
    * (see {@code gimle-andvari-console}'s {@code pom.xml}) -- the same opt-in, remembered-for-later-
    * re-registration shape {@code FafnirServer.serveConsole} already established, sharing its {@link
-   * SpaStaticHandler} rather than carrying yet another copy.
+   * SpaStaticHandler} rather than carrying yet another copy. Also registers the same {@code /}
+   * redirect to {@code /console} the control plane has, so the bare root address lands on the
+   * console instead of the JDK server's own {@code 404}.
    */
   public void serveConsole(Path staticRoot) throws IOException {
     consoleStaticRoot = Optional.of(staticRoot);
@@ -246,6 +249,7 @@ public final class AndvariServer implements AutoCloseable {
     String shellFileName =
         Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
     target.createContext("/console", new SpaStaticHandler(staticRoot, shellFileName));
+    target.createContext("/", new RootRedirectHandler("/console"));
   }
 
   public void start() {

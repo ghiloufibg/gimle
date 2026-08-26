@@ -24,6 +24,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -290,6 +291,23 @@ class SagaServerTest {
     assertEquals(200, response.statusCode());
     assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("text/html"));
     assertTrue(response.body().toLowerCase(java.util.Locale.ROOT).contains("<!doctype html"));
+  }
+
+  @Test
+  @Timeout(10)
+  void the_bare_root_redirects_to_the_console_once_wired() throws Exception {
+    // A synthetic console dir, not BundledSpa: the bundled-jar resolution is already covered by
+    // the_bundled_console_is_served_at_console, and a second resolve of the same jar in this JVM
+    // would collide on the jar FileSystem it opens for the process's lifetime.
+    Path consoleRoot = tempDir.resolve("console-dist-root-redirect");
+    Files.createDirectories(consoleRoot);
+    Files.writeString(consoleRoot.resolve("index.html"), "<html>shell</html>");
+    server.serveConsole(consoleRoot);
+
+    HttpResponse<String> response = get("/");
+
+    assertEquals(302, response.statusCode());
+    assertEquals("/console", response.headers().firstValue("Location").orElse(""));
   }
 
   @Test
