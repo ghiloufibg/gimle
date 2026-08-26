@@ -254,7 +254,7 @@ public final class ApiServer implements AutoCloseable {
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
-  // Absent in plaintext mode, or in TLS mode when gimle.pki.caKeyFile isn't configured on this
+  // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
   // node -- either way, /bootstrap/csr and its siblings simply aren't registered (see
   // #registerContexts). This node's CA key never rotates (only leaf certs do), so unlike
   // sslContextHolder-adjacent state this is loaded once and never reloaded.
@@ -547,11 +547,29 @@ public final class ApiServer implements AutoCloseable {
     return dir.resolve("secret.key");
   }
 
+  /**
+   * Logged either way at startup: whether {@code /bootstrap/*} is registered is otherwise invisible
+   * from the outside (the routes just 404), which once cost a real operator a long debugging
+   * session against a misspelled property name.
+   */
   private static Optional<CertificateAuthority> loadCertificateAuthorityIfConfigured() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       return Optional.empty();
     }
-    return CaKeyMaterial.loadIfConfigured(TlsSettings.fromConfig().caFile());
+    Optional<CertificateAuthority> authority =
+        CaKeyMaterial.loadIfConfigured(TlsSettings.fromConfig().caFile());
+    if (authority.isPresent()) {
+      log.info(
+          "CSR signing enabled on this node ({} configured): /bootstrap/csr and /bootstrap/tokens"
+              + " will be registered",
+          CaKeyMaterial.CA_KEY_FILE_PROPERTY);
+    } else {
+      log.info(
+          "CSR signing disabled on this node: {} is not set, so /bootstrap/csr and"
+              + " /bootstrap/tokens will not be registered",
+          CaKeyMaterial.CA_KEY_FILE_PROPERTY);
+    }
+    return authority;
   }
 
   /**
@@ -1282,7 +1300,9 @@ public final class ApiServer implements AutoCloseable {
   /** Every deployment, in the same shape {@link #handleGetDeployment} returns for one. */
   private void handleDeploymentsList(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())) {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.DEPLOYMENT);
+      if (readableTenant.isEmpty()) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -1292,7 +1312,10 @@ public final class ApiServer implements AutoCloseable {
       respondJson(
           exchange,
           200,
-          storeClient.listDeployments().stream().map(this::deploymentStatus).toList());
+          storeClient.listDeployments().stream()
+              .filter(spec -> readableTenant.get().test(spec.tenantId()))
+              .map(this::deploymentStatus)
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("deployments list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -1379,7 +1402,9 @@ public final class ApiServer implements AutoCloseable {
 
   /** Every Service, in the same shape {@link #handleGetService} returns for one. */
   private void handleServicesList(HttpExchange exchange) throws IOException {
-    if (!requireAuthorized(exchange, ResourceKind.SERVICE, Verb.READ, Optional.empty())) {
+    Optional<Predicate<Optional<String>>> readableTenant =
+        requireListAuthorized(exchange, ResourceKind.SERVICE);
+    if (readableTenant.isEmpty()) {
       return;
     }
     if (!"GET".equals(exchange.getRequestMethod())) {
@@ -1387,7 +1412,12 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     respondJson(
-        exchange, 200, serviceRegistry.list().stream().map(ApiServer::serviceToJson).toList());
+        exchange,
+        200,
+        serviceRegistry.list().stream()
+            .filter(spec -> readableTenant.get().test(spec.tenantId()))
+            .map(ApiServer::serviceToJson)
+            .toList());
   }
 
   /**
@@ -1627,7 +1657,9 @@ public final class ApiServer implements AutoCloseable {
 
   /** Every NetworkPolicy, in the same shape {@link #handleGetNetworkPolicy} returns for one. */
   private void handleNetworkPoliciesList(HttpExchange exchange) throws IOException {
-    if (!requireAuthorized(exchange, ResourceKind.NETWORK_POLICY, Verb.READ, Optional.empty())) {
+    Optional<Predicate<Optional<String>>> readableTenant =
+        requireListAuthorized(exchange, ResourceKind.NETWORK_POLICY);
+    if (readableTenant.isEmpty()) {
       return;
     }
     if (!"GET".equals(exchange.getRequestMethod())) {
@@ -1637,7 +1669,10 @@ public final class ApiServer implements AutoCloseable {
     respondJson(
         exchange,
         200,
-        networkPolicyRegistry.list().stream().map(ApiServer::networkPolicyToJson).toList());
+        networkPolicyRegistry.list().stream()
+            .filter(spec -> readableTenant.get().test(Optional.of(spec.tenantId())))
+            .map(ApiServer::networkPolicyToJson)
+            .toList());
   }
 
   /** {@code GET}/{@code DELETE /networkpolicies/{name}}. */
@@ -1784,14 +1819,22 @@ public final class ApiServer implements AutoCloseable {
   /** Every job, in the same shape {@link #handleGetJob} returns for one. */
   private void handleJobsList(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.JOB);
+      if (readableTenant.isEmpty()) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      respondJson(exchange, 200, storeClient.listJobSpecs().stream().map(this::jobStatus).toList());
+      respondJson(
+          exchange,
+          200,
+          storeClient.listJobSpecs().stream()
+              .filter(spec -> readableTenant.get().test(spec.tenantId()))
+              .map(this::jobStatus)
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("jobs list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -1945,7 +1988,9 @@ public final class ApiServer implements AutoCloseable {
   /** Every cronjob, in the same shape {@link #handleGetCronJob} returns for one. */
   private void handleCronJobsList(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.JOB, Verb.READ, Optional.empty())) {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.JOB);
+      if (readableTenant.isEmpty()) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -1953,7 +1998,12 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       respondJson(
-          exchange, 200, storeClient.listCronJobSpecs().stream().map(this::cronJobStatus).toList());
+          exchange,
+          200,
+          storeClient.listCronJobSpecs().stream()
+              .filter(spec -> readableTenant.get().test(spec.tenantId()))
+              .map(this::cronJobStatus)
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("cronjobs list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -2154,7 +2204,9 @@ public final class ApiServer implements AutoCloseable {
   /** Every daemonset, in the same shape {@link #handleGetDaemonSet} returns for one. */
   private void handleDaemonSetsList(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.DAEMONSET, Verb.READ, Optional.empty())) {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.DAEMONSET);
+      if (readableTenant.isEmpty()) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -2164,7 +2216,10 @@ public final class ApiServer implements AutoCloseable {
       respondJson(
           exchange,
           200,
-          storeClient.listDaemonSetSpecs().stream().map(this::daemonSetStatus).toList());
+          storeClient.listDaemonSetSpecs().stream()
+              .filter(spec -> readableTenant.get().test(spec.tenantId()))
+              .map(this::daemonSetStatus)
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("daemonsets list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -2380,7 +2435,9 @@ public final class ApiServer implements AutoCloseable {
   /** Every statefulset, in the same shape {@link #handleGetStatefulSet} returns for one. */
   private void handleStatefulSetsList(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.STATEFULSET, Verb.READ, Optional.empty())) {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.STATEFULSET);
+      if (readableTenant.isEmpty()) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -2390,7 +2447,10 @@ public final class ApiServer implements AutoCloseable {
       respondJson(
           exchange,
           200,
-          storeClient.listStatefulSetSpecs().stream().map(this::statefulSetStatus).toList());
+          storeClient.listStatefulSetSpecs().stream()
+              .filter(spec -> readableTenant.get().test(spec.tenantId()))
+              .map(this::statefulSetStatus)
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("statefulsets list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -2733,7 +2793,9 @@ public final class ApiServer implements AutoCloseable {
    */
   private void handleMetrics(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())) {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.DEPLOYMENT);
+      if (readableTenant.isEmpty()) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -2742,6 +2804,9 @@ public final class ApiServer implements AutoCloseable {
       }
       List<Map<String, Object>> rows = new ArrayList<>();
       for (DeploymentSpec spec : storeClient.listDeployments()) {
+        if (!readableTenant.get().test(spec.tenantId())) {
+          continue;
+        }
         List<InstanceObservation> observations = new ArrayList<>();
         for (InstanceAssignment assignment : storeClient.listAssignmentsFor(spec.name())) {
           findObservation(assignment).ifPresent(observations::add);
@@ -3050,15 +3115,15 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * {@code GET /events?deployment=<name>&instance=<index>} -- an instance's own timeline,
-   * newest-first, capped at {@code StateStore}'s own per-instance retention window. Authorized the
-   * same as every other per-deployment read ({@code /deployments}, the {@code /metrics} rollup):
-   * {@code DEPLOYMENT:READ}, unscoped -- events carry no tenant of their own to scope against.
+   * newest-first, capped at {@code StateStore}'s own per-instance retention window. Authorized as
+   * {@code DEPLOYMENT:READ} scoped to the named deployment's own tenant (resolved here, since an
+   * event carries no tenant of its own) -- a tenant-scoped read grant covers its own deployments'
+   * timelines the same way it covers the deployments themselves. The query is parsed before the
+   * authorization check because the deployment name is what the check scopes against; a workload
+   * that doesn't exist (or an untenanted one) falls back to the unscoped check.
    */
   private void handleEvents(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())) {
-        return;
-      }
       if (!"GET".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
         return;
@@ -3068,6 +3133,14 @@ public final class ApiServer implements AutoCloseable {
       String instanceParam = query.get("instance");
       if (deploymentName == null || deploymentName.isBlank() || instanceParam == null) {
         respond(exchange, 400, "expected ?deployment=<name>&instance=<index>");
+        return;
+      }
+      Optional<String> tenant =
+          storeClient
+              .getDeployment(deploymentName)
+              .map(DeploymentSpec::tenantId)
+              .orElse(Optional.empty());
+      if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenant)) {
         return;
       }
       int instanceIndex = Integer.parseInt(instanceParam);
@@ -3326,7 +3399,9 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleTenantsList(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.TENANT, Verb.READ, Optional.empty())) {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.TENANT);
+      if (readableTenant.isEmpty()) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -3334,7 +3409,12 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       respondJson(
-          exchange, 200, storeClient.listTenants().stream().map(ApiServer::tenantToJson).toList());
+          exchange,
+          200,
+          storeClient.listTenants().stream()
+              .filter(tenant -> readableTenant.get().test(Optional.of(tenant.id())))
+              .map(ApiServer::tenantToJson)
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("tenants list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -3412,7 +3492,9 @@ public final class ApiServer implements AutoCloseable {
 
   private void handleLimitRangesList(HttpExchange exchange) {
     try {
-      if (!requireAuthorized(exchange, ResourceKind.LIMIT_RANGE, Verb.READ, Optional.empty())) {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.LIMIT_RANGE);
+      if (readableTenant.isEmpty()) {
         return;
       }
       if (!"GET".equals(exchange.getRequestMethod())) {
@@ -3422,7 +3504,10 @@ public final class ApiServer implements AutoCloseable {
       respondJson(
           exchange,
           200,
-          storeClient.listLimitRanges().stream().map(ApiServer::limitRangeSpecToJson).toList());
+          storeClient.listLimitRanges().stream()
+              .filter(spec -> readableTenant.get().test(Optional.of(spec.tenantId())))
+              .map(ApiServer::limitRangeSpecToJson)
+              .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("limit ranges list request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -6011,6 +6096,64 @@ public final class ApiServer implements AutoCloseable {
   private boolean requireAuthorized(
       HttpExchange exchange, ResourceKind resource, Verb verb, Optional<String> tenant) {
     return requireAuthorized(exchange, resource, verb, tenant, Optional.empty());
+  }
+
+  /**
+   * The collection-listing counterpart of {@link #requireAuthorized}: where a single-resource read
+   * is a yes/no against that resource's own tenant, a listing is *filtered* -- an unscoped {@code
+   * READ} grant sees every item, a caller holding only tenant-scoped {@code READ} grants sees
+   * exactly the items whose own tenant it may read (an untenanted item is visible only to unscoped
+   * readers), and a caller with no read grant for the kind at all gets the same 403 a
+   * single-resource read would. Without this, every tenant-scoped grant -- the entire {@code
+   * tenant-view}/{@code tenant-edit}/{@code tenant-admin} template family included -- was locked
+   * out of every {@code GET /<collection>} endpoint outright, because those handlers demanded an
+   * unscoped grant that a per-tenant template deliberately never carries.
+   *
+   * <p>Returns the predicate to filter items by their own tenant, or empty when the 401/403
+   * response has already been written. Plaintext mode filters nothing, matching {@link
+   * #requireAuthorized}'s own carve-out.
+   */
+  private Optional<Predicate<Optional<String>>> requireListAuthorized(
+      HttpExchange exchange, ResourceKind resource) {
+    if (!(exchange instanceof HttpsExchange)) {
+      if (auditReadResourceKinds.contains(resource)) {
+        recordAuditEvent(
+            new Principal("anonymous", Set.of()),
+            resource,
+            Verb.READ,
+            Optional.empty(),
+            Optional.empty(),
+            true);
+      }
+      return Optional.of(itemTenant -> true);
+    }
+    Optional<Principal> resolved = resolvePrincipal(exchange);
+    if (resolved.isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
+      return Optional.empty();
+    }
+    Principal principal = resolved.get();
+    boolean unscopedRead =
+        authorizer.authorize(principal, resource, Verb.READ, Optional.empty(), Optional.empty());
+    // A filtered listing counts as an allowed read here -- what was allowed is the (possibly
+    // empty) subset the caller's own grants cover, mirroring requireAuthorized's own opt-in
+    // read-audit behavior for these kinds.
+    boolean allowed = unscopedRead || authorizer.hasAnyReadGrant(principal, resource);
+    if (auditReadResourceKinds.contains(resource)) {
+      recordAuditEvent(principal, resource, Verb.READ, Optional.empty(), Optional.empty(), allowed);
+    }
+    if (!allowed) {
+      respondQuietly(exchange, 403, "forbidden");
+      return Optional.empty();
+    }
+    if (unscopedRead) {
+      return Optional.of(itemTenant -> true);
+    }
+    return Optional.of(
+        itemTenant ->
+            itemTenant.isPresent()
+                && authorizer.authorize(
+                    principal, resource, Verb.READ, itemTenant, Optional.empty()));
   }
 
   /**

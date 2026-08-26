@@ -18,7 +18,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * PkiBootstrapMain} writes because it runs standalone, before any control-plane process (and
  * therefore no {@code StateStore}/Raft) exists to propose a real {@code Account} into. Read from a
  * new, control-plane-only system property, {@code gimle.bootstrap.accountFile}, the same "optional,
- * opt-in" shape {@code CaKeyMaterial} already uses for {@code gimle.pki.caKeyFile}.
+ * opt-in" shape {@code CaKeyMaterial} already uses for {@code gimle.tls.caKeyFile}.
  *
  * <p>Unlike {@code CaKeyMaterial}, a missing file at a configured path is not an error here: the
  * property may deliberately stay set across restarts while an operator removes the file itself once

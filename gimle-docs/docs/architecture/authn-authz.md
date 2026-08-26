@@ -85,6 +85,16 @@ authority into another tenant, let alone cluster-wide:
 gimle set rolebinding acme-dev --subject user:dev@acme --role tenant-edit:acme
 ```
 
+**Collection listings are filtered, not all-or-nothing.** Every `GET /<collection>` endpoint over a
+tenant-scopable kind (`/deployments`, `/jobs`, `/cronjobs`, `/daemonsets`, `/statefulsets`,
+`/services`, `/networkpolicies`, `/tenants`, `/limitranges`, the `/metrics` rollup) admits a caller
+holding only tenant-scoped `READ` grants and returns exactly the items whose own tenant those
+grants cover — an unscoped grant sees everything, an untenanted item is visible only to unscoped
+readers, and a caller with no read grant for the kind at all gets the same 403 a single-resource
+read would. This is what makes the per-tenant templates usable end to end: `gimle get deployments`
+under a `tenant-view:acme` binding lists acme's deployments rather than failing outright for lack
+of a cluster-wide grant.
+
 **`GET /authz/can-i?resource=<ResourceKind>&verb=<Verb>[&tenant=...][&target=...]`** is the
 self-subject access review: it answers whether the *calling* principal would be authorized for that
 action, without performing it, computed by the identical `Authorizer.authorize(...)` walk every real

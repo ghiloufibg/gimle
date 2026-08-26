@@ -12,9 +12,11 @@ import java.util.Optional;
 /**
  * Loads the cluster CA's own private key -- distinct from {@code gimle.tls.keyFile}, which is this
  * control-plane node's own *leaf* key -- so this node can sign incoming CSRs at {@code
- * /bootstrap/csr}. Read from a new, control-plane-only system property, {@code
- * gimle.pki.caKeyFile}; never provisioned to an agent or operator, only to whichever control-plane
- * host(s) hold cluster-signing authority.
+ * /bootstrap/csr}. Read from a control-plane-only system property, {@code gimle.tls.caKeyFile} --
+ * deliberately in the same {@code gimle.tls.*} namespace as the {@code certFile}/{@code
+ * keyFile}/{@code caFile} trio it's configured alongside, so the name an operator naturally guesses
+ * is the name that works; never provisioned to an agent or operator, only to whichever
+ * control-plane host(s) hold cluster-signing authority.
  *
  * <p>Deliberately optional: a control-plane node started without this property configured simply
  * can't sign CSRs -- {@code /bootstrap/csr} and its sibling contexts aren't registered at all, same
@@ -22,7 +24,7 @@ import java.util.Optional;
  */
 public final class CaKeyMaterial {
 
-  private static final String CA_KEY_FILE_PROPERTY = "gimle.pki.caKeyFile";
+  public static final String CA_KEY_FILE_PROPERTY = "gimle.tls.caKeyFile";
 
   private CaKeyMaterial() {}
 

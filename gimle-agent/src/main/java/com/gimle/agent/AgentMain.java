@@ -1549,8 +1549,20 @@ public final class AgentMain {
       volumePaths.put(volumeHandle.volumeName(), volumeManager.hostPath(volumeHandle).toString());
     }
     Map<String, String> env =
-        resolveVesselEnv(
-            vessel, allocatedPorts, volumePaths, assigned.tenantId(), httpClient, fafnirBaseUrl);
+        new LinkedHashMap<>(
+            resolveVesselEnv(
+                vessel,
+                allocatedPorts,
+                volumePaths,
+                assigned.tenantId(),
+                httpClient,
+                fafnirBaseUrl));
+    // Always exported so the process can locate its rendered vessel.files without guessing: a
+    // bundle's working directory must stay the bundle's own workdir (and the unpacked bundle is a
+    // shared, presence-trusted cache directory nothing may write into), so for a bundle this
+    // variable is the only path back to the per-instance root the files render under.
+    env.putIfAbsent("GIMLE_INSTANCE_ROOT", vesselRoot.toAbsolutePath().toString());
+    Files.createDirectories(vesselRoot);
     renderVesselFiles(vessel, vesselRoot, assigned.tenantId(), httpClient, baseUrl, fafnirBaseUrl);
 
     // A bundle resolved from the registry is an unpacked directory; a single-jar vessel (local
@@ -1565,10 +1577,19 @@ public final class AgentMain {
       command = buildBundleCommand(javaExecutable, resourceLimiter, handle, entrypoint, vessel);
       workingDirectory = Optional.of(resolveBundleWorkdir(artifactPath, entrypoint));
     } else {
+      // Absolutized because the process no longer launches in the agent's own working directory,
+      // which is what a relative artifactPath would otherwise resolve against.
       command =
           buildVesselCommand(
-              javaExecutable, resourceLimiter, handle, vessel, assigned.artifactPath());
-      workingDirectory = Optional.empty();
+              javaExecutable,
+              resourceLimiter,
+              handle,
+              vessel,
+              artifactPath.toAbsolutePath().toString());
+      // The per-instance root, so a relative vessel.files path resolves from inside the process
+      // exactly as declared in the manifest -- launching in the agent's own working directory
+      // would strand every rendered file somewhere the process can't see.
+      workingDirectory = Optional.of(vesselRoot);
     }
     Path applicationLogFile =
         vesselRoot

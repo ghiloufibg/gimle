@@ -62,6 +62,13 @@ one endpoint in the system reachable without a client certificate, for exactly t
 bootstrap token is single-use and short-lived, tracked in-memory on the control-plane node that
 issued it (not Raft-replicated — the same reasoning heartbeats aren't).
 
+Signing authority is opt-in per control-plane node: `-Dgimle.tls.caKeyFile` (the same `gimle.tls.*`
+namespace as the `certFile`/`keyFile`/`caFile` trio it's configured alongside) points at the
+cluster CA's own private key, and only a node started with it registers `/bootstrap/csr` and
+`/bootstrap/tokens` at all — on every other node those paths simply 404. The control plane logs at
+startup whether CSR signing is enabled and which property controls it, so a misconfigured node says
+so instead of silently dropping the routes.
+
 A new human operator goes through the identical endpoint with `purpose=OPERATOR_CLIENT` instead —
 but that purpose is **never** auto-approved; it sits pending until an existing operator runs
 `gimle cert approve <request-id>`. `gimle cert status <request-id>` polls for the result.

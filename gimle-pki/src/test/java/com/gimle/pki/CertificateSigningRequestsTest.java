@@ -6,6 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.operator.ContentVerifierProvider;
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder;
@@ -39,6 +44,33 @@ class CertificateSigningRequestsTest {
     assertTrue(
         csr.isSignatureValid(verifierProvider),
         "a CSR must verify against the public key it carries");
+  }
+
+  /**
+   * The signed leaf is where SAN typing actually matters (hostname verifiers read it there), so
+   * this asserts through a real CA signing round trip: an IP literal must come back tagged {@code
+   * iPAddress} (tag 7) -- a {@code dNSName} carrying "127.0.0.1" never matches an IP-dialed
+   * connection -- while an ordinary hostname stays {@code dNSName} (tag 2).
+   */
+  @Test
+  void an_ip_literal_san_is_typed_ip_address_and_a_hostname_stays_dns_name() throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(
+            keyPair, new X500Name("CN=node-1"), List.of("localhost", "127.0.0.1", "::1"));
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+
+    X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
+
+    Map<String, Integer> tagsByName = new HashMap<>();
+    for (List<?> entry : leaf.getSubjectAlternativeNames()) {
+      tagsByName.put((String) entry.get(1), (Integer) entry.get(0));
+    }
+    // java.security.cert SAN encoding: 2 == dNSName, 7 == iPAddress.
+    assertEquals(2, tagsByName.get("localhost"));
+    assertEquals(7, tagsByName.get("127.0.0.1"));
+    assertEquals(7, tagsByName.get("0:0:0:0:0:0:0:1"));
   }
 
   private static KeyPair generateRsaKeyPair() throws NoSuchAlgorithmException {

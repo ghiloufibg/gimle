@@ -1056,6 +1056,37 @@ class GimleCliTest {
   }
 
   @Test
+  void set_networkpolicy_carries_interface_scoping_and_egress_restrictions() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "networkpolicy",
+            "acme-egress",
+            "--tenant",
+            "acme",
+            "--service-interface",
+            "com.acme.Orders",
+            "--allowed-callee-tenant",
+            "partner",
+            "--deny-all-callers");
+    assertEquals(0, setExit, stderr());
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "networkpolicy", "acme-egress");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"serviceInterfaceNames\":[\"com.acme.Orders\"]"), stdout());
+    assertTrue(stdout().contains("\"allowedCalleeTenantIds\":[\"partner\"]"), stdout());
+    assertTrue(stdout().contains("\"allowedCallerTenantIds\":[]"), stdout());
+  }
+
+  @Test
+  void set_networkpolicy_restricting_no_direction_at_all_fails_client_side() {
+    int exit = run("set", "networkpolicy", "broken", "--tenant", "acme");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("at least one direction"), stderr());
+  }
+
+  @Test
   void get_networkpolicy_not_found_produces_a_clear_error() {
     int exit = run("get", "networkpolicy", "does-not-exist");
     assertEquals(1, exit);

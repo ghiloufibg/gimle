@@ -80,6 +80,43 @@ public final class Authorizer {
   }
 
   /**
+   * Whether {@code principal} holds any {@link Verb#READ} grant at all for {@code resource} --
+   * unscoped or scoped to any tenant. The collection-list gate: a caller with only tenant-scoped
+   * read grants is entitled to a *filtered* listing (each surviving item re-checked through {@link
+   * #authorize} with its own tenant), while a caller with no read grant for the kind whatsoever
+   * gets the same 403 a single-resource read would -- and this answers which of those two a caller
+   * is without having to enumerate every tenant in the cluster.
+   */
+  public boolean hasAnyReadGrant(Principal principal, ResourceKind resource) {
+    if (isNodeSelfService(principal, resource, Verb.READ, Optional.empty())) {
+      return true;
+    }
+    if (principal.groups().contains(BuiltinRoles.GROUP_OPERATORS)) {
+      return true;
+    }
+    Set<String> matchingSubjects = new LinkedHashSet<>();
+    matchingSubjects.add(RoleBinding.userSubject(principal.name()));
+    for (String group : principal.groups()) {
+      matchingSubjects.add(RoleBinding.groupSubject(group));
+    }
+    for (RoleBinding binding : store.listRoleBindings()) {
+      if (!matchingSubjects.contains(binding.subject())) {
+        continue;
+      }
+      Optional<Role> role = resolveRole(binding.roleName());
+      if (role.isEmpty()) {
+        continue;
+      }
+      for (Permission permission : role.get().permissions()) {
+        if (permission.resource() == resource && permission.verb() == Verb.READ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * {@link BuiltinRoles#CLUSTER_ADMIN} is deliberately never a stored {@link Role} (see its own
    * javadoc), so a plain {@code store.getRole(binding.roleName())} can never resolve an explicit
    * {@link RoleBinding} naming it by name -- only the separate {@code GROUP_OPERATORS} constant

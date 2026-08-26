@@ -71,7 +71,7 @@ class ApiServerAuthzTest {
   private static final String CERT_FILE_PROPERTY = "gimle.tls.certFile";
   private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
-  private static final String CA_KEY_FILE_PROPERTY = "gimle.pki.caKeyFile";
+  private static final String CA_KEY_FILE_PROPERTY = "gimle.tls.caKeyFile";
   private static final String AUDIT_READ_RESOURCE_KINDS_PROPERTY =
       "gimle.controlplane.audit.readResourceKinds";
 
@@ -838,6 +838,63 @@ class ApiServerAuthzTest {
 
       assertEquals(403, deleteDeployment(client, baseUrl, cookie, "other-dep").statusCode());
       assertEquals(200, deleteDeployment(client, baseUrl, cookie, "acme-dep").statusCode());
+    }
+  }
+
+  /**
+   * The collection-listing half of tenant scoping: a caller holding only a tenant-scoped read grant
+   * -- here the built-in {@code tenant-view:<id>} template, the exact shape that was locked out of
+   * every list endpoint when those handlers demanded an unscoped grant -- gets a 200 with exactly
+   * its own tenant's items, never a 403 and never another tenant's (or an untenanted) item. A
+   * caller with no read grant at all still gets the plain 403.
+   */
+  @Test
+  void a_tenant_view_binding_lists_only_its_own_tenants_deployments() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putDeployment(deployment("acme-dep", Optional.of("acme")));
+    store.putDeployment(deployment("other-dep", Optional.of("other")));
+    store.putDeployment(deployment("untenanted-dep", Optional.empty()));
+    byte[] passwordHash = PasswordHashes.hash("pw".toCharArray());
+    store.putAccount(new Account("acme-viewer", passwordHash));
+    store.putAccount(new Account("no-permissions", passwordHash));
+    // tenant-view:acme is a built-in template, never stored -- only the binding exists.
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("acme-viewer"), "tenant-view:acme"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+      String viewerCookie = login(client, baseUrl, "acme-viewer", "pw");
+      HttpRequest listRequest =
+          HttpRequest.newBuilder(URI.create(baseUrl + "/deployments"))
+              .header("Cookie", viewerCookie)
+              .GET()
+              .build();
+      HttpResponse<String> listed =
+          client.send(listRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, listed.statusCode());
+      assertTrue(listed.body().contains("acme-dep"), listed.body());
+      assertFalse(listed.body().contains("other-dep"), listed.body());
+      assertFalse(listed.body().contains("untenanted-dep"), listed.body());
+
+      // The single-resource read the same template grants, for the same tenant only.
+      assertEquals(200, getDeployment(client, baseUrl, viewerCookie, "acme-dep").statusCode());
+      assertEquals(403, getDeployment(client, baseUrl, viewerCookie, "other-dep").statusCode());
+
+      String noPermissionsCookie = login(client, baseUrl, "no-permissions", "pw");
+      assertEquals(403, getDeployments(client, baseUrl, noPermissionsCookie).statusCode());
     }
   }
 

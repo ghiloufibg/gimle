@@ -422,7 +422,7 @@ public final class BootstrapMojo extends AbstractMojo {
       // /bootstrap/csr and /bootstrap/tokens (see CaKeyMaterial's own javadoc). A single-node
       // bootstrap has exactly one control-plane replica, so it's always the one holding
       // cluster-signing authority here.
-      extraJvmArgs.add("-Dgimle.pki.caKeyFile=" + tlsDir.resolve("ca.key"));
+      extraJvmArgs.add("-Dgimle.tls.caKeyFile=" + tlsDir.resolve("ca.key"));
       // The one-time bootstrap admin account runTlsInit's PkiBootstrapMain call just minted and
       // printed to this goal's own console output -- without this, BootstrapAccountFile never
       // finds the file, no Account is ever seeded while the store has zero accounts, and that

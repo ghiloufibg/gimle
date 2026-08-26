@@ -1377,10 +1377,10 @@
     {
       "id": "GIMLE-073",
       "module": "gimle-pki",
-      "feature": "CSR generation with Subject Alternative Names",
+      "feature": "CSR generation with typed Subject Alternative Names (DNS and IP)",
       "category": "PKI",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "IP-literal SAN entries are now typed iPAddress (previously always dNSName, which no hostname verifier matches for an IP-dialed peer)",
       "coverage": "Covered",
       "holmgangScenarios": [
         {

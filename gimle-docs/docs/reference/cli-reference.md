@@ -49,8 +49,9 @@ gimle set service <name> (--deployment <name> [--deployment ...] | --external-na
 gimle delete service <name>
 gimle service endpoints <name>
 gimle get networkpolicies [name]
-gimle set networkpolicy <name> --tenant <id> [--deployment ...]
-                                --allowed-caller-tenant <id> [--allowed-caller-tenant ...]
+gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
+                                [--allowed-caller-tenant <id> ... | --deny-all-callers]
+                                [--allowed-callee-tenant <id> ... | --deny-all-callees]
 gimle delete networkpolicy <name>
 gimle get tenants [id]
 gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
@@ -102,6 +103,7 @@ gimle delete rolebinding <id>
 gimle get accounts [username]
 gimle set account <username> --password <value>
 gimle delete account <username>
+gimle can-i <verb> <resource> [--tenant <id>] [--target <id>]
 gimle cert token create [--ttl <duration>]
 gimle cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path> --out-key <path> [--common-name <name>]
 gimle cert status <request-id> --out-cert <path>
@@ -219,9 +221,13 @@ consistent hash rather than round-robining. `service endpoints`
 resolves the Service's current live backing-instance set on every call, never a cached value, so it
 never lags a reconcile interval behind. `networkpolicy` manages the accompanying NetworkPolicy
 analogue — a deny-by-default restriction on which other tenants may call into one tenant's own
-Services; `--tenant` is required (a NetworkPolicy always restricts exactly one tenant's own
-Services), `--deployment` scopes it to specific workloads instead of the whole tenant when given,
-and `--allowed-caller-tenant` may repeat once per permitted caller tenant.
+Services (ingress) and which tenants its own workloads may call out to (egress); `--tenant` is
+required (a NetworkPolicy always restricts exactly one tenant's own traffic), `--deployment` scopes
+it to specific workloads instead of the whole tenant when given, and `--service-interface` scopes
+it to named exported fabric interfaces. A direction is restricted only when expressed, and at least
+one must be: `--allowed-caller-tenant` (repeatable) allows the named caller tenants in, while
+`--deny-all-callers` is the allow-nobody form of the same direction; `--allowed-callee-tenant` /
+`--deny-all-callees` restrict the egress direction the same way.
 
 `limitrange` manages a tenant's [LimitRange](../architecture/multi-tenancy.md#limitrange) — a
 per-workload min/max bound on a single Deployment's own `resources.request`/`resources.limit`,
@@ -244,6 +250,13 @@ to one tenant instead of cluster-wide. `set account` doubles as create-or-reset-
 `set tenant`/`set config`'s existing create-or-update convention — the password is sent once over
 the same authenticated mTLS connection every other write already uses and is hashed server-side,
 never stored or echoed back in plaintext.
+
+`can-i` is the `kubectl auth can-i` analogue: `gimle can-i write deployments --tenant acme` asks
+the control plane's self-subject access review (`GET /authz/can-i`) whether the calling identity
+would be authorized for that action, without performing it, and prints `yes`/`no` (the full review
+as JSON under `-o json`). Verb and resource are matched case-insensitively, `-` is accepted for
+`_` (`network-policy` works), and a plural `s` is tolerated so the nouns the other verbs use spell
+valid questions here too.
 
 ## Examples
 

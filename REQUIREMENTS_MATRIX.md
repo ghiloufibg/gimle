@@ -82,7 +82,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-070 | Self-signed cluster CA generation | PKI | Complete | Yes |
 | GIMLE-071 | CSR-to-leaf-certificate signing with signature verification | PKI | Complete | Yes |
 | GIMLE-072 | Server-stamped Subject override on signing (prevents self-declared privileged group) | PKI / Security | Complete | Yes |
-| GIMLE-073 | CSR generation with Subject Alternative Names | PKI | Complete | Yes |
+| GIMLE-073 | CSR generation with typed Subject Alternative Names (DNS and IP) | PKI | Complete | Yes |
 | GIMLE-074 | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | PKI / Internal-Infra | Complete | Yes |
 | GIMLE-075 | Randomized certificate-renewal scheduling (anti-thundering-herd) | PKI | Complete | None |
 | GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | PKI | Complete | None |
@@ -1191,15 +1191,16 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-612 — Per-tenant built-in role templates (tenant-view/edit/admin)
 
 - **Category**: Security / RBAC
-- **User story**: As a cluster operator, I want built-in per-tenant view/edit/admin role templates resolvable by name in a RoleBinding, so common tenant-scoped grants need no hand-authored Role objects.
+- **User story**: As a cluster operator, I want built-in per-tenant view/edit/admin role templates resolvable by name in a RoleBinding, usable end to end -- collection listings included, filtered to the tenants a scoped grant covers -- so common tenant-scoped grants need no hand-authored Role objects.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`
-- **Test coverage**: `BuiltinRolesTest` (tenant_view_reads_workloads_and_config_but_never_secrets, tenant_edit_adds_workload_and_secret_writes_but_not_guardrails, tenant_admin_additionally_manages_the_tenant_guardrails, every_tenant_template_permission_is_scoped_to_its_own_tenant_only, names_that_are_not_tenant_templates_synthesize_nothing), `AuthorizerTest` (a_binding_to_a_tenant_template_grants_within_that_tenant_and_nowhere_else, a_binding_to_a_tenant_view_template_never_reads_secrets)
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`requireListAuthorized`)
+- **Test coverage**: `BuiltinRolesTest` (tenant_view_reads_workloads_and_config_but_never_secrets, tenant_edit_adds_workload_and_secret_writes_but_not_guardrails, tenant_admin_additionally_manages_the_tenant_guardrails, every_tenant_template_permission_is_scoped_to_its_own_tenant_only, names_that_are_not_tenant_templates_synthesize_nothing), `AuthorizerTest` (a_binding_to_a_tenant_template_grants_within_that_tenant_and_nowhere_else, a_binding_to_a_tenant_view_template_never_reads_secrets), `AuthorizerTest` (has_any_read_grant_distinguishes_scoped_readers_from_callers_with_nothing), `ApiServerAuthzTest` (a_tenant_view_binding_lists_only_its_own_tenants_deployments)
 - **Gherkin scenario**:
   ```gherkin
   Given a RoleBinding to tenant-edit:acme, When its subject writes a deployment under tenant acme, Then it is allowed, and denied for any other tenant.
   Given a RoleBinding to tenant-view:acme, When its subject reads tenant acme's secrets, Then it is denied.
+  Given a RoleBinding to tenant-view:acme, When its subject GETs /deployments, Then the response is 200 listing exactly tenant acme's deployments -- never another tenant's or an untenanted one, and never a 403.
   ```
 
 ### gimle-module
@@ -1667,17 +1668,18 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a CSR whose own Subject requests O=gimle:operators but the caller only has node-join authorization, When signed via the subject-override overload, Then the issued certificate's Subject is exactly the override; a bad self-signature is still rejected.
   ```
 
-#### GIMLE-073 — CSR generation with Subject Alternative Names
+#### GIMLE-073 — CSR generation with typed Subject Alternative Names (DNS and IP)
 
 - **Category**: PKI
-- **User story**: As a component requesting its own leaf certificate, I want to include DNS SANs in my CSR, so real HTTPS clients performing hostname verification accept the connection.
+- **User story**: As a component requesting its own leaf certificate, I want hostname SANs typed dNSName and IP-literal SANs typed iPAddress in my CSR, so real HTTPS clients performing hostname verification accept the connection whether the peer is dialed by name or by IP.
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/CertificateSigningRequests.java`
-- **Test coverage**: `CertificateSigningRequestsTest`; SAN propagation covered by `CertificateAuthorityTest#signed_leaf_certificate_carries_requested_subject_alternative_names`
+- **Test coverage**: `CertificateSigningRequestsTest` (incl. an_ip_literal_san_is_typed_ip_address_and_a_hostname_stays_dns_name); SAN propagation covered by `CertificateAuthorityTest#signed_leaf_certificate_carries_requested_subject_alternative_names`
 - **Gherkin scenario**:
   ```gherkin
-  Given a CSR built with dnsNames=["node1.local","localhost"], When verified with its own public key, Then succeeds, and the SAN extension request is present.
+  Given a CSR built with hostnames=["node1.local","localhost"], When verified with its own public key, Then succeeds, and the SAN extension request is present.
+  Given a CSR built with hostnames=["localhost","127.0.0.1","::1"], When signed by the CA, Then the leaf carries localhost as dNSName and both IP literals as iPAddress entries.
   ```
 
 #### GIMLE-074 — Hand-rolled PEM encode/decode for certs, CSRs, and private keys
@@ -2885,6 +2887,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a vessel declaring a {volume: ...} env entry, When the agent spawns it, Then a persistent directory keyed by placement identity plus the env name is allocated and its host path exported as that variable, surviving replacement at the same key.
   Given a vessel files entry naming a secret, When the agent renders files, Then the secret value lands on disk verbatim with owner-only permissions.
+  Given a single-jar vessel with a relative files path, When the agent spawns it, Then the process starts in the per-instance root the files rendered under, so the relative path resolves as declared; a bundle vessel keeps its entrypoint workdir and finds the root via GIMLE_INSTANCE_ROOT.
   ```
 
 ### gimle-mimir
@@ -4927,15 +4930,16 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-611 — Self-subject access review endpoint (/authz/can-i)
 
 - **Category**: Security / RBAC
-- **User story**: As an authenticated caller, I want to ask whether I would be authorized for a given resource/verb/tenant action without performing it, so consoles and operators can probe RBAC decisions safely.
+- **User story**: As an authenticated caller, I want to ask whether I would be authorized for a given resource/verb/tenant action without performing it -- via GET /authz/can-i or `gimle can-i <verb> <resource>` -- so consoles and operators can probe RBAC decisions safely.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
-- **Test coverage**: `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything)
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/CanICommand.java`
+- **Test coverage**: `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything), `CanICommandTest` (CLI verb against a real in-process ApiServer, incl. client-side verb/resource validation and noun-spelling tolerance)
 - **Gherkin scenario**:
   ```gherkin
   Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it.
   Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401.
+  Given `gimle can-i write deployments --tenant acme` against a plaintext server, When it runs, Then it prints yes and exits 0.
   ```
 
 #### GIMLE-618 — Cluster-wide volume operator surface (/volumes API + CLI)
@@ -6744,13 +6748,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: CLI
 - **User story**: As a platform operator, I want to create, inspect, and delete a NetworkPolicy restricting which other tenants may call into my tenant's own Services from the command line, so I don't have to hand-craft a POST /networkpolicies request just to expose an existing control-plane capability.
-- **Status**: Complete. `gimle get networkpolicies [name]`, `gimle set networkpolicy <name> --tenant <id> [--deployment ...] --allowed-caller-tenant <id> [--allowed-caller-tenant ...]`, and `gimle delete networkpolicy <name>` round-trip against the real `ApiServer` `/networkpolicies*` surface that already existed with no CLI client of its own.
+- **Status**: Complete. `gimle get networkpolicies [name]`, `gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...] [--allowed-caller-tenant <id> ... | --deny-all-callers] [--allowed-callee-tenant <id> ... | --deny-all-callees]`, and `gimle delete networkpolicy <name>` round-trip against the real `ApiServer` `/networkpolicies*` surface, exposing the full spec -- interface scoping and the egress direction included -- rather than the ingress-only subset the first CLI cut carried.
 - **Confidence**: High
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`networkpolicy`/`networkpolicies` dispatch)
-- **Test coverage**: `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`
+- **Test coverage**: `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_carries_interface_scoping_and_egress_restrictions`, `set_networkpolicy_restricting_no_direction_at_all_fails_client_side`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`
 - **Gherkin scenario**:
   ```gherkin
   Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"].
+  Given `gimle set networkpolicy p --tenant acme --service-interface com.acme.Orders --allowed-callee-tenant partner --deny-all-callers`, When the policy is read back, Then it carries the interface scope, the egress allow list, and an empty ingress allow list.
   ```
 
 #### GIMLE-584 — `gimle configmap` command

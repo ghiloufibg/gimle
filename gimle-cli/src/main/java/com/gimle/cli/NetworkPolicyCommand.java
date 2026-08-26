@@ -10,13 +10,19 @@ import java.util.Set;
 
 /**
  * {@code get networkpolicies [name]}, {@code set networkpolicy <name> --tenant <id> [--deployment
- * <name>...] --allowed-caller-tenant <id> [--allowed-caller-tenant <id>...]}, {@code delete
- * networkpolicy <name>} -- the NetworkPolicy analogue's CLI surface: a declared, deny-by-default
- * restriction on which other tenants may call into one tenant's own Services. {@code set} POSTs to
- * the bare {@code /networkpolicies} collection, the same routing {@link ServicesCommand} documents
- * for its own sibling network-model resource. Unlike a Service's {@code tenantId}, a
- * NetworkPolicy's {@code tenantId} is never optional -- it restricts exactly one tenant's own
- * Services, so {@code --tenant} is required, not optional.
+ * <name>...] [--service-interface <fqcn>...] [--allowed-caller-tenant <id>... | --deny-all-callers]
+ * [--allowed-callee-tenant <id>... | --deny-all-callees]}, {@code delete networkpolicy <name>} --
+ * the NetworkPolicy analogue's CLI surface: a declared, deny-by-default restriction on which other
+ * tenants may call into one tenant's own Services (ingress) and which tenants that tenant's own
+ * workloads may call out to (egress). A direction is only restricted when expressed: naming {@code
+ * --allowed-caller-tenant}s (or {@code --deny-all-callers}, the allow-nobody form of the same
+ * direction) restricts ingress, {@code --allowed-callee-tenant}/{@code --deny-all-callees} likewise
+ * restricts egress, and at least one direction must be expressed -- the same "a policy must
+ * restrict something" rule the API itself enforces. {@code set} POSTs to the bare {@code
+ * /networkpolicies} collection, the same routing {@link ServicesCommand} documents for its own
+ * sibling network-model resource. Unlike a Service's {@code tenantId}, a NetworkPolicy's {@code
+ * tenantId} is never optional -- it restricts exactly one tenant's own traffic, so {@code --tenant}
+ * is required, not optional.
  */
 public final class NetworkPolicyCommand {
 
@@ -48,14 +54,36 @@ public final class NetworkPolicyCommand {
     Flags flags =
         Flags.parse(
             args.subList(1, args.size()),
-            Set.of(),
-            Set.of("--deployment", "--allowed-caller-tenant"));
+            Set.of("--deny-all-callers", "--deny-all-callees"),
+            Set.of(
+                "--deployment",
+                "--service-interface",
+                "--allowed-caller-tenant",
+                "--allowed-callee-tenant"));
     String tenantId = flags.getOrDefault("--tenant", null);
     if (tenantId == null || tenantId.isBlank()) {
       throw new CliException("set networkpolicy requires --tenant");
     }
     List<String> deploymentNames = flags.getAll("--deployment");
+    List<String> serviceInterfaceNames = flags.getAll("--service-interface");
     List<String> allowedCallerTenantIds = flags.getAll("--allowed-caller-tenant");
+    List<String> allowedCalleeTenantIds = flags.getAll("--allowed-callee-tenant");
+    if (!allowedCallerTenantIds.isEmpty() && flags.isSet("--deny-all-callers")) {
+      throw new CliException("--deny-all-callers cannot be combined with --allowed-caller-tenant");
+    }
+    if (!allowedCalleeTenantIds.isEmpty() && flags.isSet("--deny-all-callees")) {
+      throw new CliException("--deny-all-callees cannot be combined with --allowed-callee-tenant");
+    }
+    boolean restrictsIngress =
+        !allowedCallerTenantIds.isEmpty() || flags.isSet("--deny-all-callers");
+    boolean restrictsEgress =
+        !allowedCalleeTenantIds.isEmpty() || flags.isSet("--deny-all-callees");
+    if (!restrictsIngress && !restrictsEgress) {
+      throw new CliException(
+          "a network policy must restrict at least one direction: pass --allowed-caller-tenant/"
+              + "--deny-all-callers (ingress) and/or --allowed-callee-tenant/--deny-all-callees"
+              + " (egress)");
+    }
 
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("name", name);
@@ -63,7 +91,17 @@ public final class NetworkPolicyCommand {
     if (!deploymentNames.isEmpty()) {
       body.put("deploymentNames", List.copyOf(new LinkedHashSet<>(deploymentNames)));
     }
-    body.put("allowedCallerTenantIds", List.copyOf(new LinkedHashSet<>(allowedCallerTenantIds)));
+    if (!serviceInterfaceNames.isEmpty()) {
+      body.put("serviceInterfaceNames", List.copyOf(new LinkedHashSet<>(serviceInterfaceNames)));
+    }
+    // A direction is serialized only when restricted: the API reads a missing field as "this
+    // direction is unrestricted" and a present-but-empty array as "deny every cross-tenant peer".
+    if (restrictsIngress) {
+      body.put("allowedCallerTenantIds", List.copyOf(new LinkedHashSet<>(allowedCallerTenantIds)));
+    }
+    if (restrictsEgress) {
+      body.put("allowedCalleeTenantIds", List.copyOf(new LinkedHashSet<>(allowedCalleeTenantIds)));
+    }
 
     client.expectSuccess(client.post("/networkpolicies", Json.write(body)));
     OutputFormat.printResult(

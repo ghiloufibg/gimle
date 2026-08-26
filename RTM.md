@@ -87,7 +87,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-070 | Self-signed cluster CA generation | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead"; `secrets-and-pki.feature` — "A node rotates its own certificate over mTLS and keeps its identity" |
 | GIMLE-071 | CSR-to-leaf-certificate signing with signature verification | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead"; `secrets-and-pki.feature` — "A CSR whose signature does not match its own declared key is rejected"; `secrets-and-pki.feature` — "A node rotates its own certificate over mTLS and keeps its identity" |
 | GIMLE-072 | Server-stamped Subject override on signing (prevents self-declared privileged group) | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead" |
-| GIMLE-073 | CSR generation with Subject Alternative Names | Active | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead" |
+| GIMLE-073 | CSR generation with typed Subject Alternative Names (DNS and IP) | Modified | Covered | `secrets-and-pki.feature` — "A node-join CSR that self-declares a privileged group is stamped with the node group instead" |
 | GIMLE-074 | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | Active | Not Covered | — |
 | GIMLE-075 | Randomized certificate-renewal scheduling (anti-thundering-herd) | Active | Not Covered | — |
 | GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | Active | Covered | `secrets-and-pki.feature` — "A node rotates its own certificate over mTLS and keeps its identity" |
@@ -1441,10 +1441,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `CertificateAuthorityTest` (subject_override_wins, still rejects bad self-signature)
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java`
 
-#### GIMLE-073 — CSR generation with Subject Alternative Names
+#### GIMLE-073 — CSR generation with typed Subject Alternative Names (DNS and IP)
 
 - **Category**: PKI
-- **Status**: Active
+- **Status**: Modified  _(IP-literal SAN entries are now typed iPAddress (previously always dNSName, which no hostname verifier matches for an IP-dialed peer))_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/secrets-and-pki.feature` — Scenario: *A node-join CSR that self-declares a privileged group is stamped with the node group instead*
