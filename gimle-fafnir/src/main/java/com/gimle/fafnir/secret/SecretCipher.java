@@ -4,6 +4,7 @@ import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.OptionalInt;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
@@ -87,6 +88,22 @@ public final class SecretCipher {
           "no key id " + LEGACY_KEY_ID + " available to attempt legacy-format decryption");
     }
     return decryptLegacy(blob, legacyKey);
+  }
+
+  /**
+   * The key id a new-format blob (per {@link #CURRENT_VERSION}) claims to be encrypted under,
+   * without attempting to decrypt anything -- lets a caller holding a durable record of which key
+   * ids it has retired (see {@code KeyFileManager#loadRetiredKeyIds}) give a specific, diagnosable
+   * error ("that key id was retired") before running the real decrypt attempt, which for a
+   * retired-and-therefore-unknown key id would otherwise fall through to a confusing legacy-format
+   * failure instead. Empty for a legacy-format or too-short blob, neither of which names a key id
+   * at all.
+   */
+  public static OptionalInt peekKeyId(byte[] blob) {
+    if (blob.length >= PREFIX_LENGTH + GCM_IV_LENGTH_BYTES && blob[0] == CURRENT_VERSION) {
+      return OptionalInt.of(Byte.toUnsignedInt(blob[1]));
+    }
+    return OptionalInt.empty();
   }
 
   private static byte[] decryptLegacy(byte[] ivAndCiphertext, SecretKey key) {

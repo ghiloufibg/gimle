@@ -311,7 +311,7 @@ public final class FafnirServer implements AutoCloseable {
           exchange,
           200,
           Map.of("values", plaintexts.stream().map(FafnirServer::encodeBase64).toList()));
-    } catch (IllegalArgumentException | IllegalStateException e) {
+    } catch (IllegalArgumentException | IllegalStateException | GimleSecretsException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("decrypt request failed: {}", e.getMessage());
@@ -533,7 +533,7 @@ public final class FafnirServer implements AutoCloseable {
         }
         default -> respond(exchange, 405, "method not allowed");
       }
-    } catch (IllegalArgumentException e) {
+    } catch (IllegalArgumentException | GimleSecretsException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("secrets request failed: {}", e.getMessage());
@@ -547,9 +547,14 @@ public final class FafnirServer implements AutoCloseable {
     // Filters out SecretMap-owned rows, mirroring how ApiServer already filters ConfigMapCodec/
     // isFafnirManagedSecretKey rows out of a plain /config/* listing -- a SecretMap's members have
     // their own listing under /secretmaps/{tenantId}, not mixed into the tenant's flat secrets.
+    // Also omits a soft-deleted secret, matching Vault KV v2's own "deleted means not listed"
+    // posture (the same rule #get already applies to a latest-version read) -- its history is
+    // still reachable via GET .../{key}/versions and an explicit ?version=N read, this is only
+    // the default listing.
     List<Map<String, Object>> secrets =
         secretStore.list(tenantId).stream()
             .filter(meta -> !SecretMapCodec.isSecretMapKey(meta.key()))
+            .filter(meta -> !meta.deleted())
             .map(FafnirServer::secretMetadataToJson)
             .toList();
     respondJson(exchange, 200, Map.of("secrets", secrets));
@@ -702,7 +707,7 @@ public final class FafnirServer implements AutoCloseable {
         }
         default -> respond(exchange, 405, "method not allowed");
       }
-    } catch (IllegalArgumentException e) {
+    } catch (IllegalArgumentException | GimleSecretsException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("secretmaps request failed: {}", e.getMessage());

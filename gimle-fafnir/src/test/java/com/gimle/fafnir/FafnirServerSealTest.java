@@ -3,9 +3,13 @@ package com.gimle.fafnir;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.secret.SealCipher;
 import com.gimle.fafnir.testsupport.InProcessStore;
+import com.gimle.mimir.raft.StateMutation;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -38,6 +42,7 @@ class FafnirServerSealTest {
   @TempDir Path tempDir;
 
   private InProcessStore store;
+  private FafnirCrypto crypto;
   private FafnirServer server;
   private final HttpClient client = HttpClient.newHttpClient();
   private String baseUrl;
@@ -45,7 +50,8 @@ class FafnirServerSealTest {
   @BeforeEach
   void setUp() throws Exception {
     store = InProcessStore.start(tempDir.resolve("store"));
-    FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
+    store.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
+    crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
     server = new FafnirServer(crypto, 0);
     server.start();
     baseUrl = "http://127.0.0.1:" + server.port();
@@ -265,38 +271,46 @@ class FafnirServerSealTest {
     // The destructive-consequence case for the *other* key ring: unlike sealing-key retirement
     // (which only blocks not-yet-applied blobs), retiring a symmetric key can strand data already
     // at rest under it -- this is expected, not a bug, and is exactly why retiring the active key
-    // (and id 0 specifically) is rejected outright. Rotate once so a value written next lands
-    // under a non-zero, later-retireable id; rotate again so that id is no longer active.
+    // (and id 0 specifically) is rejected outright. Rotate once so a value encrypted next lands
+    // under a non-zero, later-retireable id; rotate again so that id is no longer active. Fafnir
+    // recognizes its own retired id and reports it as a specific 400, not an opaque 500.
     HttpResponse<String> firstRotate = send("POST", "/secrets/rotate-key", "");
     assertEquals(200, firstRotate.statusCode());
     int encryptingKeyId =
         ((Number) Json.asObject(Json.parse(firstRotate.body())).get("activeKeyId")).intValue();
-
-    HttpResponse<String> flatPut = putFlatSecret("plain-secret", "hunter2");
-    assertEquals(200, flatPut.statusCode());
+    byte[] ciphertext = crypto.encrypt("hunter2".getBytes(StandardCharsets.UTF_8));
 
     HttpResponse<String> secondRotate = send("POST", "/secrets/rotate-key", "");
     assertEquals(200, secondRotate.statusCode());
+
+    // Written directly to the store as SecretStore's own key@meta/key@1 pair, rather than
+    // through PUT /secrets/*, and only after the second rotate above: #rotate's own
+    // re-encryption sweep would otherwise reach a value written the ordinary way and move it
+    // onto the new active key before there's anything left for the retire below to strand -- the
+    // same reason FafnirCryptoTest's own rotate tests construct their ciphertext this way rather
+    // than through SecretStore.
+    store
+        .client()
+        .propose(
+            new StateMutation.PutConfigEntry(
+                new ConfigEntry("acme", "plain-secret@1", ciphertext, true)));
+    store
+        .client()
+        .propose(
+            new StateMutation.PutConfigEntry(
+                new ConfigEntry(
+                    "acme",
+                    "plain-secret@meta",
+                    Json.write(Map.of("latestVersion", 1, "deleted", false))
+                        .getBytes(StandardCharsets.UTF_8),
+                    false)));
 
     HttpResponse<String> retireResponse =
         send("POST", "/secrets/retire-key", Json.write(Map.of("keyId", encryptingKeyId)));
     assertEquals(200, retireResponse.statusCode());
 
     HttpResponse<String> getResponse = send("GET", "/secrets/acme/plain-secret", null);
-    assertEquals(500, getResponse.statusCode());
-  }
-
-  private HttpResponse<String> putFlatSecret(String key, String value) throws Exception {
-    return client.send(
-        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/" + key))
-            .PUT(
-                HttpRequest.BodyPublishers.ofString(
-                    Json.write(
-                        Map.of(
-                            "value",
-                            Base64.getEncoder()
-                                .encodeToString(value.getBytes(StandardCharsets.UTF_8))))))
-            .build(),
-        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(400, getResponse.statusCode());
+    assertTrue(getResponse.body().contains("retired"));
   }
 }

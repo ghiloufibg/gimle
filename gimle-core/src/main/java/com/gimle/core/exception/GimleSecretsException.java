@@ -133,4 +133,29 @@ public class GimleSecretsException extends RuntimeException {
             + " key id 0: it is this file layout's base identity, always recreated if its file"
             + " is absent -- rotate away from it, but it can never be retired");
   }
+
+  /**
+   * A decrypt attempt named a key id this ring durably remembers retiring -- distinct from {@link
+   * #unknownKeyId}, which covers an id this ring never held at all, this is the specific,
+   * diagnosable case a caller can act on: the value simply can't be recovered any more, not that
+   * something is malformed.
+   */
+  public static GimleSecretsException keyRetired(String keyKind, int keyId) {
+    return new GimleSecretsException(
+        keyKind + " key id " + keyId + " has been retired and can no longer decrypt data");
+  }
+
+  /**
+   * A write against {@code tenantId} was attempted, but no {@link com.gimle.core.tenant.Tenant}
+   * with that id was ever registered -- unlike a read, which correctly answers empty/404 for a
+   * bogus tenant, a write has no such natural "not found" outcome, so it must be rejected outright
+   * rather than silently persisting data under a tenant id nothing else in the system recognizes.
+   */
+  public static GimleSecretsException unknownTenant(String tenantId) {
+    return new GimleSecretsException(
+        "tenant "
+            + tenantId
+            + " does not exist -- create it with 'gimle tenant set' before writing secrets under"
+            + " it");
+  }
 }

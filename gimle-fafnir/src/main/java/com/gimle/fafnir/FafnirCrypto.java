@@ -1,6 +1,7 @@
 package com.gimle.fafnir;
 
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.secret.KeyFileManager;
 import com.gimle.fafnir.secret.KeyRing;
@@ -9,6 +10,8 @@ import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.OptionalInt;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,11 +31,17 @@ public final class FafnirCrypto {
   // Not final: #rotate replaces this with a new ring holding one more key, mirroring ApiServer's
   // own pre-extraction volatile secretKeyRing field.
   private volatile KeyRing keyRing;
+  // Not final: #retire adds to it. Tracked separately from keyRing itself -- a retired id is, by
+  // definition, no longer in keyRing.keysById(), so without this a decrypt attempt against it
+  // can't be told apart from one naming an id this ring never held at all (see
+  // KeyFileManager#loadRetiredKeyIds's own javadoc).
+  private volatile Set<Byte> retiredKeyIds;
 
   public FafnirCrypto(StoreClient storeClient, Path secretKeyFilePath) {
     this.storeClient = storeClient;
     this.secretKeyFilePath = secretKeyFilePath;
     this.keyRing = KeyFileManager.loadAllOrCreate(secretKeyFilePath);
+    this.retiredKeyIds = KeyFileManager.loadRetiredKeyIds(secretKeyFilePath);
     // Every Fafnir replica is provisioned with identical key files by an out-of-band operator
     // process this codebase doesn't control or verify (see KeyFileManager's own javadoc) --
     // Fafnir replicas today have no peer-discovery mechanism of their own to compare this
@@ -80,6 +89,10 @@ public final class FafnirCrypto {
   }
 
   public byte[] decrypt(byte[] ciphertext) {
+    OptionalInt embeddedKeyId = SecretCipher.peekKeyId(ciphertext);
+    if (embeddedKeyId.isPresent() && retiredKeyIds.contains((byte) embeddedKeyId.getAsInt())) {
+      throw GimleSecretsException.keyRetired("secrets", embeddedKeyId.getAsInt());
+    }
     return SecretCipher.decrypt(ciphertext, keyRing.keysById());
   }
 
@@ -132,6 +145,7 @@ public final class FafnirCrypto {
   public byte retire(byte keyId) {
     KeyRing newRing = KeyFileManager.retire(secretKeyFilePath, keyRing, keyId);
     keyRing = newRing;
+    retiredKeyIds = KeyFileManager.loadRetiredKeyIds(secretKeyFilePath);
     log.info(
         "secrets key id {} retired, new fingerprint={}",
         Byte.toUnsignedInt(keyId),
