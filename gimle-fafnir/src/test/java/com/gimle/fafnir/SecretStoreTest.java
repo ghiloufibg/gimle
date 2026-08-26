@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -45,6 +47,7 @@ class SecretStoreTest {
   @BeforeEach
   void setUp() throws Exception {
     store = InProcessStore.start(tempDir.resolve("store"));
+    store.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
     FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
     secrets = new SecretStore(store.client(), crypto);
   }

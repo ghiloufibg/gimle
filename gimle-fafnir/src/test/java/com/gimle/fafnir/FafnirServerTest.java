@@ -3,6 +3,8 @@ package com.gimle.fafnir;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -43,6 +45,7 @@ class FafnirServerTest {
   @BeforeEach
   void setUp() throws Exception {
     store = InProcessStore.start(tempDir.resolve("store"));
+    store.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
     FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
     server = new FafnirServer(crypto, 0);
     server.start();
@@ -219,6 +222,26 @@ class FafnirServerTest {
     assertEquals(1L, entry.get("latestVersion"));
     assertEquals(false, entry.get("deleted"));
     assertEquals(Set.of("key", "latestVersion", "deleted"), entry.keySet());
+  }
+
+  @Test
+  @Timeout(10)
+  void listing_a_tenants_secrets_omits_a_soft_deleted_one() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+    putSecret("acme", "api-key", "v1");
+    client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).DELETE().build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    List<Object> secrets = Json.asArray(Json.asObject(Json.parse(response.body())).get("secrets"));
+    assertEquals(1, secrets.size());
+    assertEquals("api-key", Json.asObject(secrets.get(0)).get("key"));
   }
 
   @Test

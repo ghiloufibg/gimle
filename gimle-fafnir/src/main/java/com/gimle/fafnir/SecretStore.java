@@ -166,6 +166,7 @@ public final class SecretStore {
    */
   public int put(String tenantId, String key, byte[] plaintext) {
     validateKey(key);
+    requireTenantExists(tenantId);
     String leaseName = "fafnir-secret-meta:" + tenantId + ":" + key;
     // Fresh per call (not a shared field): two concurrent #put callers -- the exact case this
     // lease exists to serialize -- must present distinct holder identities, or the store's own
@@ -260,6 +261,18 @@ public final class SecretStore {
     return storeClient.listConfigEntriesForLinearizable(tenantId).stream()
         .filter(e -> e.key().equals(rawKey))
         .findFirst();
+  }
+
+  /**
+   * A write against a tenant nothing ever registered has no natural "not found" outcome the way a
+   * read does (a read just answers empty), so it's rejected outright here rather than silently
+   * persisting a secret under a tenant id the rest of the system -- RBAC, quota, the console's own
+   * tenant picker -- has never heard of.
+   */
+  private void requireTenantExists(String tenantId) {
+    if (storeClient.getTenant(tenantId).isEmpty()) {
+      throw GimleSecretsException.unknownTenant(tenantId);
+    }
   }
 
   private static String metaKey(String key) {

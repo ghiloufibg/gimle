@@ -9,6 +9,8 @@ import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import com.gimle.fafnir.testsupport.TlsTestFixtures;
 import com.gimle.mimir.store.StateStore;
@@ -194,6 +196,7 @@ class FafnirObservabilityTest {
     // silent regression this test can't observe directly, but the value never leaving the process
     // unencrypted is the actual security property, exercised end to end below.
     try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
+      store.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
       FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
         server.start();
