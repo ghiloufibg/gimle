@@ -112,6 +112,50 @@ class ServiceCatalogTest {
   }
 
   @Test
+  void evict_worker_removes_only_that_workers_entries_immediately() {
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        node("node-a"),
+        "worker-1",
+        MODULE,
+        GREETER,
+        Optional.empty(),
+        new InetSocketAddress("127.0.0.1", 9000));
+    catalog.localRegister(
+        node("node-a"),
+        "worker-2",
+        MODULE,
+        GREETER,
+        Optional.empty(),
+        new InetSocketAddress("127.0.0.1", 9001));
+
+    // Simulates a supervising agent noticing worker-1's process has crashed, with no graceful
+    // ServiceUnregistered ever sent and no SWIM DEAD verdict on node-a itself (the node, and
+    // worker-2 on it, are both still alive) -- the case unregister/onMembershipChange don't cover.
+    catalog.evictWorker("node-a", "worker-1");
+
+    List<ServiceEndpoint> endpoints = catalog.endpointsFor(GREETER);
+    assertEquals(1, endpoints.size());
+    assertEquals("worker-2", endpoints.get(0).workerId());
+  }
+
+  @Test
+  void evict_worker_is_a_no_op_for_a_worker_with_no_known_entries() {
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        node("node-a"),
+        "worker-1",
+        MODULE,
+        GREETER,
+        Optional.empty(),
+        new InetSocketAddress("127.0.0.1", 9000));
+
+    catalog.evictWorker("node-a", "worker-unknown");
+
+    assertEquals(1, catalog.endpointsFor(GREETER).size());
+  }
+
+  @Test
   void two_different_workers_can_both_export_the_same_interface() {
     ServiceCatalog catalog = new ServiceCatalog();
     catalog.localRegister(

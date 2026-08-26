@@ -137,6 +137,56 @@ public final class ServiceCatalog implements PiggybackExtension {
   }
 
   /**
+   * Immediately tombstones every currently-present entry registered under {@code (nodeId,
+   * workerId)}, across every export -- the single-worker counterpart of {@link
+   * #onMembershipChange}'s per-node eviction. A worker-level crash never trips SWIM's own {@code
+   * DEAD} detection: the node agent supervising that worker, and every other worker sharing its
+   * machine, are still alive and still answering gossip pings, so nothing about the node itself
+   * looks down. Without an explicit call here, a crashed worker's own exports would otherwise stay
+   * {@code present} in this catalog indefinitely -- {@link #apply}'s last-writer-wins merge only
+   * ever overwrites an existing {@code (node, worker, module)} entry, and a replacement instance
+   * scheduled onto a different worker or node never shares that exact key, so nothing would ever
+   * naturally supersede the stale one. A caller (a node agent, on detecting its own supervised
+   * worker process has exited) is expected to invoke this the moment it makes that determination,
+   * rather than leaving every other cluster member to keep routing to a dead endpoint until some
+   * unrelated event happens to overwrite it.
+   *
+   * <p>Bumps each matching entry's own version via {@link #localVersionCounter} -- never reusing
+   * whatever version the crashed worker last wrote -- so a late-arriving gossip delta describing
+   * that same crashed worker's last known state can't resurrect it by looking newer than this
+   * tombstone. Gossips the tombstone onward exactly like {@link #localUnregister} already does for
+   * one export at a time.
+   */
+  public void evictWorker(String nodeId, String workerId) {
+    record Target(ServiceExport export, InstanceKey key, ServiceEndpoint endpoint) {}
+    List<Target> targets = new ArrayList<>();
+    for (Map.Entry<ServiceExport, Map<InstanceKey, VersionedEntry>> exportEntry :
+        byExport.entrySet()) {
+      for (Map.Entry<InstanceKey, VersionedEntry> instanceEntry :
+          exportEntry.getValue().entrySet()) {
+        InstanceKey key = instanceEntry.getKey();
+        VersionedEntry versioned = instanceEntry.getValue();
+        if (key.nodeId().equals(nodeId) && key.workerId().equals(workerId) && versioned.present()) {
+          targets.add(new Target(exportEntry.getKey(), key, versioned.endpoint()));
+        }
+      }
+    }
+    for (Target target : targets) {
+      apply(
+          new CatalogDelta(
+              target.export(),
+              target.key().nodeId(),
+              target.key().workerId(),
+              target.key().moduleId(),
+              localVersionCounter.incrementAndGet(),
+              false,
+              target.endpoint().node(),
+              Optional.empty(),
+              new InetSocketAddress(0)));
+    }
+  }
+
+  /**
    * Every currently-present (non-tombstoned), currently-available endpoint advertising {@code
    * export}, across every node/worker in the cluster this node has learned about -- excluding any
    * endpoint whose owning node {@link #onMembershipChange} has marked unavailable. Ordered
