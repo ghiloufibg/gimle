@@ -10,6 +10,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The CLI's entry point and global-flag/verb dispatch: a {@code kubectl}-shaped client for familiar
@@ -160,20 +161,30 @@ public final class GimleCli {
       }
     }
 
-    if (positional.contains("-h") || positional.contains("--help")) {
-      out.println(usage());
-      return;
-    }
     if (positional.isEmpty()) {
       throw new CliException(usage());
-    }
-    if (server == null || server.isBlank()) {
-      throw new CliException(
-          "no control-plane server configured (pass --server host:port or set GIMLE_SERVER)");
     }
 
     String verb = positional.get(0);
     List<String> rest = positional.subList(1, positional.size());
+
+    // -h/--help scopes to wherever it appears: bare as the verb itself means "show me everything"
+    // (gimle -h), while anywhere in a verb's own arguments means "show me just this verb/resource's
+    // own usage" (gimle get deployments -h) -- neither ever requires a configured --server, the
+    // same "help never needs a server" property this already had before it was made to scope.
+    if (isHelpFlag(verb)) {
+      out.println(usage());
+      return;
+    }
+    if (containsHelpFlag(rest)) {
+      out.println(scopedUsage(verb, rest));
+      return;
+    }
+
+    if (server == null || server.isBlank()) {
+      throw new CliException(
+          "no control-plane server configured (pass --server host:port or set GIMLE_SERVER)");
+    }
 
     // Handled before the shared client below: `cert request`/`cert status` deliberately run
     // before any client certificate exists yet, so CertCommand builds exactly the client each of
@@ -436,6 +447,241 @@ public final class GimleCli {
       default -> throw new CliException("unknown resource for 'delete': " + noun);
     }
   }
+
+  private static boolean isHelpFlag(String token) {
+    return "-h".equals(token) || "--help".equals(token);
+  }
+
+  private static boolean containsHelpFlag(List<String> args) {
+    return args.stream().anyMatch(GimleCli::isHelpFlag);
+  }
+
+  /**
+   * The first argument that isn't itself a help flag, e.g. the resource noun in {@code get
+   * deployments -h}, or {@code null} when only help flags remain (e.g. bare {@code get -h}).
+   */
+  private static String firstNonHelpToken(List<String> args) {
+    for (String arg : args) {
+      if (!isHelpFlag(arg)) {
+        return arg;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Resolves {@code -h}/{@code --help} to the narrowest usage text available for where it appeared:
+   * a bare verb ({@code gimle get -h}) gets that verb's own resource listing; a verb plus a
+   * resource noun ({@code gimle get deployments -h}) gets just that one form. Falls back to the
+   * full top-level usage for a verb this table doesn't recognize, which only ever happens when a
+   * genuinely unknown verb was typed alongside {@code -h} -- the same case that verb's own dispatch
+   * would reject anyway.
+   */
+  private static String scopedUsage(String verb, List<String> rest) {
+    String noun = firstNonHelpToken(rest);
+    return switch (verb) {
+      case "get" -> noun == null ? GET_USAGE : GET_NOUN_USAGE.getOrDefault(noun, GET_USAGE);
+      case "set" -> noun == null ? SET_USAGE : SET_NOUN_USAGE.getOrDefault(noun, SET_USAGE);
+      case "delete" ->
+          noun == null ? DELETE_USAGE : DELETE_NOUN_USAGE.getOrDefault(noun, DELETE_USAGE);
+      case "apply" -> APPLY_USAGE;
+      case "secret", "secrets" -> SecretCommand.usage();
+      case "configmap", "configmaps" -> ConfigMapCommand.usage();
+      case "secretmap", "secretmaps" -> SecretMapCommand.usage();
+      case "seal", "seals" -> SealCommand.usage();
+      case "artifact", "artifacts" -> ArtifactCommand.usage();
+      case "volume", "volumes" -> VolumesCommand.usage();
+      case "cronjob", "cronjobs" -> CRONJOB_USAGE;
+      case "audit" -> AuditCommand.usage();
+      case "can-i" -> CAN_I_USAGE;
+      case "service", "services" -> SERVICE_VERB_USAGE;
+      case "deployment", "deployments" -> DEPLOYMENT_VERB_USAGE;
+      case "statefulset", "statefulsets" -> STATEFULSET_VERB_USAGE;
+      case "daemonset", "daemonsets" -> DAEMONSET_VERB_USAGE;
+      case "logs" -> LogsCommand.usage();
+      case "events" -> EVENTS_USAGE;
+      case "cordon" -> "usage: gimle cordon <nodeId>";
+      case "uncordon" -> "usage: gimle uncordon <nodeId>";
+      case "cert" -> CertCommand.usage();
+      default -> usage();
+    };
+  }
+
+  private static final String GET_USAGE =
+      """
+      usage: gimle get <resource> [args]
+
+      resources:
+        deployments [name]
+        jobs [name]
+        cronjobs [name]
+        daemonsets [name]
+        statefulsets [name]
+        nodes
+        node-assignments <nodeId>
+        services [name]
+        networkpolicies [name]
+        tenants [id]
+        limitranges [tenantId]
+        config <tenantId>
+        roles [name]
+        rolebindings [id]
+        accounts [username]""";
+
+  private static final Map<String, String> GET_NOUN_USAGE =
+      Map.ofEntries(
+          Map.entry("deployment", "usage: gimle get deployments [name]"),
+          Map.entry("deployments", "usage: gimle get deployments [name]"),
+          Map.entry("job", "usage: gimle get jobs [name]"),
+          Map.entry("jobs", "usage: gimle get jobs [name]"),
+          Map.entry("cronjob", "usage: gimle get cronjobs [name]"),
+          Map.entry("cronjobs", "usage: gimle get cronjobs [name]"),
+          Map.entry("daemonset", "usage: gimle get daemonsets [name]"),
+          Map.entry("daemonsets", "usage: gimle get daemonsets [name]"),
+          Map.entry("statefulset", "usage: gimle get statefulsets [name]"),
+          Map.entry("statefulsets", "usage: gimle get statefulsets [name]"),
+          Map.entry("node", "usage: gimle get nodes"),
+          Map.entry("nodes", "usage: gimle get nodes"),
+          Map.entry("node-assignments", "usage: gimle get node-assignments <nodeId>"),
+          Map.entry("service", "usage: gimle get services [name]"),
+          Map.entry("services", "usage: gimle get services [name]"),
+          Map.entry("networkpolicy", "usage: gimle get networkpolicies [name]"),
+          Map.entry("networkpolicies", "usage: gimle get networkpolicies [name]"),
+          Map.entry("tenant", "usage: gimle get tenants [id]"),
+          Map.entry("tenants", "usage: gimle get tenants [id]"),
+          Map.entry("limitrange", "usage: gimle get limitranges [tenantId]"),
+          Map.entry("limitranges", "usage: gimle get limitranges [tenantId]"),
+          Map.entry("config", "usage: gimle get config <tenantId>"),
+          Map.entry("role", "usage: gimle get roles [name]"),
+          Map.entry("roles", "usage: gimle get roles [name]"),
+          Map.entry("rolebinding", "usage: gimle get rolebindings [id]"),
+          Map.entry("rolebindings", "usage: gimle get rolebindings [id]"),
+          Map.entry("account", "usage: gimle get accounts [username]"),
+          Map.entry("accounts", "usage: gimle get accounts [username]"));
+
+  private static final String SET_USAGE =
+      """
+      usage: gimle set <resource> [args]
+
+      resources:
+        service
+        networkpolicy
+        tenant
+        limitrange
+        config
+        role
+        rolebinding
+        account""";
+
+  private static final Map<String, String> SET_NOUN_USAGE =
+      Map.ofEntries(
+          Map.entry(
+              "service",
+              """
+              usage: gimle set service <name> (--deployment <name> [--deployment ...] | --external-name <host>) --port N [--target-port N] [--session-affinity]
+                                  [--tenant <id>]"""),
+          Map.entry(
+              "networkpolicy",
+              """
+              usage: gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
+                                        [--allowed-caller-tenant <id> ... | --deny-all-callers]
+                                        [--allowed-callee-tenant <id> ... | --deny-all-callees]"""),
+          Map.entry(
+              "tenant",
+              "usage: gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N"
+                  + " --max-instances N"),
+          Map.entry(
+              "limitrange",
+              """
+              usage: gimle set limitrange <tenantId> [--min-request-memory M --min-request-cpu M]
+                                         [--max-request-memory M --max-request-cpu M]
+                                         [--min-limit-memory M --min-limit-cpu M]
+                                         [--max-limit-memory M --max-limit-cpu M]"""),
+          Map.entry("config", "usage: gimle set config <tenantId> <key> <value> [--encrypted]"),
+          Map.entry(
+              "role",
+              "usage: gimle set role <name> --permission <resource>:<verb>[:<tenant>]"
+                  + " [--permission ...]"),
+          Map.entry(
+              "rolebinding",
+              "usage: gimle set rolebinding <id> --subject user:<name>|group:<name> --role"
+                  + " <name>"),
+          Map.entry("account", "usage: gimle set account <username> --password <value>"));
+
+  private static final String DELETE_USAGE =
+      """
+      usage: gimle delete <resource> <name/id>
+
+      resources:
+        deployment
+        job
+        cronjob
+        daemonset
+        statefulset
+        service
+        networkpolicy
+        tenant
+        limitrange
+        config
+        role
+        rolebinding
+        account""";
+
+  private static final Map<String, String> DELETE_NOUN_USAGE =
+      Map.ofEntries(
+          Map.entry("deployment", "usage: gimle delete deployment <name>"),
+          Map.entry("deployments", "usage: gimle delete deployment <name>"),
+          Map.entry("job", "usage: gimle delete job <name>"),
+          Map.entry("jobs", "usage: gimle delete job <name>"),
+          Map.entry("cronjob", "usage: gimle delete cronjob <name>"),
+          Map.entry("cronjobs", "usage: gimle delete cronjob <name>"),
+          Map.entry("daemonset", "usage: gimle delete daemonset <name>"),
+          Map.entry("daemonsets", "usage: gimle delete daemonset <name>"),
+          Map.entry("statefulset", "usage: gimle delete statefulset <name>"),
+          Map.entry("statefulsets", "usage: gimle delete statefulset <name>"),
+          Map.entry("service", "usage: gimle delete service <name>"),
+          Map.entry("services", "usage: gimle delete service <name>"),
+          Map.entry("networkpolicy", "usage: gimle delete networkpolicy <name>"),
+          Map.entry("networkpolicies", "usage: gimle delete networkpolicy <name>"),
+          Map.entry("tenant", "usage: gimle delete tenant <id>"),
+          Map.entry("tenants", "usage: gimle delete tenant <id>"),
+          Map.entry("limitrange", "usage: gimle delete limitrange <tenantId>"),
+          Map.entry("limitranges", "usage: gimle delete limitrange <tenantId>"),
+          Map.entry("config", "usage: gimle delete config <tenantId> <key>"),
+          Map.entry("role", "usage: gimle delete role <name>"),
+          Map.entry("roles", "usage: gimle delete role <name>"),
+          Map.entry("rolebinding", "usage: gimle delete rolebinding <id>"),
+          Map.entry("rolebindings", "usage: gimle delete rolebinding <id>"),
+          Map.entry("account", "usage: gimle delete account <username>"),
+          Map.entry("accounts", "usage: gimle delete account <username>"));
+
+  private static final String APPLY_USAGE =
+      """
+      usage: gimle apply -f <file.yaml>
+
+      kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or ArtifactSet, read from the manifest file's own 'kind:' field""";
+
+  private static final String CRONJOB_USAGE = "usage: gimle cronjob trigger <name>";
+
+  private static final String CAN_I_USAGE =
+      "usage: gimle can-i <verb> <resource> [--tenant <id>] [--target <id>]";
+
+  private static final String SERVICE_VERB_USAGE = "usage: gimle service endpoints <name>";
+
+  private static final String DEPLOYMENT_VERB_USAGE =
+      "usage: gimle deployment rollback <name> [--to-revision N] | gimle deployment revisions"
+          + " <name>";
+
+  private static final String STATEFULSET_VERB_USAGE =
+      "usage: gimle statefulset rollback <name> [--to-revision N] | gimle statefulset revisions"
+          + " <name>";
+
+  private static final String DAEMONSET_VERB_USAGE =
+      "usage: gimle daemonset rollback <name> [--to-revision N] | gimle daemonset revisions"
+          + " <name>";
+
+  private static final String EVENTS_USAGE =
+      "usage: gimle events <deploymentName> <instanceIndex> [--limit N]";
 
   private static String requireOne(List<String> args, String what) {
     if (args.isEmpty()) {

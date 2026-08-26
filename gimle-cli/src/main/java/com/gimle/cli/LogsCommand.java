@@ -134,7 +134,7 @@ public final class LogsCommand {
     return target.startsWith("instance/") ? "APPLICATION" : "PLATFORM";
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage: gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
           target: controlplane | node/<nodeId> | instance/<deploymentName>/<instanceIndex>

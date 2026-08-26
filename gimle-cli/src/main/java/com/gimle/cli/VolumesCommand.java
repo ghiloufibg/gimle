@@ -68,7 +68,7 @@ public final class VolumesCommand {
     out.println("destroyed volume " + statefulSet + "[" + index + "] on node " + nodeId);
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage:
           gimle volume list

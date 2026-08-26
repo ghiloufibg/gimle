@@ -50,7 +50,7 @@ public final class AuditCommand {
     return '&';
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage: gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                                  [--since <epochMillis>] [--limit N]""";

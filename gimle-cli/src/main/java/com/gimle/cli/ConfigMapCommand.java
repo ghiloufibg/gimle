@@ -191,7 +191,7 @@ public final class ConfigMapCommand {
     return args.get(0);
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage: gimle configmap <verb> [args]
 

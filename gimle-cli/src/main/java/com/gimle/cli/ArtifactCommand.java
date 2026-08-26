@@ -159,7 +159,7 @@ public final class ArtifactCommand {
     return body;
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage: gimle artifact <verb> [args]
 

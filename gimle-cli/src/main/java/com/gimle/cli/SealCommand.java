@@ -192,7 +192,7 @@ public final class SealCommand {
     }
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage: gimle seal <verb> [args]
 

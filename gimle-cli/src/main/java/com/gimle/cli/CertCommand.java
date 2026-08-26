@@ -348,7 +348,7 @@ public final class CertCommand {
     }
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage: gimle cert token create [--ttl <duration>]
                gimle cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path> --out-key <path>

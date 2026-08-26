@@ -268,7 +268,7 @@ public final class SecretMapCommand {
     return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage: gimle secretmap <verb> [args]
 

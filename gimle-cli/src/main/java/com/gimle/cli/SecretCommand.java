@@ -198,7 +198,7 @@ public final class SecretCommand {
     return new String(Base64.getDecoder().decode(base64), StandardCharsets.UTF_8);
   }
 
-  private static String usage() {
+  static String usage() {
     return """
         usage: gimle secret <verb> [args]
 
