@@ -229,7 +229,7 @@ public final class BootstrapMojo extends AbstractMojo {
                   new ClusterEndpoint(cliClasspath, true, tlsDir, controlPlaneHost))
               : null;
 
-      spawned.add(spawnAgent(tls, tlsDir, controlPlaneHost, bootstrapToken, logsDir));
+      spawned.add(spawnAgent(base, tls, tlsDir, controlPlaneHost, bootstrapToken, logsDir));
       ClusterEndpoint endpoint = new ClusterEndpoint(cliClasspath, tls, tlsDir, controlPlaneHost);
       awaitTrue(
           () -> hasRegisteredNodes(endpoint),
@@ -496,14 +496,53 @@ public final class BootstrapMojo extends AbstractMojo {
   }
 
   private Process spawnAgent(
-      boolean tls, Path tlsDir, String controlPlaneHost, String bootstrapToken, Path logsDir)
+      Path base,
+      boolean tls,
+      Path tlsDir,
+      String controlPlaneHost,
+      String bootstrapToken,
+      Path logsDir)
       throws MojoExecutionException {
-    String workerClasspath = resolveClasspath("gimle-worker");
+    List<String> command =
+        buildAgentCommand(
+            base,
+            tls,
+            tlsDir,
+            controlPlaneHost,
+            bootstrapToken,
+            resolveClasspath("gimle-agent"),
+            resolveClasspath("gimle-worker"),
+            GimleProcesses.javaExecutable());
+    getLog()
+        .info(
+            "starting agent "
+                + AGENT_NODE_ID
+                + " against http(s)://"
+                + controlPlaneHost
+                + ":"
+                + CONTROLPLANE_PORT);
+    return spawnLongRunning(command, logsDir.resolve("agent.log"));
+  }
+
+  /**
+   * The pure command-line construction behind {@link #spawnAgent}, split out so the flags it wires
+   * can be asserted without actually spawning a JVM -- the same seam {@code ArtifactSetMojo} and
+   * {@code FlakyTestsMojo} already establish for their own testable cores.
+   */
+  static List<String> buildAgentCommand(
+      Path base,
+      boolean tls,
+      Path tlsDir,
+      String controlPlaneHost,
+      String bootstrapToken,
+      String agentClasspath,
+      String workerClasspath,
+      String javaExecutable) {
     String controlPlaneUrl =
         (tls ? "https" : "http") + "://" + controlPlaneHost + ":" + CONTROLPLANE_PORT;
 
     List<String> command = new ArrayList<>();
-    command.add(GimleProcesses.javaExecutable());
+    command.add(javaExecutable);
     if (tls) {
       addTlsFlags(
           command,
@@ -523,19 +562,26 @@ public final class BootstrapMojo extends AbstractMojo {
     // Same reasoning again, for pulling a coordinate-only assignment's jar into this agent's own
     // ArtifactPullCache instead of requiring the jar to pre-exist on this machine's filesystem.
     command.add("-Dgimle.agent.andvariEndpoint=127.0.0.1:" + ANDVARI_PORT);
+    // Same one-directory-under-base convention every sibling spawnX method already uses for its
+    // own --data-root/positional state-dir arg (store-state, muninn-data, andvari-data): without
+    // this, AgentMain falls back to its own "gimle-data" default relative to whatever directory
+    // this goal happened to be launched from, which for LOCAL_DEV.md's documented workflow is the
+    // repo root itself -- so ArtifactPullCache (and the volume/AOT-cache state sharing its own
+    // gimle.data.root) would otherwise scribble untracked runtime files straight into the git
+    // working tree.
+    command.add("-Dgimle.data.root=" + base.resolve("agent-data"));
     command.add("-cp");
-    command.add(resolveClasspath("gimle-agent"));
+    command.add(agentClasspath);
     command.add("com.gimle.agent.AgentMain");
     command.add(AGENT_NODE_ID);
     command.add(controlPlaneUrl);
     command.add(GOSSIP_BIND_ADDRESS);
     command.add("-");
-    command.add(GimleProcesses.javaExecutable());
+    command.add(javaExecutable);
     command.add("-cp");
     command.add(workerClasspath);
     command.add("com.gimle.worker.WorkerMain");
-    getLog().info("starting agent " + AGENT_NODE_ID + " against " + controlPlaneUrl);
-    return spawnLongRunning(command, logsDir.resolve("agent.log"));
+    return command;
   }
 
   private static void addTlsFlags(List<String> command, Path certFile, Path keyFile, Path caFile) {
