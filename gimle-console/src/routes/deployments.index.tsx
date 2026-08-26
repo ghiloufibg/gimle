@@ -4,6 +4,7 @@ import { useDeploymentsStore } from "@/stores/useDeploymentsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { StatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
+import { isDeploymentHealthy } from "@/lib/deployment-health";
 import { Plus } from "lucide-react";
 
 export const Route = createFileRoute("/deployments/")({
@@ -90,9 +91,11 @@ function DeploymentsList() {
                         limit range
                       </StatusBadge>
                     )}
-                    {d.unplacedCount === 0 && !d.quotaViolating && !d.limitRangeViolating && (
-                      <StatusBadge variant="ok">healthy</StatusBadge>
-                    )}
+                    {d.unplacedCount === 0 &&
+                      !d.quotaViolating &&
+                      !d.limitRangeViolating &&
+                      !isDeploymentHealthy(d) && <StatusBadge variant="bad">unhealthy</StatusBadge>}
+                    {isDeploymentHealthy(d) && <StatusBadge variant="ok">healthy</StatusBadge>}
                   </div>
                 </td>
               </tr>

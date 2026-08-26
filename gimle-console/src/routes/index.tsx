@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useOverviewStore } from "@/stores/useOverviewStore";
 import { PageContainer, PageHeader, Panel, StatTile } from "@/components/page-shell";
 import { fmtRelativeTime, isStale } from "@/lib/format";
+import { isDeploymentHealthy } from "@/lib/deployment-health";
 import { useDisplayStore } from "@/stores/useDisplayStore";
 import { OverviewSignal } from "@/components/overview-signal";
 
@@ -144,7 +145,7 @@ function Overview() {
                 {s.recentDeployments.map((d) => {
                   const ready = d.instances.length;
                   const desired = d.spec.replicas;
-                  const full = ready >= desired;
+                  const full = isDeploymentHealthy(d);
                   return (
                     <tr key={d.spec.name} className="hover:bg-primary/5 transition-colors">
                       <td className="px-4 py-3 font-mono">
