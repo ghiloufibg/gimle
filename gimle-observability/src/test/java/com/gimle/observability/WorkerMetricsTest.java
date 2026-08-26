@@ -124,6 +124,44 @@ class WorkerMetricsTest {
   }
 
   @Test
+  void record_client_request_increments_the_client_side_counters_tagged_by_interface() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+    String interfaceName = "com.gimle.example.Greeter";
+
+    metrics.recordClientRequest(interfaceName, Duration.ofMillis(12), false);
+    metrics.recordClientRequest(interfaceName, Duration.ofMillis(20), true);
+
+    assertEquals(2.0, metrics.clientRequestCount(interfaceName));
+    assertEquals(1.0, metrics.clientErrorCount(interfaceName));
+    assertEquals(2, registry.find("gimle.fabric.client.request.latency").timer().count());
+  }
+
+  @Test
+  void client_request_counters_are_zero_before_any_client_call_is_recorded() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+
+    assertEquals(0.0, metrics.clientRequestCount("com.gimle.example.Greeter"));
+    assertEquals(0.0, metrics.clientErrorCount("com.gimle.example.Greeter"));
+  }
+
+  @Test
+  void client_and_server_request_metrics_are_independent_counters() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+    String interfaceName = "com.gimle.example.Greeter";
+
+    metrics.recordRequest(ID, Duration.ofMillis(10), false);
+    metrics.recordClientRequest(interfaceName, Duration.ofMillis(10), false);
+
+    assertEquals(1.0, metrics.requestCount(ID));
+    assertEquals(1.0, metrics.clientRequestCount(interfaceName));
+    assertNull(
+        registry.find("gimle.fabric.client.request.count").tag("module", ID.name()).counter());
+  }
+
+  @Test
   void metrics_for_different_modules_are_tagged_independently() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     WorkerMetrics metrics = new WorkerMetrics(registry);

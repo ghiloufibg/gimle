@@ -24,6 +24,7 @@ public final class WorkerMetrics {
 
   private final MeterRegistry registry;
   private final TaggedRequestMetrics metrics;
+  private final TaggedRequestMetrics clientMetrics;
   private final Map<ModuleId, AtomicLong> threadCounts = new ConcurrentHashMap<>();
   private final Map<ModuleId, AtomicLong> metaspaceBytes = new ConcurrentHashMap<>();
 
@@ -39,6 +40,13 @@ public final class WorkerMetrics {
             "gimle.module.request.latency",
             "gimle.module.request.count",
             "gimle.module.request.errors",
+            true);
+    this.clientMetrics =
+        new TaggedRequestMetrics(
+            registry,
+            "gimle.fabric.client.request.latency",
+            "gimle.fabric.client.request.count",
+            "gimle.fabric.client.request.errors",
             true);
   }
 
@@ -66,6 +74,32 @@ public final class WorkerMetrics {
    */
   public double errorCount(ModuleId id) {
     return metrics.errorCount(tagsFor(id));
+  }
+
+  /**
+   * The outbound-call counterpart of {@link #recordRequest}: a worker whose hosted module only ever
+   * *calls out* through the fabric (never receives an inbound call itself, so {@link
+   * #recordRequest} never fires for it) still produces real request-rate/latency/error telemetry
+   * this way, tagged by the callee interface name rather than a {@link ModuleId} -- the caller-side
+   * registry ({@code FabricServiceRegistry}) has no reliable calling-module identity to tag by,
+   * only the interface it dialed.
+   */
+  public void recordClientRequest(String interfaceName, Duration latency, boolean error) {
+    clientMetrics.record(clientTagsFor(interfaceName), latency, error);
+  }
+
+  /** Same "cumulative total, zero if never recorded" contract {@link #requestCount} documents. */
+  public double clientRequestCount(String interfaceName) {
+    return clientMetrics.count(clientTagsFor(interfaceName));
+  }
+
+  /** Same shape as {@link #clientRequestCount}, for the error-only counter. */
+  public double clientErrorCount(String interfaceName) {
+    return clientMetrics.errorCount(clientTagsFor(interfaceName));
+  }
+
+  private static Tags clientTagsFor(String interfaceName) {
+    return Tags.of("interface", interfaceName);
   }
 
   public void recordThreadCount(ModuleId id, long count) {

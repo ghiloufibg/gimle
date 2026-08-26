@@ -2,6 +2,7 @@ package com.gimle.worker;
 
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
+import com.gimle.core.exception.GimleLifecycleException;
 import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.logging.InstanceLogCloser;
 import com.gimle.core.logging.InstanceMdcContext;
@@ -135,9 +136,21 @@ public final class WorkerMain {
         new InstanceTaggingServiceRegistry(localRegistry, identityRegistry);
     ServiceCatalog catalog = new ServiceCatalog();
     MemberId selfNode = new MemberId(nodeId, new InetSocketAddress(0));
+    // Constructed here, ahead of controller/runtime/FabricServer below, so buildFabricRegistry can
+    // wire it in for the client (outbound-call) side of fabric request metrics -- the same registry
+    // instance bindFabricServer later wires in for the server (inbound-dispatch) side.
+    WorkerMetrics workerMetrics = new WorkerMetrics();
     FabricServiceRegistry fabricRegistry =
         buildFabricRegistry(
-            selfNode, workerId, taggedLocal, catalog, registry, channel, interfaceLoader, tenantId);
+            selfNode,
+            workerId,
+            taggedLocal,
+            catalog,
+            registry,
+            channel,
+            interfaceLoader,
+            tenantId,
+            workerMetrics);
 
     // Every module this worker currently has ACTIVE -- fed to the metrics-reporter loop below,
     // which has no other way to know which module ids to report against (ModuleRegistry exposes
@@ -159,11 +172,11 @@ public final class WorkerMain {
     ModuleController controller = controllerAndRuntime.controller();
     WorkerRuntime runtime = controllerAndRuntime.runtime();
 
-    // Constructed only now that controller/runtime exist: FabricServer routes an inbound call's
+    // FabricServer is only bound now that controller/runtime exist: it routes an inbound call's
     // actual invocation through the target module's own ModuleContext (drain-visible in-flight
     // count) and BoundedModuleScheduler (real concurrency bound, not just probe checks), both of
     // which only exist once a module has gone ACTIVE through this same controller/runtime pair.
-    WorkerMetrics workerMetrics = new WorkerMetrics();
+    // workerMetrics itself was already constructed above, ahead of fabricRegistry.
     FabricBinding fabricBinding =
         bindFabricServer(
             taggedLocal,
@@ -262,7 +275,8 @@ public final class WorkerMain {
       ModuleRegistry registry,
       ControlChannelClient channel,
       ClassLoader interfaceLoader,
-      Optional<String> tenantId) {
+      Optional<String> tenantId,
+      WorkerMetrics workerMetrics) {
     // Forwarded by AgentMain's buildWorkerCommand as an explicit -D flag on every worker it
     // spawns; defaults to false (today's unchanged behavior) if somehow absent, e.g. a worker
     // launched by hand outside the agent.
@@ -292,7 +306,8 @@ public final class WorkerMain {
         breakerCooldown,
         tenantId,
         maxEjectionPercent,
-        defaultDenyCrossTenant);
+        defaultDenyCrossTenant,
+        Optional.of(workerMetrics));
   }
 
   /**
@@ -751,7 +766,9 @@ public final class WorkerMain {
    * nowhere durable to live. A fresh {@code id} per event gives {@code gimle-cli events}/the
    * console's events panel a stable pagination key independent of storage order.
    */
-  private static InstanceEvent instanceEventFor(LifecycleEvent event, InstanceIdentity identity) {
+  // Package-visible (no `private`), not for production reuse but so WorkerMainTest can exercise
+  // this pure mapping directly rather than only indirectly through a full worker process.
+  static InstanceEvent instanceEventFor(LifecycleEvent event, InstanceIdentity identity) {
     long occurredAtEpochMilli = event.at().toEpochMilli();
     String id = UUID.randomUUID().toString();
     return switch (event) {
@@ -810,7 +827,7 @@ public final class WorkerMain {
               identity.instanceIndex(),
               InstanceEventKind.TRANSITION_FAILED,
               "transition " + failed.from() + " -> " + failed.to() + " failed",
-              Optional.of(failed.cause().getClass().getName() + ": " + failed.cause().getMessage()),
+              Optional.of(transitionFailureDetail(failed.cause())),
               occurredAtEpochMilli);
       case LifecycleEvent.Completed ignored ->
           new InstanceEvent(
@@ -821,6 +838,27 @@ public final class WorkerMain {
               "job run completed successfully",
               occurredAtEpochMilli);
     };
+  }
+
+  /**
+   * Names the real cause of a failed lifecycle transition, not just {@link
+   * GimleLifecycleException#hookFailed}'s own generic wrapper text -- a module's real, well-typed
+   * exception (e.g. naming exactly which config key is missing) previously never reached {@code
+   * gimle logs}/{@code gimle events}/the console at all, since this detail string used to report
+   * only the wrapper's own class and message. {@code cause} is unwrapped one level when it's a
+   * {@link GimleLifecycleException} with a cause of its own (a hook-invocation failure always is
+   * one; {@code illegalTransition} never has a cause, so it falls through unchanged below).
+   */
+  static String transitionFailureDetail(Throwable cause) {
+    if (!(cause instanceof GimleLifecycleException) || cause.getCause() == null) {
+      return cause.getClass().getName() + ": " + cause.getMessage();
+    }
+    Throwable realCause = cause.getCause();
+    return cause.getMessage()
+        + ": "
+        + realCause.getClass().getSimpleName()
+        + ": "
+        + realCause.getMessage();
   }
 
   private static void sendQuietly(ControlChannelClient channel, ControlMessage message) {
