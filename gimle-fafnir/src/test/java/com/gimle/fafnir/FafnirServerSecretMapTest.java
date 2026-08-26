@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -43,6 +45,7 @@ class FafnirServerSecretMapTest {
   @BeforeEach
   void setUp() throws Exception {
     store = InProcessStore.start(tempDir.resolve("store"));
+    store.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
     FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
     server = new FafnirServer(crypto, 0);
     server.start();

@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleSecretsException;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.FafnirCrypto;
 import com.gimle.fafnir.SecretMetadata;
 import com.gimle.fafnir.SecretStore;
@@ -45,6 +47,7 @@ class SecretMapStoreTest {
   @BeforeEach
   void setUp() throws Exception {
     store = InProcessStore.start(tempDir.resolve("store"));
+    store.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
     FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
     SecretStore secretStore = new SecretStore(store.client(), crypto);
     secretMaps = new SecretMapStore(store.client(), secretStore);
@@ -257,20 +260,24 @@ class SecretMapStoreTest {
   }
 
   @Test
-  void rollback_leaves_keys_added_after_the_target_group_version_untouched() {
+  void rollback_removes_a_key_added_after_the_target_group_version() {
     secretMaps.setMany("acme", "db-creds", values("username", "admin")); // v1
-    secretMaps.setMany("acme", "db-creds", values("password", "hunter2")); // v2
+    secretMaps.setMany("acme", "db-creds", values("password", "hunter2")); // v2: password added
 
     SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 1);
 
     SecretMapStore.RollbackOutcome.Applied applied =
         (SecretMapStore.RollbackOutcome.Applied) outcome;
-    assertEquals(1, applied.results().size()); // only username was part of the v1 snapshot
+    // username restored (it was part of the v1 snapshot) and password removed (it wasn't) --
+    // rollback restores the group's exact prior membership, not just the keys the target recorded.
+    assertEquals(2, applied.results().size());
     Map<String, byte[]> data = secretMaps.getValues("acme", List.of("db-creds")).get("db-creds");
-    assertEquals("hunter2", new String(data.get("password"), StandardCharsets.UTF_8));
+    assertEquals(Set.of("username"), data.keySet()); // password gone; username restored and live
 
     Set<String> newSnapshotKeys =
         secretMaps.listGroupVersions("acme", "db-creds").get(2).keys().keySet();
+    // The rollback's own stamp still records password by name -- as deleted, not absent -- the
+    // same way any other soft delete's group version does.
     assertEquals(Set.of("username", "password"), newSnapshotKeys);
   }
 

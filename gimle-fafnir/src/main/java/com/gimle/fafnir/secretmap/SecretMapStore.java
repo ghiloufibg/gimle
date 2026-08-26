@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -36,6 +37,17 @@ import java.util.stream.Collectors;
  * reserved-prefix guard needed, unlike {@link SecretMapCodec}'s own {@code secretmap:} data prefix,
  * which flat writes could otherwise collide with. They hold only key names and version numbers,
  * never secret material, matching why {@code key@meta} itself is unencrypted.
+ *
+ * <p>They're also filed under a synthetic tenant id ({@link #metaTenantId}) rather than {@code
+ * tenantId} itself, deliberately: {@code ConfigEntry} has no namespace of its own beyond {@code
+ * (tenantId, key)}, and the real tenant's own {@code (tenantId, key)} space is exactly what {@code
+ * gimle-controlplane}'s generic {@code /config/{tenantId}/*} surface reads and writes directly
+ * against the store -- a plain key-prefix convention within that same space (the way {@link
+ * SecretMapCodec}'s own {@code secretmap:} prefix works) only ever hides a row from a caller that
+ * happens to apply the right filter, it can't stop a caller from deleting it by exact key. Filing
+ * these rows under a tenant id no real tenant can ever be, instead, makes them genuinely
+ * unaddressable through {@code /config/{tenantId}/*} for the real {@code tenantId} -- not filtered
+ * out, structurally absent from that keyspace.
  */
 public final class SecretMapStore {
 
@@ -47,6 +59,11 @@ public final class SecretMapStore {
   // pointer advance -- a SecretMap bulk write may touch several keys while holding this lease.
   private static final Duration WRITE_LEASE_TTL = Duration.ofSeconds(10);
   private static final String GROUP_VERSION_KEY_PREFIX = "secretmap-group:";
+  // No real tenant id can ever equal this, since real tenant ids are created through
+  // gimle-controlplane's own tenant API, which never produces one containing ':' followed by this
+  // exact reserved marker -- see the class javadoc for why group-version rows live under this
+  // synthetic id rather than the real tenantId.
+  private static final String META_TENANT_PREFIX = "gimle-internal:secretmap-meta:";
 
   private final StoreClient storeClient;
   private final SecretStore secretStore;
@@ -165,10 +182,12 @@ public final class SecretMapStore {
 
   /**
    * Deletes every key under {@code name} -- soft by default, hard when {@code destroy}. Returns
-   * {@code false} if the name is unknown (no keys deleted). Lease-guarded and group-version-stamped
-   * the same as {@link #setMany}: a delete is a mutation to the group's recorded state just as much
-   * as a write, so it must be serialized against concurrent writers on this name and reflected in
-   * rollback history the same way.
+   * {@code false} if the name is unknown (no keys deleted). Lease-guarded the same as {@link
+   * #setMany}. A soft delete is group-version-stamped like any other mutation to the group's
+   * recorded state, so it's reflected in rollback history; a hard delete instead purges every group
+   * version this name ever had (see {@link #purgeGroupVersions}) rather than stamping one more --
+   * matching {@code SecretStore#hardDelete}'s own "genuine purge, not a tombstone" semantics for a
+   * plain secret's own version history.
    */
   public boolean deleteAll(String tenantId, String name, boolean destroy) {
     return withWriteLease(
@@ -187,7 +206,11 @@ public final class SecretMapStore {
               secretStore.softDelete(tenantId, rawKey);
             }
           }
-          stampGroupVersion(tenantId, name, OptionalInt.empty());
+          if (destroy) {
+            purgeGroupVersions(tenantId, name);
+          } else {
+            stampGroupVersion(tenantId, name, OptionalInt.empty());
+          }
           return true;
         });
   }
@@ -224,7 +247,7 @@ public final class SecretMapStore {
    */
   public List<SecretMapGroupVersion> listGroupVersions(String tenantId, String name) {
     List<SecretMapGroupVersion> result = new ArrayList<>();
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(tenantId)) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
       if (isGroupVersionKey(entry.key(), name)) {
         result.add(decodeGroupVersion(entry.value()));
       }
@@ -234,14 +257,15 @@ public final class SecretMapStore {
   }
 
   /**
-   * Restores every key recorded in {@code targetGroupVersion}'s snapshot to that snapshot's content
-   * (for a live key) or deleted state (for one recorded as deleted) -- never in place: a restored
-   * key's content is written as a brand-new {@code SecretStore} version, and the rollback itself is
-   * recorded as a new, forward-only group version (never rewrites {@code targetGroupVersion} or
-   * anything after it), the same "restore = re-apply as a new revision" pattern {@code
-   * gimle-hilmir}'s own release rollback uses. A key added after {@code targetGroupVersion} and
-   * never part of it is left untouched -- rollback restores what the target recorded, it doesn't
-   * reset the SecretMap's membership to exactly that point in time. One key's history being
+   * Restores the SecretMap's exact key set as of {@code targetGroupVersion}: every key that
+   * snapshot recorded is restored to that snapshot's content (for a live key) or deleted state (for
+   * one recorded as deleted) -- never in place, a restored key's content is written as a brand-new
+   * {@code SecretStore} version -- and every key that exists now but wasn't part of that snapshot
+   * (added by a write after {@code targetGroupVersion}) is itself soft-deleted, since a true
+   * rollback restores the group's membership as it was, not just the keys the target happened to
+   * mention. The rollback itself is recorded as a new, forward-only group version (never rewrites
+   * {@code targetGroupVersion} or anything after it), the same "restore = re-apply as a new
+   * revision" pattern {@code gimle-hilmir}'s own release rollback uses. One key's history being
    * unrecoverable (only possible if it was hard-deleted since) is reported as that key's own
    * failure, not a thrown exception, so it never blocks its siblings' restore.
    */
@@ -290,6 +314,26 @@ public final class SecretMapStore {
               results.add(SecretMapKeyResult.failed(key, String.valueOf(e.getMessage())));
             }
           }
+          // Keys that exist now but the target snapshot never recorded were added by some later
+          // write -- restoring the group's exact prior membership means removing them too, not
+          // just leaving them untouched because the target didn't mention them.
+          Set<String> targetKeys = target.get().keys().keySet();
+          for (Map.Entry<String, SecretMetadata> entry : current.entrySet()) {
+            String key = entry.getKey();
+            SecretMetadata meta = entry.getValue();
+            if (targetKeys.contains(key) || meta.deleted()) {
+              continue;
+            }
+            String rawKey = SecretMapCodec.rawKey(name, key);
+            try {
+              if (!secretStore.softDelete(tenantId, rawKey)) {
+                throw new IllegalStateException("key no longer exists to remove");
+              }
+              results.add(SecretMapKeyResult.ok(key, meta.latestVersion()));
+            } catch (RuntimeException e) {
+              results.add(SecretMapKeyResult.failed(key, String.valueOf(e.getMessage())));
+            }
+          }
           int newGroupVersion =
               stampGroupVersion(tenantId, name, OptionalInt.of(targetGroupVersion));
           return new RollbackOutcome.Applied(results, newGroupVersion);
@@ -313,7 +357,7 @@ public final class SecretMapStore {
     storeClient.propose(
         new StateMutation.PutConfigEntry(
             new ConfigEntry(
-                tenantId,
+                metaTenantId(tenantId),
                 groupVersionKey(name, next),
                 encodeGroupVersion(snapshot),
                 /* encrypted= */ false)));
@@ -322,7 +366,7 @@ public final class SecretMapStore {
 
   private int nextGroupVersion(String tenantId, String name) {
     int max = 0;
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(tenantId)) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
       if (isGroupVersionKey(entry.key(), name)) {
         max = Math.max(max, decodeGroupVersion(entry.value()).groupVersion());
       }
@@ -330,10 +374,30 @@ public final class SecretMapStore {
     return max + 1;
   }
 
+  /**
+   * Removes every group version ever stamped for {@code name} -- the destroy-time counterpart to
+   * {@code SecretStore#hardDelete}'s own per-member-key purge, called by {@link #deleteAll} instead
+   * of stamping one more (tombstone) group version, so a destroyed SecretMap's {@link
+   * #listGroupVersions} comes back empty rather than still listing every version it ever had.
+   */
+  private void purgeGroupVersions(String tenantId, String name) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
+      if (isGroupVersionKey(entry.key(), name)) {
+        storeClient.propose(
+            new StateMutation.RemoveConfigEntry(metaTenantId(tenantId), entry.key()));
+      }
+    }
+  }
+
+  // The synthetic tenant id group-version rows are filed under -- see the class javadoc for why.
+  private static String metaTenantId(String tenantId) {
+    return META_TENANT_PREFIX + tenantId;
+  }
+
   private Optional<SecretMapGroupVersion> findGroupVersion(
       String tenantId, String name, int groupVersion) {
     String rawKey = groupVersionKey(name, groupVersion);
-    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(tenantId)) {
+    for (ConfigEntry entry : storeClient.listConfigEntriesForLinearizable(metaTenantId(tenantId))) {
       if (entry.key().equals(rawKey)) {
         return Optional.of(decodeGroupVersion(entry.value()));
       }
