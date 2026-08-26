@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 619,
+    "totalRequirements": 622,
     "coveredByAutomatedTest": 121,
-    "notCoveredByAutomatedTest": 498,
+    "notCoveredByAutomatedTest": 501,
     "releaseReadinessPercent": 19.5
   },
   "items": [
@@ -6811,6 +6811,39 @@
       "category": "Storage / Observability",
       "feature": "Soft volume disk-usage observation in instance heartbeats",
       "step": "Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-620",
+      "module": "gimle-fabric",
+      "category": "Networking / Multi-tenancy",
+      "feature": "NetworkPolicy interface scoping and egress enforcement",
+      "step": "Given an ingress rule scoped to one exported interface, When a cross-tenant call targets a different interface, Then it passes, and a call to the named interface is denied. Given an egress rule owned by the caller's tenant with an empty allow list, When that tenant calls a foreign-tenant callee, Then the callee's own listener denies it.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-621",
+      "module": "gimle-controlplane",
+      "category": "Security / PKI",
+      "feature": "Certificate revocation denylist",
+      "step": "Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-622",
+      "module": "gimle-controlplane",
+      "category": "Security / RBAC",
+      "feature": "Workload identity: store-backed per-deployment tokens (ServiceAccount analogue)",
+      "step": "Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>. Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -629,6 +629,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-617 | SRV records and headless A answers | Service Discovery / DNS | Complete | Yes |
 | GIMLE-618 | Cluster-wide volume operator surface (/volumes API + CLI) | Storage / Operations | Complete | Yes |
 | GIMLE-619 | Soft volume disk-usage observation in instance heartbeats | Storage / Observability | Complete | Yes |
+| GIMLE-620 | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | Complete | Yes |
+| GIMLE-621 | Certificate revocation denylist | Security / PKI | Complete | Yes |
+| GIMLE-622 | Workload identity: store-backed per-deployment tokens (ServiceAccount analogue) | Security / RBAC | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3929,6 +3932,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the same deployment-scoped policy, When the target instance has no deployment identity registered at all, Then the call is permitted -- a scoped rule can only be proven to apply, never assumed to.
   ```
 
+#### GIMLE-620 — NetworkPolicy interface scoping and egress enforcement
+
+- **Category**: Networking / Multi-tenancy
+- **User story**: As a tenant operator, I want a NetworkPolicy to scope its restriction to named exported service interfaces and to restrict which tenants my workloads may call out to, enforced at the listener a caller cannot bypass.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`, `gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/NetworkPolicySpec.java`
+- **Test coverage**: `FabricServerTest` (an_interface_scoped_ingress_rule_restricts_only_calls_to_its_named_interfaces, an_egress_restricted_callers_tenant_is_denied_at_a_callee_outside_its_allow_list, an_egress_allow_list_naming_the_callees_tenant_permits_the_call, a_caller_deployment_scoped_egress_rule_is_not_enforced_at_the_callee, same_tenant_egress_is_always_permitted_regardless_of_the_allow_list)
+- **Gherkin scenario**:
+  ```gherkin
+  Given an ingress rule scoped to one exported interface, When a cross-tenant call targets a different interface, Then it passes, and a call to the named interface is denied.
+  Given an egress rule owned by the caller's tenant with an empty allow list, When that tenant calls a foreign-tenant callee, Then the callee's own listener denies it.
+  ```
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -4872,6 +4889,33 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage.
   Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it.
+  ```
+
+#### GIMLE-621 — Certificate revocation denylist
+
+- **Category**: Security / PKI
+- **User story**: As an operator, I want to revoke a compromised leaf certificate by serial number so it stops authenticating immediately, reversibly, without CRL/OCSP infrastructure.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`
+- **Test coverage**: `ApiServerAuthzTest` (a_revoked_certificate_stops_authenticating_until_unrevoked), `StateStoreTest` (certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication.
+  ```
+
+#### GIMLE-622 — Workload identity: store-backed per-deployment tokens (ServiceAccount analogue)
+
+- **Category**: Security / RBAC
+- **User story**: As a hosted module, I want my relayed control-plane reads to carry my own deny-by-default workload identity governed by RBAC, so what I may read is an operator's grant, not a hard-coded agent whitelist, and so I never ride my agent's node identity.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadTokenRecord.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+- **Test coverage**: `ApiServerAuthzTest` (a_workload_token_carries_deny_by_default_rbac_identity), `AgentRelayControlPlaneReadTest`/`RelayControlPlaneEndToEndTest` (untenanted whitelist path unchanged)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>.
+  Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources.
   ```
 
 ### gimle-fafnir

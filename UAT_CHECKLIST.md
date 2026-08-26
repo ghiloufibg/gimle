@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 619
+- **Total requirements**: 622
 - **Covered by automated (Holmgang Cucumber) test**: 121
-- **Not covered by automated test**: 498
+- **Not covered by automated test**: 501
 - **Release-readiness (automated coverage)**: 19.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -20,8 +20,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 43 | 6 | 37 | 14.0% |
 | gimle-mimir | 52 | 33 | 19 | 63.5% |
-| gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 72 | 14 | 58 | 19.4% |
+| gimle-fabric | 33 | 1 | 32 | 3.0% |
+| gimle-controlplane | 74 | 14 | 60 | 18.9% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -741,6 +741,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-184 | Locality-Aware Load Balancing with Spillover | Given several same-machine endpoints saturated and a remote endpoint with spare capacity; When lookup selects a candidate; Then the remote tier is admitted; when a same-machine endpoint is idle, remote is never consulted. | No |
 | [ ] | GIMLE-185 | Least-Outstanding-Requests Selection | Given two candidates, one busier; When select is called; Then the less-loaded candidate is chosen; ties round-robin. | No |
 
+#### Networking / Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-620 | NetworkPolicy interface scoping and egress enforcement | Given an ingress rule scoped to one exported interface, When a cross-tenant call targets a different interface, Then it passes, and a call to the named interface is denied. Given an egress rule owned by the caller's tenant with an empty allow list, When that tenant calls a foreign-tenant callee, Then the callee's own listener denies it. | No |
+
 #### Networking/Security
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -999,11 +1005,18 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-262 | `/secrets/*` byte-for-byte proxy to Fafnir | Given a caller has WRITE access to SECRET for tenant T; When PUT /secrets/T/mykey; Then ApiServer authorizes locally, forwards byte-for-byte to Fafnir with the calling principal as an internal claim, and relays the response verbatim. | No |
 
+#### Security / PKI
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-621 | Certificate revocation denylist | Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication. | No |
+
 #### Security / RBAC
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-611 | Self-subject access review endpoint (/authz/can-i) | Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it. Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401. | No |
+| [ ] | GIMLE-622 | Workload identity: store-backed per-deployment tokens (ServiceAccount analogue) | Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>. Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources. | No |
 
 #### Storage / Operations
 

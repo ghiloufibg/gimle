@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 619,
+  "requirementCount": 622,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12157,6 +12157,68 @@
       "testCoverageDetail": "`LocalDiskVolumeManagerTest` (used_bytes_reports_zero_for_a_missing_volume_and_real_sizes_for_a_present_one); the observation field round-trips through `ApiServerTest`/`DomainCodecTest`'s existing observation coverage",
       "gherkinSteps": [
         "Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-620",
+      "module": "gimle-fabric",
+      "feature": "NetworkPolicy interface scoping and egress enforcement",
+      "category": "Networking / Multi-tenancy",
+      "userStory": "As a tenant operator, I want a NetworkPolicy to scope its restriction to named exported service interfaces and to restrict which tenants my workloads may call out to, enforced at the listener a caller cannot bypass.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/NetworkPolicySpec.java`"
+      ],
+      "testCoverageDetail": "`FabricServerTest` (an_interface_scoped_ingress_rule_restricts_only_calls_to_its_named_interfaces, an_egress_restricted_callers_tenant_is_denied_at_a_callee_outside_its_allow_list, an_egress_allow_list_naming_the_callees_tenant_permits_the_call, a_caller_deployment_scoped_egress_rule_is_not_enforced_at_the_callee, same_tenant_egress_is_always_permitted_regardless_of_the_allow_list)",
+      "gherkinSteps": [
+        "Given an ingress rule scoped to one exported interface, When a cross-tenant call targets a different interface, Then it passes, and a call to the named interface is denied.",
+        "Given an egress rule owned by the caller's tenant with an empty allow list, When that tenant calls a foreign-tenant callee, Then the callee's own listener denies it."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-621",
+      "module": "gimle-controlplane",
+      "feature": "Certificate revocation denylist",
+      "category": "Security / PKI",
+      "userStory": "As an operator, I want to revoke a compromised leaf certificate by serial number so it stops authenticating immediately, reversibly, without CRL/OCSP infrastructure.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
+      ],
+      "testCoverageDetail": "`ApiServerAuthzTest` (a_revoked_certificate_stops_authenticating_until_unrevoked), `StateStoreTest` (certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke)",
+      "gherkinSteps": [
+        "Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-622",
+      "module": "gimle-controlplane",
+      "feature": "Workload identity: store-backed per-deployment tokens (ServiceAccount analogue)",
+      "category": "Security / RBAC",
+      "userStory": "As a hosted module, I want my relayed control-plane reads to carry my own deny-by-default workload identity governed by RBAC, so what I may read is an operator's grant, not a hard-coded agent whitelist, and so I never ride my agent's node identity.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadTokenRecord.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ],
+      "testCoverageDetail": "`ApiServerAuthzTest` (a_workload_token_carries_deny_by_default_rbac_identity), `AgentRelayControlPlaneReadTest`/`RelayControlPlaneEndToEndTest` (untenanted whitelist path unchanged)",
+      "gherkinSteps": [
+        "Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>.",
+        "Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
