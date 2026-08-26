@@ -13,7 +13,12 @@ import java.util.Set;
  * com.gimle.core.authz.ResourceKind}/{@code Verb} themselves, the same "gimle-core doesn't need a
  * second dependency on its own authz enums just to name them back" reasoning {@link
  * InstanceEvent#kind} already applies by carrying {@code com.gimle.module}'s lifecycle state as a
- * copied enum rather than a shared reference.
+ * copied enum rather than a shared reference. {@code outcome} is a second, independent axis from
+ * {@code allowed}: {@code allowed} is the authorization decision alone, {@code outcome} is what
+ * actually happened to the request -- an authorized write can still end up {@link
+ * AuditOutcome#REJECTED} by admission (a tenant quota, a LimitRange, a name/kind mismatch) after
+ * authorization already said yes. See {@link AuditOutcome}'s own javadoc for why both fields need
+ * to exist.
  */
 public record AuditEvent(
     String id,
@@ -24,6 +29,7 @@ public record AuditEvent(
     Optional<String> tenantId,
     Optional<String> targetId,
     boolean allowed,
+    AuditOutcome outcome,
     long occurredAtEpochMilli) {
 
   public AuditEvent {
@@ -42,5 +48,41 @@ public record AuditEvent(
     }
     tenantId = tenantId == null ? Optional.empty() : tenantId;
     targetId = targetId == null ? Optional.empty() : targetId;
+    if (outcome == null) {
+      throw new IllegalArgumentException("outcome must not be null");
+    }
+  }
+
+  /**
+   * Convenience for the majority of call sites that only ever know the authorization decision at
+   * the point they record an event -- resource kinds with no separate admission stage of their own,
+   * where {@code allowed() == true} really does mean the write took effect. {@code outcome}
+   * defaults to {@link AuditOutcome#REJECTED} when {@code allowed} is {@code false} (a denial never
+   * takes effect) and {@link AuditOutcome#APPLIED} when {@code allowed} is {@code true}. A resource
+   * kind whose write can still be rejected after authorization passes (see {@code
+   * com.gimle.controlplane.admission.AdmissionChain}) must use the canonical constructor with its
+   * own genuine outcome instead of this one.
+   */
+  public AuditEvent(
+      String id,
+      String principal,
+      Set<String> groups,
+      String resourceKind,
+      String verb,
+      Optional<String> tenantId,
+      Optional<String> targetId,
+      boolean allowed,
+      long occurredAtEpochMilli) {
+    this(
+        id,
+        principal,
+        groups,
+        resourceKind,
+        verb,
+        tenantId,
+        targetId,
+        allowed,
+        allowed ? AuditOutcome.APPLIED : AuditOutcome.REJECTED,
+        occurredAtEpochMilli);
   }
 }

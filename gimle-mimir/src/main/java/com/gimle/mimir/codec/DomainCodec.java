@@ -13,6 +13,7 @@ import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditOutcome;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
@@ -45,6 +46,7 @@ import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
@@ -311,6 +313,22 @@ public final class DomainCodec {
     String artifactPath = in.readUTF();
     Instant startedAt = Instant.parse(in.readUTF());
     return new JobRun(jobName, attempt, nodeId, moduleId, artifactPath, startedAt);
+  }
+
+  public static void writeJobRunSummary(DataOutputStream out, JobRunSummary summary)
+      throws IOException {
+    out.writeUTF(summary.jobName());
+    out.writeInt(summary.attempt());
+    out.writeUTF(summary.nodeId());
+    out.writeUTF(summary.reason());
+  }
+
+  public static JobRunSummary readJobRunSummary(DataInputStream in) throws IOException {
+    String jobName = in.readUTF();
+    int attempt = in.readInt();
+    String nodeId = in.readUTF();
+    String reason = in.readUTF();
+    return new JobRunSummary(jobName, attempt, nodeId, reason);
   }
 
   public static void writeJobTemplate(DataOutputStream out, JobTemplate template)
@@ -1144,6 +1162,7 @@ public final class DomainCodec {
     writeOptionalString(out, event.tenantId());
     writeOptionalString(out, event.targetId());
     out.writeBoolean(event.allowed());
+    out.writeUTF(event.outcome().name());
     out.writeLong(event.occurredAtEpochMilli());
   }
 
@@ -1160,6 +1179,7 @@ public final class DomainCodec {
     Optional<String> tenantId = readOptionalString(in);
     Optional<String> targetId = readOptionalString(in);
     boolean allowed = in.readBoolean();
+    AuditOutcome outcome = AuditOutcome.valueOf(in.readUTF());
     long occurredAtEpochMilli = in.readLong();
     return new AuditEvent(
         id,
@@ -1170,6 +1190,7 @@ public final class DomainCodec {
         tenantId,
         targetId,
         allowed,
+        outcome,
         occurredAtEpochMilli);
   }
 

@@ -46,6 +46,7 @@ import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditOutcome;
 import com.gimle.core.protocol.CsrPurpose;
 import com.gimle.core.protocol.CsrResult;
 import com.gimle.core.protocol.CsrSubmission;
@@ -766,10 +767,19 @@ public final class ApiServer implements AutoCloseable {
    * alongside so the handler can attach them only at its own genuine success point (see {@link
    * #attachWarnings}) -- never eagerly before the handler has decided whether this PUT actually
    * succeeds, which would leak a deprecation warning onto an unrelated 400/409 rejection.
+   *
+   * <p>Returns the real {@link AuditOutcome} rather than {@code void}: authorization (already
+   * checked by the time this runs) says only whether the caller is *allowed* to write, not whether
+   * this particular manifest actually gets applied -- a kind/name mismatch or an admission-chain
+   * rejection (tenant quota, LimitRange) still happens inside this method, strictly after
+   * authorization already passed. {@link #dispatchResourceRequest} uses the returned outcome to
+   * record the one audit event this write gets, so it reflects what genuinely happened rather than
+   * always claiming success.
    */
   @FunctionalInterface
   private interface PutResourceAction {
-    void run(HttpExchange exchange, String name, WorkloadSpec submitted, List<String> warnings)
+    AuditOutcome run(
+        HttpExchange exchange, String name, WorkloadSpec submitted, List<String> warnings)
         throws IOException;
   }
 
@@ -856,17 +866,50 @@ public final class ApiServer implements AutoCloseable {
           WorkloadSpec submitted = parsed.spec();
           Optional<String> submittedTenant = submitted.tenantId();
           Optional<Optional<String>> existing = existingTenant.lookup(name);
-          boolean authorized = requireAuthorized(exchange, kind, Verb.WRITE, submittedTenant);
-          if (authorized && existing.isPresent() && !existing.get().equals(submittedTenant)) {
-            authorized = requireAuthorized(exchange, kind, Verb.WRITE, existing.get());
+          // Deferred audit: requireAuthorizedForWrite (unlike requireAuthorized) records nothing
+          // for an authorized caller and instead hands back the principal to audit with once the
+          // real outcome -- known only after put.run below actually runs admission -- is in hand.
+          // A denial is still recorded immediately inside it, same as requireAuthorized, since a
+          // denial is always final.
+          Optional<Principal> auditPrincipal =
+              requireAuthorizedForWrite(exchange, kind, submittedTenant);
+          if (auditPrincipal.isPresent()
+              && existing.isPresent()
+              && !existing.get().equals(submittedTenant)) {
+            auditPrincipal = requireAuthorizedForWrite(exchange, kind, existing.get());
           }
-          if (authorized && !rejectIfReservedSystemTenant(exchange, submittedTenant)) {
-            // Deprecation warnings ride response headers back to the submitting operator (the
-            // CLI prints them on stderr) -- but only attached by the per-kind handler at its own
-            // genuine success point (see attachWarnings), never here: a manifest that fails
-            // admission or name/kind validation inside put.run must not carry a warning about a
-            // field that, since nothing was applied, had no effect at all.
-            put.run(exchange, name, submitted, parsed.warnings());
+          if (auditPrincipal.isPresent()) {
+            if (rejectIfReservedSystemTenant(exchange, submittedTenant)) {
+              // rejectIfReservedSystemTenant has already written the 403 itself by this point --
+              // see recordAuditEventBestEffort's own javadoc for why a failure recording this
+              // event must never be allowed to disturb a response already on the wire.
+              recordAuditEventBestEffort(
+                  auditPrincipal.get(),
+                  kind,
+                  Verb.WRITE,
+                  submittedTenant,
+                  Optional.empty(),
+                  true,
+                  AuditOutcome.REJECTED);
+            } else {
+              // Deprecation warnings ride response headers back to the submitting operator (the
+              // CLI prints them on stderr) -- but only attached by the per-kind handler at its own
+              // genuine success point (see attachWarnings), never here: a manifest that fails
+              // admission or name/kind validation inside put.run must not carry a warning about a
+              // field that, since nothing was applied, had no effect at all.
+              AuditOutcome outcome = put.run(exchange, name, submitted, parsed.warnings());
+              // put.run has already written its own response (200/400/409) by this point -- see
+              // recordAuditEventBestEffort's own javadoc for why this call must never be allowed
+              // to turn an already-decided response into a corrupted one.
+              recordAuditEventBestEffort(
+                  auditPrincipal.get(),
+                  kind,
+                  Verb.WRITE,
+                  submittedTenant,
+                  Optional.empty(),
+                  true,
+                  outcome);
+            }
           }
         }
         case "GET" -> {
@@ -895,7 +938,7 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
-  private void handlePutDeployment(
+  private AuditOutcome handlePutDeployment(
       HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     // Parsed and kind/apiVersion-checked at the real operator-facing admission surface by
@@ -907,14 +950,14 @@ public final class ApiServer implements AutoCloseable {
           exchange,
           400,
           "manifest kind does not match /deployments route (expected kind:" + " Deployment)");
-      return;
+      return AuditOutcome.REJECTED;
     }
     if (!parsedSpec.name().equals(name)) {
       respond(
           exchange,
           400,
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
-      return;
+      return AuditOutcome.REJECTED;
     }
     // Computed here, once, regardless of tenancy -- never trusted from the submitted
     // manifest itself (DeploymentManifestParser only parses artifactSha256 back out of StateStore's
@@ -931,15 +974,17 @@ public final class ApiServer implements AutoCloseable {
             parsedSpec.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
-      return;
+      return AuditOutcome.REJECTED;
     }
     DeploymentSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
     AdmissionDecision<DeploymentSpec> decision =
         deploymentAdmissionChain.admit(
             ResourceKind.DEPLOYMENT, Verb.WRITE, spec, storeClient, admitted.artifact());
-    switch (decision) {
-      case AdmissionDecision.Reject<DeploymentSpec> reject ->
-          respond(exchange, 409, reject.reason());
+    return switch (decision) {
+      case AdmissionDecision.Reject<DeploymentSpec> reject -> {
+        respond(exchange, 409, reject.reason());
+        yield AuditOutcome.REJECTED;
+      }
       case AdmissionDecision.Allow<DeploymentSpec> allow -> {
         Optional<DeploymentSpec> previous = storeClient.getDeployment(name);
         if (previous.isEmpty() || deploymentContentChanged(previous.get(), allow.spec())) {
@@ -950,8 +995,9 @@ public final class ApiServer implements AutoCloseable {
         storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
         attachWarnings(exchange, warnings, "deployment", name);
         respond(exchange, 200, "ok");
+        yield AuditOutcome.APPLIED;
       }
-    }
+    };
   }
 
   /**
@@ -1157,8 +1203,30 @@ public final class ApiServer implements AutoCloseable {
     respondJson(exchange, 200, deploymentStatus(spec.get()));
   }
 
+  /**
+   * A racing {@code apply} (scale-up or otherwise) submitted with no ordering against this delete
+   * can still commit its own {@code PutDeployment} after this method's own {@code RemoveDeployment}
+   * does -- two independent, unordered writes racing on one name is not something a single
+   * unconditional removal can prevent outright without a compare-and-set mechanism this store
+   * doesn't have (see {@code CLAUDE.md}'s own note on this class of race). What this re-read closes
+   * is the narrower, genuinely misleading half of that: this response never claims success while
+   * the read immediately following the removal still shows the deployment present -- an operator
+   * gets an honest {@code 409} instead of a `200` that turns out not to have reflected reality,
+   * rather than papering over a write that plainly didn't durably stick moments after being
+   * reported successful.
+   */
   private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
     storeClient.propose(new StateMutation.RemoveDeployment(name));
+    if (storeClient.getDeployment(name).isPresent()) {
+      respond(
+          exchange,
+          409,
+          "deployment "
+              + name
+              + " still exists immediately after delete -- a concurrent write likely raced it;"
+              + " retry if this was unexpected");
+      return;
+    }
     respond(exchange, 200, "ok");
   }
 
@@ -1786,19 +1854,19 @@ public final class ApiServer implements AutoCloseable {
         this::handleDeleteJob);
   }
 
-  private void handlePutJob(
+  private AuditOutcome handlePutJob(
       HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     if (!(parsed instanceof JobSpec parsedSpec)) {
       respond(exchange, 400, "manifest kind does not match /jobs route (expected kind: Job)");
-      return;
+      return AuditOutcome.REJECTED;
     }
     if (!parsedSpec.name().equals(name)) {
       respond(
           exchange,
           400,
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
-      return;
+      return AuditOutcome.REJECTED;
     }
     // Same reasoning as handlePutDeployment's own identical step: never trusted
     // from the submitted manifest, always recomputed server-side at admission.
@@ -1810,7 +1878,7 @@ public final class ApiServer implements AutoCloseable {
             parsedSpec.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
-      return;
+      return AuditOutcome.REJECTED;
     }
     JobSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
     // No tenant-quota check here (unlike handlePutDeployment's admission chain): TenantUsage's
@@ -1821,6 +1889,7 @@ public final class ApiServer implements AutoCloseable {
     storeClient.propose(new StateMutation.PutJobSpec(spec));
     attachWarnings(exchange, warnings, "job", name);
     respond(exchange, 200, "ok");
+    return AuditOutcome.APPLIED;
   }
 
   private static JobSpec withArtifactSha256(JobSpec spec, Optional<String> sha256) {
@@ -1893,17 +1962,32 @@ public final class ApiServer implements AutoCloseable {
     // not yet terminal) -- a job with no explicit phase recorded yet is running, not stateless.
     status.put("phase", storeClient.getJobPhase(spec.name()).map(Enum::name).orElse("RUNNING"));
 
-    storeClient.listJobRunsFor(spec.name()).stream()
-        .max(Comparator.comparingInt(JobRun::attempt))
-        .ifPresent(
-            run -> {
-              Map<String, Object> runMap = new LinkedHashMap<>();
-              runMap.put("attempt", run.attempt());
-              runMap.put("nodeId", run.nodeId());
-              findObservationForJobRun(run)
-                  .ifPresent(obs -> runMap.put("observation", observationToJson(obs)));
-              status.put("currentRun", runMap);
-            });
+    Optional<JobRun> currentRun =
+        storeClient.listJobRunsFor(spec.name()).stream()
+            .max(Comparator.comparingInt(JobRun::attempt));
+    if (currentRun.isPresent()) {
+      JobRun run = currentRun.get();
+      Map<String, Object> runMap = new LinkedHashMap<>();
+      runMap.put("attempt", run.attempt());
+      runMap.put("nodeId", run.nodeId());
+      findObservationForJobRun(run)
+          .ifPresent(obs -> runMap.put("observation", observationToJson(obs)));
+      status.put("currentRun", runMap);
+    } else {
+      // A terminal job's own JobRun is removed at the same transition that makes it terminal (see
+      // JobReconciler's own terminal-transition mutations) -- JobRunSummary is what's left to
+      // report back here instead, so currentRun doesn't just disappear the moment a job finishes.
+      storeClient
+          .getJobRunSummary(spec.name())
+          .ifPresent(
+              summary -> {
+                Map<String, Object> runMap = new LinkedHashMap<>();
+                runMap.put("attempt", summary.attempt());
+                runMap.put("nodeId", summary.nodeId());
+                runMap.put("reason", summary.reason());
+                status.put("currentRun", runMap);
+              });
+    }
     return status;
   }
 
@@ -1962,24 +2046,25 @@ public final class ApiServer implements AutoCloseable {
     return Optional.empty();
   }
 
-  private void handlePutCronJob(
+  private AuditOutcome handlePutCronJob(
       HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     if (!(parsed instanceof CronJobSpec spec)) {
       respond(
           exchange, 400, "manifest kind does not match /cronjobs route (expected kind: CronJob)");
-      return;
+      return AuditOutcome.REJECTED;
     }
     if (!spec.name().equals(name)) {
       respond(
           exchange,
           400,
           "manifest name '" + spec.name() + "' does not match URL path '" + name + "'");
-      return;
+      return AuditOutcome.REJECTED;
     }
     storeClient.propose(new StateMutation.PutCronJobSpec(spec));
     attachWarnings(exchange, warnings, "cronjob", name);
     respond(exchange, 200, "ok");
+    return AuditOutcome.APPLIED;
   }
 
   private void handleGetCronJob(HttpExchange exchange, String name) throws IOException {
@@ -2118,7 +2203,7 @@ public final class ApiServer implements AutoCloseable {
     return Optional.empty();
   }
 
-  private void handlePutDaemonSet(
+  private AuditOutcome handlePutDaemonSet(
       HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     if (!(parsed instanceof DaemonSetSpec parsedSpec)) {
@@ -2126,14 +2211,14 @@ public final class ApiServer implements AutoCloseable {
           exchange,
           400,
           "manifest kind does not match /daemonsets route (expected kind: DaemonSet)");
-      return;
+      return AuditOutcome.REJECTED;
     }
     if (!parsedSpec.name().equals(name)) {
       respond(
           exchange,
           400,
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
-      return;
+      return AuditOutcome.REJECTED;
     }
     AdmissionArtifact admitted =
         admissionArtifact(
@@ -2143,7 +2228,7 @@ public final class ApiServer implements AutoCloseable {
             parsedSpec.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
-      return;
+      return AuditOutcome.REJECTED;
     }
     DaemonSetSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
     // No tenant-quota check here, same documented gap handlePutJob's own identical comment
@@ -2158,6 +2243,7 @@ public final class ApiServer implements AutoCloseable {
     storeClient.propose(new StateMutation.PutDaemonSetSpec(spec));
     attachWarnings(exchange, warnings, "daemonset", name);
     respond(exchange, 200, "ok");
+    return AuditOutcome.APPLIED;
   }
 
   /** Same three-field trigger {@link #deploymentContentChanged} uses -- see its own javadoc. */
@@ -2349,7 +2435,7 @@ public final class ApiServer implements AutoCloseable {
     return Optional.empty();
   }
 
-  private void handlePutStatefulSet(
+  private AuditOutcome handlePutStatefulSet(
       HttpExchange exchange, String name, WorkloadSpec parsed, List<String> warnings)
       throws IOException {
     if (!(parsed instanceof StatefulSetSpec parsedSpec)) {
@@ -2357,14 +2443,14 @@ public final class ApiServer implements AutoCloseable {
           exchange,
           400,
           "manifest kind does not match /statefulsets route (expected kind: StatefulSet)");
-      return;
+      return AuditOutcome.REJECTED;
     }
     if (!parsedSpec.name().equals(name)) {
       respond(
           exchange,
           400,
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
-      return;
+      return AuditOutcome.REJECTED;
     }
     AdmissionArtifact admitted =
         admissionArtifact(
@@ -2374,7 +2460,7 @@ public final class ApiServer implements AutoCloseable {
             parsedSpec.tenantId());
     if (admitted.rejection().isPresent()) {
       respond(exchange, 400, admitted.rejection().get());
-      return;
+      return AuditOutcome.REJECTED;
     }
     StatefulSetSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
     // No tenant-quota check here, same documented gap handlePutJob's/handlePutDaemonSet's own
@@ -2391,6 +2477,7 @@ public final class ApiServer implements AutoCloseable {
     storeClient.propose(new StateMutation.PutStatefulSetSpec(spec));
     attachWarnings(exchange, warnings, "statefulset", name);
     respond(exchange, 200, "ok");
+    return AuditOutcome.APPLIED;
   }
 
   /** Same three-field trigger {@link #deploymentContentChanged} uses -- see its own javadoc. */
@@ -3264,6 +3351,7 @@ public final class ApiServer implements AutoCloseable {
     event.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
     event.targetId().ifPresent(targetId -> map.put("targetId", targetId));
     map.put("allowed", event.allowed());
+    map.put("outcome", event.outcome().name());
     map.put("occurredAtEpochMilli", event.occurredAtEpochMilli());
     return map;
   }
@@ -3714,13 +3802,16 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "DELETE" -> {
+          // A nonexistent key is deleted idempotently (200, matching every other resource kind's
+          // own DELETE-of-a-never-existed-name convention -- deployment/job/tenant/role/account/
+          // etc. all no-op successfully rather than 404) rather than erroring, so there's no
+          // stored entry left here to read an `encrypted` flag from; authorize as CONFIG, the
+          // plain, unencrypted default this endpoint otherwise assumes.
           Optional<ConfigEntry> existing = findConfigEntry(tenantId, key);
-          if (existing.isEmpty()) {
-            respond(exchange, 404, "no such config entry: " + key);
-            return;
-          }
           ResourceKind resource =
-              existing.get().encrypted() ? ResourceKind.SECRET : ResourceKind.CONFIG;
+              existing.map(ConfigEntry::encrypted).orElse(false)
+                  ? ResourceKind.SECRET
+                  : ResourceKind.CONFIG;
           if (requireAuthorized(exchange, resource, Verb.DELETE, Optional.of(tenantId))) {
             handleDeleteConfig(exchange, tenantId, key);
           }
@@ -4064,17 +4155,20 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.ROLE, Verb.WRITE, Optional.empty())) {
+          if (requireAuthorized(
+              exchange, ResourceKind.ROLE, Verb.WRITE, Optional.empty(), Optional.of(name))) {
             handlePutRole(exchange, name);
           }
         }
         case "GET" -> {
-          if (requireAuthorized(exchange, ResourceKind.ROLE, Verb.READ, Optional.empty())) {
+          if (requireAuthorized(
+              exchange, ResourceKind.ROLE, Verb.READ, Optional.empty(), Optional.of(name))) {
             handleGetRole(exchange, name);
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.ROLE, Verb.DELETE, Optional.empty())) {
+          if (requireAuthorized(
+              exchange, ResourceKind.ROLE, Verb.DELETE, Optional.empty(), Optional.of(name))) {
             handleDeleteRole(exchange, name);
           }
         }
@@ -4179,18 +4273,23 @@ public final class ApiServer implements AutoCloseable {
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.ROLE_BINDING, Verb.WRITE, Optional.empty())) {
+              exchange, ResourceKind.ROLE_BINDING, Verb.WRITE, Optional.empty(), Optional.of(id))) {
             handlePutRoleBinding(exchange, id);
           }
         }
         case "GET" -> {
-          if (requireAuthorized(exchange, ResourceKind.ROLE_BINDING, Verb.READ, Optional.empty())) {
+          if (requireAuthorized(
+              exchange, ResourceKind.ROLE_BINDING, Verb.READ, Optional.empty(), Optional.of(id))) {
             handleGetRoleBinding(exchange, id);
           }
         }
         case "DELETE" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.ROLE_BINDING, Verb.DELETE, Optional.empty())) {
+              exchange,
+              ResourceKind.ROLE_BINDING,
+              Verb.DELETE,
+              Optional.empty(),
+              Optional.of(id))) {
             handleDeleteRoleBinding(exchange, id);
           }
         }
@@ -4611,17 +4710,28 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.ACCOUNT, Verb.WRITE, Optional.empty())) {
+          if (requireAuthorized(
+              exchange,
+              ResourceKind.ACCOUNT,
+              Verb.WRITE,
+              Optional.empty(),
+              Optional.of(username))) {
             handlePutAccount(exchange, username);
           }
         }
         case "GET" -> {
-          if (requireAuthorized(exchange, ResourceKind.ACCOUNT, Verb.READ, Optional.empty())) {
+          if (requireAuthorized(
+              exchange, ResourceKind.ACCOUNT, Verb.READ, Optional.empty(), Optional.of(username))) {
             handleGetAccount(exchange, username);
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, ResourceKind.ACCOUNT, Verb.DELETE, Optional.empty())) {
+          if (requireAuthorized(
+              exchange,
+              ResourceKind.ACCOUNT,
+              Verb.DELETE,
+              Optional.empty(),
+              Optional.of(username))) {
             handleDeleteAccount(exchange, username);
           }
         }
@@ -4667,7 +4777,31 @@ public final class ApiServer implements AutoCloseable {
     respondJson(exchange, 200, accountToJson(account.get()));
   }
 
+  /**
+   * Refused with {@code 409}, naming every still-referencing role binding, while at least one
+   * {@link RoleBinding#subject()} still points at this account's {@code user:<username>} subject --
+   * the same "can't delete something still referenced" pattern {@link #handleVolumeDestroy} already
+   * uses for a still-attached volume. Deleting the account first would leave the binding pointing
+   * at a subject that no longer exists, with nothing left to signal that it happened.
+   */
   private void handleDeleteAccount(HttpExchange exchange, String username) throws IOException {
+    String subject = RoleBinding.userSubject(username);
+    List<String> referencing =
+        storeClient.listRoleBindings().stream()
+            .filter(binding -> binding.subject().equals(subject))
+            .map(RoleBinding::id)
+            .toList();
+    if (!referencing.isEmpty()) {
+      respond(
+          exchange,
+          409,
+          "account "
+              + username
+              + " is still referenced by role binding(s) "
+              + String.join(", ", referencing)
+              + "; delete those first");
+      return;
+    }
     storeClient.propose(new StateMutation.RemoveAccount(username));
     respond(exchange, 200, "ok");
   }
@@ -6111,6 +6245,13 @@ public final class ApiServer implements AutoCloseable {
     return Set.copyOf(kinds);
   }
 
+  /**
+   * {@code allowed}/{@code outcome} default to matching each other -- {@code outcome} follows
+   * {@code allowed} via {@link AuditEvent}'s own convenience constructor -- correct for every
+   * resource kind with no admission stage of its own to still reject an authorized write. {@link
+   * #requireAuthorizedForWrite}'s callers use the explicit-{@link AuditOutcome} overload below
+   * instead, once they know whether admission actually applied the write.
+   */
   private void recordAuditEvent(
       Principal principal,
       ResourceKind resource,
@@ -6132,10 +6273,108 @@ public final class ApiServer implements AutoCloseable {
                 System.currentTimeMillis())));
   }
 
+  /**
+   * Explicit-{@link AuditOutcome} overload for a write whose real outcome is only known after this
+   * process's own admission chain runs, strictly after authorization -- see {@link
+   * #requireAuthorizedForWrite}'s javadoc for why authorization alone can't tell the caller what to
+   * record here.
+   */
+  private void recordAuditEvent(
+      Principal principal,
+      ResourceKind resource,
+      Verb verb,
+      Optional<String> tenant,
+      Optional<String> targetId,
+      boolean allowed,
+      AuditOutcome outcome) {
+    storeClient.propose(
+        new StateMutation.AppendAuditEvent(
+            new AuditEvent(
+                UUID.randomUUID().toString(),
+                principal.name(),
+                principal.groups(),
+                resource.name(),
+                verb.name(),
+                tenant,
+                targetId,
+                allowed,
+                outcome,
+                System.currentTimeMillis())));
+  }
+
+  /**
+   * The exact same write as {@link #recordAuditEvent}'s explicit-{@link AuditOutcome} overload,
+   * except a failure to record it is logged and swallowed rather than propagated -- for the two
+   * {@link #dispatchResourceRequest} PUT call sites that run this strictly after the real HTTP
+   * response (200/400/409, written by {@code put.run} or {@link #rejectIfReservedSystemTenant}
+   * itself) is already decided. Letting a transient store hiccup on this purely-secondary
+   * bookkeeping write escape from there would unwind into {@code dispatchResourceRequest}'s own
+   * catch blocks, which would then try to write a *second*, contradictory response onto an exchange
+   * whose real one may already be on the wire -- turning an already-successful request into a
+   * corrupted one over a failure that has nothing to do with whether the write itself succeeded.
+   * The other call sites ({@link #requireAuthorized}, {@link #requireAuthorizedForWrite}'s denial
+   * path) run before any response is written, so a genuine propagated failure there still yields
+   * one clean response, not two.
+   */
+  private void recordAuditEventBestEffort(
+      Principal principal,
+      ResourceKind resource,
+      Verb verb,
+      Optional<String> tenant,
+      Optional<String> targetId,
+      boolean allowed,
+      AuditOutcome outcome) {
+    try {
+      recordAuditEvent(principal, resource, verb, tenant, targetId, allowed, outcome);
+    } catch (RuntimeException e) {
+      log.warn(
+          "failed to record audit event for {} {} on {} (response already sent): {}",
+          verb,
+          resource,
+          tenant.orElse("<untenanted>"),
+          e.getMessage());
+    }
+  }
+
   /** {@code targetId}-less convenience overload for the majority of call sites that need none. */
   private boolean requireAuthorized(
       HttpExchange exchange, ResourceKind resource, Verb verb, Optional<String> tenant) {
     return requireAuthorized(exchange, resource, verb, tenant, Optional.empty());
+  }
+
+  /**
+   * The deferred-audit sibling of {@link #requireAuthorized} used only by {@link
+   * #dispatchResourceRequest}'s PUT branch: authorizes {@link Verb#WRITE} exactly the same way, but
+   * an authorized caller is never audited here -- the workload PUT handlers this feeds
+   * (deployment/job/cronjob/daemonset/statefulset) all run further admission (kind/name validation,
+   * artifact resolution, and for Deployment specifically, tenant quota and LimitRange) whose
+   * verdict this method can't see yet. Recording "allowed" here, before that verdict exists, is
+   * exactly the bug this method exists to avoid: an audit entry that says a write succeeded when
+   * admission goes on to reject it. Returns the {@link Principal} to audit with (the resolved
+   * caller, or the synthetic {@code anonymous} principal in plaintext mode) so the caller can
+   * record one event once the real {@link AuditOutcome} is known. A denied caller is recorded and
+   * responded to exactly as {@link #requireAuthorized} already does -- a denial is always final,
+   * with no further admission stage left to run -- and {@link Optional#empty()} signals the caller
+   * to stop.
+   */
+  private Optional<Principal> requireAuthorizedForWrite(
+      HttpExchange exchange, ResourceKind resource, Optional<String> tenant) {
+    if (!(exchange instanceof HttpsExchange)) {
+      return Optional.of(new Principal("anonymous", Set.of()));
+    }
+    Optional<Principal> principal = resolvePrincipal(exchange);
+    if (principal.isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
+      return Optional.empty();
+    }
+    boolean authorized =
+        authorizer.authorize(principal.get(), resource, Verb.WRITE, tenant, Optional.empty());
+    if (!authorized) {
+      recordAuditEvent(principal.get(), resource, Verb.WRITE, tenant, Optional.empty(), false);
+      respondQuietly(exchange, 403, "forbidden");
+      return Optional.empty();
+    }
+    return principal;
   }
 
   /**

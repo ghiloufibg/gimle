@@ -1710,6 +1710,22 @@ class ApiServerTest {
     assertTrue(Json.asObjectList(Json.parse(list.body())).isEmpty());
   }
 
+  /**
+   * Matches every other controlplane-owned resource kind's own idempotent-success convention for
+   * deleting a name that never existed (deployment/job/cronjob/daemonset/statefulset/service/
+   * tenant/networkpolicy/role/rolebinding/account/limitrange/configmap all 2xx/no-op) -- {@code
+   * config} used to be the one outlier that 404'd instead.
+   */
+  @Test
+  void config_delete_of_a_nonexistent_key_is_idempotent_success() throws Exception {
+    HttpResponse<String> delete =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/never-existed"))
+                .DELETE()
+                .build());
+    assertEquals(200, delete.statusCode());
+  }
+
   // ---- /secrets/{tenantId}/... proxy to Fafnir ----
 
   @Test
