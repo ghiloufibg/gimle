@@ -3,7 +3,9 @@ package com.gimle.cli;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -35,8 +37,17 @@ final class ManifestFiles {
   static byte[] readManifestBytes(Path file) {
     try {
       return Files.readAllBytes(file);
+    } catch (NoSuchFileException e) {
+      throw new CliException("could not read manifest file " + file + ": no such file", e);
+    } catch (AccessDeniedException e) {
+      throw new CliException("could not read manifest file " + file + ": permission denied", e);
     } catch (IOException e) {
-      throw new CliException("could not read manifest file " + file + ": " + e.getMessage(), e);
+      // Files.readAllBytes throws a plain IOException (not one of the two specific subtypes
+      // above) for a directory -- distinguish that one other common case too rather than falling
+      // back to the exception's own message, which for NoSuchFileException/AccessDeniedException
+      // is just the path repeated with no stated reason at all.
+      String reason = Files.isDirectory(file) ? "is a directory" : e.getMessage();
+      throw new CliException("could not read manifest file " + file + ": " + reason, e);
     }
   }
 
