@@ -135,6 +135,32 @@ class GimleCliTest {
   }
 
   /**
+   * Sends one heartbeat directly against the real {@link ApiServer}, bypassing the CLI -- the same
+   * "real server, not mocked" shortcut {@link #registerNode} uses for its own resource. A
+   * registered node carries no {@code lastHeartbeatAt} at all until its first heartbeat, so a test
+   * asserting on the computed freshness status needs this to get a deterministic {@code HEALTHY}
+   * rather than {@code UNKNOWN}.
+   */
+  private void heartbeatNode(String nodeId) throws Exception {
+    HttpClient client = HttpClient.newHttpClient();
+    Map<String, Object> body =
+        Map.of(
+            "capacity",
+                Map.of(
+                    "totalMemoryBytes", 1_000_000_000L,
+                    "assignedMemoryBytes", 0L,
+                    "totalCpuMillicores", 4000L,
+                    "assignedCpuMillicores", 0L),
+            "instances", List.of());
+    client.send(
+        HttpRequest.newBuilder(
+                URI.create("http://" + serverAddress + "/nodes/" + nodeId + "/heartbeat"))
+            .POST(HttpRequest.BodyPublishers.ofString(Json.write(body)))
+            .build(),
+        HttpResponse.BodyHandlers.discarding());
+  }
+
+  /**
    * Appends one instance event directly against the real {@link ApiServer}, bypassing the CLI --
    * the same "real server, not mocked" shortcut {@link #registerNode} uses for its own resource.
    */
@@ -364,8 +390,29 @@ class GimleCliTest {
     assertEquals(0, deleteExit);
   }
 
+  /**
+   * Creates a tenant with permissive limits, via the CLI itself, purely as setup: Fafnir now
+   * rejects a secret write against a tenant id that doesn't exist yet (see {@code gimle-fafnir}'s
+   * own {@code SecretsCommandTest}), so every secret test below needs one to exist first, the same
+   * way a real operator would run {@code gimle set tenant} before {@code gimle secret set}.
+   */
+  private void createTenant(String tenantId) {
+    run(
+        "set",
+        "tenant",
+        tenantId,
+        "--max-memory-bytes",
+        "1000000000",
+        "--max-cpu-millicores",
+        "4000",
+        "--max-instances",
+        "10");
+  }
+
   @Test
   void secret_set_then_get_round_trips_the_plaintext_value() throws Exception {
+    createTenant("acme");
+
     int setExit = run("secret", "set", "acme", "db-password", "--value", "hunter2");
     assertEquals(0, setExit, stderr());
     assertTrue(stdout().contains("secrets/acme/db-password set (version 1)"));
@@ -378,6 +425,7 @@ class GimleCliTest {
 
   @Test
   void secret_list_shows_the_key_without_ever_printing_a_value() throws Exception {
+    createTenant("acme");
     run("secret", "set", "acme", "db-password", "--value", "hunter2");
 
     outBuffer.reset();
@@ -389,6 +437,7 @@ class GimleCliTest {
 
   @Test
   void secret_versions_lists_every_claimed_version_after_two_writes() throws Exception {
+    createTenant("acme");
     run("secret", "set", "acme", "db-password", "--value", "v1");
     run("secret", "set", "acme", "db-password", "--value", "v2");
 
@@ -401,6 +450,7 @@ class GimleCliTest {
 
   @Test
   void secret_get_with_an_explicit_version_reads_the_historical_value() throws Exception {
+    createTenant("acme");
     run("secret", "set", "acme", "db-password", "--value", "v1");
     run("secret", "set", "acme", "db-password", "--value", "v2");
 
@@ -412,6 +462,7 @@ class GimleCliTest {
 
   @Test
   void secret_delete_then_get_returns_not_found() throws Exception {
+    createTenant("acme");
     run("secret", "set", "acme", "temp", "--value", "x");
 
     int deleteExit = run("secret", "delete", "acme", "temp");
@@ -494,6 +545,22 @@ class GimleCliTest {
     int exit = run("-o", "json", "get", "nodes");
     assertEquals(0, exit);
     assertTrue(stdout().contains("\"nodeId\":\"node-b\""));
+  }
+
+  /**
+   * Regression coverage for the table/JSON parity gap: {@code get nodes -o table} has always shown
+   * a computed {@code status} ({@code HEALTHY}/{@code STALE}) with no way for a JSON consumer to
+   * reproduce it -- the raw API response never carried the field at all. {@code -o json} now
+   * carries the identical computed value under the same key.
+   */
+  @Test
+  void get_nodes_as_json_also_carries_the_computed_status_field() throws Exception {
+    registerNode("node-status");
+    heartbeatNode("node-status");
+
+    int exit = run("-o", "json", "get", "nodes");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("\"status\":\"HEALTHY\""), stdout());
   }
 
   @Test
@@ -1179,5 +1246,77 @@ class GimleCliTest {
     int exit = run("events", "orders-service", "0", "--limit", "not-a-number");
     assertEquals(1, exit);
     assertTrue(stderr().contains("--limit"));
+  }
+
+  // ---- apply -f against an unreadable manifest file -- the reason is stated, not just the path
+  // repeated ----
+
+  @Test
+  void apply_against_a_missing_manifest_file_states_no_such_file_not_just_the_path_twice() {
+    Path missing = tempDir.resolve("does-not-exist.yaml");
+
+    int exit = run("apply", "-f", missing.toString());
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("could not read manifest file"), stderr());
+    assertTrue(stderr().contains("no such file"), stderr());
+  }
+
+  @Test
+  void apply_against_a_directory_states_is_a_directory() {
+    int exit = run("apply", "-f", tempDir.toString());
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("could not read manifest file"), stderr());
+    assertTrue(stderr().contains("is a directory"), stderr());
+  }
+
+  // ---- -h/--help scopes to wherever it appears in the argument list ----
+
+  @Test
+  void bare_help_flag_prints_the_full_top_level_usage() {
+    int exit = run("-h");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("usage: gimle <verb> <resource>"), stdout());
+    assertTrue(stdout().contains("secret list <tenantId>"), stdout());
+  }
+
+  @Test
+  void get_help_prints_only_the_get_resource_listing_not_the_full_usage() {
+    int exit = run("get", "-h");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("usage: gimle get <resource>"), stdout());
+    assertTrue(stdout().contains("deployments [name]"), stdout());
+    // The full top-level usage's own unrelated sections must not leak into this scoped block.
+    assertFalse(stdout().contains("secret list <tenantId>"), stdout());
+  }
+
+  @Test
+  void get_deployments_help_prints_just_that_one_form() {
+    int exit = run("get", "deployments", "-h");
+    assertEquals(0, exit, stderr());
+    assertEquals("usage: gimle get deployments [name]", stdout().trim());
+  }
+
+  @Test
+  void apply_help_prints_just_the_apply_usage() {
+    int exit = run("apply", "--help");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("usage: gimle apply -f <file.yaml>"), stdout());
+    assertFalse(stdout().contains("secret list <tenantId>"), stdout());
+  }
+
+  @Test
+  void secret_help_prints_just_the_secret_subverbs() {
+    int exit = run("secret", "-h");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("usage: gimle secret <verb>"), stdout());
+    assertTrue(stdout().contains("rotate-key"), stdout());
+    assertFalse(stdout().contains("usage: gimle get <resource>"), stdout());
+  }
+
+  @Test
+  void help_flag_never_requires_a_configured_server() {
+    int exit = GimleCli.run(new String[] {"get", "deployments", "-h"}, out, err);
+    assertEquals(0, exit, stderr());
+    assertFalse(stderr().contains("no control-plane server configured"), stderr());
   }
 }
