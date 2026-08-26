@@ -595,12 +595,14 @@ public final class FafnirServer implements AutoCloseable {
 
   private void handleDeleteSecret(HttpExchange exchange, String tenantId, String key)
       throws IOException {
+    // Idempotent, matching every other resource kind's own delete-of-a-never-existed-name
+    // convention (deployment/job/tenant/role/account/config/etc. all no-op successfully rather
+    // than 404) -- whether it existed or not is not reported back, deliberately.
     boolean destroy = "true".equals(parseQuery(exchange).get("destroy"));
-    boolean existed =
-        destroy ? secretStore.hardDelete(tenantId, key) : secretStore.softDelete(tenantId, key);
-    if (!existed) {
-      respond(exchange, 404, "no such secret: " + key);
-      return;
+    if (destroy) {
+      secretStore.hardDelete(tenantId, key);
+    } else {
+      secretStore.softDelete(tenantId, key);
     }
     respond(exchange, 200, "ok");
   }
@@ -765,23 +767,17 @@ public final class FafnirServer implements AutoCloseable {
 
   private void handleDeleteSecretMap(HttpExchange exchange, String tenantId, String name)
       throws IOException {
+    // Idempotent, matching every other resource kind's own delete-of-a-never-existed-name
+    // convention -- see handleDeleteSecret's identical reasoning.
     boolean destroy = "true".equals(parseQuery(exchange).get("destroy"));
-    boolean existed = secretMapStore.deleteAll(tenantId, name, destroy);
-    if (!existed) {
-      respond(exchange, 404, "no such SecretMap: " + name);
-      return;
-    }
+    secretMapStore.deleteAll(tenantId, name, destroy);
     respond(exchange, 200, "ok");
   }
 
   private void handleDeleteSecretMapKey(
       HttpExchange exchange, String tenantId, String name, String key) throws IOException {
     boolean destroy = "true".equals(parseQuery(exchange).get("destroy"));
-    boolean existed = secretMapStore.deleteKey(tenantId, name, key, destroy);
-    if (!existed) {
-      respond(exchange, 404, "no such key in SecretMap " + name + ": " + key);
-      return;
-    }
+    secretMapStore.deleteKey(tenantId, name, key, destroy);
     respond(exchange, 200, "ok");
   }
 

@@ -333,7 +333,8 @@ class FafnirServerTest {
 
   @Test
   @Timeout(10)
-  void deleting_an_unknown_secret_returns_404() throws Exception {
+  void deleting_an_unknown_secret_is_idempotent() throws Exception {
+    // Matches every other resource kind's own delete-of-a-never-existed-name convention.
     HttpResponse<String> response =
         client.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/no-such-key"))
@@ -341,7 +342,7 @@ class FafnirServerTest {
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
-    assertEquals(404, response.statusCode());
+    assertEquals(200, response.statusCode());
   }
 
   private HttpResponse<String> putSecret(String tenantId, String key, String value)
