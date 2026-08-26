@@ -18,6 +18,7 @@ import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.JobPhase;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
@@ -100,6 +101,7 @@ public final class StoreNode implements StoreRpcHandler {
           new StoreRpc.JobRunListResult(store.listJobRunsFor(r.jobName()));
       case StoreRpc.ListJobRuns r -> new StoreRpc.JobRunListResult(store.listJobRuns());
       case StoreRpc.GetJobPhase r -> jobPhaseResult(store.getJobPhase(r.jobName()));
+      case StoreRpc.GetJobRunSummary r -> jobRunSummaryResult(store.getJobRunSummary(r.jobName()));
       case StoreRpc.GetCronJobSpec r -> cronJobSpecResult(store.getCronJobSpec(r.name()));
       case StoreRpc.ListCronJobSpecs r ->
           new StoreRpc.CronJobSpecListResult(store.listCronJobSpecs());
@@ -315,6 +317,12 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.JobPhaseResult(true, v))
         .orElseGet(() -> new StoreRpc.JobPhaseResult(false, null));
+  }
+
+  private static StoreRpc.JobRunSummaryResult jobRunSummaryResult(Optional<JobRunSummary> value) {
+    return value
+        .map(v -> new StoreRpc.JobRunSummaryResult(true, v))
+        .orElseGet(() -> new StoreRpc.JobRunSummaryResult(false, null));
   }
 
   private static StoreRpc.CronJobSpecResult cronJobSpecResult(Optional<CronJobSpec> value) {

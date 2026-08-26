@@ -77,6 +77,12 @@ public interface StoreReader {
   /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
   Optional<JobPhase> getJobPhase(String jobName);
 
+  /**
+   * Empty until the job reaches a terminal phase -- see {@code StateStore#jobRunSummaries}'s own
+   * field javadoc.
+   */
+  Optional<JobRunSummary> getJobRunSummary(String jobName);
+
   Optional<CronJobSpec> getCronJobSpec(String name);
 
   List<CronJobSpec> listCronJobSpecs();

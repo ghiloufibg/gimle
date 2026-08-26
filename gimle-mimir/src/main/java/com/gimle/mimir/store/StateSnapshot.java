@@ -34,6 +34,7 @@ public record StateSnapshot(
     List<JobSpec> jobSpecs,
     List<JobRun> jobRuns,
     Map<String, JobPhase> jobPhases,
+    List<JobRunSummary> jobRunSummaries,
     List<CronJobSpec> cronJobSpecs,
     Map<String, Instant> cronJobLastSchedule,
     List<DaemonSetSpec> daemonSetSpecs,
@@ -71,6 +72,7 @@ public record StateSnapshot(
     jobSpecs = List.copyOf(jobSpecs);
     jobRuns = List.copyOf(jobRuns);
     jobPhases = Map.copyOf(jobPhases);
+    jobRunSummaries = List.copyOf(jobRunSummaries);
     cronJobSpecs = List.copyOf(cronJobSpecs);
     cronJobLastSchedule = Map.copyOf(cronJobLastSchedule);
     daemonSetSpecs = List.copyOf(daemonSetSpecs);

@@ -20,6 +20,7 @@ import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
@@ -127,6 +128,18 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public void applyTo(StateStore store) {
       store.putJobPhase(jobName, phase);
+    }
+  }
+
+  /**
+   * Always proposed in the same batch as the {@link PutJobPhase} that makes a job terminal, so the
+   * last attempt's own detail survives the {@link RemoveJobRun} that same batch performs -- see
+   * {@link JobRunSummary}'s own javadoc for why the two records are kept separate.
+   */
+  record PutJobRunSummary(JobRunSummary summary) implements StateMutation {
+    @Override
+    public void applyTo(StateStore store) {
+      store.putJobRunSummary(summary);
     }
   }
 

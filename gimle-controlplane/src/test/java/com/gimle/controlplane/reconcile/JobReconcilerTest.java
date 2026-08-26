@@ -18,6 +18,7 @@ import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
@@ -140,6 +141,9 @@ class JobReconcilerTest {
 
     assertEquals(Optional.of(JobPhase.SUCCEEDED), store.getJobPhase("nightly-cleanup"));
     assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
+    JobRunSummary summary = store.getJobRunSummary("nightly-cleanup").orElseThrow();
+    assertEquals(placed.attempt(), summary.attempt());
+    assertEquals(placed.nodeId(), summary.nodeId());
   }
 
   @Test
@@ -181,6 +185,13 @@ class JobReconcilerTest {
 
     assertEquals(Optional.of(JobPhase.FAILED), store.getJobPhase("nightly-cleanup"));
     assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
+    // The last attempt's own detail (node, attempt count) survives the JobRun removal above --
+    // otherwise get jobs -o json's currentRun field would just disappear the moment a job fails,
+    // with nothing left to say which node ran it or how many attempts occurred.
+    JobRunSummary summary = store.getJobRunSummary("nightly-cleanup").orElseThrow();
+    assertEquals(attempt0.attempt(), summary.attempt());
+    assertEquals(attempt0.nodeId(), summary.nodeId());
+    assertTrue(summary.reason().contains("backoffLimit"), summary.reason());
   }
 
   @Test

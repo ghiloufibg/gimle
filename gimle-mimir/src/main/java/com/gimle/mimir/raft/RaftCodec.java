@@ -23,6 +23,7 @@ import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StatefulSetAssignment;
@@ -127,6 +128,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_CERTIFICATE_REVOCATION = 57;
   private static final byte MUT_PUT_WORKLOAD_TOKEN = 58;
   private static final byte MUT_REMOVE_WORKLOAD_TOKEN = 59;
+  private static final byte MUT_PUT_JOB_RUN_SUMMARY = 60;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -572,6 +574,10 @@ public final class RaftCodec {
         out.writeUTF(m.jobName());
         out.writeUTF(m.phase().name());
       }
+      case StateMutation.PutJobRunSummary m -> {
+        out.writeByte(MUT_PUT_JOB_RUN_SUMMARY);
+        DomainCodec.writeJobRunSummary(out, m.summary());
+      }
       case StateMutation.PutCronJobSpec m -> {
         out.writeByte(MUT_PUT_CRONJOB_SPEC);
         DomainCodec.writeCronJobSpec(out, m.spec());
@@ -727,6 +733,8 @@ public final class RaftCodec {
       case MUT_REMOVE_JOB_RUN -> new StateMutation.RemoveJobRun(in.readUTF(), in.readInt());
       case MUT_PUT_JOB_PHASE ->
           new StateMutation.PutJobPhase(in.readUTF(), JobPhase.valueOf(in.readUTF()));
+      case MUT_PUT_JOB_RUN_SUMMARY ->
+          new StateMutation.PutJobRunSummary(DomainCodec.readJobRunSummary(in));
       case MUT_PUT_CRONJOB_SPEC ->
           new StateMutation.PutCronJobSpec(DomainCodec.readCronJobSpec(in));
       case MUT_REMOVE_CRONJOB_SPEC -> new StateMutation.RemoveCronJobSpec(in.readUTF());
@@ -789,6 +797,10 @@ public final class RaftCodec {
       for (Map.Entry<String, JobPhase> e : snapshot.jobPhases().entrySet()) {
         out.writeUTF(e.getKey());
         out.writeUTF(e.getValue().name());
+      }
+      out.writeInt(snapshot.jobRunSummaries().size());
+      for (JobRunSummary summary : snapshot.jobRunSummaries()) {
+        DomainCodec.writeJobRunSummary(out, summary);
       }
       out.writeInt(snapshot.cronJobSpecs().size());
       for (CronJobSpec spec : snapshot.cronJobSpecs()) {
@@ -967,6 +979,11 @@ public final class RaftCodec {
       int jobPhaseCount = in.readInt();
       for (int i = 0; i < jobPhaseCount; i++) {
         jobPhases.put(in.readUTF(), JobPhase.valueOf(in.readUTF()));
+      }
+      List<JobRunSummary> jobRunSummaries = new ArrayList<>();
+      int jobRunSummaryCount = in.readInt();
+      for (int i = 0; i < jobRunSummaryCount; i++) {
+        jobRunSummaries.add(DomainCodec.readJobRunSummary(in));
       }
       List<CronJobSpec> cronJobSpecs = new ArrayList<>();
       int cronJobSpecCount = in.readInt();
@@ -1148,6 +1165,7 @@ public final class RaftCodec {
           jobSpecs,
           jobRuns,
           jobPhases,
+          jobRunSummaries,
           cronJobSpecs,
           cronJobLastSchedule,
           daemonSetSpecs,

@@ -32,6 +32,7 @@ class RaftLogTest {
         List.of(), // jobSpecs
         List.of(), // jobRuns
         Map.of(), // jobPhases
+        List.of(), // jobRunSummaries
         List.of(), // cronJobSpecs
         Map.of(), // cronJobLastSchedule
         List.of(), // daemonSetSpecs
@@ -74,6 +75,7 @@ class RaftLogTest {
         base.jobSpecs(),
         base.jobRuns(),
         base.jobPhases(),
+        base.jobRunSummaries(),
         base.cronJobSpecs(),
         base.cronJobLastSchedule(),
         base.daemonSetSpecs(),

@@ -23,6 +23,7 @@ import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
@@ -84,6 +85,7 @@ public sealed interface StoreRpc {
           ListJobRunsFor,
           ListJobRuns,
           GetJobPhase,
+          GetJobRunSummary,
           GetCronJobSpec,
           ListCronJobSpecs,
           GetCronJobLastSchedule,
@@ -135,6 +137,7 @@ public sealed interface StoreRpc {
           JobSpecListResult,
           JobRunListResult,
           JobPhaseResult,
+          JobRunSummaryResult,
           CronJobSpecResult,
           CronJobSpecListResult,
           InstantResult,
@@ -273,6 +276,8 @@ public sealed interface StoreRpc {
   /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
   record GetJobPhase(String jobName) implements Request {}
 
+  record GetJobRunSummary(String jobName) implements Request {}
+
   record GetCronJobSpec(String name) implements Request {}
 
   record ListCronJobSpecs() implements Request {}
@@ -396,6 +401,9 @@ public sealed interface StoreRpc {
    * {@code false}, the same "meaningless placeholder" convention {@link IntResult} already uses.
    */
   record JobPhaseResult(boolean present, JobPhase value) implements Response {}
+
+  /** {@code present == false} means the job has no terminal run summary recorded (yet). */
+  record JobRunSummaryResult(boolean present, JobRunSummary value) implements Response {}
 
   record CronJobSpecResult(boolean present, CronJobSpec value) implements Response {}
 

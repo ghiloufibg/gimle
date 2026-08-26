@@ -51,6 +51,10 @@ public final class StateStore implements StoreReader {
   // posture effectiveReplicas/rollingIndices already use rather than writing an explicit RUNNING
   // marker for every job that hasn't finished yet.
   private final Map<String, JobPhase> jobPhases = new ConcurrentHashMap<>();
+  // Only ever holds an entry once a job reaches a terminal phase too, populated in the very same
+  // batch that removes that job's last JobRun -- see JobRunSummary's own javadoc for why the two
+  // records exist separately.
+  private final Map<String, JobRunSummary> jobRunSummaries = new ConcurrentHashMap<>();
   private final Map<String, CronJobSpec> cronJobSpecs = new ConcurrentHashMap<>();
   // Absent means "never fired yet" -- CronJobReconciler treats that as "start looking forward from
   // now," never retroactively firing every missed minute since epoch. See CronJobReconciler's own
@@ -278,6 +282,7 @@ public final class StateStore implements StoreReader {
   public void removeJobSpec(String name) {
     jobSpecs.remove(name);
     jobPhases.remove(name);
+    jobRunSummaries.remove(name);
   }
 
   // ---- job runs ----
@@ -307,6 +312,17 @@ public final class StateStore implements StoreReader {
   /** Empty means "not yet terminal" -- see {@link #jobPhases}'s own field javadoc. */
   public Optional<JobPhase> getJobPhase(String jobName) {
     return Optional.ofNullable(jobPhases.get(jobName));
+  }
+
+  // ---- job run summary ----
+
+  public void putJobRunSummary(JobRunSummary summary) {
+    jobRunSummaries.put(summary.jobName(), summary);
+  }
+
+  /** Empty until the job reaches a terminal phase -- see {@link #jobRunSummaries}'s own javadoc. */
+  public Optional<JobRunSummary> getJobRunSummary(String jobName) {
+    return Optional.ofNullable(jobRunSummaries.get(jobName));
   }
 
   // ---- cronjobs ----
@@ -1090,6 +1106,7 @@ public final class StateStore implements StoreReader {
         List.copyOf(jobSpecs.values()),
         List.copyOf(jobRuns.values()),
         Map.copyOf(jobPhases),
+        List.copyOf(jobRunSummaries.values()),
         List.copyOf(cronJobSpecs.values()),
         Map.copyOf(cronJobLastSchedule),
         List.copyOf(daemonSetSpecs.values()),
@@ -1200,6 +1217,7 @@ public final class StateStore implements StoreReader {
     snapshot.jobSpecs().forEach(this::putJobSpec);
     snapshot.jobRuns().forEach(this::putJobRun);
     snapshot.jobPhases().forEach(this::putJobPhase);
+    snapshot.jobRunSummaries().forEach(this::putJobRunSummary);
     snapshot.cronJobSpecs().forEach(this::putCronJobSpec);
     snapshot.cronJobLastSchedule().forEach(this::putCronJobLastSchedule);
     snapshot.daemonSetSpecs().forEach(this::putDaemonSetSpec);

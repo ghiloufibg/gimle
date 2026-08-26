@@ -26,6 +26,7 @@ import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
@@ -258,6 +259,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   public Optional<JobPhase> getJobPhase(String jobName) {
     StoreRpc.JobPhaseResult r =
         (StoreRpc.JobPhaseResult) sendRead(new StoreRpc.GetJobPhase(jobName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public Optional<JobRunSummary> getJobRunSummary(String jobName) {
+    StoreRpc.JobRunSummaryResult r =
+        (StoreRpc.JobRunSummaryResult) sendRead(new StoreRpc.GetJobRunSummary(jobName));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 

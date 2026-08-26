@@ -29,6 +29,7 @@ import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.WorkloadTokenRecord;
@@ -277,6 +278,9 @@ class RaftCodecTest {
             List.of(),
             List.of(),
             Map.of(),
+            List.of(
+                new JobRunSummary(
+                    "greeter-job", 2, "node-1", "exhausted backoffLimit of 3 attempts")),
             List.of(),
             Map.of(),
             List.of(),
@@ -370,6 +374,7 @@ class RaftCodecTest {
     assertEquals(snapshot.controllerRevisions(), decoded.controllerRevisions());
     assertEquals(snapshot.revokedCertificateSerials(), decoded.revokedCertificateSerials());
     assertEquals(snapshot.workloadTokens(), decoded.workloadTokens());
+    assertEquals(snapshot.jobRunSummaries(), decoded.jobRunSummaries());
   }
 
   @Test

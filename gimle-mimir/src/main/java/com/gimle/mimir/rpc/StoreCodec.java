@@ -101,6 +101,7 @@ public final class StoreCodec {
   private static final byte TAG_LIST_STATEFULSET_ASSIGNMENTS_FOR = 81;
   private static final byte TAG_GET_ROLLING_STATEFULSET_INDEX = 82;
   private static final byte TAG_GET_STATEFULSET_INDEX_NODE = 83;
+  private static final byte TAG_GET_JOB_RUN_SUMMARY = 116;
 
   // ---- responses ----
   private static final byte TAG_OK = 23;
@@ -170,6 +171,7 @@ public final class StoreCodec {
   private static final byte TAG_LIST_REVOKED_CERTIFICATE_SERIALS = 113;
   private static final byte TAG_GET_WORKLOAD_TOKEN = 114;
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
+  private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -293,6 +295,10 @@ public final class StoreCodec {
         case StoreRpc.ListJobRuns v -> out.writeByte(TAG_LIST_JOB_RUNS);
         case StoreRpc.GetJobPhase v -> {
           out.writeByte(TAG_GET_JOB_PHASE);
+          out.writeUTF(v.jobName());
+        }
+        case StoreRpc.GetJobRunSummary v -> {
+          out.writeByte(TAG_GET_JOB_RUN_SUMMARY);
           out.writeUTF(v.jobName());
         }
         case StoreRpc.GetCronJobSpec v -> {
@@ -519,6 +525,13 @@ public final class StoreCodec {
           out.writeBoolean(v.present());
           if (v.present()) {
             out.writeUTF(v.value().name());
+          }
+        }
+        case StoreRpc.JobRunSummaryResult v -> {
+          out.writeByte(TAG_JOB_RUN_SUMMARY_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeJobRunSummary(out, v.value());
           }
         }
         case StoreRpc.CronJobSpecResult v -> {
@@ -809,6 +822,7 @@ public final class StoreCodec {
         case TAG_LIST_JOB_RUNS_FOR -> new StoreRpc.ListJobRunsFor(in.readUTF());
         case TAG_LIST_JOB_RUNS -> new StoreRpc.ListJobRuns();
         case TAG_GET_JOB_PHASE -> new StoreRpc.GetJobPhase(in.readUTF());
+        case TAG_GET_JOB_RUN_SUMMARY -> new StoreRpc.GetJobRunSummary(in.readUTF());
         case TAG_GET_CRONJOB_SPEC -> new StoreRpc.GetCronJobSpec(in.readUTF());
         case TAG_LIST_CRONJOB_SPECS -> new StoreRpc.ListCronJobSpecs();
         case TAG_GET_CRONJOB_LAST_SCHEDULE -> new StoreRpc.GetCronJobLastSchedule(in.readUTF());
@@ -936,6 +950,11 @@ public final class StoreCodec {
           boolean present = in.readBoolean();
           yield new StoreRpc.JobPhaseResult(
               present, present ? JobPhase.valueOf(in.readUTF()) : null);
+        }
+        case TAG_JOB_RUN_SUMMARY_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.JobRunSummaryResult(
+              present, present ? DomainCodec.readJobRunSummary(in) : null);
         }
         case TAG_CRONJOB_SPEC_RESULT -> {
           boolean present = in.readBoolean();

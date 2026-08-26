@@ -16,6 +16,7 @@ import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
+import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
@@ -213,10 +214,16 @@ public final class JobReconciler {
           spec.activeDeadline().get());
       // One batch: the run removal and the terminal phase commit atomically -- a crash between
       // them used to leave a non-terminal job with zero runs, which the next tick would re-place
-      // from attempt 0 and run a second time.
+      // from attempt 0 and run a second time. The run summary rides in the same batch so the last
+      // attempt's own detail (node, attempt count, failure reason) survives the removal above --
+      // see JobRunSummary's own javadoc for why the two records are kept separate.
+      String reason =
+          "exceeded activeDeadline of " + spec.activeDeadline().get() + " across all attempts";
       mutations.proposeAll(
           List.of(
               new StateMutation.RemoveJobRun(run.jobName(), run.attempt()),
+              new StateMutation.PutJobRunSummary(
+                  new JobRunSummary(run.jobName(), run.attempt(), run.nodeId(), reason)),
               new StateMutation.PutJobPhase(spec.name(), JobPhase.FAILED)));
       return;
     }
@@ -247,6 +254,9 @@ public final class JobReconciler {
       mutations.proposeAll(
           List.of(
               new StateMutation.PutJobPhase(spec.name(), JobPhase.SUCCEEDED),
+              new StateMutation.PutJobRunSummary(
+                  new JobRunSummary(
+                      run.jobName(), run.attempt(), run.nodeId(), "job completed successfully")),
               new StateMutation.RemoveJobRun(run.jobName(), run.attempt())));
       return;
     }
@@ -268,9 +278,12 @@ public final class JobReconciler {
           "job {} exhausted its backoffLimit of {}; marking permanently failed",
           spec.name(),
           spec.backoffLimit());
+      String reason = "exhausted backoffLimit of " + spec.backoffLimit() + " attempts";
       mutations.proposeAll(
           List.of(
               new StateMutation.PutJobPhase(spec.name(), JobPhase.FAILED),
+              new StateMutation.PutJobRunSummary(
+                  new JobRunSummary(run.jobName(), run.attempt(), run.nodeId(), reason)),
               new StateMutation.RemoveJobRun(run.jobName(), run.attempt())));
       return;
     }
