@@ -102,6 +102,36 @@ class BifrostProxyTest {
 
   @Test
   @Timeout(15)
+  void expose_mode_binds_the_wildcard_address_at_the_service_port() throws Exception {
+    ServiceEndpoint backend = startTaggedBackend("A");
+    int servicePort = freePort();
+    source.put("orders", servicePort, List.of(backend));
+    proxy =
+        new BifrostProxy(
+            source,
+            List::of,
+            new BifrostSettings(Duration.ofMinutes(5), true, Optional.empty(), Optional.empty()));
+    proxy.pollOnce();
+
+    InetSocketAddress bound = proxy.boundAddressFor("orders").orElseThrow();
+
+    assertEquals(servicePort, bound.getPort());
+    assertTrue(
+        bound.getAddress().isAnyLocalAddress(),
+        "expose mode must bind the wildcard address, not a loopback ClusterIP");
+    assertEquals(
+        "A", readTagFrom(new InetSocketAddress(InetAddress.getLoopbackAddress(), servicePort)));
+  }
+
+  /** A port that was free a moment ago -- bound and released so the proxy can claim it. */
+  private static int freePort() throws IOException {
+    try (ServerSocket probe = new ServerSocket(0)) {
+      return probe.getLocalPort();
+    }
+  }
+
+  @Test
+  @Timeout(15)
   void a_service_disappearing_from_the_source_closes_its_listener() throws Exception {
     ServiceEndpoint backend = startTaggedBackend("A");
     source.put("orders", 9101, List.of(backend));
@@ -130,6 +160,64 @@ class BifrostProxyTest {
 
     InetSocketAddress clusterAddress = proxy.boundAddressFor("payments").orElseThrow();
     assertEquals("P", readTagFrom(clusterAddress));
+  }
+
+  @Test
+  @Timeout(15)
+  void endpoints_on_the_proxys_own_node_are_preferred_over_remote_ones() throws Exception {
+    ServiceEndpoint localBackend = startTaggedBackend("L").withNodeId("node-a");
+    ServiceEndpoint remoteBackend = startTaggedBackend("R").withNodeId("node-b");
+    source.put("orders", 9107, List.of(remoteBackend, localBackend));
+    proxy =
+        new BifrostProxy(
+            source,
+            List::of,
+            new BifrostSettings(
+                Duration.ofMinutes(5), false, Optional.of("node-a"), Optional.empty()));
+    proxy.pollOnce();
+    InetSocketAddress clusterAddress = proxy.boundAddressFor("orders").orElseThrow();
+
+    List<String> served =
+        List.of(
+            readTagFrom(clusterAddress), readTagFrom(clusterAddress), readTagFrom(clusterAddress));
+
+    assertEquals(List.of("L", "L", "L"), served);
+  }
+
+  @Test
+  @Timeout(15)
+  void locality_preference_falls_back_to_remote_endpoints_when_no_local_one_is_live()
+      throws Exception {
+    ServiceEndpoint remoteBackend = startTaggedBackend("R").withNodeId("node-b");
+    source.put("orders", 9108, List.of(remoteBackend));
+    proxy =
+        new BifrostProxy(
+            source,
+            List::of,
+            new BifrostSettings(
+                Duration.ofMinutes(5), false, Optional.of("node-a"), Optional.empty()));
+    proxy.pollOnce();
+
+    assertEquals("R", readTagFrom(proxy.boundAddressFor("orders").orElseThrow()));
+  }
+
+  @Test
+  @Timeout(15)
+  void session_affinity_pins_a_caller_to_one_backend_across_connections() throws Exception {
+    ServiceEndpoint backendA = startTaggedBackend("A");
+    ServiceEndpoint backendB = startTaggedBackend("B");
+    source.put("orders", Optional.empty(), Set.of(), 9109, true, List.of(backendA, backendB));
+    proxy = new BifrostProxy(source, Duration.ofMinutes(5));
+    proxy.pollOnce();
+    InetSocketAddress clusterAddress = proxy.boundAddressFor("orders").orElseThrow();
+
+    String first = readTagFrom(clusterAddress);
+    String second = readTagFrom(clusterAddress);
+    String third = readTagFrom(clusterAddress);
+
+    // Round-robin would alternate; ClientIP-style affinity keeps one loopback caller pinned.
+    assertEquals(first, second);
+    assertEquals(first, third);
   }
 
   /** A mutable {@code NetworkPolicySource} fake, the {@link InMemoryServiceSource} analogue. */

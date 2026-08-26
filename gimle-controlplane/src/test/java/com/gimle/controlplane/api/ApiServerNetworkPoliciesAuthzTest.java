@@ -46,7 +46,7 @@ class ApiServerNetworkPoliciesAuthzTest {
   private static final String CERT_FILE_PROPERTY = "gimle.tls.certFile";
   private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
-  private static final String CA_KEY_FILE_PROPERTY = "gimle.pki.caKeyFile";
+  private static final String CA_KEY_FILE_PROPERTY = "gimle.tls.caKeyFile";
 
   @TempDir(cleanup = CleanupMode.NEVER)
   private Path tempDir;
@@ -64,7 +64,7 @@ class ApiServerNetworkPoliciesAuthzTest {
 
   private static String tenantWidePolicyJson(String name, String tenantId) {
     return """
-        {"name": "%s", "tenantId": "%s"}
+        {"name": "%s", "tenantId": "%s", "allowedCallerTenantIds": []}
         """
         .formatted(name, tenantId);
   }

@@ -105,6 +105,24 @@ final class DnsCodecTest {
             DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, List.of(new byte[] {1, 2, 3})));
   }
 
+  @Test
+  void truncated_response_sets_the_tc_flag_and_a_full_one_leaves_it_clear() throws IOException {
+    byte[] raw = buildQuery(0x77, "orders.svc.gimle.local", DnsCodec.TYPE_A, 0, true);
+    DnsCodec.Query query = DnsCodec.decodeQuery(raw, raw.length);
+
+    byte[] truncated = DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, List.of(), true);
+    byte[] full =
+        DnsCodec.encodeResponse(
+            query,
+            DnsCodec.RCODE_NOERROR,
+            List.of(DnsCodec.Answer.a(new byte[] {10, 0, 0, 5})),
+            false);
+
+    assertEquals(1, (unsignedShort(truncated, 2) >>> 9) & 0x1);
+    assertEquals(0, unsignedShort(truncated, 6)); // ANCOUNT: a truncated reply carries no answers
+    assertEquals(0, (unsignedShort(full, 2) >>> 9) & 0x1);
+  }
+
   private static byte[] buildQuery(
       int id, String name, int qtype, int opcode, boolean recursionDesired) throws IOException {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();

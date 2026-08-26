@@ -193,7 +193,7 @@ class SleipnirCacheTest {
             HealthProbes.NONE,
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Map.of());
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());

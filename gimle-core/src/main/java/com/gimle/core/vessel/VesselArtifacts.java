@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -46,7 +47,7 @@ public final class VesselArtifacts {
         HealthProbes.NONE,
         Optional.empty(),
         Optional.empty(),
-        Optional.empty());
+        Map.of());
   }
 
   /**

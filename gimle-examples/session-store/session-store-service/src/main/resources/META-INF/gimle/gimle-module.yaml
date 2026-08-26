@@ -10,10 +10,11 @@ resources:
     memory: 256Mi
     cpu: 500m
 # 64 MiB volume -- generous for a demo's worth of session records, small enough to allocate on any
-# real node without a second thought.
+# real node without a second thought. Delete on permanent removal: demo session records are
+# disposable, so there is nothing worth retaining for an operator to inspect.
 volume:
   sizeBytes: 67108864
-  mountPath: /data
+  reclaimPolicy: Delete
 exports:
   - service: com.example.sessionstore.SessionStore
     version: 1.0.0

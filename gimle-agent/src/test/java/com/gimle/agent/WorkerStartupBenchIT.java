@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -106,7 +107,7 @@ class WorkerStartupBenchIT {
             HealthProbes.NONE,
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Map.of());
     limitHandle = AgentMain.prepareResourceLimit(resourceLimiter, "sleipnir-bench#0", descriptor);
     assigned =
         new AssignedInstance(

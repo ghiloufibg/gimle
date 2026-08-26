@@ -41,13 +41,14 @@ import java.util.List;
  *   gimle uncordon &lt;nodeId&gt;
  *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--limit N]
  *   gimle get services [name]
- *   gimle set service &lt;name&gt; --deployment &lt;name&gt; [--deployment ...] --port N [--target-port N]
+ *   gimle set service &lt;name&gt; (--deployment &lt;name&gt; [--deployment ...] | --external-name &lt;host&gt;) --port N [--target-port N] [--session-affinity]
  *                             [--tenant &lt;id&gt;]
  *   gimle delete service &lt;name&gt;
  *   gimle service endpoints &lt;name&gt;
  *   gimle get networkpolicies [name]
- *   gimle set networkpolicy &lt;name&gt; --tenant &lt;id&gt; [--deployment ...]
- *                                   --allowed-caller-tenant &lt;id&gt; [--allowed-caller-tenant ...]
+ *   gimle set networkpolicy &lt;name&gt; --tenant &lt;id&gt; [--deployment ...] [--service-interface ...]
+ *                                   [--allowed-caller-tenant &lt;id&gt; ... | --deny-all-callers]
+ *                                   [--allowed-callee-tenant &lt;id&gt; ... | --deny-all-callees]
  *   gimle delete networkpolicy &lt;name&gt;
  *   gimle get tenants [id]
  *   gimle set tenant &lt;id&gt; --max-memory-bytes N --max-cpu-millicores N --max-instances N
@@ -100,6 +101,7 @@ import java.util.List;
  *   gimle get accounts [username]
  *   gimle set account &lt;username&gt; --password &lt;value&gt;
  *   gimle delete account &lt;username&gt;
+ *   gimle can-i &lt;verb&gt; &lt;resource&gt; [--tenant &lt;id&gt;] [--target &lt;id&gt;]
  * </pre>
  *
  * Global flags (any order, anywhere): {@code --server host:port} (or the {@code GIMLE_SERVER} env
@@ -201,8 +203,10 @@ public final class GimleCli {
       case "secretmap", "secretmaps" -> new SecretMapCommand(client, output, out).run(rest);
       case "seal", "seals" -> new SealCommand(client, output, out).run(rest);
       case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
+      case "volume", "volumes" -> new VolumesCommand(client, output, out).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
+      case "can-i" -> new CanICommand(client, output, out).run(rest);
       case "service", "services" -> handleServiceVerb(rest, client, output, out);
       case "deployment", "deployments" -> handleDeploymentVerb(rest, client, output, out);
       case "statefulset", "statefulsets" -> handleStatefulSetVerb(rest, client, output, out);
@@ -483,15 +487,18 @@ public final class GimleCli {
           get node-assignments <nodeId>
           cordon <nodeId>
           uncordon <nodeId>
+          volume list
+          volume destroy <statefulSet> <instanceIndex> --node <nodeId>
           events <deploymentName> <instanceIndex> [--limit N]
           get services [name]
-          set service <name> --deployment <name> [--deployment ...] --port N [--target-port N]
+          set service <name> (--deployment <name> [--deployment ...] | --external-name <host>) --port N [--target-port N] [--session-affinity]
                               [--tenant <id>]
           delete service <name>
           service endpoints <name>
           get networkpolicies [name]
-          set networkpolicy <name> --tenant <id> [--deployment ...]
-                                    --allowed-caller-tenant <id> [--allowed-caller-tenant ...]
+          set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
+                                    [--allowed-caller-tenant <id> ... | --deny-all-callers]
+                                    [--allowed-callee-tenant <id> ... | --deny-all-callees]
           delete networkpolicy <name>
           get tenants [id]
           set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
@@ -543,10 +550,14 @@ public final class GimleCli {
           get accounts [username]
           set account <username> --password <value>
           delete account <username>
+          can-i <verb> <resource> [--tenant <id>] [--target <id>]
           cert token create [--ttl <duration>]
-          cert request --purpose operator|node --out-cert <path> --out-key <path>
+          cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path> --out-key <path>
           cert status <request-id> --out-cert <path>
           cert approve <request-id>
-          cert renew [--force]""";
+          cert renew [--force]
+          cert revoke <serialHex>
+          cert unrevoke <serialHex>
+          cert revocations""";
   }
 }

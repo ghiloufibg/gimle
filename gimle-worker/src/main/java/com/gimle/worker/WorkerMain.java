@@ -18,6 +18,7 @@ import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.leak.LeakTracker;
 import com.gimle.module.lifecycle.LifecycleEvent;
+import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleController;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
@@ -42,6 +43,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -152,7 +154,8 @@ public final class WorkerMain {
             identityRegistry,
             instanceLogCloser,
             activeModules,
-            relay);
+            relay,
+            nodeId);
     ModuleController controller = controllerAndRuntime.controller();
     WorkerRuntime runtime = controllerAndRuntime.runtime();
 
@@ -307,7 +310,8 @@ public final class WorkerMain {
       InstanceIdentityRegistry identityRegistry,
       InstanceLogCloser instanceLogCloser,
       Set<ModuleId> activeModules,
-      ControlPlaneRelay relay) {
+      ControlPlaneRelay relay,
+      String nodeId) {
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
         event -> handleLifecycleEvent(event, runtimeRef, activeModules, channel, identityRegistry);
@@ -336,7 +340,17 @@ public final class WorkerMain {
             sink,
             leakTracker::track,
             fabricRegistry,
-            relay::request);
+            relay::request,
+            id ->
+                identityRegistry
+                    .lookup(id)
+                    .map(
+                        identity ->
+                            new ModuleContext.InstanceInfo(
+                                identity.deploymentName(),
+                                identity.instanceIndex(),
+                                nodeId,
+                                identity.tenantId())));
     // How many virtual threads a module's BoundedModuleScheduler runs concurrently by default,
     // and the liveness/readiness probe cadence every module is checked against once ACTIVE.
     int defaultMaxConcurrency = 4;
@@ -618,9 +632,10 @@ public final class WorkerMain {
               () ->
                   controller.resolve(
                       m.id(),
-                      m.dataDirectory().isBlank()
-                          ? Optional.empty()
-                          : Optional.of(Path.of(m.dataDirectory()))));
+                      m.dataDirectories().entrySet().stream()
+                          .collect(
+                              Collectors.toMap(
+                                  Map.Entry::getKey, entry -> Path.of(entry.getValue())))));
       case ControlMessage.StartModule m ->
           runCommand(
               m.correlationId(),

@@ -28,7 +28,13 @@ a default. `ModuleResolver` checks required-module version ranges before a layer
 constructed; `ModuleDescriptorParser`/`ModuleArtifactReader` read the module's `gimle-module.yaml`
 and JAR to get there. `ModuleContext`/`SimpleModuleContext` is what a running instance actually
 sees: its own service registry lookups, resource handles, and lifecycle-hook callback surface,
-scoped to that one instance.
+scoped to that one instance. Beyond services and lifecycle, it carries the instance's config view
+(`config(key)` for a point lookup, `configKeys()` to enumerate everything the agent actually
+delivered — for a module that treats its config as a namespace rather than a fixed set of known
+keys) and the downward-API-style `instanceInfo()`: the instance's own placement identity as the
+platform sees it (deployment name, replica index, node id, owning tenant), looked up live on every
+call so an in-place retarget changes the answer without the module restarting, and empty for a
+module the platform never identified (a directly-embedded controller in a test).
 
 ## Lifecycle
 

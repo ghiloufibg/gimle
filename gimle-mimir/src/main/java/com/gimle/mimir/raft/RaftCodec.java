@@ -26,6 +26,7 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -123,6 +124,9 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_LIMIT_RANGE = 54;
   private static final byte MUT_PUT_LIMIT_RANGE_VIOLATION = 55;
   private static final byte MUT_BATCH = 56;
+  private static final byte MUT_PUT_CERTIFICATE_REVOCATION = 57;
+  private static final byte MUT_PUT_WORKLOAD_TOKEN = 58;
+  private static final byte MUT_REMOVE_WORKLOAD_TOKEN = 59;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -524,6 +528,20 @@ public final class RaftCodec {
         out.writeUTF(m.nodeId());
         out.writeBoolean(m.cordoned());
       }
+      case StateMutation.PutCertificateRevocation m -> {
+        out.writeByte(MUT_PUT_CERTIFICATE_REVOCATION);
+        out.writeUTF(m.serialNumber());
+        out.writeBoolean(m.revoked());
+      }
+      case StateMutation.PutWorkloadToken m -> {
+        out.writeByte(MUT_PUT_WORKLOAD_TOKEN);
+        DomainCodec.writeWorkloadTokenRecord(out, m.record());
+        out.writeLong(m.mintedAtEpochMilli());
+      }
+      case StateMutation.RemoveWorkloadToken m -> {
+        out.writeByte(MUT_REMOVE_WORKLOAD_TOKEN);
+        out.writeUTF(m.key());
+      }
       case StateMutation.AppendInstanceEvent m -> {
         out.writeByte(MUT_APPEND_INSTANCE_EVENT);
         DomainCodec.writeInstanceEvent(out, m.event());
@@ -693,6 +711,12 @@ public final class RaftCodec {
       case MUT_REMOVE_RECONCILER_INSTANCE_STATE ->
           new StateMutation.RemoveReconcilerInstanceState(in.readUTF(), in.readInt());
       case MUT_PUT_NODE_CORDON -> new StateMutation.PutNodeCordon(in.readUTF(), in.readBoolean());
+      case MUT_PUT_CERTIFICATE_REVOCATION ->
+          new StateMutation.PutCertificateRevocation(in.readUTF(), in.readBoolean());
+      case MUT_PUT_WORKLOAD_TOKEN ->
+          new StateMutation.PutWorkloadToken(
+              DomainCodec.readWorkloadTokenRecord(in), in.readLong());
+      case MUT_REMOVE_WORKLOAD_TOKEN -> new StateMutation.RemoveWorkloadToken(in.readUTF());
       case MUT_APPEND_INSTANCE_EVENT ->
           new StateMutation.AppendInstanceEvent(DomainCodec.readInstanceEvent(in));
       case MUT_APPEND_AUDIT_EVENT ->
@@ -902,6 +926,14 @@ public final class RaftCodec {
         out.writeUTF(entry.getKey());
         out.writeUTF(entry.getValue());
       }
+      out.writeInt(snapshot.revokedCertificateSerials().size());
+      for (String serial : snapshot.revokedCertificateSerials()) {
+        out.writeUTF(serial);
+      }
+      out.writeInt(snapshot.workloadTokens().size());
+      for (WorkloadTokenRecord record : snapshot.workloadTokens()) {
+        DomainCodec.writeWorkloadTokenRecord(out, record);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1100,6 +1132,16 @@ public final class RaftCodec {
         String reason = in.readUTF();
         limitRangeViolations.put(deploymentName, reason);
       }
+      Set<String> revokedCertificateSerials = new LinkedHashSet<>();
+      int revokedSerialCount = in.readInt();
+      for (int i = 0; i < revokedSerialCount; i++) {
+        revokedCertificateSerials.add(in.readUTF());
+      }
+      List<WorkloadTokenRecord> workloadTokens = new ArrayList<>();
+      int workloadTokenCount = in.readInt();
+      for (int i = 0; i < workloadTokenCount; i++) {
+        workloadTokens.add(DomainCodec.readWorkloadTokenRecord(in));
+      }
       return new StateSnapshot(
           deployments,
           assignments,
@@ -1133,7 +1175,9 @@ public final class RaftCodec {
           networkPolicies,
           controllerRevisions,
           limitRanges,
-          limitRangeViolations);
+          limitRangeViolations,
+          revokedCertificateSerials,
+          workloadTokens);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

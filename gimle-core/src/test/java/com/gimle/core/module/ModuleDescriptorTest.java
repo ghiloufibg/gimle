@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -25,7 +26,7 @@ class ModuleDescriptorTest {
                 HealthProbes.NONE,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Map.of()));
   }
 
   @Test
@@ -44,7 +45,7 @@ class ModuleDescriptorTest {
                 HealthProbes.NONE,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Map.of()));
   }
 
   @Test
@@ -63,7 +64,7 @@ class ModuleDescriptorTest {
                 HealthProbes.NONE,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Map.of()));
   }
 
   @Test
@@ -82,7 +83,7 @@ class ModuleDescriptorTest {
                 HealthProbes.NONE,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Map.of()));
   }
 
   @Test
@@ -99,7 +100,7 @@ class ModuleDescriptorTest {
             HealthProbes.NONE,
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Map.of());
     assertEquals(new ModuleId("com.gimle.example.orders", Version.parse("1.4.2")), descriptor.id());
   }
 }

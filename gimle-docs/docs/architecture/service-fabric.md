@@ -80,18 +80,38 @@ like every other reconciler in this codebase — each tick recomputes a Service'
 from scratch off the current store snapshot rather than diffing against the last tick, so an empty
 store, a mid-rollout store, and a fully-converged store all take the same code path. `ApiServer`
 exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (returning
-`{"name","port","targetPort","endpoints":[{"host","port"}]}`), RBAC-gated via `ResourceKind.SERVICE`.
+`{"name","port","targetPort","sessionAffinity","endpoints":[{"host","port","nodeId"}]}`),
+RBAC-gated via `ResourceKind.SERVICE`.
+
+Two `ServiceSpec` shapes exist. The selector shape above fronts in-cluster instances. Declaring
+`externalName` instead (the ExternalName analogue — `gimle set service billing --external-name
+billing.example.com --port 443`) makes the Service resolve to that external hostname at
+`targetPort` with no in-cluster backing at all — useful while migrating a dependency into the
+cluster: callers keep the stable in-cluster name while the real host lives elsewhere. The two are
+exclusive; an ExternalName Service names no deployments. `GET /services/{name}/endpoints` answers
+the external host as the sole endpoint (no `nodeId`), so `gimle-bifrost` forwards to it with no
+special casing, and `gimle-skald` answers an `A` query for the Service with a `CNAME` to the
+external name — the caller's own resolver finishes the resolution, exactly Kubernetes' own
+ExternalName contract. `sessionAffinity: true` asks the forwarding proxy layer to pin each caller
+address to one backend (see Bifrost below); it deliberately has no effect on DNS answers or the
+fabric's own in-process load balancing.
 
 A `NetworkPolicySpec` record (same package) is declared alongside `ServiceSpec` as the NetworkPolicy
-analogue — a deny-by-default restriction on which other tenants may call into a tenant's own
-Services — but it has **no enforcement wired up yet**: nothing outside its own package and its own
-test reads it. Real cross-tenant enforcement landed on the listener side instead, independent of
-`NetworkPolicySpec`: `FabricServer.dispatch` now re-checks a target's own `ServiceExport
-.allowedTenantIds` against the caller's wire-carried tenant identity before invoking it, rather than
-trusting that whatever caller-side filtering ran first was the only gate — closing the bypass where
-a caller dials the raw catalog address directly instead of going through that filter. This is the
-same "forwarded claim, independently re-checked at the far end" posture Fafnir/Muninn/Andvari each
-apply to identity, applied here to cross-tenant fabric traffic.
+analogue, relayed to every worker (`NetworkPolicyRelay` → `ControlMessage.NetworkPoliciesUpdated` →
+`FabricServer.updateNetworkPolicies`) and enforced at the listener in both directions.
+**Ingress**: rules owned by the target's tenant gate who may call in
+(`allowedCallerTenantIds`, deny-by-default once a restriction exists), scoped optionally to named
+deployments (`deploymentNames`) and to named exported service interfaces (`serviceInterfaceNames`).
+**Egress**: rules owned by the *caller's* tenant gate who that tenant may call out to
+(`allowedCalleeTenantIds`), enforced at the callee deliberately — the callee is the one enforcement
+point a misbehaving caller cannot skip — for caller-tenant-wide rules (a caller-deployment-scoped
+egress rule names an identity the wire doesn't carry, so it can only ever be proven to apply at the
+caller). Independently of `NetworkPolicySpec`, `FabricServer.dispatch` also re-checks a target's own
+`ServiceExport.allowedTenantIds` against the caller's wire-carried tenant identity before invoking
+it — closing the bypass where a caller dials the raw catalog address directly instead of going
+through the caller-side filter. Both are the same "forwarded claim, independently re-checked at the
+far end" posture Fafnir/Muninn/Andvari each apply to identity, applied to cross-tenant fabric
+traffic.
 
 ### `gimle-bifrost`: the per-node service proxy
 
@@ -99,13 +119,40 @@ apply to identity, applied here to cross-tenant fabric traffic.
 analogue, off by default (`-Dgimle.agent.bifrostEnabled=true`). `BifrostProxy` is level-triggered
 the same way `ServiceReconciler` is: on a fixed poll interval it recomputes the desired listener set
 from whatever a `ServiceSource` reports right now, binding a stable loopback-alias address
-(`LoopbackAddressAllocator`) for each currently-known Service and round-robin-forwarding accepted
-connections to that Service's live endpoints, closing listeners for Services that disappeared and
-opening new ones for Services that appeared — a missed or failed poll self-heals on the next one
-rather than leaving stale listeners behind. It's embedded inside `gimle-agent`, not a new process
-kind. `gimle-skald` (see [Node topology](./node-topology.md#skald)) resolves the same Service/
-endpoint data by name over DNS instead of by loopback address, for callers outside the fabric
-entirely.
+(`LoopbackAddressAllocator`) for each currently-known Service and forwarding accepted connections
+to that Service's live endpoints, closing listeners for Services that disappeared and opening new
+ones for Services that appeared — a missed or failed poll self-heals on the next one rather than
+leaving stale listeners behind. It's embedded inside `gimle-agent`, not a new process kind.
+`gimle-skald` (see [Node topology](./node-topology.md#skald)) resolves the same Service/endpoint
+data by name over DNS instead of by loopback address, for callers outside the fabric entirely.
+
+Endpoint selection is locality-first: each endpoint the control plane answers with carries the
+`nodeId` its backing instance runs on, and a listener round-robins over the subset on its own node
+whenever any is live, falling back to the full set otherwise — the same locality posture the
+fabric's own same-worker → same-machine → remote ladder takes, collapsed to the two rungs a byte
+relay can distinguish. A Service declaring `sessionAffinity: true` (the `sessionAffinity: ClientIP`
+analogue) trades that for pinning: a consistent hash of the caller's source address over a stably
+sorted endpoint set keeps each caller on one backend across connections, for as long as that
+backend stays live.
+
+Off-node exposure — the NodePort analogue — is a second opt-in on top
+(`-Dgimle.agent.bifrostExposeServices=true`): instead of a per-service loopback ClusterIP, each
+listener wildcard-binds at its Service's own declared port, making the Service dialable from off
+the node at `<nodeHost>:<servicePort>`. The tradeoff is NodePort's own: one port namespace for the
+whole node, so two Services declaring the same port can't both be exposed — the second bind fails
+and is logged, and everything else (forwarding, fail-closed under a NetworkPolicy) behaves
+identically to the loopback mode.
+
+A third opt-in, `-Dgimle.agent.bifrostTlsEnabled=true` (requires the cluster transport itself to be
+TLS), is the identity-verifying mode: every listener terminates TLS with the agent's own node
+certificate and demands a cluster-CA-signed client certificate. That gives Bifrost the one thing a
+plaintext byte relay can never have — a verified caller identity — so a `NetworkPolicySpec`
+restricting a Service is enforced against the caller certificate's `O=gimle:tenant:<id>` membership
+group (minted via `gimle cert request --purpose tenant`, see
+[Authentication & authorization](./authn-authz.md)) instead of failing the whole listener closed. In
+plaintext mode the fail-closed posture is unchanged: an applicable policy refuses every connection,
+since proxying unverifiable traffic would silently bypass a policy the tenant explicitly opted
+into.
 
 ## Membership: gossip, not the control plane
 

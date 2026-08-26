@@ -82,7 +82,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-070 | Self-signed cluster CA generation | PKI | Complete | Yes |
 | GIMLE-071 | CSR-to-leaf-certificate signing with signature verification | PKI | Complete | Yes |
 | GIMLE-072 | Server-stamped Subject override on signing (prevents self-declared privileged group) | PKI / Security | Complete | Yes |
-| GIMLE-073 | CSR generation with Subject Alternative Names | PKI | Complete | Yes |
+| GIMLE-073 | CSR generation with typed Subject Alternative Names (DNS and IP) | PKI | Complete | Yes |
 | GIMLE-074 | Hand-rolled PEM encode/decode for certs, CSRs, and private keys | PKI / Internal-Infra | Complete | Yes |
 | GIMLE-075 | Randomized certificate-renewal scheduling (anti-thundering-herd) | PKI | Complete | None |
 | GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | PKI | Complete | None |
@@ -621,6 +621,25 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | Control Plane API | Complete | Yes |
 | GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | Control Plane API | Complete | Yes |
 | GIMLE-611 | Midgard Docker dev-cluster distribution archive | Packaging | Complete | Partial |
+| GIMLE-612 | Volume reclaim policy: Retain-by-default persistent volume release | Module System / Storage | Complete | Yes |
+| GIMLE-613 | DNS-over-TCP fallback with UDP truncation | Service Discovery / DNS | Complete | Yes |
+| GIMLE-614 | Self-subject access review endpoint (/authz/can-i) | Security / RBAC | Complete | Yes |
+| GIMLE-615 | Per-tenant built-in role templates (tenant-view/edit/admin) | Security / RBAC | Complete | Yes |
+| GIMLE-616 | Instance identity on ModuleContext (downward API) | Module System | Complete | Yes |
+| GIMLE-617 | Config key enumeration on ModuleContext | Module System / Configuration | Complete | Yes |
+| GIMLE-618 | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | Complete | Yes |
+| GIMLE-619 | Live config and secret propagation to running instances | Configuration / Secrets | Complete | Yes |
+| GIMLE-620 | SRV records and headless A answers | Service Discovery / DNS | Complete | Yes |
+| GIMLE-621 | Cluster-wide volume operator surface (/volumes API + CLI) | Storage / Operations | Complete | Yes |
+| GIMLE-622 | Soft volume disk-usage observation in instance heartbeats | Storage / Observability | Complete | Yes |
+| GIMLE-623 | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | Complete | Yes |
+| GIMLE-624 | Certificate revocation denylist | Security / PKI | Complete | Yes |
+| GIMLE-625 | Workload identity: store-backed per-deployment tokens (ServiceAccount analogue) | Security / RBAC | Complete | Yes |
+| GIMLE-626 | Bifrost locality-preferred forwarding and ClientIP session affinity | Networking / Services | Complete | Yes |
+| GIMLE-627 | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Security / Networking | Complete | Yes |
+| GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Networking / Services | Complete | Yes |
+| GIMLE-629 | Vessel persistent volumes and secret-backed file mounts | Storage / Vessels | Complete | Partial |
+| GIMLE-630 | Multi-volume modules: named volumes and dataDirectory(name) | Storage | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -708,13 +727,13 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Module System / Storage
 - **User story**: As a module author building StatefulSet-kind workloads, I want to declare a persistent local-disk volume request in the module artifact.
-- **Status**: Complete
+- **Status**: Complete; volume declaration reshaped: the never-consumed mountPath field was dropped and an optional reclaimPolicy (Retain default) added
 - **Confidence**: High
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/VolumeRequest.java`
-- **Test coverage**: `ModuleDescriptorParserTest` (no_volume_leaves_it_empty, parses_volume_size_and_mount_path, volume_with_missing_mount_path_throws, volume_with_non_positive_size_bytes_throws)
+- **Test coverage**: `ModuleDescriptorParserTest` (no_volume_leaves_it_empty, parses_volume_size_with_reclaim_policy_defaulting_to_retain, parses_explicit_delete_reclaim_policy, volume_with_unknown_reclaim_policy_throws, volume_with_non_positive_size_bytes_throws)
 - **Gherkin scenario**:
   ```gherkin
-  Given gimle-module.yaml declaring volume:{sizeBytes,mountPath}, When parsed, Then ModuleDescriptor.volume() is present.
+  Given gimle-module.yaml declaring volume:{sizeBytes[,reclaimPolicy]}, When parsed, Then ModuleDescriptor.volume() is present with reclaimPolicy defaulting to RETAIN.
   ```
 
 #### GIMLE-008 — Health probe configuration with initial delay
@@ -1172,6 +1191,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given two failure messages differing only in an embedded port number, When both hashed via FailureSignature.of, Then identical signature; a genuinely different message produces a different one.
   ```
 
+#### GIMLE-615 — Per-tenant built-in role templates (tenant-view/edit/admin)
+
+- **Category**: Security / RBAC
+- **User story**: As a cluster operator, I want built-in per-tenant view/edit/admin role templates resolvable by name in a RoleBinding, usable end to end -- collection listings included, filtered to the tenants a scoped grant covers -- so common tenant-scoped grants need no hand-authored Role objects.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`requireListAuthorized`)
+- **Test coverage**: `BuiltinRolesTest` (tenant_view_reads_workloads_and_config_but_never_secrets, tenant_edit_adds_workload_and_secret_writes_but_not_guardrails, tenant_admin_additionally_manages_the_tenant_guardrails, every_tenant_template_permission_is_scoped_to_its_own_tenant_only, names_that_are_not_tenant_templates_synthesize_nothing), `AuthorizerTest` (a_binding_to_a_tenant_template_grants_within_that_tenant_and_nowhere_else, a_binding_to_a_tenant_view_template_never_reads_secrets), `AuthorizerTest` (has_any_read_grant_distinguishes_scoped_readers_from_callers_with_nothing), `ApiServerAuthzTest` (a_tenant_view_binding_lists_only_its_own_tenants_deployments)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a RoleBinding to tenant-edit:acme, When its subject writes a deployment under tenant acme, Then it is allowed, and denied for any other tenant.
+  Given a RoleBinding to tenant-view:acme, When its subject reads tenant acme's secrets, Then it is denied.
+  Given a RoleBinding to tenant-view:acme, When its subject GETs /deployments, Then the response is 200 listing exactly tenant acme's deployments -- never another tenant's or an untenanted one, and never a 403.
+  ```
+
 ### gimle-module
 
 #### GIMLE-043 — Module dependency resolution with cycle detection
@@ -1461,6 +1495,47 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve.
   ```
 
+#### GIMLE-616 — Instance identity on ModuleContext (downward API)
+
+- **Category**: Module System
+- **User story**: As a hosted module, I want to read my own placement identity (deployment name, replica index, node id, tenant) from ModuleContext, so index- or node-aware behavior needs no out-of-band configuration.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`, `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`, `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java`
+- **Test coverage**: `SimpleModuleContextTest` (instance_info_is_empty_when_no_identity_collaborator_was_wired, instance_info_reads_the_wired_supplier_live_on_every_call)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a hosted instance with a registered identity, When it calls ModuleContext.instanceInfo(), Then it sees its deployment name, replica index, node id, and tenant.
+  Given an instance renamed in place, When it calls instanceInfo() again, Then the answer reflects the new index without a restart.
+  ```
+
+#### GIMLE-617 — Config key enumeration on ModuleContext
+
+- **Category**: Module System / Configuration
+- **User story**: As a hosted module, I want to enumerate every config key actually delivered to me, so config treated as a namespace needs no key-by-key probing.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`, `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`
+- **Test coverage**: `SimpleModuleContextTest` (config_keys_enumerate_every_delivered_key_as_a_snapshot)
+- **Gherkin scenario**:
+  ```gherkin
+  Given delivered config values, When a module calls configKeys(), Then it receives a snapshot of every currently-delivered key.
+  ```
+
+#### GIMLE-630 — Multi-volume modules: named volumes and dataDirectory(name)
+
+- **Category**: Storage
+- **User story**: As a StatefulSet-shaped module needing more than one kind of persistent data (data files and a WAL, say), I want to declare several named volumes and reach each back by name, the way Kubernetes mounts several PVCs into one Pod.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ModuleDescriptor.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`
+- **Test coverage**: `ModuleDescriptorParserTest` (volumes map, both-forms rejection), `LocalDiskVolumeManagerTest` (per-name directories, destroy reclaims all), `SimpleModuleContextTest` (named accessors, sole-volume shorthand), `ControlMessageCodecTest` (RESOLVE map)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path.
+  Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged.
+  ```
+
 ### gimle-os
 
 #### GIMLE-064 — Pluggable resource-limiter abstraction
@@ -1541,6 +1616,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a volume request exceeding the target filesystem's usable space, When LocalDiskVolumeManager.allocate is called, Then GimleVolumeException reporting insufficient space; allocating twice for the same index is idempotent.
   ```
 
+#### GIMLE-612 — Volume reclaim policy: Retain-by-default persistent volume release
+
+- **Category**: Module System / Storage
+- **User story**: As an operator, I want a permanent StatefulSet removal to retain the instance's volume data on disk by default, so one mistaken scale-down or spec delete never silently destroys data, while a module owning disposable data can opt into Delete.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ReclaimPolicy.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`
+- **Test coverage**: `LocalDiskVolumeManagerTest` (release_under_default_retain_policy_leaves_the_data_on_disk, release_under_delete_policy_deletes_the_volume_directory_and_its_contents, release_of_a_never_allocated_handle_is_a_silent_no_op)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a StatefulSet module whose volume declares no reclaimPolicy, When its index is permanently removed, Then the volume directory and its contents remain on disk.
+  Given a StatefulSet module whose volume declares reclaimPolicy Delete, When its index is permanently removed, Then the volume directory is recursively deleted.
+  ```
+
 ### gimle-pki
 
 #### GIMLE-070 — Self-signed cluster CA generation
@@ -1582,17 +1671,18 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a CSR whose own Subject requests O=gimle:operators but the caller only has node-join authorization, When signed via the subject-override overload, Then the issued certificate's Subject is exactly the override; a bad self-signature is still rejected.
   ```
 
-#### GIMLE-073 — CSR generation with Subject Alternative Names
+#### GIMLE-073 — CSR generation with typed Subject Alternative Names (DNS and IP)
 
 - **Category**: PKI
-- **User story**: As a component requesting its own leaf certificate, I want to include DNS SANs in my CSR, so real HTTPS clients performing hostname verification accept the connection.
+- **User story**: As a component requesting its own leaf certificate, I want hostname SANs typed dNSName and IP-literal SANs typed iPAddress in my CSR, so real HTTPS clients performing hostname verification accept the connection whether the peer is dialed by name or by IP.
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/CertificateSigningRequests.java`
-- **Test coverage**: `CertificateSigningRequestsTest`; SAN propagation covered by `CertificateAuthorityTest#signed_leaf_certificate_carries_requested_subject_alternative_names`
+- **Test coverage**: `CertificateSigningRequestsTest` (incl. an_ip_literal_san_is_typed_ip_address_and_a_hostname_stays_dns_name); SAN propagation covered by `CertificateAuthorityTest#signed_leaf_certificate_carries_requested_subject_alternative_names`
 - **Gherkin scenario**:
   ```gherkin
-  Given a CSR built with dnsNames=["node1.local","localhost"], When verified with its own public key, Then succeeds, and the SAN extension request is present.
+  Given a CSR built with hostnames=["node1.local","localhost"], When verified with its own public key, Then succeeds, and the SAN extension request is present.
+  Given a CSR built with hostnames=["localhost","127.0.0.1","::1"], When signed by the CA, Then the leaf carries localhost as dNSName and both IP literals as iPAddress entries.
   ```
 
 #### GIMLE-074 — Hand-rolled PEM encode/decode for certs, CSRs, and private keys
@@ -2719,6 +2809,88 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a running cluster from topology "minimal", And module "greeter-provider" version "1.0.0" deployed with 1 replica as "sleipnir-greeter", Then within 60s deployment "sleipnir-greeter" is ACTIVE, And within 30s node "node-0" logs "AOT cache ineligible: directory on worker classpath", And node "node-0" has no AOT cache files.
+  ```
+
+#### GIMLE-618 — Bifrost off-node service exposure (NodePort analogue)
+
+- **Category**: Service Fabric / Networking
+- **User story**: As an operator, I want an opt-in flag that binds each Bifrost service listener on all interfaces at the service's own port, so a Service becomes dialable from off the node without the gateway.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+- **Test coverage**: `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port)
+- **Gherkin scenario**:
+  ```gherkin
+  Given -Dgimle.agent.bifrostExposeServices=true, When Bifrost binds a Service listener, Then it wildcard-binds at the Service's declared port and proxies to live endpoints.
+  ```
+
+#### GIMLE-619 — Live config and secret propagation to running instances
+
+- **Category**: Configuration / Secrets
+- **User story**: As an operator, I want a config edit or rotated secret to reach running instances without a restart, so configuration changes take effect while workloads keep serving.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/ConfigRelay.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+- **Test coverage**: `ConfigRelayTest` (the_first_poll_delivers_every_fetched_value, an_unchanged_value_is_not_re_delivered_but_a_changed_one_is, a_fetch_failure_skips_that_instance_without_failing_the_poll, an_instance_with_no_connection_yet_is_skipped, bookkeeping_for_a_removed_instance_is_dropped_so_a_reincarnation_gets_a_full_delivery)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running instance with delivered config, When a value changes upstream, Then the agent re-delivers only the changed value on its next relay tick and the module sees it on its next config(key) read.
+  ```
+
+#### GIMLE-622 — Soft volume disk-usage observation in instance heartbeats
+
+- **Category**: Storage / Observability
+- **User story**: As an operator, I want each StatefulSet instance's observation to carry its volume's sampled on-disk size, so growth is visible before the disk fills.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`
+- **Test coverage**: `LocalDiskVolumeManagerTest` (used_bytes_reports_zero_for_a_missing_volume_and_real_sizes_for_a_present_one); the observation field round-trips through `ApiServerTest`/`DomainCodecTest`'s existing observation coverage
+- **Gherkin scenario**:
+  ```gherkin
+  Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval.
+  ```
+
+#### GIMLE-626 — Bifrost locality-preferred forwarding and ClientIP session affinity
+
+- **Category**: Networking / Services
+- **User story**: As a caller dialing a Service through the per-node Bifrost proxy, I want traffic to prefer backends on my own node and, when the Service declares session affinity, to stay pinned to one backend, so latency and session state behave the way kube-proxy's locality and ClientIP affinity do.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostSettings.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`
+- **Test coverage**: `BifrostProxyTest` (endpoints_on_the_proxys_own_node_are_preferred..., locality_preference_falls_back..., session_affinity_pins_a_caller...), `ApiServerServicesTest` (nodeId on endpoints), `ServiceReconcilerTest`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service with one backend on the proxy's own node and one remote, When a caller connects repeatedly, Then every connection is served by the same-node backend until it disappears, after which remote backends serve.
+  Given a Service declaring sessionAffinity, When one caller connects repeatedly, Then every connection lands on the same backend.
+  ```
+
+#### GIMLE-627 — Bifrost TLS identity-verifying mode with tenant-membership client certificates
+
+- **Category**: Security / Networking
+- **User story**: As a tenant relying on a NetworkPolicy, I want the Bifrost proxy to verify a caller's certificate-carried tenant and enforce my allow list on proxied traffic, instead of failing the whole listener closed, so policied Services stay reachable to exactly the callers I allowed.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`, `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`
+- **Test coverage**: `BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers; unrestricted service), `ApiServerAuthzTest` (a_tenant_client_certificate_is_minted_by_an_operator...)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused.
+  Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one.
+  ```
+
+#### GIMLE-629 — Vessel persistent volumes and secret-backed file mounts
+
+- **Category**: Storage / Vessels
+- **User story**: As an operator running a stateful or secret-consuming external process as a vessel, I want a declared volume's host path injected as an env var and secret values rendered to owner-only files, so a StatefulSet-shaped vessel and a secret file mount both work without the process knowing anything about Gimlé.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/vessel/VesselEnvValue.java`, `gimle-core/src/main/java/com/gimle/core/vessel/VesselFileMount.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+- **Test coverage**: `DeploymentManifestParserTest` (volume env entry, secret file entry), `DomainCodecTest` (VolumeMount/secret-file round trip)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a vessel declaring a {volume: ...} env entry, When the agent spawns it, Then a persistent directory keyed by placement identity plus the env name is allocated and its host path exported as that variable, surviving replacement at the same key.
+  Given a vessel files entry naming a secret, When the agent renders files, Then the secret value lands on disk verbatim with owner-only permissions.
+  Given a single-jar vessel with a relative files path, When the agent spawns it, Then the process starts in the per-instance root the files rendered under, so the relative path resolves as declared; a bundle vessel keeps its entrypoint workdir and finds the root via GIMLE_INSTANCE_ROOT.
   ```
 
 ### gimle-mimir
@@ -3857,6 +4029,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the same deployment-scoped policy, When the target instance has no deployment identity registered at all, Then the call is permitted -- a scoped rule can only be proven to apply, never assumed to.
   ```
 
+#### GIMLE-623 — NetworkPolicy interface scoping and egress enforcement
+
+- **Category**: Networking / Multi-tenancy
+- **User story**: As a tenant operator, I want a NetworkPolicy to scope its restriction to named exported service interfaces and to restrict which tenants my workloads may call out to, enforced at the listener a caller cannot bypass.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`, `gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/NetworkPolicySpec.java`
+- **Test coverage**: `FabricServerTest` (an_interface_scoped_ingress_rule_restricts_only_calls_to_its_named_interfaces, an_egress_restricted_callers_tenant_is_denied_at_a_callee_outside_its_allow_list, an_egress_allow_list_naming_the_callees_tenant_permits_the_call, a_caller_deployment_scoped_egress_rule_is_not_enforced_at_the_callee, same_tenant_egress_is_always_permitted_regardless_of_the_allow_list)
+- **Gherkin scenario**:
+  ```gherkin
+  Given an ingress rule scoped to one exported interface, When a cross-tenant call targets a different interface, Then it passes, and a call to the named interface is denied.
+  Given an egress rule owned by the caller's tenant with an empty allow list, When that tenant calls a foreign-tenant callee, Then the callee's own listener denies it.
+  ```
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -4772,6 +4958,76 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a manifest whose declared module identity matches the resolved artifact's own; When submitted; Then admission proceeds unaffected.
   Given a vessel-hosted spec; When submitted; Then the check never fires, since the synthesized descriptor's identity is the declared one by construction.
   Given an artifact that fails to resolve at submission time; When submitted; Then admission proceeds with no recorded digest, unaffected by this check.
+  ```
+
+#### GIMLE-614 — Self-subject access review endpoint (/authz/can-i)
+
+- **Category**: Security / RBAC
+- **User story**: As an authenticated caller, I want to ask whether I would be authorized for a given resource/verb/tenant action without performing it -- via GET /authz/can-i or `gimle can-i <verb> <resource>` -- so consoles and operators can probe RBAC decisions safely.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/CanICommand.java`
+- **Test coverage**: `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything), `CanICommandTest` (CLI verb against a real in-process ApiServer, incl. client-side verb/resource validation and noun-spelling tolerance)
+- **Gherkin scenario**:
+  ```gherkin
+  Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it.
+  Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401.
+  Given `gimle can-i write deployments --tenant acme` against a plaintext server, When it runs, Then it prints yes and exits 0.
+  ```
+
+#### GIMLE-621 — Cluster-wide volume operator surface (/volumes API + CLI)
+
+- **Category**: Storage / Operations
+- **User story**: As an operator, I want to list every StatefulSet volume across the cluster (retained orphans included) and explicitly destroy a detached one, so Retain-reclaimed data is inspectable and reclaimable rather than invisible.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java`
+- **Test coverage**: `ApiServerTest` (volumes_are_aggregated_with_attachment_and_destroy_guards_attached_data), `AgentLogServerTest` (volumes_are_listed_with_usage_and_in_use_flags_and_destroy_respects_them), `LocalDiskVolumeManagerTest` (list_allocated_reports_every_volume_directory_with_its_used_bytes, a_retained_orphan_still_lists_until_explicitly_destroyed, destroy_of_a_nonexistent_volume_is_a_silent_no_op)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage.
+  Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it.
+  ```
+
+#### GIMLE-624 — Certificate revocation denylist
+
+- **Category**: Security / PKI
+- **User story**: As an operator, I want to revoke a compromised leaf certificate by serial number so it stops authenticating immediately, reversibly, without CRL/OCSP infrastructure.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`
+- **Test coverage**: `ApiServerAuthzTest` (a_revoked_certificate_stops_authenticating_until_unrevoked), `StateStoreTest` (certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication.
+  ```
+
+#### GIMLE-625 — Workload identity: store-backed per-deployment tokens (ServiceAccount analogue)
+
+- **Category**: Security / RBAC
+- **User story**: As a hosted module, I want my relayed control-plane reads to carry my own deny-by-default workload identity governed by RBAC, so what I may read is an operator's grant, not a hard-coded agent whitelist, and so I never ride my agent's node identity.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadTokenRecord.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+- **Test coverage**: `ApiServerAuthzTest` (a_workload_token_carries_deny_by_default_rbac_identity), `AgentRelayControlPlaneReadTest`/`RelayControlPlaneEndToEndTest` (untenanted whitelist path unchanged)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>.
+  Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources.
+  ```
+
+#### GIMLE-628 — ExternalName Services resolved via Skald CNAME and Bifrost forwarding
+
+- **Category**: Networking / Services
+- **User story**: As an operator migrating a dependency into the cluster, I want a Service that resolves to an external hostname, so callers keep the stable in-cluster name while the real host still lives outside.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`
+- **Test coverage**: `ServiceSpecTest` (external-name shapes), `ApiServerServicesTest` (an_external_name_service_round_trips..., rejection of mixed shape), `SkaldServerTest` (CNAME answer, SRV external target)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId.
+  Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish.
   ```
 
 ### gimle-fafnir
@@ -6525,13 +6781,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: CLI
 - **User story**: As a platform operator, I want to create, inspect, and delete a NetworkPolicy restricting which other tenants may call into my tenant's own Services from the command line, so I don't have to hand-craft a POST /networkpolicies request just to expose an existing control-plane capability.
-- **Status**: Complete. `gimle get networkpolicies [name]`, `gimle set networkpolicy <name> --tenant <id> [--deployment ...] --allowed-caller-tenant <id> [--allowed-caller-tenant ...]`, and `gimle delete networkpolicy <name>` round-trip against the real `ApiServer` `/networkpolicies*` surface that already existed with no CLI client of its own.
+- **Status**: Complete. `gimle get networkpolicies [name]`, `gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...] [--allowed-caller-tenant <id> ... | --deny-all-callers] [--allowed-callee-tenant <id> ... | --deny-all-callees]`, and `gimle delete networkpolicy <name>` round-trip against the real `ApiServer` `/networkpolicies*` surface, exposing the full spec -- interface scoping and the egress direction included -- rather than the ingress-only subset the first CLI cut carried.
 - **Confidence**: High
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`networkpolicy`/`networkpolicies` dispatch)
-- **Test coverage**: `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`
+- **Test coverage**: `GimleCliTest.set_networkpolicy_then_get_networkpolicies_round_trips_then_delete`, `set_networkpolicy_carries_interface_scoping_and_egress_restrictions`, `set_networkpolicy_restricting_no_direction_at_all_fails_client_side`, `set_networkpolicy_without_a_tenant_flag_fails`, `get_networkpolicy_not_found_produces_a_clear_error`
 - **Gherkin scenario**:
   ```gherkin
   Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"].
+  Given `gimle set networkpolicy p --tenant acme --service-interface com.acme.Orders --allowed-callee-tenant partner --deny-all-callers`, When the policy is read back, Then it carries the interface scope, the egress allow list, and an empty ingress allow list.
   ```
 
 #### GIMLE-584 — `gimle configmap` command
@@ -9050,4 +9307,32 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given SkaldServer's directory cache holds "orders.acme.svc.gimle.local" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record.
   Given the directory holds no entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN.
   Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence.
+  ```
+
+#### GIMLE-613 — DNS-over-TCP fallback with UDP truncation
+
+- **Category**: Service Discovery / DNS
+- **User story**: As a resolver querying Skald, I want oversized UDP answers truncated with TC=1 and the identical query answerable over TCP on the same port, so large responses arrive whole instead of silently cut.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`
+- **Test coverage**: `SkaldServerTest` (answers_the_same_query_over_tcp_with_a_length_prefixed_response, serves_multiple_sequential_queries_on_one_tcp_connection, answers_unknown_name_over_tcp_with_nxdomain), `DnsCodecTest` (truncated_response_sets_the_tc_flag_and_a_full_one_leaves_it_clear)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Skald server, When an A query arrives over TCP as a length-prefixed message, Then the full response is returned length-prefixed on the same connection.
+  Given a UDP response exceeding 512 bytes, When Skald replies over UDP, Then the reply carries TC=1 and no answers.
+  ```
+
+#### GIMLE-620 — SRV records and headless A answers
+
+- **Category**: Service Discovery / DNS
+- **User story**: As a DNS-only client, I want an A query to answer every live endpoint address and an SRV query to answer each endpoint's own port with a resolvable per-endpoint target, so services are fully discoverable over DNS alone.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`
+- **Test coverage**: `SkaldServerTest` (an_a_query_answers_every_endpoint_address_at_once, an_srv_query_answers_one_record_per_endpoint_with_its_own_port, a_dashed_endpoint_name_resolves_to_exactly_that_endpoint_address, a_dashed_endpoint_name_not_in_the_service_answers_nxdomain)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a service with two live endpoints, When an A query arrives, Then both endpoint addresses are answered at once.
+  Given the same service, When an SRV query arrives, Then one record per endpoint carries that endpoint's own port and a dashed-address target that itself resolves via A.
   ```

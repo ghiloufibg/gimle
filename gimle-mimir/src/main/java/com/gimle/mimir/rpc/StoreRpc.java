@@ -26,6 +26,7 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.util.List;
 import java.util.Optional;
 
@@ -74,6 +75,9 @@ public sealed interface StoreRpc {
           ListAssignmentsFor,
           IsQuotaViolating,
           IsNodeCordoned,
+          IsCertificateRevoked,
+          ListRevokedCertificateSerials,
+          GetWorkloadToken,
           ListAssignments,
           GetJobSpec,
           ListJobSpecs,
@@ -149,6 +153,7 @@ public sealed interface StoreRpc {
           RoleBindingResult,
           AccountResult,
           NodeRegistrationResult,
+          WorkloadTokenResult,
           HeartbeatResult,
           AccountListResult,
           DeploymentListResult,
@@ -248,6 +253,12 @@ public sealed interface StoreRpc {
   record GetLimitRangeViolationReason(String deploymentName) implements Request {}
 
   record IsNodeCordoned(String nodeId) implements Request {}
+
+  record IsCertificateRevoked(String serialNumber) implements Request {}
+
+  record ListRevokedCertificateSerials() implements Request {}
+
+  record GetWorkloadToken(String key) implements Request {}
 
   record ListAssignments() implements Request {}
 
@@ -445,6 +456,8 @@ public sealed interface StoreRpc {
   record AccountResult(boolean present, Account value) implements Response {}
 
   record NodeRegistrationResult(boolean present, NodeRegistration value) implements Response {}
+
+  record WorkloadTokenResult(boolean present, WorkloadTokenRecord value) implements Response {}
 
   record HeartbeatResult(boolean present, ObservedHeartbeat value) implements Response {}
 

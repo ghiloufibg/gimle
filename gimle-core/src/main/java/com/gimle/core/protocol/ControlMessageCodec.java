@@ -89,7 +89,11 @@ public final class ControlMessageCodec {
               escape(m.deploymentName()),
               Integer.toString(m.instanceIndex()));
       case ControlMessage.ResolveModule m ->
-          line("RESOLVE", m.correlationId(), encodeId(m.id()), escape(m.dataDirectory()));
+          line(
+              "RESOLVE",
+              m.correlationId(),
+              encodeId(m.id()),
+              escape(Json.write(new LinkedHashMap<String, Object>(m.dataDirectories()))));
       case ControlMessage.StartModule m -> line("START", m.correlationId(), encodeId(m.id()));
       case ControlMessage.StopModule m -> line("STOP", m.correlationId(), encodeId(m.id()));
       case ControlMessage.UninstallModule m ->
@@ -193,7 +197,9 @@ public final class ControlMessageCodec {
               Integer.parseInt(field(fields, 4)));
       case "RESOLVE" ->
           new ControlMessage.ResolveModule(
-              field(fields, 1), decodeId(field(fields, 2)), unescape(field(fields, 3)));
+              field(fields, 1),
+              decodeId(field(fields, 2)),
+              decodeStringMap(unescape(field(fields, 3))));
       case "START" -> new ControlMessage.StartModule(field(fields, 1), decodeId(field(fields, 2)));
       case "STOP" -> new ControlMessage.StopModule(field(fields, 1), decodeId(field(fields, 2)));
       case "UNINSTALL" ->
@@ -303,10 +309,18 @@ public final class ControlMessageCodec {
       Map<String, Object> entry = new LinkedHashMap<>();
       entry.put("name", rule.name());
       entry.put("tenantId", rule.tenantId());
-      // Always a present (possibly empty) array, never an absent field, the same convention
-      // ApiServer#networkPolicyToJson already establishes: an empty array means tenant-wide.
+      // Scoping sets are always a present (possibly empty) array, the same convention
+      // ApiServer#networkPolicyToJson establishes: an empty array means unscoped. The two
+      // direction sets are present exactly when the rule restricts that direction, because
+      // there an empty set (deny every cross-tenant peer) is distinct from absence.
       entry.put("deploymentNames", rule.deploymentNames().map(List::copyOf).orElse(List.of()));
-      entry.put("allowedCallerTenantIds", List.copyOf(rule.allowedCallerTenantIds()));
+      entry.put(
+          "serviceInterfaceNames",
+          rule.serviceInterfaceNames().map(List::copyOf).orElse(List.of()));
+      rule.allowedCallerTenantIds()
+          .ifPresent(tenants -> entry.put("allowedCallerTenantIds", List.copyOf(tenants)));
+      rule.allowedCalleeTenantIds()
+          .ifPresent(tenants -> entry.put("allowedCalleeTenantIds", List.copyOf(tenants)));
       array.add(entry);
     }
     return Json.write(array);
@@ -318,22 +332,36 @@ public final class ControlMessageCodec {
     List<NetworkPolicyRule> rules = new ArrayList<>(raw.size());
     for (Object entryValue : raw) {
       Map<String, Object> entry = Json.asObject(entryValue);
-      Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
-      for (Object tenantId : Json.asArray(entry.get("allowedCallerTenantIds"))) {
-        allowedCallerTenantIds.add((String) tenantId);
-      }
-      Set<String> deploymentNames = new LinkedHashSet<>();
-      for (Object deploymentName : Json.asArray(entry.get("deploymentNames"))) {
-        deploymentNames.add((String) deploymentName);
-      }
       rules.add(
           new NetworkPolicyRule(
               (String) entry.get("name"),
               (String) entry.get("tenantId"),
-              deploymentNames.isEmpty() ? Optional.empty() : Optional.of(deploymentNames),
-              allowedCallerTenantIds));
+              emptyMeansAbsent(entry.get("deploymentNames")),
+              emptyMeansAbsent(entry.get("serviceInterfaceNames")),
+              absentMeansUnrestricted(entry.get("allowedCallerTenantIds")),
+              absentMeansUnrestricted(entry.get("allowedCalleeTenantIds"))));
     }
     return rules;
+  }
+
+  private static Optional<Set<String>> emptyMeansAbsent(Object jsonArray) {
+    Set<String> values = stringSet(jsonArray);
+    return values.isEmpty() ? Optional.empty() : Optional.of(values);
+  }
+
+  private static Optional<Set<String>> absentMeansUnrestricted(Object jsonArray) {
+    return jsonArray == null ? Optional.empty() : Optional.of(stringSet(jsonArray));
+  }
+
+  private static Set<String> stringSet(Object jsonArray) {
+    if (jsonArray == null) {
+      return Set.of();
+    }
+    Set<String> values = new LinkedHashSet<>();
+    for (Object value : Json.asArray(jsonArray)) {
+      values.add((String) value);
+    }
+    return values;
   }
 
   /**
@@ -344,6 +372,16 @@ public final class ControlMessageCodec {
    */
   private static String encodePorts(Map<String, Integer> ports) {
     return Json.write(new LinkedHashMap<String, Object>(ports));
+  }
+
+  /** A JSON-object field of string values -- {@code ResolveModule}'s volume-name-to-path map. */
+  private static Map<String, String> decodeStringMap(String json) {
+    Map<String, Object> raw = Json.asObject(Json.parse(json));
+    Map<String, String> values = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> entry : raw.entrySet()) {
+      values.put(entry.getKey(), String.valueOf(entry.getValue()));
+    }
+    return values;
   }
 
   /** Inverse of {@link #encodePorts(Map)}. */

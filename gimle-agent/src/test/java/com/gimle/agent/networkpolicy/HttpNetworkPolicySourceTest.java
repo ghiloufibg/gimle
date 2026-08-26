@@ -94,7 +94,7 @@ class HttpNetworkPolicySourceTest {
     assertEquals("deny-by-default", rule.name());
     assertEquals("acme", rule.tenantId());
     assertEquals(Optional.of(Set.of("orders")), rule.deploymentNames());
-    assertEquals(Set.of("partner"), rule.allowedCallerTenantIds());
+    assertEquals(Optional.of(Set.of("partner")), rule.allowedCallerTenantIds());
   }
 
   @Test

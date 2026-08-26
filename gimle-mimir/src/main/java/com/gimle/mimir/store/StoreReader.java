@@ -58,6 +58,12 @@ public interface StoreReader {
 
   boolean isNodeCordoned(String nodeId);
 
+  boolean isCertificateRevoked(String serialNumber);
+
+  Set<String> listRevokedCertificateSerials();
+
+  Optional<WorkloadTokenRecord> getWorkloadToken(String key);
+
   List<InstanceAssignment> listAssignments();
 
   Optional<JobSpec> getJobSpec(String name);

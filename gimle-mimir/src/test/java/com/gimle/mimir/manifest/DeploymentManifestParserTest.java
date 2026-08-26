@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.Version;
 import com.gimle.core.vessel.VesselEnvValue;
 import com.gimle.core.vessel.VesselProbeSpec;
@@ -16,6 +17,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -752,8 +754,10 @@ class DeploymentManifestParserTest {
                     HTTP_PORT: {port: dynamic}
                     FIXED_PORT: {port: 9000}
                     LOG_LEVEL: INFO
+                    DATA_DIR: {volume: {sizeBytes: 1073741824, reclaimPolicy: Delete}}
                   files:
                     - {path: conf/application.yaml, config: billing.app-config}
+                    - {path: conf/db.pass, secret: db.password}
                   probes:
                     liveness: {http: /actuator/health/liveness, initialDelaySeconds: 20}
                     readiness: {tcp: true}
@@ -771,9 +775,14 @@ class DeploymentManifestParserTest {
     assertEquals(
         new VesselEnvValue.PortAllocation(OptionalInt.of(9000)), vessel.env().get("FIXED_PORT"));
     assertEquals(new VesselEnvValue.Literal("INFO"), vessel.env().get("LOG_LEVEL"));
-    assertEquals(1, vessel.files().size());
+    assertEquals(
+        new VesselEnvValue.VolumeMount(1_073_741_824L, ReclaimPolicy.DELETE),
+        vessel.env().get("DATA_DIR"));
+    assertEquals(2, vessel.files().size());
     assertEquals("conf/application.yaml", vessel.files().get(0).path());
-    assertEquals("billing.app-config", vessel.files().get(0).configKey());
+    assertEquals(Optional.of("billing.app-config"), vessel.files().get(0).configKey());
+    assertEquals("conf/db.pass", vessel.files().get(1).path());
+    assertEquals(Optional.of("db.password"), vessel.files().get(1).secretKey());
     VesselProbeSpec.Http liveness = (VesselProbeSpec.Http) vessel.probes().liveness().orElseThrow();
     assertEquals("/actuator/health/liveness", liveness.path());
     assertEquals(20, liveness.initialDelaySeconds());

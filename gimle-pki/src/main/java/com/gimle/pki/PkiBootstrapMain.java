@@ -152,11 +152,11 @@ public final class PkiBootstrapMain {
       CertificateAuthority ca,
       String fileNamePrefix,
       String subject,
-      List<String> dnsNames)
+      List<String> hostnames)
       throws IOException {
     KeyPair keyPair = generateKeyPair();
     PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(keyPair, new X500Name(subject), dnsNames);
+        CertificateSigningRequests.generate(keyPair, new X500Name(subject), hostnames);
     X509Certificate certificate = ca.signCertificateRequest(csr, LEAF_VALIDITY);
     Files.writeString(
         outputDir.resolve(fileNamePrefix + ".crt"),

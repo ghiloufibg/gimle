@@ -84,6 +84,15 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.GetLimitRangeViolationReason r ->
           stringResult(store.limitRangeViolationReason(r.deploymentName()));
       case StoreRpc.IsNodeCordoned r -> new StoreRpc.BoolResult(store.isNodeCordoned(r.nodeId()));
+      case StoreRpc.IsCertificateRevoked r ->
+          new StoreRpc.BoolResult(store.isCertificateRevoked(r.serialNumber()));
+      case StoreRpc.ListRevokedCertificateSerials r ->
+          new StoreRpc.StringSetResult(
+              store.listRevokedCertificateSerials().stream().sorted().toList());
+      case StoreRpc.GetWorkloadToken r -> {
+        var record = store.getWorkloadToken(r.key());
+        yield new StoreRpc.WorkloadTokenResult(record.isPresent(), record.orElse(null));
+      }
       case StoreRpc.ListAssignments r -> new StoreRpc.AssignmentListResult(store.listAssignments());
       case StoreRpc.GetJobSpec r -> jobSpecResult(store.getJobSpec(r.name()));
       case StoreRpc.ListJobSpecs r -> new StoreRpc.JobSpecListResult(store.listJobSpecs());

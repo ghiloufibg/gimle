@@ -200,6 +200,73 @@ class AuthorizerTest {
   }
 
   @Test
+  void a_binding_to_a_tenant_template_grants_within_that_tenant_and_nowhere_else() {
+    StateStore store = new StateStore();
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("grace"), "tenant-edit:acme"));
+    Authorizer authorizer = new Authorizer(store);
+    Principal grace = new Principal("grace", Set.of());
+
+    assertTrue(
+        authorizer.authorize(
+            grace, ResourceKind.DEPLOYMENT, Verb.WRITE, Optional.of("acme"), Optional.empty()));
+    assertTrue(
+        authorizer.authorize(
+            grace, ResourceKind.SECRET, Verb.READ, Optional.of("acme"), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            grace, ResourceKind.DEPLOYMENT, Verb.WRITE, Optional.of("umbrella"), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            grace, ResourceKind.NETWORK_POLICY, Verb.WRITE, Optional.of("acme"), Optional.empty()));
+  }
+
+  @Test
+  void a_binding_to_a_tenant_view_template_never_reads_secrets() {
+    StateStore store = new StateStore();
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("heidi"), "tenant-view:acme"));
+    Authorizer authorizer = new Authorizer(store);
+    Principal heidi = new Principal("heidi", Set.of());
+
+    assertTrue(
+        authorizer.authorize(
+            heidi, ResourceKind.DEPLOYMENT, Verb.READ, Optional.of("acme"), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            heidi, ResourceKind.SECRET, Verb.READ, Optional.of("acme"), Optional.empty()));
+  }
+
+  @Test
+  void has_any_read_grant_distinguishes_scoped_readers_from_callers_with_nothing() {
+    StateStore store = new StateStore();
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("heidi"), "tenant-view:acme"));
+    Authorizer authorizer = new Authorizer(store);
+
+    // A tenant-scoped grant counts -- even though the same principal's unscoped authorize is
+    // denied, which is exactly the gap this method exists to bridge for collection listings.
+    Principal heidi = new Principal("heidi", Set.of());
+    assertTrue(authorizer.hasAnyReadGrant(heidi, ResourceKind.DEPLOYMENT));
+    assertFalse(
+        authorizer.authorize(
+            heidi, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty(), Optional.empty()));
+
+    // A kind the template doesn't cover, and a principal with no binding at all, both report no.
+    assertFalse(authorizer.hasAnyReadGrant(heidi, ResourceKind.SECRET));
+    assertFalse(
+        authorizer.hasAnyReadGrant(new Principal("nobody", Set.of()), ResourceKind.DEPLOYMENT));
+
+    // Operators and nodes keep their implicit grants here too.
+    assertTrue(
+        authorizer.hasAnyReadGrant(
+            new Principal("op", Set.of(BuiltinRoles.GROUP_OPERATORS)), ResourceKind.DEPLOYMENT));
+    assertTrue(
+        authorizer.hasAnyReadGrant(
+            new Principal("node-1", Set.of(BuiltinRoles.GROUP_NODES)), ResourceKind.SERVICE));
+  }
+
+  @Test
   void a_binding_referencing_a_role_that_no_longer_exists_grants_nothing() {
     StateStore store = new StateStore();
     store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("frank"), "deleted-role"));

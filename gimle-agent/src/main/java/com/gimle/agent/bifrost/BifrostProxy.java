@@ -3,8 +3,10 @@ package com.gimle.agent.bifrost;
 import com.gimle.agent.networkpolicy.NetworkPolicySource;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -26,10 +28,9 @@ import org.slf4j.LoggerFactory;
  * diffing against a remembered previous poll, so a missed or failed tick self-heals on the next one
  * instead of leaving stale state behind.
  *
- * <p>Also polls a {@link NetworkPolicySource} on the same tick to decide which of those listeners
- * must fail closed -- see {@link #isRestricted} and {@link ServiceListener#setRestricted} for why
- * this proxy can only ever refuse a restricted service outright, never re-check a caller's tenant
- * the way {@code FabricServer} does.
+ * <p>Also polls a {@link NetworkPolicySource} on the same tick and hands each listener the policy
+ * rules currently applying to its service -- see {@link #applicableRules} and {@link
+ * ServiceListener#setApplicableRules} for what a listener can and cannot enforce with them.
  */
 public final class BifrostProxy implements AutoCloseable {
 
@@ -37,20 +38,33 @@ public final class BifrostProxy implements AutoCloseable {
 
   private final ServiceSource source;
   private final NetworkPolicySource networkPolicySource;
-  private final Duration pollInterval;
+  private final BifrostSettings settings;
   private final Map<String, ServiceListener> listeners = new ConcurrentHashMap<>();
   private volatile ScheduledExecutorService scheduler;
 
-  /** Back-compat: no {@link NetworkPolicySource} means every service is always unrestricted. */
+  /** Convenience: no {@link NetworkPolicySource} means every service is always unrestricted. */
   public BifrostProxy(ServiceSource source, Duration pollInterval) {
-    this(source, () -> List.of(), pollInterval);
+    this(source, () -> List.of(), new BifrostSettings(pollInterval));
   }
 
   public BifrostProxy(
       ServiceSource source, NetworkPolicySource networkPolicySource, Duration pollInterval) {
+    this(source, networkPolicySource, new BifrostSettings(pollInterval));
+  }
+
+  /**
+   * {@link BifrostSettings#exposeOnAllInterfaces} is the NodePort analogue, off by default: {@code
+   * true} binds each service's listener on the wildcard address at the service's own port instead
+   * of its synthesized per-service loopback ClusterIP, making the service dialable from off this
+   * node at {@code <nodeHost>:<servicePort>}. The tradeoff is the same one NodePort itself carries
+   * -- one port namespace for the whole node, so two services declaring the same port can't both be
+   * exposed; the second bind fails and is logged, exactly like any other bind failure below.
+   */
+  public BifrostProxy(
+      ServiceSource source, NetworkPolicySource networkPolicySource, BifrostSettings settings) {
     this.source = source;
     this.networkPolicySource = networkPolicySource;
-    this.pollInterval = pollInterval;
+    this.settings = settings;
   }
 
   /** Runs one poll immediately, then schedules subsequent polls every {@code pollInterval}. */
@@ -59,8 +73,9 @@ public final class BifrostProxy implements AutoCloseable {
     ScheduledExecutorService newScheduler =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-bifrost-poller").unstarted(r));
+    long pollMillis = settings.pollInterval().toMillis();
     newScheduler.scheduleAtFixedRate(
-        this::pollSafely, pollInterval.toMillis(), pollInterval.toMillis(), TimeUnit.MILLISECONDS);
+        this::pollSafely, pollMillis, pollMillis, TimeUnit.MILLISECONDS);
     this.scheduler = newScheduler;
   }
 
@@ -139,9 +154,16 @@ public final class BifrostProxy implements AutoCloseable {
       ServiceEndpoints endpoints = spec.get();
       ServiceListener listener = listeners.get(name);
       if (listener == null) {
+        // Wildcard-bound when exposing (the NodePort analogue -- reachable from off-node, one
+        // port namespace shared across every exposed service), per-service loopback ClusterIP
+        // otherwise.
+        InetSocketAddress bindAddress =
+            settings.exposeOnAllInterfaces()
+                ? new InetSocketAddress((InetAddress) null, endpoints.port())
+                : new InetSocketAddress(LoopbackAddressAllocator.allocate(name), endpoints.port());
         try {
           listener =
-              new ServiceListener(name, LoopbackAddressAllocator.allocate(name), endpoints.port());
+              new ServiceListener(name, bindAddress, settings.localNodeId(), settings.tlsContext());
         } catch (IOException e) {
           log.warn("bifrost failed to bind listener for service {}: {}", name, e.getMessage());
           continue;
@@ -150,37 +172,48 @@ public final class BifrostProxy implements AutoCloseable {
         log.info("bifrost bound service {} at {}", name, listener.boundAddress());
       }
       listener.updateEndpoints(endpoints.endpoints());
-      listener.setRestricted(isRestricted(service, policies));
+      listener.setSessionAffinity(endpoints.sessionAffinity());
+      listener.setApplicableRules(applicableRules(service, policies));
     }
   }
 
   /**
-   * Whether any currently-held {@link NetworkPolicyRule} applies to {@code service} -- its tenant
-   * matches and either the rule is tenant-wide or its {@code deploymentNames} overlaps the
-   * service's own. Mere applicability is enough to restrict, regardless of the rule's own {@code
-   * allowedCallerTenantIds}: {@code NetworkPolicySpec}'s own existence already means "a restriction
-   * now applies" (see its javadoc), and this proxy has no caller identity to check that allow list
-   * against in the first place -- see {@link ServiceListener#setRestricted}.
+   * The currently-held ingress-restricting {@link NetworkPolicyRule}s that apply to {@code service}
+   * -- tenant matches, and the rule is either tenant-wide or its {@code deploymentNames} overlaps
+   * the service's own. Interface scoping ({@code serviceInterfaceNames}) is deliberately ignored
+   * for applicability: an interface-scoped rule names fabric service interfaces, which this
+   * opaque-byte proxy cannot resolve, so it treats the rule as covering this traffic rather than
+   * assume it doesn't. An egress-only rule never applies to a listener: it constrains what the
+   * covered workloads may dial out to, not who may reach them. What {@link ServiceListener#forward}
+   * does with a non-empty result depends on whether it can identify callers at all -- see {@link
+   * ServiceListener#setApplicableRules}.
    */
-  private static boolean isRestricted(ServiceSummary service, List<NetworkPolicyRule> policies) {
+  private static List<NetworkPolicyRule> applicableRules(
+      ServiceSummary service, List<NetworkPolicyRule> policies) {
     if (service.tenantId().isEmpty()) {
-      return false;
+      return List.of();
     }
     String tenantId = service.tenantId().get();
+    List<NetworkPolicyRule> applicable = new ArrayList<>();
     for (NetworkPolicyRule rule : policies) {
+      if (!rule.restrictsIngress()) {
+        continue;
+      }
       if (!rule.tenantId().equals(tenantId)) {
         continue;
       }
       if (rule.deploymentNames().isEmpty()) {
-        return true;
+        applicable.add(rule);
+        continue;
       }
       for (String deploymentName : service.deploymentNames()) {
         if (rule.appliesToDeployment(Optional.of(deploymentName))) {
-          return true;
+          applicable.add(rule);
+          break;
         }
       }
     }
-    return false;
+    return applicable;
   }
 
   /** The synthesized ClusterIP:port a caller dials for {@code serviceName}, if currently bound. */

@@ -22,7 +22,7 @@ Two real Gimlé modules, each bundling its own literal copy of the fabric contra
 `greeter-provider`/`greeter-consumer` already establish:
 
 - **`session-store-service`** — the store itself. `StatefulSet`-hosted, `TIER_2` (a dedicated
-  worker JVM), declaring a real `volume: {sizeBytes, mountPath}` in its own `gimle-module.yaml`.
+  worker JVM), declaring a real `volume: {sizeBytes, reclaimPolicy}` in its own `gimle-module.yaml`.
   `SessionStoreHooks#onStart` resolves `ModuleContext#dataDirectory()` (present only because the
   volume was declared), replays `sessions.log` from it into an in-memory index, and registers a
   real `SessionStore` fabric service (`put`/`get`/`delete`). Every mutation appends to the log

@@ -1,6 +1,7 @@
 package com.gimle.core.module;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Parsed, fully-validated {@code gimle-module.yaml} content. */
@@ -20,11 +21,11 @@ public record ModuleDescriptor(
     // bracket, jobHooksClass is for a Job's one run-to-completion unit of work -- but nothing here
     // enforces mutual exclusion; that's ModuleDescriptorParser's job if it ever matters.
     Optional<String> jobHooksClass,
-    // StatefulSet-kind persistent storage: declared as volume: in
+    // StatefulSet-kind persistent storage: declared as volumes: in
     // gimle-module.yaml, a property of the artifact itself (like isolation:/resources: above), not
-    // of the workload manifest -- absent means "no persistent storage," the only shape every
-    // pre-existing module descriptor has.
-    Optional<VolumeRequest> volume) {
+    // of the workload manifest -- each entry a named volume, keyed by the name a hook reaches it
+    // back through via ModuleContext.dataDirectory(name). Empty means "no persistent storage."
+    Map<String, VolumeRequest> volumes) {
 
   public ModuleDescriptor {
     if (name == null || name.isBlank()) {
@@ -61,9 +62,15 @@ public record ModuleDescriptor(
     if (jobHooksClass == null) {
       throw new IllegalArgumentException("jobHooksClass must be Optional.empty(), not null");
     }
-    if (volume == null) {
-      throw new IllegalArgumentException("volume must be Optional.empty(), not null");
+    if (volumes == null) {
+      throw new IllegalArgumentException("volumes must not be null (use Map.of())");
     }
+    for (String volumeName : volumes.keySet()) {
+      if (volumeName == null || volumeName.isBlank()) {
+        throw new IllegalArgumentException("volume names must not be blank");
+      }
+    }
+    volumes = Map.copyOf(volumes);
   }
 
   public ModuleId id() {

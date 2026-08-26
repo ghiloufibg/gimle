@@ -262,7 +262,7 @@ public final class LaunchPlanner {
       if (topology.transport() == Transport.MTLS) {
         // The CA key enables /bootstrap/csr and /bootstrap/tokens -- agents certificate-bootstrap
         // through this control plane.
-        command.add("-Dgimle.pki.caKeyFile=" + materialDir(topology).resolve("ca.key"));
+        command.add("-Dgimle.tls.caKeyFile=" + materialDir(topology).resolve("ca.key"));
       }
       command.addAll(topology.jvmFlags(ProcessRole.CONTROL_PLANE));
       command.add(dataRootFlag(dataDir));

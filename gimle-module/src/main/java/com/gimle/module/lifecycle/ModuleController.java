@@ -55,6 +55,14 @@ public final class ModuleController {
   private static final Function<String, ModuleContext.RelayResult> NO_OP_RELAY =
       path -> new ModuleContext.RelayResult(501, "control-plane relay is not available");
 
+  /**
+   * The default {@code identityLookup} for a caller that doesn't wire the real registry-backed
+   * collaborator -- an empty answer, matching {@link ModuleContext#instanceInfo}'s documented
+   * "identity not known here" case rather than failing.
+   */
+  private static final Function<ModuleId, Optional<ModuleContext.InstanceInfo>> NO_OP_IDENTITY =
+      id -> Optional.empty();
+
   private final ModuleRegistry registry;
   private final ModuleResolver resolver;
   private final ModuleLayer platformLayer;
@@ -64,6 +72,7 @@ public final class ModuleController {
   private final BiConsumer<ModuleId, ModuleLayerHandle> onDisposed;
   private final ServiceRegistry serviceRegistry;
   private final Function<String, ModuleContext.RelayResult> relay;
+  private final Function<ModuleId, Optional<ModuleContext.InstanceInfo>> identityLookup;
 
   private final Map<ModuleId, ModuleLifecycleHooks> hooksByModule = new ConcurrentHashMap<>();
   private final Map<ModuleId, SimpleModuleContext> contextsByModule = new ConcurrentHashMap<>();
@@ -154,12 +163,11 @@ public final class ModuleController {
   }
 
   /**
-   * The full constructor: every collaborator explicit, no defaulting. {@code relay} is what {@code
-   * gimle-worker}'s {@code WorkerMain} supplies to let a resolved module's {@link ModuleContext}
-   * reach back into the control plane over the worker-agent control channel (see {@link
-   * ModuleContext#relayControlPlaneRead}) -- every other constructor above defaults it to {@link
-   * #NO_OP_RELAY}, matching this class's existing back-compat pattern for {@code onDisposed}/{@code
-   * serviceRegistry}.
+   * {@code relay} is what {@code gimle-worker}'s {@code WorkerMain} supplies to let a resolved
+   * module's {@link ModuleContext} reach back into the control plane over the worker-agent control
+   * channel (see {@link ModuleContext#relayControlPlaneRead}) -- every other constructor above
+   * defaults it to {@link #NO_OP_RELAY}, matching this class's existing back-compat pattern for
+   * {@code onDisposed}/{@code serviceRegistry}.
    */
   public ModuleController(
       ModuleRegistry registry,
@@ -171,6 +179,37 @@ public final class ModuleController {
       BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
       ServiceRegistry serviceRegistry,
       Function<String, ModuleContext.RelayResult> relay) {
+    this(
+        registry,
+        resolver,
+        platformLayer,
+        parentLoader,
+        drainTimeout,
+        eventSink,
+        onDisposed,
+        serviceRegistry,
+        relay,
+        NO_OP_IDENTITY);
+  }
+
+  /**
+   * The full constructor: every collaborator explicit, no defaulting. {@code identityLookup} is
+   * what {@code WorkerMain} supplies to answer {@link ModuleContext#instanceInfo} from its own live
+   * instance-identity registry -- looked up per call, never snapshotted, since an instance's
+   * identity can be registered (or re-registered, on an in-place rename) after its context already
+   * exists.
+   */
+  public ModuleController(
+      ModuleRegistry registry,
+      ModuleResolver resolver,
+      ModuleLayer platformLayer,
+      ClassLoader parentLoader,
+      Duration drainTimeout,
+      Consumer<LifecycleEvent> eventSink,
+      BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
+      ServiceRegistry serviceRegistry,
+      Function<String, ModuleContext.RelayResult> relay,
+      Function<ModuleId, Optional<ModuleContext.InstanceInfo>> identityLookup) {
     this.registry = registry;
     this.resolver = resolver;
     this.platformLayer = platformLayer;
@@ -180,6 +219,7 @@ public final class ModuleController {
     this.onDisposed = onDisposed;
     this.serviceRegistry = serviceRegistry;
     this.relay = relay;
+    this.identityLookup = identityLookup;
   }
 
   /**
@@ -192,17 +232,18 @@ public final class ModuleController {
   }
 
   public ModuleWiring resolve(ModuleId id) {
-    return resolve(id, Optional.empty());
+    return resolve(id, Map.of());
   }
 
   /**
-   * {@code dataDirectory} is this instance's persistent-volume host path, already resolved by the
-   * agent and delivered over {@code ControlMessage.ResolveModule} -- present only for a {@code
-   * StatefulSet}-shaped instance whose descriptor declares {@code volume:}. Populated on {@link
-   * SimpleModuleContext#dataDirectory()} before {@code onInstall} fires below, so a hook can rely
-   * on it from its very first callback.
+   * {@code dataDirectories} maps each of this instance's declared volume names to its
+   * persistent-volume host path, already resolved by the agent and delivered over {@code
+   * ControlMessage.ResolveModule} -- non-empty only for a {@code StatefulSet}-shaped instance whose
+   * descriptor declares {@code volumes:}. Populated on {@link
+   * SimpleModuleContext#dataDirectory(String)} before {@code onInstall} fires below, so a hook can
+   * rely on it from its very first callback.
    */
-  public ModuleWiring resolve(ModuleId id, Optional<Path> dataDirectory) {
+  public ModuleWiring resolve(ModuleId id, Map<String, Path> dataDirectories) {
     requireState(id, ModuleState.INSTALLED, ModuleState.RESOLVED);
 
     ModuleWiring wiring;
@@ -239,7 +280,13 @@ public final class ModuleController {
     emit(new LifecycleEvent.Resolved(id, wiring, Instant.now()));
 
     SimpleModuleContext ctx =
-        new SimpleModuleContext(id, serviceRegistry, configValues, dataDirectory, relay);
+        new SimpleModuleContext(
+            id,
+            serviceRegistry,
+            configValues,
+            dataDirectories,
+            relay,
+            () -> identityLookup.apply(id));
     contextsByModule.put(id, ctx);
     try {
       Optional<ModuleLifecycleHooks> hooks = instantiateHooks(id, handle);

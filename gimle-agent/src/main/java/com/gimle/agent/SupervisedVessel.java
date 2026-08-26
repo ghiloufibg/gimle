@@ -3,7 +3,9 @@ package com.gimle.agent;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.vessel.VesselSpec;
 import com.gimle.os.ResourceLimitHandle;
+import com.gimle.os.VolumeHandle;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -32,6 +34,13 @@ final class SupervisedVessel {
   /** {@code env}-var-name -> allocated/fixed port, empty for a vessel declaring none. */
   final Map<String, Integer> allocatedPorts;
 
+  /**
+   * The persistent volumes allocated for this vessel's {@code {volume: ...}} env entries, released
+   * only on genuinely permanent removal -- the same posture {@code
+   * SupervisedInstance#volumeHandles} documents for module hosting.
+   */
+  final List<VolumeHandle> volumeHandles;
+
   volatile String lifecycleState = "STARTING";
 
   SupervisedVessel(
@@ -40,12 +49,14 @@ final class SupervisedVessel {
       VesselProcessSupervisor supervisor,
       ResourceLimitHandle resourceLimitHandle,
       Map<String, Integer> allocatedPorts,
+      List<VolumeHandle> volumeHandles,
       Instant startedAt) {
     this.assigned = assigned;
     this.vessel = vessel;
     this.supervisor = supervisor;
     this.resourceLimitHandle = resourceLimitHandle;
     this.allocatedPorts = Map.copyOf(allocatedPorts);
+    this.volumeHandles = List.copyOf(volumeHandles);
     this.startedAt = startedAt;
   }
 }

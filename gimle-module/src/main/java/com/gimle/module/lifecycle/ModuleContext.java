@@ -3,6 +3,7 @@ package com.gimle.module.lifecycle;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * A module's view into the platform, passed to its lifecycle hooks. This is a placeholder: the full
@@ -54,13 +55,43 @@ public interface ModuleContext {
   Optional<String> config(String key);
 
   /**
-   * The host path this instance's persistent volume was allocated at, present only if the module's
-   * own descriptor declares {@code volume:} -- absent for every ordinary (non-{@code StatefulSet})
-   * instance, the only shape every pre-existing hook has ever seen. Already populated by the time
-   * {@code onInstall} runs, not just {@code onStart}: the agent resolves and delivers it before
-   * this context is even created.
+   * Every key currently visible via {@link #config} — a snapshot, not a live view, so a module can
+   * iterate it while config delivery is happening concurrently. Lets a module that treats its
+   * config as a namespace (a prefix of related keys, a set whose names it doesn't know at compile
+   * time) enumerate what it actually received instead of probing key by key.
+   */
+  Set<String> configKeys();
+
+  /**
+   * This instance's own placement identity as the platform sees it: which deployment it backs,
+   * which replica index it is, which node it runs on, and which tenant owns it. Empty when no
+   * identity was ever reported for this module — a directly-embedded controller in a test, or an
+   * install that carried no deployment name. Looked up live on every call, never cached: an
+   * in-place retarget (a surge instance promoted to a new index) changes the answer without the
+   * module restarting.
+   */
+  Optional<InstanceInfo> instanceInfo();
+
+  /** The identity {@link #instanceInfo} answers with. */
+  record InstanceInfo(
+      String deploymentName, int instanceIndex, String nodeId, Optional<String> tenantId) {}
+
+  /**
+   * The host path this instance's persistent volume was allocated at, present only when the
+   * module's own descriptor declares exactly one volume -- absent for every ordinary (non-{@code
+   * StatefulSet}) instance, and also absent for a multi-volume module, whose hooks must name which
+   * volume they mean via {@link #dataDirectory(String)}. Already populated by the time {@code
+   * onInstall} runs, not just {@code onStart}: the agent resolves and delivers it before this
+   * context is even created.
    */
   Optional<Path> dataDirectory();
+
+  /**
+   * The host path the named volume was allocated at, per the module's own {@code volumes:}
+   * declaration -- absent when no volume of that name was declared (or its allocation failed).
+   * {@link #dataDirectory()} is the sole-volume shorthand over this same map.
+   */
+  Optional<Path> dataDirectory(String name);
 
   /**
    * A narrow, whitelisted read-back into the control plane's own HTTP API, relayed through this

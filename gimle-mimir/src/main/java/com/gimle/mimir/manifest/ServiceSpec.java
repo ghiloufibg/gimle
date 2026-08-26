@@ -25,9 +25,25 @@ import java.util.Set;
  * <p>{@code tenantId} is optional, matching every other tenant-scoping field in this package
  * ({@code DeploymentSpec#tenantId()}): a Service with no {@code tenantId} is untenanted, consistent
  * with an untenanted Deployment.
+ *
+ * <p>{@code sessionAffinity} is the {@code sessionAffinity: ClientIP} analogue: {@code true} asks a
+ * forwarding proxy ({@code gimle-bifrost}) to pin each caller address to one backend via a
+ * consistent hash rather than round-robining -- purely a hint to the proxy layer, with no effect on
+ * DNS answers or the fabric's own in-process load balancing.
+ *
+ * <p>{@code externalName} present makes this the ExternalName analogue: the Service resolves to
+ * that external hostname (at {@code targetPort}) instead of selecting in-cluster instances --
+ * useful while migrating a dependency into the cluster. The two shapes are exclusive: an
+ * ExternalName Service names no deployments, and a selector Service names no external host.
  */
 public record ServiceSpec(
-    String name, Optional<String> tenantId, Set<String> deploymentNames, int port, int targetPort) {
+    String name,
+    Optional<String> tenantId,
+    Set<String> deploymentNames,
+    int port,
+    int targetPort,
+    boolean sessionAffinity,
+    Optional<String> externalName) {
 
   public ServiceSpec {
     if (name == null || name.isBlank()) {
@@ -36,8 +52,23 @@ public record ServiceSpec(
     if (tenantId == null) {
       throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
     }
-    if (deploymentNames == null || deploymentNames.isEmpty()) {
-      throw new IllegalArgumentException("deploymentNames must not be null or empty");
+    if (deploymentNames == null) {
+      throw new IllegalArgumentException("deploymentNames must not be null");
+    }
+    if (externalName == null) {
+      throw new IllegalArgumentException("externalName must be Optional.empty(), not null");
+    }
+    if (externalName.isPresent()) {
+      if (externalName.get().isBlank()) {
+        throw new IllegalArgumentException("externalName must not be blank when present");
+      }
+      if (!deploymentNames.isEmpty()) {
+        throw new IllegalArgumentException(
+            "an ExternalName service must not also name deploymentNames");
+      }
+    } else if (deploymentNames.isEmpty()) {
+      throw new IllegalArgumentException(
+          "deploymentNames must not be empty (or declare externalName instead)");
     }
     for (String deploymentName : deploymentNames) {
       if (deploymentName == null || deploymentName.isBlank()) {
@@ -55,9 +86,24 @@ public record ServiceSpec(
     }
   }
 
-  /** Back-compat/convenience: a Service whose {@code targetPort} equals its own {@code port}. */
+  /** Convenience: a selector Service with no affinity, distinct {@code port}/{@code targetPort}. */
+  public ServiceSpec(
+      String name,
+      Optional<String> tenantId,
+      Set<String> deploymentNames,
+      int port,
+      int targetPort) {
+    this(name, tenantId, deploymentNames, port, targetPort, false, Optional.empty());
+  }
+
+  /** Convenience: a Service whose {@code targetPort} equals its own {@code port}. */
   public ServiceSpec(
       String name, Optional<String> tenantId, Set<String> deploymentNames, int port) {
     this(name, tenantId, deploymentNames, port, port);
+  }
+
+  /** Whether this is the ExternalName shape rather than a deployment-selecting one. */
+  public boolean isExternalName() {
+    return externalName.isPresent();
   }
 }

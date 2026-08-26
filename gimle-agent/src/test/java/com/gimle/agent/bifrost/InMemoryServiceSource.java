@@ -28,8 +28,18 @@ final class InMemoryServiceSource implements ServiceSource {
       Set<String> deploymentNames,
       int port,
       List<ServiceEndpoint> endpoints) {
+    put(name, tenantId, deploymentNames, port, false, endpoints);
+  }
+
+  synchronized void put(
+      String name,
+      Optional<String> tenantId,
+      Set<String> deploymentNames,
+      int port,
+      boolean sessionAffinity,
+      List<ServiceEndpoint> endpoints) {
     summaries.put(name, new ServiceSummary(name, tenantId, deploymentNames));
-    services.put(name, new ServiceEndpoints(name, port, port, endpoints));
+    services.put(name, new ServiceEndpoints(name, port, port, sessionAffinity, endpoints));
   }
 
   synchronized void remove(String name) {

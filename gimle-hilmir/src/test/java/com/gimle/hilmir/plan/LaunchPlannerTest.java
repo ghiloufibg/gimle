@@ -269,7 +269,7 @@ class LaunchPlannerTest {
 
     final ProcessCommand controlPlane = only(plan, "m1", "controlplane-0");
     assertTrue(controlPlane.command().containsAll(controlPlaneTlsFlags));
-    assertTrue(controlPlane.command().contains("-Dgimle.pki.caKeyFile=" + tlsPath("ca.key")));
+    assertTrue(controlPlane.command().contains("-Dgimle.tls.caKeyFile=" + tlsPath("ca.key")));
 
     final List<String> fafnirTlsFlags =
         List.of(

@@ -1,6 +1,6 @@
 package com.gimle.skald.directory;
 
-import java.util.Optional;
+import java.util.List;
 
 /**
  * The name-resolution source {@link com.gimle.skald.SkaldServer} queries on every request. Kept as
@@ -11,11 +11,11 @@ import java.util.Optional;
 public interface ServiceDirectory {
 
   /**
-   * Returns one live endpoint host for {@code qualifiedServiceName} (the label sequence in front of
-   * {@link com.gimle.skald.dns.ServiceDnsNames#ZONE_SUFFIX}), or {@link Optional#empty()} when the
-   * name is unknown or currently has no endpoints. An implementation backed by more than one
-   * endpoint is free to rotate which one it returns across calls -- callers must not assume the
-   * same name always resolves to the same host.
+   * Every live endpoint of {@code qualifiedServiceName} (the label sequence in front of {@link
+   * com.gimle.skald.dns.ServiceDnsNames#ZONE_SUFFIX}), or an empty list when the name is unknown or
+   * currently has no endpoints. The whole set, deliberately: an {@code A} answer carries every
+   * endpoint address (the headless posture -- the resolver does its own selection), and an {@code
+   * SRV} answer needs every endpoint's own port, so a single-endpoint rotation would starve both.
    */
-  Optional<String> resolveOne(String qualifiedServiceName);
+  List<HostPort> resolveAll(String qualifiedServiceName);
 }

@@ -8,6 +8,7 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -138,6 +139,87 @@ class SimpleModuleContextTest {
 
     assertThrows(IllegalArgumentException.class, () -> ctx.reportPort("HTTP_PORT", 0));
     assertThrows(IllegalArgumentException.class, () -> ctx.reportPort("HTTP_PORT", 70000));
+  }
+
+  @Test
+  void config_keys_enumerate_every_delivered_key_as_a_snapshot() {
+    Map<String, String> configValues = new java.util.concurrent.ConcurrentHashMap<>();
+    configValues.put("db.url", "jdbc:h2:mem:");
+    SimpleModuleContext ctx =
+        new SimpleModuleContext(
+            new ModuleId("com.gimle.web", Version.parse("1.0.0")),
+            new SimpleServiceRegistry(),
+            configValues);
+
+    Set<String> keys = ctx.configKeys();
+    configValues.put("db.password", "hunter2");
+
+    assertEquals(Set.of("db.url"), keys);
+    assertEquals(Set.of("db.url", "db.password"), ctx.configKeys());
+  }
+
+  @Test
+  void instance_info_is_empty_when_no_identity_collaborator_was_wired() {
+    SimpleModuleContext ctx =
+        new SimpleModuleContext(
+            new ModuleId("com.gimle.web", Version.parse("1.0.0")), new SimpleServiceRegistry());
+
+    assertEquals(Optional.empty(), ctx.instanceInfo());
+  }
+
+  @Test
+  void instance_info_reads_the_wired_supplier_live_on_every_call() {
+    java.util.concurrent.atomic.AtomicReference<Optional<ModuleContext.InstanceInfo>> identity =
+        new java.util.concurrent.atomic.AtomicReference<>(Optional.empty());
+    SimpleModuleContext ctx =
+        new SimpleModuleContext(
+            new ModuleId("com.gimle.web", Version.parse("1.0.0")),
+            new SimpleServiceRegistry(),
+            new java.util.concurrent.ConcurrentHashMap<>(),
+            Map.of(),
+            path -> new ModuleContext.RelayResult(501, "unused"),
+            identity::get);
+
+    assertEquals(Optional.empty(), ctx.instanceInfo());
+
+    ModuleContext.InstanceInfo registered =
+        new ModuleContext.InstanceInfo("orders-service", 2, "node-a", Optional.of("acme"));
+    identity.set(Optional.of(registered));
+
+    assertEquals(Optional.of(registered), ctx.instanceInfo());
+    assertEquals("orders-service", ctx.instanceInfo().orElseThrow().deploymentName());
+    assertEquals(2, ctx.instanceInfo().orElseThrow().instanceIndex());
+    assertEquals("node-a", ctx.instanceInfo().orElseThrow().nodeId());
+    assertEquals(Optional.of("acme"), ctx.instanceInfo().orElseThrow().tenantId());
+  }
+
+  @Test
+  void named_data_directories_resolve_by_name_and_the_no_arg_accessor_needs_a_sole_volume() {
+    SimpleModuleContext multiVolume =
+        new SimpleModuleContext(
+            new ModuleId("com.gimle.web", Version.parse("1.0.0")),
+            new SimpleServiceRegistry(),
+            new java.util.concurrent.ConcurrentHashMap<>(),
+            Map.of(
+                "data", java.nio.file.Path.of("/var/gimle/volumes/orders/0/data"),
+                "wal", java.nio.file.Path.of("/var/gimle/volumes/orders/0/wal")));
+
+    assertEquals(
+        Optional.of(java.nio.file.Path.of("/var/gimle/volumes/orders/0/wal")),
+        multiVolume.dataDirectory("wal"));
+    assertEquals(Optional.empty(), multiVolume.dataDirectory("nope"));
+    // Two volumes: the no-arg shorthand cannot pick one, so it answers empty by design.
+    assertEquals(Optional.empty(), multiVolume.dataDirectory());
+
+    SimpleModuleContext soleVolume =
+        new SimpleModuleContext(
+            new ModuleId("com.gimle.web", Version.parse("1.0.0")),
+            new SimpleServiceRegistry(),
+            new java.util.concurrent.ConcurrentHashMap<>(),
+            Map.of("data", java.nio.file.Path.of("/var/gimle/volumes/orders/0/data")));
+    assertEquals(
+        Optional.of(java.nio.file.Path.of("/var/gimle/volumes/orders/0/data")),
+        soleVolume.dataDirectory());
   }
 
   @Test

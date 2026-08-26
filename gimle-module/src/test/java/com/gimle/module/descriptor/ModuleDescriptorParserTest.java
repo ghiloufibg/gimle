@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.module.ReclaimPolicy;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -100,11 +101,11 @@ class ModuleDescriptorParserTest {
   void no_volume_leaves_it_empty() {
     ModuleDescriptor descriptor = ModuleDescriptorParser.parse(yaml(BASE));
 
-    assertTrue(descriptor.volume().isEmpty());
+    assertTrue(descriptor.volumes().isEmpty());
   }
 
   @Test
-  void parses_volume_size_and_mount_path() {
+  void parses_volume_size_with_reclaim_policy_defaulting_to_retain() {
     ModuleDescriptor descriptor =
         ModuleDescriptorParser.parse(
             yaml(
@@ -112,15 +113,67 @@ class ModuleDescriptorParserTest {
                     + """
                     volume:
                       sizeBytes: 10737418240
-                      mountPath: /data
                     """));
 
-    assertEquals(10737418240L, descriptor.volume().orElseThrow().sizeBytes());
-    assertEquals("/data", descriptor.volume().orElseThrow().mountPath());
+    assertEquals(10737418240L, descriptor.volumes().get("data").sizeBytes());
+    assertEquals(ReclaimPolicy.RETAIN, descriptor.volumes().get("data").reclaimPolicy());
   }
 
   @Test
-  void volume_with_missing_mount_path_throws() {
+  void parses_multiple_named_volumes() {
+    ModuleDescriptor descriptor =
+        ModuleDescriptorParser.parse(
+            yaml(
+                BASE
+                    + """
+                    volumes:
+                      data:
+                        sizeBytes: 10737418240
+                      wal:
+                        sizeBytes: 1073741824
+                        reclaimPolicy: Delete
+                    """));
+
+    assertEquals(2, descriptor.volumes().size());
+    assertEquals(10737418240L, descriptor.volumes().get("data").sizeBytes());
+    assertEquals(ReclaimPolicy.RETAIN, descriptor.volumes().get("data").reclaimPolicy());
+    assertEquals(ReclaimPolicy.DELETE, descriptor.volumes().get("wal").reclaimPolicy());
+  }
+
+  @Test
+  void declaring_both_volume_and_volumes_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            ModuleDescriptorParser.parse(
+                yaml(
+                    BASE
+                        + """
+                        volume:
+                          sizeBytes: 1024
+                        volumes:
+                          data:
+                            sizeBytes: 1024
+                        """)));
+  }
+
+  @Test
+  void parses_explicit_delete_reclaim_policy() {
+    ModuleDescriptor descriptor =
+        ModuleDescriptorParser.parse(
+            yaml(
+                BASE
+                    + """
+                    volume:
+                      sizeBytes: 10737418240
+                      reclaimPolicy: Delete
+                    """));
+
+    assertEquals(ReclaimPolicy.DELETE, descriptor.volumes().get("data").reclaimPolicy());
+  }
+
+  @Test
+  void volume_with_unknown_reclaim_policy_throws() {
     assertThrows(
         GimleManifestException.class,
         () ->
@@ -130,6 +183,7 @@ class ModuleDescriptorParserTest {
                         + """
                         volume:
                           sizeBytes: 10737418240
+                          reclaimPolicy: Recycle
                         """)));
   }
 
@@ -144,7 +198,6 @@ class ModuleDescriptorParserTest {
                         + """
                         volume:
                           sizeBytes: 0
-                          mountPath: /data
                         """)));
   }
 }

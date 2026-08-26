@@ -9,6 +9,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
@@ -47,6 +48,7 @@ import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -157,6 +159,8 @@ public final class DomainCodec {
     }
     out.writeInt(spec.port());
     out.writeInt(spec.targetPort());
+    out.writeBoolean(spec.sessionAffinity());
+    writeOptionalString(out, spec.externalName());
   }
 
   public static ServiceSpec readServiceSpec(DataInputStream in) throws IOException {
@@ -169,45 +173,60 @@ public final class DomainCodec {
     }
     int port = in.readInt();
     int targetPort = in.readInt();
-    return new ServiceSpec(name, tenantId, deploymentNames, port, targetPort);
+    boolean sessionAffinity = in.readBoolean();
+    Optional<String> externalName = readOptionalString(in);
+    return new ServiceSpec(
+        name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName);
   }
 
   public static void writeNetworkPolicySpec(DataOutputStream out, NetworkPolicySpec spec)
       throws IOException {
     out.writeUTF(spec.name());
     out.writeUTF(spec.tenantId());
-    Optional<Set<String>> deploymentNames = spec.deploymentNames();
-    out.writeBoolean(deploymentNames.isPresent());
-    if (deploymentNames.isPresent()) {
-      out.writeInt(deploymentNames.get().size());
-      for (String deploymentName : deploymentNames.get()) {
-        out.writeUTF(deploymentName);
-      }
-    }
-    out.writeInt(spec.allowedCallerTenantIds().size());
-    for (String tenantId : spec.allowedCallerTenantIds()) {
-      out.writeUTF(tenantId);
-    }
+    writeOptionalStringSet(out, spec.deploymentNames());
+    writeOptionalStringSet(out, spec.serviceInterfaceNames());
+    writeOptionalStringSet(out, spec.allowedCallerTenantIds());
+    writeOptionalStringSet(out, spec.allowedCalleeTenantIds());
   }
 
   public static NetworkPolicySpec readNetworkPolicySpec(DataInputStream in) throws IOException {
     String name = in.readUTF();
     String tenantId = in.readUTF();
-    Optional<Set<String>> deploymentNames = Optional.empty();
-    if (in.readBoolean()) {
-      int deploymentNameCount = in.readInt();
-      Set<String> names = new LinkedHashSet<>();
-      for (int i = 0; i < deploymentNameCount; i++) {
-        names.add(in.readUTF());
+    Optional<Set<String>> deploymentNames = readOptionalStringSet(in);
+    Optional<Set<String>> serviceInterfaceNames = readOptionalStringSet(in);
+    Optional<Set<String>> allowedCallerTenantIds = readOptionalStringSet(in);
+    Optional<Set<String>> allowedCalleeTenantIds = readOptionalStringSet(in);
+    return new NetworkPolicySpec(
+        name,
+        tenantId,
+        deploymentNames,
+        serviceInterfaceNames,
+        allowedCallerTenantIds,
+        allowedCalleeTenantIds);
+  }
+
+  private static void writeOptionalStringSet(DataOutputStream out, Optional<Set<String>> values)
+      throws IOException {
+    out.writeBoolean(values.isPresent());
+    if (values.isPresent()) {
+      out.writeInt(values.get().size());
+      for (String value : values.get()) {
+        out.writeUTF(value);
       }
-      deploymentNames = Optional.of(names);
     }
-    int allowedCallerTenantIdCount = in.readInt();
-    Set<String> allowedCallerTenantIds = new LinkedHashSet<>();
-    for (int i = 0; i < allowedCallerTenantIdCount; i++) {
-      allowedCallerTenantIds.add(in.readUTF());
+  }
+
+  private static Optional<Set<String>> readOptionalStringSet(DataInputStream in)
+      throws IOException {
+    if (!in.readBoolean()) {
+      return Optional.empty();
     }
-    return new NetworkPolicySpec(name, tenantId, deploymentNames, allowedCallerTenantIds);
+    int count = in.readInt();
+    Set<String> values = new LinkedHashSet<>();
+    for (int i = 0; i < count; i++) {
+      values.add(in.readUTF());
+    }
+    return Optional.of(values);
   }
 
   public static void writeLimitRangeSpec(DataOutputStream out, LimitRangeSpec spec)
@@ -566,7 +585,10 @@ public final class DomainCodec {
     out.writeInt(v.files().size());
     for (var file : v.files()) {
       out.writeUTF(file.path());
-      out.writeUTF(file.configKey());
+      // One byte discriminates the mount's source kind; exactly one key follows either way.
+      boolean secretBacked = file.secretKey().isPresent();
+      out.writeBoolean(secretBacked);
+      out.writeUTF(secretBacked ? file.secretKey().orElseThrow() : file.configKey().orElseThrow());
     }
     writeOptionalVesselProbeSpec(out, v.probes().liveness());
     writeOptionalVesselProbeSpec(out, v.probes().readiness());
@@ -597,7 +619,14 @@ public final class DomainCodec {
     int fileCount = in.readInt();
     List<VesselFileMount> files = new ArrayList<>();
     for (int i = 0; i < fileCount; i++) {
-      files.add(new VesselFileMount(in.readUTF(), in.readUTF()));
+      String path = in.readUTF();
+      boolean secretBacked = in.readBoolean();
+      String key = in.readUTF();
+      files.add(
+          new VesselFileMount(
+              path,
+              secretBacked ? Optional.empty() : Optional.of(key),
+              secretBacked ? Optional.of(key) : Optional.empty()));
     }
     Optional<VesselProbeSpec> liveness = readOptionalVesselProbeSpec(in);
     Optional<VesselProbeSpec> readiness = readOptionalVesselProbeSpec(in);
@@ -622,6 +651,11 @@ public final class DomainCodec {
         out.writeByte(2);
         writeOptionalInt(out, portAllocation.fixedPort());
       }
+      case VesselEnvValue.VolumeMount volumeMount -> {
+        out.writeByte(3);
+        out.writeLong(volumeMount.sizeBytes());
+        out.writeUTF(volumeMount.reclaimPolicy().name());
+      }
     }
   }
 
@@ -631,6 +665,7 @@ public final class DomainCodec {
       case 0 -> new VesselEnvValue.Literal(in.readUTF());
       case 1 -> new VesselEnvValue.SecretRef(in.readUTF());
       case 2 -> new VesselEnvValue.PortAllocation(readOptionalInt(in));
+      case 3 -> new VesselEnvValue.VolumeMount(in.readLong(), ReclaimPolicy.valueOf(in.readUTF()));
       default -> throw new IllegalStateException("unknown vessel env value tag: " + tag);
     };
   }
@@ -924,6 +959,28 @@ public final class DomainCodec {
     return new ResourceUsageSnapshot(in.readLong(), in.readLong(), in.readLong(), in.readLong());
   }
 
+  public static void writeWorkloadTokenRecord(DataOutputStream out, WorkloadTokenRecord record)
+      throws IOException {
+    out.writeUTF(record.key());
+    out.writeUTF(record.tokenSha256Hex());
+    out.writeBoolean(record.tenantId().isPresent());
+    if (record.tenantId().isPresent()) {
+      out.writeUTF(record.tenantId().get());
+    }
+    out.writeUTF(record.deploymentName());
+    out.writeLong(record.expiresAtEpochMilli());
+  }
+
+  public static WorkloadTokenRecord readWorkloadTokenRecord(DataInputStream in) throws IOException {
+    String key = in.readUTF();
+    String tokenSha256Hex = in.readUTF();
+    Optional<String> tenantId = in.readBoolean() ? Optional.of(in.readUTF()) : Optional.empty();
+    String deploymentName = in.readUTF();
+    long expiresAtEpochMilli = in.readLong();
+    return new WorkloadTokenRecord(
+        key, tokenSha256Hex, tenantId, deploymentName, expiresAtEpochMilli);
+  }
+
   public static void writeInstanceObservation(DataOutputStream out, InstanceObservation obs)
       throws IOException {
     out.writeUTF(obs.deploymentName());
@@ -942,6 +999,7 @@ public final class DomainCodec {
       out.writeUTF(entry.getKey());
       out.writeInt(entry.getValue());
     }
+    out.writeLong(obs.volumeUsageBytes());
   }
 
   public static InstanceObservation readInstanceObservation(DataInputStream in) throws IOException {
@@ -962,6 +1020,7 @@ public final class DomainCodec {
       String portName = in.readUTF();
       ports.put(portName, in.readInt());
     }
+    long volumeUsageBytes = in.readLong();
     return new InstanceObservation(
         deploymentName,
         instanceIndex,
@@ -974,7 +1033,8 @@ public final class DomainCodec {
         cpuMillicoresUsed,
         memoryBytesUsed,
         errorRatePerSecond,
-        ports);
+        ports,
+        volumeUsageBytes);
   }
 
   public static void writeNodeHeartbeat(DataOutputStream out, NodeHeartbeat heartbeat)

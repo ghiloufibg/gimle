@@ -16,8 +16,12 @@ final class ControlPlaneServicePollerTest {
   @Test
   void a_poll_populates_the_directory_from_the_catalog() {
     FakeServiceCatalogClient client = new FakeServiceCatalogClient();
-    client.put("orders", 8080, 8080, List.of("10.0.0.5"));
-    client.put("payments.acme", 9090, 9090, List.of("10.0.0.6", "10.0.0.7"));
+    client.put("orders", 8080, 8080, List.of(new HostPort("10.0.0.5", 8080)));
+    client.put(
+        "payments.acme",
+        9090,
+        9090,
+        List.of(new HostPort("10.0.0.6", 9090), new HostPort("10.0.0.7", 9090)));
     CachingServiceDirectory directory = new CachingServiceDirectory();
     ControlPlaneServicePoller poller =
         new ControlPlaneServicePoller(client, directory, Duration.ofHours(1));
@@ -25,8 +29,10 @@ final class ControlPlaneServicePollerTest {
       int resolved = poller.poll();
 
       assertEquals(2, resolved);
-      assertEquals(Optional.of("10.0.0.5"), directory.resolveOne("orders"));
-      assertEquals(Optional.of("10.0.0.6"), directory.resolveOne("payments.acme"));
+      assertEquals(List.of(new HostPort("10.0.0.5", 8080)), directory.resolveAll("orders"));
+      assertEquals(
+          List.of(new HostPort("10.0.0.6", 9090), new HostPort("10.0.0.7", 9090)),
+          directory.resolveAll("payments.acme"));
     } finally {
       poller.close();
     }
@@ -41,7 +47,7 @@ final class ControlPlaneServicePollerTest {
         new ControlPlaneServicePoller(client, directory, Duration.ofHours(1));
     try {
       poller.poll();
-      assertTrue(directory.resolveOne("orders").isEmpty());
+      assertTrue(directory.resolveAll("orders").isEmpty());
     } finally {
       poller.close();
     }
@@ -56,7 +62,7 @@ final class ControlPlaneServicePollerTest {
     // explicit, converge on the same outcome, so the race is harmless (the same posture {@code
     // AndvariPeerSyncTest} already takes toward its own scheduler's initial tick).
     CachingServiceDirectory directory = new CachingServiceDirectory();
-    directory.replaceAll(Map.of("orders", List.of("10.0.0.5")));
+    directory.replaceAll(Map.of("orders", List.of(new HostPort("10.0.0.5", 8080))));
     FakeServiceCatalogClient client = new FakeServiceCatalogClient();
     client.alwaysFailListing();
     ControlPlaneServicePoller poller =
@@ -65,7 +71,8 @@ final class ControlPlaneServicePollerTest {
       int resolved = poller.poll();
 
       assertEquals(0, resolved);
-      assertEquals(Optional.of("10.0.0.5"), directory.resolveOne("orders")); // still there
+      assertEquals(
+          List.of(new HostPort("10.0.0.5", 8080)), directory.resolveAll("orders")); // still there
     } finally {
       poller.close();
     }
@@ -80,8 +87,8 @@ final class ControlPlaneServicePollerTest {
     private final Map<String, ServiceEndpoints> byName = new LinkedHashMap<>();
     private volatile boolean alwaysFailListing;
 
-    void put(String name, int port, int targetPort, List<String> endpointHosts) {
-      byName.put(name, new ServiceEndpoints(name, port, targetPort, endpointHosts));
+    void put(String name, int port, int targetPort, List<HostPort> endpoints) {
+      byName.put(name, new ServiceEndpoints(name, port, targetPort, endpoints));
     }
 
     void alwaysFailListing() {

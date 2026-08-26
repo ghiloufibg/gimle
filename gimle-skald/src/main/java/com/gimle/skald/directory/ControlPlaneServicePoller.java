@@ -64,13 +64,13 @@ public final class ControlPlaneServicePoller implements AutoCloseable {
       log.warn("failed to list services from control plane: {}", e.getMessage());
       return 0;
     }
-    Map<String, List<String>> next = new LinkedHashMap<>();
+    Map<String, List<HostPort>> next = new LinkedHashMap<>();
     for (String name : names) {
       try {
         client
             .fetchEndpoints(name)
-            .filter(endpoints -> !endpoints.endpointHosts().isEmpty())
-            .ifPresent(endpoints -> next.put(name, endpoints.endpointHosts()));
+            .filter(endpoints -> !endpoints.endpoints().isEmpty())
+            .ifPresent(endpoints -> next.put(name, endpoints.endpoints()));
       } catch (IOException | InterruptedException e) {
         if (e instanceof InterruptedException) {
           Thread.currentThread().interrupt();

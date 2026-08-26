@@ -4,9 +4,11 @@ import com.gimle.core.module.ModuleId;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Default {@link ModuleContext}: an atomic in-flight counter, a thin delegate onto a shared {@link
@@ -27,11 +29,19 @@ public final class SimpleModuleContext implements ModuleContext {
   private static final Function<String, RelayResult> NO_OP_RELAY =
       path -> new RelayResult(501, "control-plane relay is not available on this context");
 
+  /**
+   * The default {@code instanceInfo} for a caller that doesn't wire the real registry-backed
+   * collaborator -- the documented "identity not known here" answer, matching {@link
+   * #NO_OP_RELAY}'s posture for the same situation.
+   */
+  private static final Supplier<Optional<InstanceInfo>> NO_OP_INSTANCE_INFO = Optional::empty;
+
   private final ModuleId id;
   private final ServiceRegistry serviceRegistry;
   private final Map<String, String> configValues;
-  private final Optional<Path> dataDirectory;
+  private final Map<String, Path> dataDirectories;
   private final Function<String, RelayResult> relay;
+  private final Supplier<Optional<InstanceInfo>> instanceInfo;
   private final AtomicInteger inFlight = new AtomicInteger();
   private final Map<String, Integer> reportedPorts = new ConcurrentHashMap<>();
 
@@ -41,28 +51,57 @@ public final class SimpleModuleContext implements ModuleContext {
 
   public SimpleModuleContext(
       ModuleId id, ServiceRegistry serviceRegistry, Map<String, String> configValues) {
-    this(id, serviceRegistry, configValues, Optional.empty());
+    this(id, serviceRegistry, configValues, Map.<String, Path>of());
   }
 
+  /** Convenience: a sole volume (named {@code data}) or none -- the single-volume test shape. */
   public SimpleModuleContext(
       ModuleId id,
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Optional<Path> dataDirectory) {
-    this(id, serviceRegistry, configValues, dataDirectory, NO_OP_RELAY);
+    this(id, serviceRegistry, configValues, soleVolume(dataDirectory), NO_OP_RELAY);
   }
 
   public SimpleModuleContext(
       ModuleId id,
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
-      Optional<Path> dataDirectory,
+      Map<String, Path> dataDirectories) {
+    this(id, serviceRegistry, configValues, dataDirectories, NO_OP_RELAY);
+  }
+
+  public SimpleModuleContext(
+      ModuleId id,
+      ServiceRegistry serviceRegistry,
+      Map<String, String> configValues,
+      Map<String, Path> dataDirectories,
       Function<String, RelayResult> relay) {
+    this(id, serviceRegistry, configValues, dataDirectories, relay, NO_OP_INSTANCE_INFO);
+  }
+
+  /**
+   * The full constructor: {@code instanceInfo} is read live on every {@link #instanceInfo()} call,
+   * never snapshotted, since an instance's identity can be registered (or re-registered on an
+   * in-place rename) after this context already exists.
+   */
+  public SimpleModuleContext(
+      ModuleId id,
+      ServiceRegistry serviceRegistry,
+      Map<String, String> configValues,
+      Map<String, Path> dataDirectories,
+      Function<String, RelayResult> relay,
+      Supplier<Optional<InstanceInfo>> instanceInfo) {
     this.id = id;
     this.serviceRegistry = serviceRegistry;
     this.configValues = configValues;
-    this.dataDirectory = dataDirectory;
+    this.dataDirectories = Map.copyOf(dataDirectories);
     this.relay = relay;
+    this.instanceInfo = instanceInfo;
+  }
+
+  private static Map<String, Path> soleVolume(Optional<Path> dataDirectory) {
+    return dataDirectory.map(path -> Map.of("data", path)).orElse(Map.of());
   }
 
   @Override
@@ -108,8 +147,26 @@ public final class SimpleModuleContext implements ModuleContext {
   }
 
   @Override
+  public Set<String> configKeys() {
+    return Set.copyOf(configValues.keySet());
+  }
+
+  @Override
+  public Optional<InstanceInfo> instanceInfo() {
+    return instanceInfo.get();
+  }
+
+  @Override
   public Optional<Path> dataDirectory() {
-    return dataDirectory;
+    if (dataDirectories.size() != 1) {
+      return Optional.empty();
+    }
+    return Optional.of(dataDirectories.values().iterator().next());
+  }
+
+  @Override
+  public Optional<Path> dataDirectory(String name) {
+    return Optional.ofNullable(dataDirectories.get(name));
   }
 
   @Override

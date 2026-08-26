@@ -72,6 +72,73 @@ certificate already has unconditional full access, so defaulting the operator gr
 `cluster-admin` changes nothing until an operator narrows another operator's access with a custom
 `Role`/`RoleBinding`.
 
+**Per-tenant role templates** are built in the same way `cluster-admin` is — synthesized from the
+role name by `BuiltinRoles.tenantRole(...)`, never stored, never editable via `/roles`. Binding a
+subject to `tenant-view:<tenantId>` grants read-only visibility into that tenant (secrets
+deliberately excluded, the same posture Kubernetes' own `view` role takes); `tenant-edit:<tenantId>`
+adds create/update/delete of the tenant's workloads, config, and secrets; `tenant-admin:<tenantId>`
+additionally manages the tenant's own guardrails (NetworkPolicies, LimitRanges). Every permission a
+template synthesizes is scoped to exactly the named tenant, so a binding to one can never leak
+authority into another tenant, let alone cluster-wide:
+
+```bash
+gimle set rolebinding acme-dev --subject user:dev@acme --role tenant-edit:acme
+```
+
+**Collection listings are filtered, not all-or-nothing.** Every `GET /<collection>` endpoint over a
+tenant-scopable kind (`/deployments`, `/jobs`, `/cronjobs`, `/daemonsets`, `/statefulsets`,
+`/services`, `/networkpolicies`, `/tenants`, `/limitranges`, the `/metrics` rollup) admits a caller
+holding only tenant-scoped `READ` grants and returns exactly the items whose own tenant those
+grants cover — an unscoped grant sees everything, an untenanted item is visible only to unscoped
+readers, and a caller with no read grant for the kind at all gets the same 403 a single-resource
+read would. This is what makes the per-tenant templates usable end to end: `gimle get deployments`
+under a `tenant-view:acme` binding lists acme's deployments rather than failing outright for lack
+of a cluster-wide grant.
+
+**`GET /authz/can-i?resource=<ResourceKind>&verb=<Verb>[&tenant=...][&target=...]`** is the
+self-subject access review: it answers whether the *calling* principal would be authorized for that
+action, without performing it, computed by the identical `Authorizer.authorize(...)` walk every real
+request goes through — so the answer can never drift from what enforcement would actually decide.
+Any authenticated caller may ask about itself (and only itself — there is no principal parameter),
+it is never audited (a hypothetical is a read-shaped question), and in plaintext mode it honestly
+answers `true` for everything, since nothing is actually gated in that mode.
+
+**Workload identity** is the ServiceAccount analogue: each node's agent mints a short-lived token
+per assigned, tenanted deployment (`POST /workload-tokens` — under mTLS a `gimle:nodes` principal
+may mint only for its own node and only for a deployment the store currently assigns there; an
+operator may mint for any node) and attaches it as a `Bearer` credential when relaying a hosted
+module's control-plane reads. The token is store-backed rather than signed: only its SHA-256
+replicates through Raft (`WorkloadTokenRecord`, keyed `deploymentName#nodeId`), so it verifies on
+whichever replica a request lands on — replicas share no signing key, they share the store — and
+removing the record revokes it instantly. A live token resolves the principal
+`svc:<tenantId>:<deploymentName>` in group `gimle:workloads`, checked *before* any peer
+certificate (the one caller sending both is a relaying agent, and the module must act as its own
+narrower principal, never ride the agent's node identity; an invalid bearer resolves nothing rather
+than falling back). No implicit grants: an unbound workload principal is denied everything until an
+operator binds it a role — `gimle set rolebinding wb1 --subject user:svc:acme:orders --role
+tenant-view:acme` is the typical shape. Untenanted deployments have no workload identity (nothing
+to scope to) and keep the agent-side relay whitelist instead.
+
+**Tenant client certificates** carry a tenant-membership claim in certificate form:
+`gimle cert request --purpose tenant --tenant <id>` submits a CSR over the requester's own mTLS
+identity, and a caller holding `CERTIFICATE_REQUEST:APPROVE` under that tenant's scope (a cluster
+operator, or the tenant's own `tenant-admin:` holder) gets it signed synchronously with the
+server-stamped `O=gimle:tenant:<id>` — like `gimle:operators`/`gimle:nodes`, the group is never
+taken from the CSR's own subject, which is exactly what makes it a trustworthy claim. Its consumer
+today is `gimle-bifrost`'s TLS-terminating identity-verifying mode (see
+[Service fabric](./service-fabric.md)), which reads the group off a verified client certificate to
+enforce a `NetworkPolicySpec`'s allow list against opaque proxied traffic — the same tenant claim
+the fabric wire protocol carries in-band, expressed at the transport layer for callers outside the
+fabric.
+
+**Certificate revocation** is the portable answer to a compromised leaf, with no CRL/OCSP
+infrastructure: `gimle cert revoke <serialHex>` (`PUT /certificates/revoked/{serial}`, guarded by
+`CERTIFICATE_REQUEST` writes) puts the serial — the `openssl x509 -serial` hex form — on a
+Raft-replicated denylist that `resolvePrincipal` checks before any authorization runs, so the
+revoked certificate resolves no principal at all from its very next request. Keyed by serial, not
+subject, so a legitimately re-issued certificate for the same identity is untouched; deliberately
+reversible (`gimle cert unrevoke`), and `gimle cert revocations` lists the current set.
+
 `Roles`/`RoleBindings`/`Accounts` are ordinary Raft-replicated resources — new
 `StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, nothing special-cased.
 

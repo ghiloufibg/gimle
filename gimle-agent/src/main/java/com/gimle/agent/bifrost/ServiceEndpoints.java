@@ -9,4 +9,14 @@ import java.util.List;
  * verbatim, so {@link HttpServiceSource} can build one straight off the parsed JSON.
  */
 public record ServiceEndpoints(
-    String name, int port, int targetPort, List<ServiceEndpoint> endpoints) {}
+    String name,
+    int port,
+    int targetPort,
+    boolean sessionAffinity,
+    List<ServiceEndpoint> endpoints) {
+
+  /** Convenience: an endpoint set with no session affinity declared. */
+  public ServiceEndpoints(String name, int port, int targetPort, List<ServiceEndpoint> endpoints) {
+    this(name, port, targetPort, false, endpoints);
+  }
+}

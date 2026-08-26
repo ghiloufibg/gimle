@@ -27,6 +27,12 @@ public final class ServiceEndpointResolver {
   private ServiceEndpointResolver() {}
 
   public static List<ServiceEndpoint> resolve(StoreReader store, ServiceSpec spec) {
+    // An ExternalName Service resolves to exactly its declared external host at targetPort --
+    // there are no backing instances to join against, and the host is a name the caller's own
+    // resolver (or the OS) turns into an address, never one of this cluster's node hosts.
+    if (spec.isExternalName()) {
+      return List.of(new ServiceEndpoint(spec.externalName().orElseThrow(), spec.targetPort()));
+    }
     List<ServiceEndpoint> endpoints = new ArrayList<>();
     for (String deploymentName : spec.deploymentNames()) {
       for (InstanceAssignment assignment : store.listAssignmentsFor(deploymentName)) {
@@ -35,7 +41,11 @@ public final class ServiceEndpointResolver {
             .ifPresent(
                 port ->
                     resolveHost(store, assignment.nodeId())
-                        .ifPresent(host -> endpoints.add(new ServiceEndpoint(host, port))));
+                        .ifPresent(
+                            host ->
+                                endpoints.add(
+                                    new ServiceEndpoint(
+                                        host, port, Optional.of(assignment.nodeId())))));
       }
     }
     return endpoints;

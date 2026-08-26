@@ -168,20 +168,24 @@ public sealed interface ControlMessage {
   }
 
   /**
-   * {@code dataDirectory} is the host path a {@code StatefulSet}-shaped instance's persistent
-   * volume was allocated at -- resolved by the agent (which alone knows the placement identity a
-   * volume path is keyed by) via {@code VolumeManager.allocate} before this message is sent, and
-   * populated on the worker's {@link com.gimle.module.lifecycle.ModuleContext#dataDirectory()} the
-   * moment this instance's {@code ModuleContext} is created -- {@code resolve()}, not {@code
-   * start()}, since a hook may need it as early as {@code onInstall}. Empty for every module that
-   * doesn't declare {@code volume:}, the only shape every pre-existing call site has; the
-   * two-argument constructor preserves that shape for them.
+   * {@code dataDirectories} maps each of the module's declared volume names to the host path that
+   * named volume was allocated at -- resolved by the agent (which alone knows the placement
+   * identity a volume path is keyed by) via {@code VolumeManager.allocate} before this message is
+   * sent, and populated on the worker's {@link
+   * com.gimle.module.lifecycle.ModuleContext#dataDirectory(String)} the moment this instance's
+   * {@code ModuleContext} is created -- {@code resolve()}, not {@code start()}, since a hook may
+   * need it as early as {@code onInstall}. Empty for every module that declares no {@code
+   * volumes:}; the two-argument constructor preserves that shape.
    */
-  record ResolveModule(String correlationId, ModuleId id, String dataDirectory)
+  record ResolveModule(String correlationId, ModuleId id, Map<String, String> dataDirectories)
       implements ControlMessage {
 
+    public ResolveModule {
+      dataDirectories = Map.copyOf(dataDirectories);
+    }
+
     public ResolveModule(String correlationId, ModuleId id) {
-      this(correlationId, id, "");
+      this(correlationId, id, Map.of());
     }
   }
 

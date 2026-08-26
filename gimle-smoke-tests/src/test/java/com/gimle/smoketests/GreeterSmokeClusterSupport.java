@@ -872,7 +872,6 @@ abstract class GreeterSmokeClusterSupport {
                 cpu: 50m
             volume:
               sizeBytes: 1048576
-              mountPath: /data
             lifecycle:
               hooks: %s.StatefulHooks
             """

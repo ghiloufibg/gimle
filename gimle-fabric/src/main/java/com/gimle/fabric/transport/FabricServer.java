@@ -478,6 +478,12 @@ public final class FabricServer implements AutoCloseable {
    * against.
    */
   private void checkNetworkPolicyPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
+    checkIngressPermitted(owner, request);
+    checkCallerEgressPermitted(request);
+  }
+
+  /** The ingress half: rules owned by <em>this worker's own</em> tenant, gating who may call in. */
+  private void checkIngressPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
     if (selfTenantId.isEmpty()) {
       return;
     }
@@ -489,10 +495,49 @@ public final class FabricServer implements AutoCloseable {
       if (!rule.appliesToDeployment(deploymentName)) {
         continue;
       }
+      if (!rule.appliesToServiceInterface(request.interfaceName())) {
+        continue;
+      }
       if (!rule.permitsCallerTenant(request.callerTenantId())) {
         throw GimleFabricAuthorizationException.tenantNotPermitted(
             request.interfaceName(),
             request.callerTenantId().map(id -> "tenant " + id).orElse("an untenanted caller"));
+      }
+    }
+  }
+
+  /**
+   * The egress half, enforced at the callee -- deliberately, because the callee is the one
+   * enforcement point a misbehaving caller cannot skip: rules owned by the <em>caller's</em>
+   * tenant, gating who that tenant may call out to, checked here against this worker's own tenant
+   * as the callee. Only caller-tenant-wide rules ({@code deploymentNames} absent) are enforceable
+   * on this side: a caller-deployment-scoped egress rule names a deployment identity the wire
+   * doesn't carry, so it can only ever be proven to apply at the caller, never assumed to apply
+   * here -- the same "proven, not assumed" posture {@link NetworkPolicyRule#appliesToDeployment}
+   * itself takes for an unidentified target. Interface scoping does apply: the callee knows exactly
+   * which interface is being invoked.
+   */
+  private void checkCallerEgressPermitted(FabricFrame.InvokeRequest request) {
+    Optional<String> callerTenantId = request.callerTenantId();
+    if (callerTenantId.isEmpty()) {
+      return; // an untenanted caller has no tenant whose egress policy could cover it
+    }
+    for (NetworkPolicyRule rule : networkPolicies) {
+      if (!rule.tenantId().equals(callerTenantId.get())) {
+        continue;
+      }
+      if (rule.deploymentNames().isPresent()) {
+        continue;
+      }
+      if (!rule.appliesToServiceInterface(request.interfaceName())) {
+        continue;
+      }
+      if (!rule.permitsCalleeTenant(selfTenantId)) {
+        throw GimleFabricAuthorizationException.tenantNotPermitted(
+            request.interfaceName(),
+            selfTenantId
+                .map(id -> "callee tenant " + id + " (egress restricted)")
+                .orElse("an untenanted callee (egress restricted)"));
       }
     }
   }

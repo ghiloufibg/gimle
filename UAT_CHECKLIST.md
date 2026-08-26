@@ -6,22 +6,22 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 611
+- **Total requirements**: 630
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 488
-- **Release-readiness (automated coverage)**: 20.1%
+- **Not covered by automated test**: 507
+- **Release-readiness (automated coverage)**: 19.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 42 | 15 | 27 | 35.7% |
-| gimle-module | 22 | 11 | 11 | 50.0% |
-| gimle-os | 6 | 0 | 6 | 0.0% |
+| gimle-core | 43 | 15 | 28 | 34.9% |
+| gimle-module | 25 | 11 | 14 | 44.0% |
+| gimle-os | 7 | 0 | 7 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 40 | 6 | 34 | 15.0% |
+| gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 54 | 35 | 19 | 64.8% |
-| gimle-fabric | 32 | 1 | 31 | 3.1% |
-| gimle-controlplane | 70 | 14 | 56 | 20.0% |
+| gimle-fabric | 33 | 1 | 32 | 3.0% |
+| gimle-controlplane | 75 | 14 | 61 | 18.7% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -40,7 +40,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 31 | 16 | 15 | 51.6% |
 | gimle-dist | 6 | 0 | 6 | 0.0% |
-| gimle-skald | 1 | 0 | 1 | 0.0% |
+| gimle-skald | 3 | 0 | 3 | 0.0% |
 
 ## Checklist
 
@@ -113,7 +113,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-007 | StatefulSet-shaped persistent volume declaration | Given gimle-module.yaml declaring volume:{sizeBytes,mountPath}, When parsed, Then ModuleDescriptor.volume() is present. | No |
+| [ ] | GIMLE-007 | StatefulSet-shaped persistent volume declaration | Given gimle-module.yaml declaring volume:{sizeBytes[,reclaimPolicy]}, When parsed, Then ModuleDescriptor.volume() is present with reclaimPolicy defaulting to RETAIN. | No |
 
 #### Module System / Vessel Hosting
 
@@ -191,6 +191,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-011 | RBAC domain model (resources, verbs, permissions, roles, bindings) | Given Permission scoped to (DEPLOYMENT,WRITE,tenant="acme"), When covers(DEPLOYMENT,WRITE,Optional.of("acme")), Then true; a different tenant, false. | Yes |
 | [ ] | GIMLE-012 | Built-in cluster-admin role and operator/node certificate groups | Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination. | Yes |
+| [ ] | GIMLE-615 | Per-tenant built-in role templates (tenant-view/edit/admin) | Given a RoleBinding to tenant-edit:acme, When its subject writes a deployment under tenant acme, Then it is allowed, and denied for any other tenant. Given a RoleBinding to tenant-view:acme, When its subject reads tenant acme's secrets, Then it is denied. Given a RoleBinding to tenant-view:acme, When its subject GETs /deployments, Then the response is 200 listing exactly tenant acme's deployments -- never another tenant's or an untenanted one, and never a 403. | No |
 
 #### Self-Healing
 
@@ -218,6 +219,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-058 | Hot redeploy (old/new version coexistence with pinned dependent wiring) | Given dependent D wired to dependency v1, and v2 is then installed/resolved, When D's wiring is inspected afterward, Then still wired to v1 unless explicitly re-resolved. | No |
 | [ ] | GIMLE-059 | gimle-module.yaml descriptor parsing and validation | Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value. | Yes |
 | [ ] | GIMLE-060 | Module artifact reading — real-JPMS-module and descriptor-presence validation | Given a jar with no module-info.class, When ModuleArtifactReader.read(jarPath) is called, Then GimleManifestException explaining automatic modules are rejected. | No |
+| [ ] | GIMLE-616 | Instance identity on ModuleContext (downward API) | Given a hosted instance with a registered identity, When it calls ModuleContext.instanceInfo(), Then it sees its deployment name, replica index, node id, and tenant. Given an instance renamed in place, When it calls instanceInfo() again, Then the answer reflects the new index without a restart. | No |
+
+#### Module System / Configuration
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-617 | Config key enumeration on ModuleContext | Given delivered config values, When a module calls configKeys(), Then it receives a snapshot of every currently-delivered key. | No |
 
 #### Module System / Health
 
@@ -247,7 +255,19 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same "ports" key shape a Vessel workload's allocatedPorts already uses. Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve. | Yes |
 
+#### Storage
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-630 | Multi-volume modules: named volumes and dataDirectory(name) | Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path. Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged. | No |
+
 ### gimle-os
+
+#### Module System / Storage
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-612 | Volume reclaim policy: Retain-by-default persistent volume release | Given a StatefulSet module whose volume declares no reclaimPolicy, When its index is permanently removed, Then the volume directory and its contents remain on disk. Given a StatefulSet module whose volume declares reclaimPolicy Delete, When its index is permanently removed, Then the volume directory is recursively deleted. | No |
 
 #### Resource Limiting
 
@@ -273,7 +293,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-070 | Self-signed cluster CA generation | Given CertificateAuthority.generateSelfSignedCa(subject, validity), When inspected, Then self-signed, CA=true, carries critical keyCertSign/cRLSign key usage. | Yes |
 | [ ] | GIMLE-071 | CSR-to-leaf-certificate signing with signature verification | Given a CSR whose signature doesn't match its own public key, When signCertificateRequest is called, Then throws rather than issuing a certificate. | Yes |
-| [ ] | GIMLE-073 | CSR generation with Subject Alternative Names | Given a CSR built with dnsNames=["node1.local","localhost"], When verified with its own public key, Then succeeds, and the SAN extension request is present. | Yes |
+| [ ] | GIMLE-073 | CSR generation with typed Subject Alternative Names (DNS and IP) | Given a CSR built with hostnames=["node1.local","localhost"], When verified with its own public key, Then succeeds, and the SAN extension request is present. Given a CSR built with hostnames=["localhost","127.0.0.1","::1"], When signed by the CA, Then the leaf carries localhost as dNSName and both IP literals as iPAddress entries. | Yes |
 | [ ] | GIMLE-075 | Randomized certificate-renewal scheduling (anti-thundering-herd) | Given a certificate's validity window, When RenewalSchedule.of(certificate) is called, Then renewAt falls within the last 20–30% of validity. | No |
 | [ ] | GIMLE-076 | Own-certificate rotation over mTLS via CSR bootstrap endpoint | Given a component's currently-loaded cert is past renewal, When checkAndRotateIfDue(settings, csrEndpoint) is called, Then submits a NODE_CLIENT CSR, writes new key then new cert, returns a new HttpClient with rotated=true; plaintext mode or nothing due is a no-op. | Yes |
 
@@ -420,6 +440,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-115 | Artifact-registry coordinate resolution via ArtifactPullCache | Given an assignment's artifactPath is blank and andvariBaseUrls is configured When resolveArtifactReference runs Then it resolves via artifactCache.resolve(httpClient, andvariBaseUrls, moduleId) to a concrete local jar path Given resolution fails (e.g. -Dgimle.agent.andvariEndpoint not configured, or Andvari unreachable) Then a TRANSITION_FAILED InstanceEvent with "artifact resolution failed" is posted and this assignment is skipped this tick, not fatal to the whole reconcile | Yes |
 
+#### Configuration / Secrets
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-619 | Live config and secret propagation to running instances | Given a running instance with delivered config, When a value changes upstream, Then the agent re-delivers only the changed value on its next relay tick and the module sees it on its next config(key) read. | No |
+
 #### Configuration Management
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -462,6 +488,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-123 | mTLS bootstrap CSR flow for node identity | Given TLS is enabled and no cert/key files exist yet on disk When bootstrapCertificateIfNeeded runs Then it generates an RSA keypair and CSR, connects with server-trust-only TLS, and POSTs it plus the bootstrap token to /bootstrap/csr And on a 200 response, writes the returned certificate and encoded private key to the configured cert/key files Given cert/key files already exist (a redeploy of an already-bootstrapped node) Then this is a no-op Given the bootstrap token is missing/blank Then GimleTlsException.missingProperty is thrown | Yes |
+
+#### Networking / Services
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-626 | Bifrost locality-preferred forwarding and ClientIP session affinity | Given a Service with one backend on the proxy's own node and one remote, When a caller connects repeatedly, Then every connection is served by the same-node backend until it disappears, after which remote backends serve. Given a Service declaring sessionAffinity, When one caller connects repeatedly, Then every connection lands on the same backend. | No |
 
 #### Networking/Security
 
@@ -508,6 +540,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-591 | Narrowed secret delivery via `secretMapRefs` | Given a tenant owns secrets `db-creds/username` and `other-secret`, When an instance's deployment declares `secretMapRefs: [db-creds]`, Then only `username` is delivered to that instance -- `other-secret` never is. | No |
 
+#### Security / Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-627 | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused. Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one. | No |
+
 #### Self-Healing
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -519,6 +557,24 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-568 | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Given BifrostProxy polling a ServiceSource that reports Service "orders" with two live endpoints, When pollOnce runs, Then a loopback listener is bound at a stable 127.x.y.1 address and successive connections round-robin across both endpoints. Given a service previously bound, When it disappears from the next poll's service list, Then its listener is closed. Given a service appearing for the first time on a poll, When pollOnce runs, Then a new listener is bound for it without disturbing already-bound listeners for other services. | No |
+
+#### Service Fabric / Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-618 | Bifrost off-node service exposure (NodePort analogue) | Given -Dgimle.agent.bifrostExposeServices=true, When Bifrost binds a Service listener, Then it wildcard-binds at the Service's declared port and proxies to live endpoints. | No |
+
+#### Storage / Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-622 | Soft volume disk-usage observation in instance heartbeats | Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval. | No |
+
+#### Storage / Vessels
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-629 | Vessel persistent volumes and secret-backed file mounts | Given a vessel declaring a {volume: ...} env entry, When the agent spawns it, Then a persistent directory keyed by placement identity plus the env name is allocated and its host path exported as that variable, surviving replacement at the same key. Given a vessel files entry naming a secret, When the agent renders files, Then the secret value lands on disk verbatim with owner-only permissions. Given a single-jar vessel with a relative files path, When the agent spawns it, Then the process starts in the per-instance root the files rendered under, so the relative path resolves as declared; a bundle vessel keeps its entrypoint workdir and finds the root via GIMLE_INSTANCE_ROOT. | No |
 
 #### Worker Supervision
 
@@ -716,6 +772,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-184 | Locality-Aware Load Balancing with Spillover | Given several same-machine endpoints saturated and a remote endpoint with spare capacity; When lookup selects a candidate; Then the remote tier is admitted; when a same-machine endpoint is idle, remote is never consulted. | No |
 | [ ] | GIMLE-185 | Least-Outstanding-Requests Selection | Given two candidates, one busier; When select is called; Then the less-loaded candidate is chosen; ties round-robin. | No |
 
+#### Networking / Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-623 | NetworkPolicy interface scoping and egress enforcement | Given an ingress rule scoped to one exported interface, When a cross-tenant call targets a different interface, Then it passes, and a call to the named interface is denied. Given an egress rule owned by the caller's tenant with an empty allow list, When that tenant calls a foreign-tenant callee, Then the callee's own listener denies it. | No |
+
 #### Networking/Security
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -867,6 +929,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-271 | Reserved system-tenant auto-seeding | Given a fresh control-plane replica starts against an empty store; When it initializes; Then it proposes a Tenant row for RESERVED_SYSTEM_TENANT_ID unless one already exists. | No |
 
+#### Networking / Services
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId. Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish. | No |
+
 #### Orchestration / Internal-Infra
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -973,6 +1041,25 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-262 | `/secrets/*` byte-for-byte proxy to Fafnir | Given a caller has WRITE access to SECRET for tenant T; When PUT /secrets/T/mykey; Then ApiServer authorizes locally, forwards byte-for-byte to Fafnir with the calling principal as an internal claim, and relays the response verbatim. | No |
+
+#### Security / PKI
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-624 | Certificate revocation denylist | Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication. | No |
+
+#### Security / RBAC
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-614 | Self-subject access review endpoint (/authz/can-i) | Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it. Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401. Given `gimle can-i write deployments --tenant acme` against a plaintext server, When it runs, Then it prints yes and exits 0. | No |
+| [ ] | GIMLE-625 | Workload identity: store-backed per-deployment tokens (ServiceAccount analogue) | Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>. Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources. | No |
+
+#### Storage / Operations
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-621 | Cluster-wide volume operator surface (/volumes API + CLI) | Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage. Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it. | No |
 
 ### gimle-fafnir
 
@@ -1263,7 +1350,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-379 | Tenant plain configuration key/value store | Given tenant "acme" exists, When "gimle set config acme greeting hello", Then PUT /config/acme/greeting; delete then get fails. | No |
 | [ ] | GIMLE-382 | Log viewing and live tailing | Given "gimle logs instance/orders-service/0", Then GET /logs/instances/orders-service/0?category=APPLICATION&limit=200; "--follow" opens a chunked GET with follow=true and prints new lines until interrupted. | No |
 | [ ] | GIMLE-578 | Service CRUD and live endpoint lookup | Given no Service named "web" exists, When "gimle set service web --deployment orders-service --port 8080", Then POST /services creates it and "gimle get service web" returns it with deploymentNames ["orders-service"] and targetPort defaulted to 8080. Given a Service "web" exists, When "gimle service endpoints web", Then GET /services/web/endpoints returns its declared port shape and current live endpoint set. | No |
-| [ ] | GIMLE-579 | NetworkPolicy CRUD | Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"]. | No |
+| [ ] | GIMLE-579 | NetworkPolicy CRUD | Given no NetworkPolicy named "acme-policy" exists, When "gimle set networkpolicy acme-policy --tenant acme --allowed-caller-tenant partner", Then POST /networkpolicies creates it and "gimle get networkpolicy acme-policy" returns tenantId "acme" and allowedCallerTenantIds ["partner"]. Given `gimle set networkpolicy p --tenant acme --service-interface com.acme.Orders --allowed-callee-tenant partner --deny-all-callers`, When the policy is read back, Then it carries the interface scope, the egress allow list, and an empty ingress allow list. | No |
 | [ ] | GIMLE-584 | `gimle configmap` command | Given a ConfigMap does not yet exist, When `gimle configmap set <tenant> <name> --from-literal a=1` is run, Then the CLI reads the (absent) current version as 0, PATCHes with `expectedVersion: 0`, and prints the new version -- no version number typed by the caller. | No |
 | [ ] | GIMLE-592 | `gimle secretmap` command | Given a SecretMap does not yet exist, When `gimle secretmap set <tenant> <name> --from-literal username=admin --from-literal password=hunter2` is run, Then both keys are created at version 1 and the per-key result list is printed. | No |
 | [ ] | GIMLE-595 | `secretmap versions`/`secretmap rollback` verbs | Given `gimle secretmap set acme-corp db-creds --from-literal password=hunter2` then `--from-literal password=hunter3` have both run, When `gimle secretmap rollback acme-corp db-creds 1` is invoked, Then `gimle secretmap get acme-corp db-creds` shows `password` restored to `hunter2` at a brand-new version. | No |
@@ -1664,6 +1751,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-611 | Midgard Docker dev-cluster distribution archive | Given the unpacked gimle-midgard archive on a machine with Docker, When docker compose up -d runs, Then one container boots a store, control plane, Fafnir, Muninn, Andvari, and a node agent via hilmir up, and the web console serves on the published port 8080. Given the container is up with seeding enabled, When the entrypoint's seed step runs, Then the bundled example jars are pushed to the artifact registry and their v1 coordinate-only deployments reach ACTIVE. Given a running Midgard container, When docker stop is issued, Then the entrypoint tears the cluster down via hilmir down before exiting. | No |
 
 ### gimle-skald
+
+#### Service Discovery / DNS
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-613 | DNS-over-TCP fallback with UDP truncation | Given a Skald server, When an A query arrives over TCP as a length-prefixed message, Then the full response is returned length-prefixed on the same connection. Given a UDP response exceeding 512 bytes, When Skald replies over UDP, Then the reply carries TC=1 and no answers. | No |
+| [ ] | GIMLE-620 | SRV records and headless A answers | Given a service with two live endpoints, When an A query arrives, Then both endpoint addresses are answered at once. Given the same service, When an SRV query arrives, Then one record per endpoint carries that endpoint's own port and a dashed-address target that itself resolves via A. | No |
 
 #### Service Fabric
 

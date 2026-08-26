@@ -59,6 +59,10 @@
     </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
+      <artifactId>gimle-skald</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
       <artifactId>gimle-pki</artifactId>
     </dependency>
     <dependency>
@@ -125,6 +129,8 @@
     <gimle.dist.jre.muninn.jdkModules>java.base,jdk.httpserver,java.xml,java.naming</gimle.dist.jre.muninn.jdkModules>
     <!-- duplicated from gimle-andvari/pom.xml's own gimle.runtimeImage.jdkModules -->
     <gimle.dist.jre.andvari.jdkModules>java.base,java.xml,java.naming,jdk.httpserver,jdk.zipfs</gimle.dist.jre.andvari.jdkModules>
+    <!-- duplicated from gimle-skald/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.skald.jdkModules>java.base,java.net.http</gimle.dist.jre.skald.jdkModules>
     <!-- duplicated from gimle-pki/pom.xml's own gimle.runtimeImage.jdkModules -->
     <gimle.dist.jre.pki.jdkModules>java.base,java.net.http</gimle.dist.jre.pki.jdkModules>
     <!-- duplicated from gimle-hilmir/pom.xml's own gimle.runtimeImage.jdkModules -->
@@ -290,9 +296,10 @@
       Deliberately excludes gimle-agent and gimle-worker: both dynamically load code this feature
       never sees ahead of time (the agent spawns arbitrary vessel jars, the worker hosts arbitrary
       Gimlé modules inside its own JVM via ModuleLayer), so neither one's own real JDK module needs
-      were ever part of any jlink derivation the way the eight process kinds this profile *does*
+      were ever part of any jlink derivation the way the nine process kinds this profile *does*
       bundle for (gimle-controlplane, gimle-mimir, gimle-fafnir, gimle-muninn, gimle-andvari,
-      gimle-pki, gimle-hilmir, gimle-cli, each of which only ever runs the platform's own code)
+      gimle-skald, gimle-pki, gimle-hilmir, gimle-cli, each of which only ever runs the platform's
+      own code)
       already were. A trimmed JRE for either could silently break a workload needing a JDK module
       outside that trimmed set, with no way to detect the mismatch ahead of time.
 
@@ -425,6 +432,25 @@
                     <argument>${gimle.dist.jre.andvari.jdkModules}</argument>
                     <argument>--output</argument>
                     <argument>${project.build.directory}/jre-images/andvari/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
+              <execution>
+                <id>jlink-skald</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.skald.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/skald/jre</argument>
                     <argument>--strip-debug</argument>
                     <argument>--no-header-files</argument>
                     <argument>--no-man-pages</argument>

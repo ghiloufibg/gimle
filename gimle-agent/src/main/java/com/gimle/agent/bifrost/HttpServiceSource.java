@@ -80,13 +80,17 @@ public final class HttpServiceSource implements ServiceSource {
     List<ServiceEndpoint> endpoints = new ArrayList<>();
     for (Map<String, Object> entry : Json.asObjectList(body.get("endpoints"))) {
       endpoints.add(
-          new ServiceEndpoint((String) entry.get("host"), ((Number) entry.get("port")).intValue()));
+          new ServiceEndpoint(
+              (String) entry.get("host"),
+              ((Number) entry.get("port")).intValue(),
+              Optional.ofNullable((String) entry.get("nodeId"))));
     }
     return Optional.of(
         new ServiceEndpoints(
             (String) body.get("name"),
             ((Number) body.get("port")).intValue(),
             ((Number) body.get("targetPort")).intValue(),
+            Boolean.TRUE.equals(body.get("sessionAffinity")),
             endpoints));
   }
 

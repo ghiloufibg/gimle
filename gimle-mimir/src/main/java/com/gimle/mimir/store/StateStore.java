@@ -97,6 +97,8 @@ public final class StateStore implements StoreReader {
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
   private final Map<String, Boolean> nodeCordons = new ConcurrentHashMap<>();
+  private final Map<String, Boolean> revokedCertificateSerials = new ConcurrentHashMap<>();
+  private final Map<String, WorkloadTokenRecord> workloadTokens = new ConcurrentHashMap<>();
   private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
   private final Map<String, Role> roles = new ConcurrentHashMap<>();
   private final Map<String, RoleBinding> roleBindings = new ConcurrentHashMap<>();
@@ -761,6 +763,53 @@ public final class StateStore implements StoreReader {
     return nodeCordons.getOrDefault(nodeId, Boolean.FALSE);
   }
 
+  // ---- certificate revocation bookkeeping ----
+
+  /**
+   * Marks (or clears) one issued certificate's serial number as revoked -- checked by every process
+   * that authenticates peer certificates, before any authorization runs. Same present-means-true
+   * shape as {@link #putNodeCordon}: a cleared serial is removed outright, so the map only ever
+   * holds currently-revoked serials.
+   */
+  public void putCertificateRevocation(String serialNumber, boolean revoked) {
+    if (!revoked) {
+      revokedCertificateSerials.remove(serialNumber);
+      return;
+    }
+    revokedCertificateSerials.put(serialNumber, Boolean.TRUE);
+  }
+
+  public boolean isCertificateRevoked(String serialNumber) {
+    return revokedCertificateSerials.getOrDefault(serialNumber, Boolean.FALSE);
+  }
+
+  public Set<String> listRevokedCertificateSerials() {
+    return Set.copyOf(revokedCertificateSerials.keySet());
+  }
+
+  // ---- workload-identity token bookkeeping ----
+
+  /**
+   * Replaces {@code record.key()}'s live token and opportunistically drops every entry already
+   * expired as of {@code mintedAtEpochMilli} -- the mutation's own stamp, never this replica's
+   * clock, so the sweep is deterministic across replicas and replays (see {@code
+   * StateMutation.PutWorkloadToken}).
+   */
+  public void putWorkloadToken(WorkloadTokenRecord record, long mintedAtEpochMilli) {
+    workloadTokens
+        .values()
+        .removeIf(existing -> existing.expiresAtEpochMilli() < mintedAtEpochMilli);
+    workloadTokens.put(record.key(), record);
+  }
+
+  public void removeWorkloadToken(String key) {
+    workloadTokens.remove(key);
+  }
+
+  public Optional<WorkloadTokenRecord> getWorkloadToken(String key) {
+    return Optional.ofNullable(workloadTokens.get(key));
+  }
+
   // ---- tenant-scoped config/secrets ----
 
   public void putConfigEntry(ConfigEntry entry) {
@@ -1076,7 +1125,9 @@ public final class StateStore implements StoreReader {
         List.copyOf(networkPolicies.values()),
         controllerRevisions.values().stream().flatMap(List::stream).toList(),
         List.copyOf(limitRanges.values()),
-        Map.copyOf(limitRangeViolations));
+        Map.copyOf(limitRangeViolations),
+        Set.copyOf(revokedCertificateSerials.keySet()),
+        List.copyOf(workloadTokens.values()));
   }
 
   /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
@@ -1131,6 +1182,9 @@ public final class StateStore implements StoreReader {
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
     List.copyOf(nodeCordons.keySet()).forEach(nodeId -> putNodeCordon(nodeId, false));
+    List.copyOf(revokedCertificateSerials.keySet())
+        .forEach(serial -> putCertificateRevocation(serial, false));
+    List.copyOf(workloadTokens.keySet()).forEach(this::removeWorkloadToken);
     List.copyOf(configEntries.values()).forEach(e -> removeConfigEntry(e.tenantId(), e.key()));
     List.copyOf(roles.keySet()).forEach(this::removeRole);
     List.copyOf(roleBindings.keySet()).forEach(this::removeRoleBinding);
@@ -1183,6 +1237,8 @@ public final class StateStore implements StoreReader {
     snapshot.tenants().forEach(this::putTenant);
     snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
     snapshot.cordonedNodes().forEach(nodeId -> putNodeCordon(nodeId, true));
+    snapshot.revokedCertificateSerials().forEach(serial -> putCertificateRevocation(serial, true));
+    snapshot.workloadTokens().forEach(record -> putWorkloadToken(record, 0L));
     snapshot.configEntries().forEach(this::putConfigEntry);
     snapshot.roles().forEach(this::putRole);
     snapshot.roleBindings().forEach(this::putRoleBinding);

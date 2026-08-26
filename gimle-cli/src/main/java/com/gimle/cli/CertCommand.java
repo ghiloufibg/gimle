@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -91,8 +92,42 @@ public final class CertCommand {
       case "status" -> status(rest);
       case "approve" -> approve(rest);
       case "renew" -> renew(rest);
+      case "revoke" -> setRevocation(rest, true);
+      case "unrevoke" -> setRevocation(rest, false);
+      case "revocations" -> listRevocations();
       default -> throw new CliException(usage());
     }
+  }
+
+  /**
+   * {@code gimle cert revoke|unrevoke <serialHex>} -- {@code PUT}/{@code DELETE
+   * /certificates/revoked/{serial}}. The serial is the hex form {@code openssl x509 -serial}
+   * prints; every process that authenticates the revoked leaf refuses it from its next request on.
+   */
+  private void setRevocation(List<String> args, boolean revoke) {
+    if (args.size() != 1) {
+      throw new CliException(
+          "usage: gimle cert " + (revoke ? "revoke" : "unrevoke") + " <serialHex>");
+    }
+    String serial = args.get(0);
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    String path = "/certificates/revoked/" + serial;
+    ApiResponse response = revoke ? client.put(path, "") : client.delete(path);
+    Map<String, Object> result = Json.asObject(Json.parse(client.expectSuccess(response)));
+    OutputFormat.printResult(
+        output,
+        result,
+        (revoke ? "revoked" : "unrevoked") + " certificate serial " + result.get("serial"),
+        out);
+  }
+
+  /** {@code gimle cert revocations} -- {@code GET /certificates/revoked}. */
+  private void listRevocations() {
+    ControlPlaneClient client = new ControlPlaneClient(serverAddress);
+    Map<String, Object> result =
+        Json.asObject(Json.parse(client.expectSuccess(client.get("/certificates/revoked"))));
+    OutputFormat.printResult(
+        output, result, "revoked serials: " + result.get("revokedSerials"), out);
   }
 
   /** {@code gimle cert token create [--ttl <duration>]} -- {@code POST /bootstrap/tokens}. */
@@ -113,11 +148,14 @@ public final class CertCommand {
   }
 
   /**
-   * {@code gimle cert request --purpose operator|node --out-cert <path> --out-key <path>} --
-   * generates a key pair and CSR locally, submits it unauthenticated (no client cert exists yet),
-   * and writes the private key immediately regardless of outcome -- it never travels over the wire,
-   * so it must be saved now, not reconstructed later. The certificate is written now only if
-   * synchronously approved; otherwise {@code cert status} writes it once an operator approves.
+   * {@code gimle cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path>
+   * --out-key <path>} -- generates a key pair and CSR locally, submits it, and writes the private
+   * key immediately regardless of outcome -- it never travels over the wire, so it must be saved
+   * now, not reconstructed later. An operator/node request submits unauthenticated (no client cert
+   * exists yet); a tenant request submits over this invocation's own configured mTLS identity,
+   * since minting a tenant-membership certificate is an already-credentialed caller's action. The
+   * certificate is written now only if synchronously approved; otherwise {@code cert status} writes
+   * it once an operator approves.
    */
   private void request(List<String> args) {
     Flags flags = Flags.parse(args, Set.of());
@@ -126,6 +164,10 @@ public final class CertCommand {
     Path outKey = Path.of(flags.get("--out-key"));
     String commonName =
         flags.getOrDefault("--common-name", System.getProperty("user.name", "operator"));
+    Optional<String> tenantId = Optional.ofNullable(flags.getOrDefault("--tenant", null));
+    if (purpose == CsrPurpose.TENANT_CLIENT && tenantId.isEmpty()) {
+      throw new CliException("--purpose tenant requires --tenant <id>");
+    }
 
     try {
       KeyPair keyPair = generateRsaKeyPair();
@@ -137,13 +179,17 @@ public final class CertCommand {
       Map<String, Object> submission = new LinkedHashMap<>();
       submission.put("purpose", purpose.name());
       submission.put("csrPem", Pem.encodeCsr(csr));
+      tenantId.ifPresent(id -> submission.put("tenantId", id));
 
-      ControlPlaneClient trustOnlyClient = ControlPlaneClient.trustOnly(serverAddress);
+      ControlPlaneClient submissionClient =
+          purpose == CsrPurpose.TENANT_CLIENT
+              ? new ControlPlaneClient(serverAddress)
+              : ControlPlaneClient.trustOnly(serverAddress);
       Map<String, Object> result =
           Json.asObject(
               Json.parse(
-                  trustOnlyClient.expectSuccess(
-                      trustOnlyClient.post("/bootstrap/csr", Json.write(submission)))));
+                  submissionClient.expectSuccess(
+                      submissionClient.post("/bootstrap/csr", Json.write(submission)))));
       CsrRequestStatus status = CsrRequestStatus.valueOf((String) result.get("status"));
       if (status == CsrRequestStatus.APPROVED) {
         Files.writeString(
@@ -261,8 +307,10 @@ public final class CertCommand {
     return switch (value) {
       case "operator" -> CsrPurpose.OPERATOR_CLIENT;
       case "node" -> CsrPurpose.NODE_CLIENT;
+      case "tenant" -> CsrPurpose.TENANT_CLIENT;
       default ->
-          throw new CliException("unknown --purpose: " + value + " (expected operator or node)");
+          throw new CliException(
+              "unknown --purpose: " + value + " (expected operator, node, or tenant)");
     };
   }
 
@@ -303,9 +351,12 @@ public final class CertCommand {
   private static String usage() {
     return """
         usage: gimle cert token create [--ttl <duration>]
-               gimle cert request --purpose operator|node --out-cert <path> --out-key <path>
+               gimle cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path> --out-key <path>
                gimle cert status <request-id> --out-cert <path>
                gimle cert approve <request-id>
-               gimle cert renew [--force]""";
+               gimle cert renew [--force]
+               gimle cert revoke <serialHex>
+               gimle cert unrevoke <serialHex>
+               gimle cert revocations""";
   }
 }

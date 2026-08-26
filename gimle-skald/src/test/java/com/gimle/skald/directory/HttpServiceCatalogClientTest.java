@@ -94,7 +94,7 @@ class HttpServiceCatalogClientTest {
     assertEquals("orders", endpoints.name());
     assertEquals(8080, endpoints.port());
     assertEquals(8080, endpoints.targetPort());
-    assertEquals(List.of("10.0.0.5"), endpoints.endpointHosts());
+    assertEquals(List.of(new HostPort("10.0.0.5", 51234)), endpoints.endpoints());
   }
 
   @Test

@@ -65,6 +65,55 @@ class ServiceSpecTest {
   }
 
   @Test
+  void an_external_name_service_names_no_deployments_and_reports_itself() {
+    ServiceSpec spec =
+        new ServiceSpec(
+            "billing",
+            Optional.empty(),
+            Set.of(),
+            443,
+            443,
+            false,
+            Optional.of("billing.example.com"));
+
+    assertEquals(Optional.of("billing.example.com"), spec.externalName());
+    assertEquals(Set.of(), spec.deploymentNames());
+    assertEquals(true, spec.isExternalName());
+  }
+
+  @Test
+  void an_external_name_service_must_not_also_name_deployments() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new ServiceSpec(
+                "billing",
+                Optional.empty(),
+                Set.of("orders-service"),
+                443,
+                443,
+                false,
+                Optional.of("billing.example.com")));
+  }
+
+  @Test
+  void a_blank_external_name_is_rejected() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new ServiceSpec(
+                "billing", Optional.empty(), Set.of(), 443, 443, false, Optional.of(" ")));
+  }
+
+  @Test
+  void session_affinity_defaults_off_via_the_convenience_constructors() {
+    ServiceSpec spec = new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080);
+
+    assertEquals(false, spec.sessionAffinity());
+    assertEquals(Optional.empty(), spec.externalName());
+  }
+
+  @Test
   void deployment_names_is_defensively_copied_and_immutable() {
     var mutable = new java.util.HashSet<String>();
     mutable.add("orders-service");

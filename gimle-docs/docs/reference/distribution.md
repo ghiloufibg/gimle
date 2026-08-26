@@ -30,7 +30,7 @@ completely unaffected by this profile's existence.
 
 | Archive | Audience | Contents |
 |---|---|---|
-| `gimle-platform-<version>.tar.gz` | Cluster machines | `bin/hilmir`(`.cmd`), `bin/gimle`(`.cmd`), a flat `lib/` holding every process-kind jar (`StoreMain`, `ControlPlaneMain`, `AgentMain`, `WorkerMain`, `FafnirMain`, `MuninnMain`, `AndvariMain`, `PkiBootstrapMain`) plus `gimle-hilmir`/`gimle-cli` themselves and their full deduplicated runtime dependency closure, and a `modules/` directory holding `gimle-gateway`'s own jar (the hosted-module payload for a future `hilmir enable gateway` verb — not on any process's own classpath). |
+| `gimle-platform-<version>.tar.gz` | Cluster machines | `bin/hilmir`(`.cmd`), `bin/gimle`(`.cmd`), a flat `lib/` holding every process-kind jar (`StoreMain`, `ControlPlaneMain`, `AgentMain`, `WorkerMain`, `FafnirMain`, `MuninnMain`, `AndvariMain`, `SkaldMain`, `PkiBootstrapMain`) plus `gimle-hilmir`/`gimle-cli` themselves and their full deduplicated runtime dependency closure, and a `modules/` directory holding `gimle-gateway`'s own jar (the hosted-module payload for a future `hilmir enable gateway` verb — not on any process's own classpath). |
 | `gimle-cli-<version>.tar.gz` | A workstation that only needs the `gimle` client | `bin/gimle`(`.cmd`) plus exactly `gimle-cli`'s own runtime dependency closure. Nothing else. |
 | `gimle-hilmir-<version>.tar.gz` | A workstation that only needs to run `hilmir`'s release verbs against an already-running cluster | `bin/hilmir`(`.cmd`) plus exactly `gimle-hilmir`'s own runtime dependency closure. Nothing else. |
 | `gimle-midgard-<version>.tar.gz` | Local development and manual QA | The [Midgard dev cluster](#the-midgard-dev-cluster-image): a self-contained Docker build context booting a complete single-machine cluster inside one container, pre-seeded with the example modules. |
@@ -168,19 +168,19 @@ without this flag.
 
 ### Which components, and why not all of them
 
-Only **eight** of the ten process/client modules are safe to bundle a trimmed JRE for, and this
-profile bundles exactly those eight — never more:
+Only **nine** of the eleven process/client modules are safe to bundle a trimmed JRE for, and this
+profile bundles exactly those nine — never more:
 
 | Bundled (`jre/<name>/`) | Never bundled |
 |---|---|
-| `controlplane`, `mimir`, `fafnir`, `muninn`, `andvari`, `pki`, `hilmir`, `cli` | `agent`, `worker` |
+| `controlplane`, `mimir`, `fafnir`, `muninn`, `andvari`, `skald`, `pki`, `hilmir`, `cli` | `agent`, `worker` |
 
 `gimle-agent` and `gimle-worker` are excluded on purpose, not by oversight: the node agent spawns
 arbitrary vessel workloads (plain runnable jars, e.g. a Spring Boot app) as child processes, and the
 worker hosts arbitrary Gimlé modules inside its own JVM via `ModuleLayer` — in both cases the actual
 JDK module needs of the code that ends up running are only known once that workload is deployed,
 long after this archive was built. jlink's `--add-modules` list, by contrast, is derived once, ahead
-of time, from a fixed set of platform code that never changes at runtime — true for the other eight
+of time, from a fixed set of platform code that never changes at runtime — true for the other nine
 process kinds (each one only ever runs the platform's own code), but never true for the agent or the
 worker. Bundling a trimmed JRE for either would silently break any vessel or module that happens to
 need a JDK module outside whatever set was baked in at build time, with no way to detect the mismatch
@@ -204,7 +204,7 @@ Archive contents:
 
 | Archive | `jre/` contents when built with `-P dist-with-jre` |
 |---|---|
-| `gimle-platform-<version>.tar.gz` | All eight: `jre/controlplane/`, `jre/mimir/`, `jre/fafnir/`, `jre/muninn/`, `jre/andvari/`, `jre/pki/`, `jre/hilmir/`, `jre/cli/`. |
+| `gimle-platform-<version>.tar.gz` | All nine: `jre/controlplane/`, `jre/mimir/`, `jre/fafnir/`, `jre/muninn/`, `jre/andvari/`, `jre/skald/`, `jre/pki/`, `jre/hilmir/`, `jre/cli/`. |
 | `gimle-cli-<version>.tar.gz` | `jre/cli/` only. |
 | `gimle-hilmir-<version>.tar.gz` | `jre/hilmir/` only. |
 
@@ -223,7 +223,7 @@ which `java` `hilmir` spawns every other process kind with.
 ### Storage tradeoff
 
 A single trimmed per-component JRE (`java.base` plus a handful of modules, `--strip-debug`) is
-meaningfully smaller than a full JDK install, but the platform archive bundles eight of them side by
+meaningfully smaller than a full JDK install, but the platform archive bundles nine of them side by
 side — its total size is measurably larger than the default build's. This is why bundling stays
 opt-in rather than becoming the default: an operator who doesn't need a self-contained JRE bundled
 into the archive (a machine that already has a suitable `java` installed, or one where minimizing
