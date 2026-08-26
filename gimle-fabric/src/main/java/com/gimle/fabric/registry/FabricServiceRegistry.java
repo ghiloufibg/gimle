@@ -15,11 +15,16 @@ import com.gimle.fabric.transport.FabricFrame;
 import com.gimle.fabric.transport.ObjectMarshalling;
 import com.gimle.fabric.transport.ReflectiveDispatch;
 import com.gimle.module.lifecycle.ServiceRegistry;
+import com.gimle.observability.WorkerMetrics;
+import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.baggage.Baggage;
 import io.opentelemetry.api.baggage.BaggageEntry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
+import io.opentelemetry.api.trace.SpanKind;
+import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.api.trace.TraceState;
+import io.opentelemetry.context.Scope;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.InvocationHandler;
@@ -81,6 +86,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   private final Optional<String> selfTenantId;
   private final double maxEjectionPercent;
   private final boolean defaultDenyCrossTenant;
+  private final Optional<WorkerMetrics> metrics;
 
   /**
    * Cap on distinct tracked endpoints in {@link #breakers}, so long-lived-process endpoint churn
@@ -204,6 +210,9 @@ public final class FabricServiceRegistry implements ServiceRegistry {
    * genuinely needs cross-tenant access to a specific export still gets it by being named in that
    * export's own {@code allowedTenantIds} -- this flag only changes what happens when a manifest is
    * silent. Default {@code false}: nothing existing changes behavior.
+   *
+   * <p>Back-compat: defaults {@code metrics} to {@link Optional#empty()} -- see the 14-arg
+   * constructor below.
    */
   public FabricServiceRegistry(
       MemberId selfNode,
@@ -219,6 +228,47 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       Optional<String> selfTenantId,
       double maxEjectionPercent,
       boolean defaultDenyCrossTenant) {
+    this(
+        selfNode,
+        workerId,
+        localRegistry,
+        catalog,
+        exportsOf,
+        controlChannel,
+        interfaceLoader,
+        breakerWindowSize,
+        breakerErrorRateThreshold,
+        breakerCooldown,
+        selfTenantId,
+        maxEjectionPercent,
+        defaultDenyCrossTenant,
+        Optional.empty());
+  }
+
+  /**
+   * {@code metrics} lets this registry record the client-side half of a cross-worker fabric call's
+   * request rate/latency/error counters -- the {@link WorkerMetrics} counterpart of what {@code
+   * FabricServer} already records for the server (inbound-dispatch) side, tagged by interface name
+   * rather than {@link ModuleId} since a lookup caller's own module identity isn't threaded through
+   * {@link #lookup}/{@link #invokeByName}. Absent (every other constructor) means a
+   * same-worker-only test or a worker not wired with a real {@code WorkerMetrics} instance records
+   * nothing, exactly today's unchanged behavior.
+   */
+  public FabricServiceRegistry(
+      MemberId selfNode,
+      String workerId,
+      ServiceRegistry localRegistry,
+      ServiceCatalog catalog,
+      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Consumer<ControlMessage> controlChannel,
+      ClassLoader interfaceLoader,
+      int breakerWindowSize,
+      double breakerErrorRateThreshold,
+      Duration breakerCooldown,
+      Optional<String> selfTenantId,
+      double maxEjectionPercent,
+      boolean defaultDenyCrossTenant,
+      Optional<WorkerMetrics> metrics) {
     this.selfNode = selfNode;
     this.workerId = workerId;
     this.localRegistry = localRegistry;
@@ -232,6 +282,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     this.selfTenantId = selfTenantId;
     this.maxEjectionPercent = maxEjectionPercent;
     this.defaultDenyCrossTenant = defaultDenyCrossTenant;
+    this.metrics = metrics;
   }
 
   @Override
@@ -604,6 +655,14 @@ public final class FabricServiceRegistry implements ServiceRegistry {
    * calling interface's own loader (the one guaranteed to see its contract's types); {@link
    * #invokeByName} has no {@link Class} to draw one from, so it falls back to the fixed worker-wide
    * {@code interfaceLoader}.
+   *
+   * <p>Wraps the whole call in a fresh {@link SpanKind#CLIENT} span -- the counterpart of {@code
+   * FabricServer#startChildSpanContext}'s {@code SERVER} span on the receiving end -- made current
+   * <em>before</em> {@link #captureTrace} runs, so the trace/span ids that travel over the wire
+   * identify this client span, not whatever ambient span (if any) was already active. Without this,
+   * a caller with no ambient span captures the all-zero "no active span" marker and the callee
+   * always starts a fresh root, even though a real call just happened; with it, the callee's {@code
+   * SERVER} span is always parented under this one, real caller activity or not.
    */
   private Object invokeOverWire(
       String interfaceName,
@@ -615,7 +674,14 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       throws Throwable {
     CircuitBreaker breaker = breakerFor(endpoint);
     selector.begin(endpoint);
-    try {
+    Span span =
+        GlobalOpenTelemetry.getTracer("com.gimle.fabric")
+            .spanBuilder(interfaceName + "#" + methodName)
+            .setSpanKind(SpanKind.CLIENT)
+            .startSpan();
+    long startNanos = System.nanoTime();
+    boolean error = false;
+    try (Scope scope = span.makeCurrent()) {
       SocketAddress address = resolveAddress(endpoint);
       byte[] serializedArgs = ObjectMarshalling.serialize(args == null ? new Object[0] : args);
       FabricFrame.InvokeRequest request =
@@ -632,6 +698,9 @@ public final class FabricServiceRegistry implements ServiceRegistry {
         response = FabricClient.call(address, request);
       } catch (IOException e) {
         breaker.recordFailure();
+        error = true;
+        span.recordException(e);
+        span.setStatus(StatusCode.ERROR);
         throw new UncheckedIOException(
             "fabric call to " + endpoint.node().nodeId() + "/" + endpoint.workerId() + " failed",
             e);
@@ -639,6 +708,7 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       return switch (response) {
         case FabricFrame.InvokeResponse resp -> {
           breaker.recordSuccess();
+          span.setStatus(StatusCode.OK);
           yield ObjectMarshalling.deserialize(resp.serializedReturn(), returnClassLoader);
         }
         case FabricFrame.InvokeError err -> {
@@ -650,6 +720,9 @@ public final class FabricServiceRegistry implements ServiceRegistry {
           Object deserialized =
               ObjectMarshalling.deserialize(err.serializedThrowable(), returnClassLoader);
           if (deserialized instanceof Throwable throwable) {
+            error = true;
+            span.recordException(throwable);
+            span.setStatus(StatusCode.ERROR);
             throw throwable;
           }
           throw new IllegalStateException(
@@ -659,7 +732,12 @@ public final class FabricServiceRegistry implements ServiceRegistry {
             throw new IllegalStateException("fabric endpoint echoed back a request frame");
       };
     } finally {
+      span.end();
       selector.end(endpoint);
+      long elapsedNanos = System.nanoTime() - startNanos;
+      boolean recordedError = error;
+      metrics.ifPresent(
+          m -> m.recordClientRequest(interfaceName, Duration.ofNanos(elapsedNanos), recordedError));
     }
   }
 
