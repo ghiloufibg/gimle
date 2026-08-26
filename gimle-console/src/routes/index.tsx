@@ -102,7 +102,7 @@ function Overview() {
         />
         <StatTile
           label="Quota alarms"
-          value={String(s.quotaViolating).padStart(2, "0")}
+          value={s.quotaViolating}
           tone={s.quotaViolating > 0 ? "alarm" : "muted"}
           note={
             s.quotaViolating > 0 ? (
