@@ -637,6 +637,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-620 | NetworkPolicy interface scoping and egress enforcement | New | Not Covered | — |
 | GIMLE-621 | Certificate revocation denylist | New | Not Covered | — |
 | GIMLE-622 | Workload identity: store-backed per-deployment tokens (ServiceAccount analogue) | New | Not Covered | — |
+| GIMLE-623 | Bifrost locality-preferred forwarding and ClientIP session affinity | New | Not Covered | — |
+| GIMLE-624 | Bifrost TLS identity-verifying mode with tenant-membership client certificates | New | Not Covered | — |
+| GIMLE-625 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | New | Not Covered | — |
+| GIMLE-626 | Vessel persistent volumes and secret-backed file mounts | New | Not Covered | — |
+| GIMLE-627 | Multi-volume modules: named volumes and dataDirectory(name) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1320,6 +1325,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a tenant with delivered config, When a deployed module enumerates configKeys(), Then every delivered key is visible.
 - **Other test coverage (non-Holmgang, informational only)**: `SimpleModuleContextTest` (config_keys_enumerate_every_delivered_key_as_a_snapshot)
 - **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`
+
+#### GIMLE-627 — Multi-volume modules: named volumes and dataDirectory(name)
+
+- **Category**: Storage
+- **Status**: New  _(newly added as part of the proxy-and-vessel-maturity work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: extend the StatefulSet volume scenario to a module declaring two named volumes and assert both directories persist across a rolling update.
+- **Other test coverage (non-Holmgang, informational only)**: `ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest`
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ModuleDescriptor.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`
 
 ### gimle-os
 
@@ -2093,6 +2107,33 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a deployed StatefulSet instance writing to its volume, When its observation is read back through the real API, Then volumeUsageBytes reflects the on-disk data.
 - **Other test coverage (non-Holmgang, informational only)**: `LocalDiskVolumeManagerTest` (usedBytes), existing observation round-trip coverage in `ApiServerTest`/`DomainCodecTest`
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`
+
+#### GIMLE-623 — Bifrost locality-preferred forwarding and ClientIP session affinity
+
+- **Category**: Networking / Services
+- **Status**: New  _(newly added as part of the proxy-and-vessel-maturity work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario boot­ing a bifrost-enabled agent with a two-node Service and assert same-node preference and affinity pinning through real connections.
+- **Other test coverage (non-Holmgang, informational only)**: `BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints)
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostSettings.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`
+
+#### GIMLE-624 — Bifrost TLS identity-verifying mode with tenant-membership client certificates
+
+- **Category**: Security / Networking
+- **Status**: New  _(newly added as part of the proxy-and-vessel-maturity work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario booting a TLS cluster with bifrostTlsEnabled, minting a tenant certificate through the real CSR API, and proving allow/deny through real TLS connections.
+- **Other test coverage (non-Holmgang, informational only)**: `BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization)
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`, `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`
+
+#### GIMLE-626 — Vessel persistent volumes and secret-backed file mounts
+
+- **Category**: Storage / Vessels
+- **Status**: New  _(newly added as part of the proxy-and-vessel-maturity work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario deploying a vessel with a volume env entry and a secret file mount against a real cluster, asserting the exported path and the rendered file's content and permissions.
+- **Other test coverage (non-Holmgang, informational only)**: `DeploymentManifestParserTest` (volume env, secret file), `DomainCodecTest` (wire round trip)
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/vessel/VesselEnvValue.java`, `gimle-core/src/main/java/com/gimle/core/vessel/VesselFileMount.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
 
 ### gimle-mimir
 
@@ -3638,6 +3679,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a deployed tenanted module whose hook relays a control-plane read, When no role is bound to its workload principal, Then the read is denied, and it succeeds after binding tenant-view.
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerAuthzTest` (mint authorization, deny-by-default principal, RBAC-unlocked read), agent relay tests (untenanted whitelist unchanged)
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadTokenRecord.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
+
+#### GIMLE-625 — ExternalName Services resolved via Skald CNAME and Bifrost forwarding
+
+- **Category**: Networking / Services
+- **Status**: New  _(newly added as part of the proxy-and-vessel-maturity work)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this. To close: add a scenario declaring an ExternalName Service against a real cluster and asserting the CNAME answer and proxied reachability of a stand-in external host.
+- **Other test coverage (non-Holmgang, informational only)**: `ServiceSpecTest`, `ApiServerServicesTest` (round trip, mixed-shape rejection), `SkaldServerTest` (CNAME and SRV external answers)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`
 
 ### gimle-fafnir
 
@@ -6600,7 +6650,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**501 of 622 requirements are Not Covered.**
+**506 of 627 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6885,6 +6935,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
 | GIMLE-620 | gimle-fabric | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit) |
+| GIMLE-623 | gimle-agent | Bifrost locality-preferred forwarding and ClientIP session affinity | Networking / Services | `BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints) |
+| GIMLE-625 | gimle-controlplane | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Networking / Services | `ServiceSpecTest`, `ApiServerServicesTest` (round trip, mixed-shape rejection), `SkaldServerTest` (CNAME and SRV external answers) |
 | GIMLE-574 | gimle-fabric | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | `NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail |
 | GIMLE-575 | gimle-agent | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | `BifrostProxyTest` (3 new fail-closed scenarios), `HttpServiceSourceTest` -- see requirements-matrix.json for detail |
 | GIMLE-032 | gimle-core | Instance lifecycle event log model | Observability | NONE recorded in the baseline |
@@ -7004,6 +7056,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-280 | gimle-fafnir | Key-ring fingerprinting for cross-replica drift detection | Secrets Management / Internal-Infra | `KeyRingTest` — `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager` |
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |
 | GIMLE-017 | gimle-core | Session-signing key file load-or-create with owner-only permissions | Security | `SessionKeyFileManagerTest` (generates_on_first_run_reuses_on_later, rejects corrupted/empty key file) |
+| GIMLE-624 | gimle-agent | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Security / Networking | `BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization) |
 | GIMLE-621 | gimle-controlplane | Certificate revocation denylist | Security / PKI | `ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip) |
 | GIMLE-611 | gimle-controlplane | Self-subject access review endpoint (/authz/can-i) | Security / RBAC | `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything) |
 | GIMLE-612 | gimle-core | Per-tenant built-in role templates (tenant-view/edit/admin) | Security / RBAC | `BuiltinRolesTest` (template shapes, tenant scoping), `AuthorizerTest` (binding resolution), `ApiServerAuthzTest` (template binding through the real HTTP layer) |
@@ -7026,8 +7079,10 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
 | GIMLE-069 | gimle-os | Local-disk persistent volume allocation for StatefulSet-shaped instances | Storage | `LocalDiskVolumeManagerTest` (creates keyed directory, idempotent for same index, distinct dirs per index/statefulset, throws when exceeding usable space, release deletes contents, release of never-allocated is no-op) |
+| GIMLE-627 | gimle-module | Multi-volume modules: named volumes and dataDirectory(name) | Storage | `ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest` |
 | GIMLE-619 | gimle-agent | Soft volume disk-usage observation in instance heartbeats | Storage / Observability | `LocalDiskVolumeManagerTest` (usedBytes), existing observation round-trip coverage in `ApiServerTest`/`DomainCodecTest` |
 | GIMLE-618 | gimle-controlplane | Cluster-wide volume operator surface (/volumes API + CLI) | Storage / Operations | `ApiServerTest` (aggregation, attachment, destroy guard), `AgentLogServerTest` (node-local listing/destroy), `LocalDiskVolumeManagerTest` (inventory, orphan destroy) |
+| GIMLE-626 | gimle-agent | Vessel persistent volumes and secret-backed file mounts | Storage / Vessels | `DeploymentManifestParserTest` (volume env, secret file), `DomainCodecTest` (wire round trip) |
 | GIMLE-498 | gimle-testkit | Heimdall event-driven cluster condition harness | Test Infrastructure | NONE recorded in the baseline |
 | GIMLE-499 | gimle-testkit | Replica-scoped condition observation | Test Infrastructure | Exercised by `HaTopologyIT.deployments_written_via_one_replica_are_observed_active_via_the_other`, `deployment-lifecycle.feature` |
 | GIMLE-500 | gimle-testkit | Deployment/node/log condition builders | Test Infrastructure | Exercised throughout gimle-holmgang `*.feature` files and `HaTopologyIT`/`MinimalTopologyIT` |

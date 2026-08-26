@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 622,
+  "requirementCount": 627,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10758,6 +10758,92 @@
         "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
       ],
       "otherTestCoverage": "`ApiServerAuthzTest` (mint authorization, deny-by-default principal, RBAC-unlocked read), agent relay tests (untenanted whitelist unchanged)"
+    },
+    {
+      "id": "GIMLE-623",
+      "module": "gimle-agent",
+      "feature": "Bifrost locality-preferred forwarding and ClientIP session affinity",
+      "category": "Networking / Services",
+      "status": "New",
+      "statusNote": "newly added as part of the proxy-and-vessel-maturity work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario boot­ing a bifrost-enabled agent with a two-node Service and assert same-node preference and affinity pinning through real connections.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostSettings.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`"
+      ],
+      "otherTestCoverage": "`BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints)"
+    },
+    {
+      "id": "GIMLE-624",
+      "module": "gimle-agent",
+      "feature": "Bifrost TLS identity-verifying mode with tenant-membership client certificates",
+      "category": "Security / Networking",
+      "status": "New",
+      "statusNote": "newly added as part of the proxy-and-vessel-maturity work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario booting a TLS cluster with bifrostTlsEnabled, minting a tenant certificate through the real CSR API, and proving allow/deny through real TLS connections.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
+      ],
+      "otherTestCoverage": "`BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization)"
+    },
+    {
+      "id": "GIMLE-625",
+      "module": "gimle-controlplane",
+      "feature": "ExternalName Services resolved via Skald CNAME and Bifrost forwarding",
+      "category": "Networking / Services",
+      "status": "New",
+      "statusNote": "newly added as part of the proxy-and-vessel-maturity work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario declaring an ExternalName Service against a real cluster and asserting the CNAME answer and proxied reachability of a stand-in external host.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`"
+      ],
+      "otherTestCoverage": "`ServiceSpecTest`, `ApiServerServicesTest` (round trip, mixed-shape rejection), `SkaldServerTest` (CNAME and SRV external answers)"
+    },
+    {
+      "id": "GIMLE-626",
+      "module": "gimle-agent",
+      "feature": "Vessel persistent volumes and secret-backed file mounts",
+      "category": "Storage / Vessels",
+      "status": "New",
+      "statusNote": "newly added as part of the proxy-and-vessel-maturity work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario deploying a vessel with a volume env entry and a secret file mount against a real cluster, asserting the exported path and the rendered file's content and permissions.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/vessel/VesselEnvValue.java`",
+        "`gimle-core/src/main/java/com/gimle/core/vessel/VesselFileMount.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ],
+      "otherTestCoverage": "`DeploymentManifestParserTest` (volume env, secret file), `DomainCodecTest` (wire round trip)"
+    },
+    {
+      "id": "GIMLE-627",
+      "module": "gimle-module",
+      "feature": "Multi-volume modules: named volumes and dataDirectory(name)",
+      "category": "Storage",
+      "status": "New",
+      "statusNote": "newly added as part of the proxy-and-vessel-maturity work",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this. To close: extend the StatefulSet volume scenario to a module declaring two named volumes and assert both directories persist across a rolling update.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/module/ModuleDescriptor.java`",
+        "`gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`",
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`"
+      ],
+      "otherTestCoverage": "`ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest`"
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 622,
+  "requirementCount": 627,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12219,6 +12219,112 @@
       "gherkinSteps": [
         "Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>.",
         "Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-623",
+      "module": "gimle-agent",
+      "feature": "Bifrost locality-preferred forwarding and ClientIP session affinity",
+      "category": "Networking / Services",
+      "userStory": "As a caller dialing a Service through the per-node Bifrost proxy, I want traffic to prefer backends on my own node and, when the Service declares session affinity, to stay pinned to one backend, so latency and session state behave the way kube-proxy's locality and ClientIP affinity do.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostSettings.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`"
+      ],
+      "testCoverageDetail": "`BifrostProxyTest` (endpoints_on_the_proxys_own_node_are_preferred..., locality_preference_falls_back..., session_affinity_pins_a_caller...), `ApiServerServicesTest` (nodeId on endpoints), `ServiceReconcilerTest`",
+      "gherkinSteps": [
+        "Given a Service with one backend on the proxy's own node and one remote, When a caller connects repeatedly, Then every connection is served by the same-node backend until it disappears, after which remote backends serve.",
+        "Given a Service declaring sessionAffinity, When one caller connects repeatedly, Then every connection lands on the same backend."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-624",
+      "module": "gimle-agent",
+      "feature": "Bifrost TLS identity-verifying mode with tenant-membership client certificates",
+      "category": "Security / Networking",
+      "userStory": "As a tenant relying on a NetworkPolicy, I want the Bifrost proxy to verify a caller's certificate-carried tenant and enforce my allow list on proxied traffic, instead of failing the whole listener closed, so policied Services stay reachable to exactly the callers I allowed.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
+      ],
+      "testCoverageDetail": "`BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers; unrestricted service), `ApiServerAuthzTest` (a_tenant_client_certificate_is_minted_by_an_operator...)",
+      "gherkinSteps": [
+        "Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused.",
+        "Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-625",
+      "module": "gimle-controlplane",
+      "feature": "ExternalName Services resolved via Skald CNAME and Bifrost forwarding",
+      "category": "Networking / Services",
+      "userStory": "As an operator migrating a dependency into the cluster, I want a Service that resolves to an external hostname, so callers keep the stable in-cluster name while the real host still lives outside.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`"
+      ],
+      "testCoverageDetail": "`ServiceSpecTest` (external-name shapes), `ApiServerServicesTest` (an_external_name_service_round_trips..., rejection of mixed shape), `SkaldServerTest` (CNAME answer, SRV external target)",
+      "gherkinSteps": [
+        "Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId.",
+        "Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-626",
+      "module": "gimle-agent",
+      "feature": "Vessel persistent volumes and secret-backed file mounts",
+      "category": "Storage / Vessels",
+      "userStory": "As an operator running a stateful or secret-consuming external process as a vessel, I want a declared volume's host path injected as an env var and secret values rendered to owner-only files, so a StatefulSet-shaped vessel and a secret file mount both work without the process knowing anything about Gimlé.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/vessel/VesselEnvValue.java`",
+        "`gimle-core/src/main/java/com/gimle/core/vessel/VesselFileMount.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ],
+      "testCoverageDetail": "`DeploymentManifestParserTest` (volume env entry, secret file entry), `DomainCodecTest` (VolumeMount/secret-file round trip)",
+      "gherkinSteps": [
+        "Given a vessel declaring a {volume: ...} env entry, When the agent spawns it, Then a persistent directory keyed by placement identity plus the env name is allocated and its host path exported as that variable, surviving replacement at the same key.",
+        "Given a vessel files entry naming a secret, When the agent renders files, Then the secret value lands on disk verbatim with owner-only permissions."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-627",
+      "module": "gimle-module",
+      "feature": "Multi-volume modules: named volumes and dataDirectory(name)",
+      "category": "Storage",
+      "userStory": "As a StatefulSet-shaped module needing more than one kind of persistent data (data files and a WAL, say), I want to declare several named volumes and reach each back by name, the way Kubernetes mounts several PVCs into one Pod.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/module/ModuleDescriptor.java`",
+        "`gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`",
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`"
+      ],
+      "testCoverageDetail": "`ModuleDescriptorParserTest` (volumes map, both-forms rejection), `LocalDiskVolumeManagerTest` (per-name directories, destroy reclaims all), `SimpleModuleContextTest` (named accessors, sole-volume shorthand), `ControlMessageCodecTest` (RESOLVE map)",
+      "gherkinSteps": [
+        "Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path.",
+        "Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

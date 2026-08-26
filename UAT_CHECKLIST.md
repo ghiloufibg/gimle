@@ -6,22 +6,22 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 622
+- **Total requirements**: 627
 - **Covered by automated (Holmgang Cucumber) test**: 121
-- **Not covered by automated test**: 501
-- **Release-readiness (automated coverage)**: 19.5%
+- **Not covered by automated test**: 506
+- **Release-readiness (automated coverage)**: 19.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
 | gimle-core | 43 | 15 | 28 | 34.9% |
-| gimle-module | 24 | 11 | 13 | 45.8% |
+| gimle-module | 25 | 11 | 14 | 44.0% |
 | gimle-os | 7 | 0 | 7 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 43 | 6 | 37 | 14.0% |
+| gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 52 | 33 | 19 | 63.5% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 74 | 14 | 60 | 18.9% |
+| gimle-controlplane | 75 | 14 | 61 | 18.7% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -255,6 +255,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-571 | Hosted-module runtime port reporting folded into instance observation | Given a hosted module's onStart hook calls ctx.reportPort(name, port), When the worker's next metrics report reaches its node agent, Then that instance's observation JSON carries the reported port under the same "ports" key shape a Vessel workload's allocatedPorts already uses. Given a module reports exactly one port, When ServiceEndpointResolver resolves a Service fronting that module's deployment, Then solePort() succeeds and a live endpoint is produced -- closing the gap where only Vessel instances could ever resolve. | Yes |
 
+#### Storage
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-627 | Multi-volume modules: named volumes and dataDirectory(name) | Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path. Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged. | No |
+
 ### gimle-os
 
 #### Module System / Storage
@@ -483,6 +489,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-123 | mTLS bootstrap CSR flow for node identity | Given TLS is enabled and no cert/key files exist yet on disk When bootstrapCertificateIfNeeded runs Then it generates an RSA keypair and CSR, connects with server-trust-only TLS, and POSTs it plus the bootstrap token to /bootstrap/csr And on a 200 response, writes the returned certificate and encoded private key to the configured cert/key files Given cert/key files already exist (a redeploy of an already-bootstrapped node) Then this is a no-op Given the bootstrap token is missing/blank Then GimleTlsException.missingProperty is thrown | Yes |
 
+#### Networking / Services
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-623 | Bifrost locality-preferred forwarding and ClientIP session affinity | Given a Service with one backend on the proxy's own node and one remote, When a caller connects repeatedly, Then every connection is served by the same-node backend until it disappears, after which remote backends serve. Given a Service declaring sessionAffinity, When one caller connects repeatedly, Then every connection lands on the same backend. | No |
+
 #### Networking/Security
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -528,6 +540,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-591 | Narrowed secret delivery via `secretMapRefs` | Given a tenant owns secrets `db-creds/username` and `other-secret`, When an instance's deployment declares `secretMapRefs: [db-creds]`, Then only `username` is delivered to that instance -- `other-secret` never is. | No |
 
+#### Security / Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-624 | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused. Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one. | No |
+
 #### Self-Healing
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -551,6 +569,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-619 | Soft volume disk-usage observation in instance heartbeats | Given an instance holding a volume with data on disk, When its heartbeat reports, Then the observation carries volumeUsageBytes sampled on a coarse interval. | No |
+
+#### Storage / Vessels
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-626 | Vessel persistent volumes and secret-backed file mounts | Given a vessel declaring a {volume: ...} env entry, When the agent spawns it, Then a persistent directory keyed by placement identity plus the env name is allocated and its host path exported as that variable, surviving replacement at the same key. Given a vessel files entry naming a secret, When the agent renders files, Then the secret value lands on disk verbatim with owner-only permissions. | No |
 
 #### Worker Supervision
 
@@ -897,6 +921,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-271 | Reserved system-tenant auto-seeding | Given a fresh control-plane replica starts against an empty store; When it initializes; Then it proposes a Tenant row for RESERVED_SYSTEM_TENANT_ID unless one already exists. | No |
+
+#### Networking / Services
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-625 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId. Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish. | No |
 
 #### Orchestration / Internal-Infra
 

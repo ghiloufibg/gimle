@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 622,
+    "totalRequirements": 627,
     "coveredByAutomatedTest": 121,
-    "notCoveredByAutomatedTest": 501,
-    "releaseReadinessPercent": 19.5
+    "notCoveredByAutomatedTest": 506,
+    "releaseReadinessPercent": 19.3
   },
   "items": [
     {
@@ -6844,6 +6844,61 @@
       "category": "Security / RBAC",
       "feature": "Workload identity: store-backed per-deployment tokens (ServiceAccount analogue)",
       "step": "Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>. Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-623",
+      "module": "gimle-agent",
+      "category": "Networking / Services",
+      "feature": "Bifrost locality-preferred forwarding and ClientIP session affinity",
+      "step": "Given a Service with one backend on the proxy's own node and one remote, When a caller connects repeatedly, Then every connection is served by the same-node backend until it disappears, after which remote backends serve. Given a Service declaring sessionAffinity, When one caller connects repeatedly, Then every connection lands on the same backend.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-624",
+      "module": "gimle-agent",
+      "category": "Security / Networking",
+      "feature": "Bifrost TLS identity-verifying mode with tenant-membership client certificates",
+      "step": "Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused. Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-625",
+      "module": "gimle-controlplane",
+      "category": "Networking / Services",
+      "feature": "ExternalName Services resolved via Skald CNAME and Bifrost forwarding",
+      "step": "Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId. Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-626",
+      "module": "gimle-agent",
+      "category": "Storage / Vessels",
+      "feature": "Vessel persistent volumes and secret-backed file mounts",
+      "step": "Given a vessel declaring a {volume: ...} env entry, When the agent spawns it, Then a persistent directory keyed by placement identity plus the env name is allocated and its host path exported as that variable, surviving replacement at the same key. Given a vessel files entry naming a secret, When the agent renders files, Then the secret value lands on disk verbatim with owner-only permissions.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-627",
+      "module": "gimle-module",
+      "category": "Storage",
+      "feature": "Multi-volume modules: named volumes and dataDirectory(name)",
+      "step": "Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path. Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
