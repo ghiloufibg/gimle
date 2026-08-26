@@ -23,6 +23,17 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  */
 public final class DaemonSetManifestParser {
 
+  private static final Set<String> KNOWN_FIELDS =
+      Set.of(
+          "name",
+          "module",
+          "artifactPath",
+          "placement",
+          "tenantId",
+          "artifactSha256",
+          "disruption",
+          "vessel");
+
   private DaemonSetManifestParser() {}
 
   /**
@@ -48,6 +59,7 @@ public final class DaemonSetManifestParser {
   // Package-visible, not private: ManifestParser calls this directly after peeling off kind: and
   // apiVersion:, mirroring DeploymentManifestParser.parseRoot's own visibility exactly.
   static DaemonSetSpec parseRoot(Map<?, ?> root, ApiVersion version, List<String> warnings) {
+    ManifestFields.warnUnknownFields(root, KNOWN_FIELDS, warnings);
     String name = ManifestFields.requireString(root, "name");
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
     String artifactPath = ManifestFields.optionalArtifactPath(root, version, warnings);

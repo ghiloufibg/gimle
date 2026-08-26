@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
+import java.util.Set;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -21,6 +22,21 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * utility across the two modules for two call sites' worth of small, mostly-dissimilar helpers.
  */
 public final class DeploymentManifestParser {
+
+  private static final Set<String> KNOWN_FIELDS =
+      Set.of(
+          "name",
+          "module",
+          "artifactPath",
+          "replicas",
+          "placement",
+          "autoscale",
+          "tenantId",
+          "artifactSha256",
+          "disruption",
+          "vessel",
+          "configMapRefs",
+          "secretMapRefs");
 
   private DeploymentManifestParser() {}
 
@@ -52,6 +68,7 @@ public final class DeploymentManifestParser {
   // logic instead of duplicating it. Deliberately still ignorant of kind: itself -- this method's
   // only job is "given a root map and a version, build a DeploymentSpec."
   static DeploymentSpec parseRoot(Map<?, ?> root, ApiVersion version, List<String> warnings) {
+    ManifestFields.warnUnknownFields(root, KNOWN_FIELDS, warnings);
     String name = ManifestFields.requireString(root, "name");
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
     String artifactPath = ManifestFields.optionalArtifactPath(root, version, warnings);

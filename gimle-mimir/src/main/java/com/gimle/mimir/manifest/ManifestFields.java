@@ -79,6 +79,30 @@ final class ManifestFields {
     return s;
   }
 
+  /**
+   * Warns -- never rejects -- about a top-level field present in the submitted YAML that plays no
+   * role in {@code knownFields} for this manifest kind: the same "warn, don't break forward/
+   * backward tolerance" posture {@link #optionalArtifactPath}'s own deprecation notice already
+   * takes for a recognized-but-deprecated field, extended to a field this kind's schema never
+   * recognized at all -- a typo, or one copied in from a different manifest kind (e.g. {@code
+   * isolationTier} on a Deployment) -- which otherwise gets silently dropped with no signal
+   * whatsoever. {@code kind}/{@code apiVersion} are always implicitly known: every manifest carries
+   * them, and {@link ManifestParser} itself reads both before any kind-specific parser ever sees
+   * the root map.
+   */
+  static void warnUnknownFields(Map<?, ?> root, Set<String> knownFields, List<String> warnings) {
+    for (Object rawKey : root.keySet()) {
+      if (!(rawKey instanceof String key)) {
+        continue;
+      }
+      if (key.equals("kind") || key.equals("apiVersion") || knownFields.contains(key)) {
+        continue;
+      }
+      warnings.add(
+          "'" + key + "' is not a recognized field for this manifest kind and was ignored");
+    }
+  }
+
   static Map<?, ?> requireMap(Map<?, ?> map, String key) {
     Object value = map.get(key);
     if (!(value instanceof Map<?, ?> m)) {

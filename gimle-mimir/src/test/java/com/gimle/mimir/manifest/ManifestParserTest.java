@@ -213,6 +213,26 @@ class ManifestParserTest {
   }
 
   @Test
+  void an_unrecognized_top_level_field_yields_a_warning_not_a_hard_rejection() {
+    ParsedManifest parsed =
+        ManifestParser.parse(
+            yaml(
+                """
+                kind: Deployment
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                replicas: 3
+                isolationTier: TIER_2
+                """));
+
+    // Warned, not rejected -- the manifest still parses, and the bogus field has no effect.
+    assertEquals(1, parsed.warnings().size());
+    assertTrue(parsed.warnings().get(0).contains("isolationTier"), parsed.warnings().get(0));
+  }
+
+  @Test
   void a_coordinate_only_manifest_yields_no_warnings() {
     ParsedManifest parsed =
         ManifestParser.parse(

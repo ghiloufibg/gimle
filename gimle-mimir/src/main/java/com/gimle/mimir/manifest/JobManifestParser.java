@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
@@ -26,6 +27,18 @@ public final class JobManifestParser {
 
   /** Kubernetes Job's own default -- a well-understood reference value, not invented here. */
   private static final int DEFAULT_BACKOFF_LIMIT = 6;
+
+  private static final Set<String> KNOWN_FIELDS =
+      Set.of(
+          "name",
+          "module",
+          "artifactPath",
+          "placement",
+          "activeDeadlineSeconds",
+          "backoffLimit",
+          "tenantId",
+          "artifactSha256",
+          "vessel");
 
   private JobManifestParser() {}
 
@@ -51,6 +64,7 @@ public final class JobManifestParser {
   // Package-visible, not private: ManifestParser calls this directly after peeling off kind: and
   // apiVersion:, mirroring DeploymentManifestParser.parseRoot's own visibility exactly.
   static JobSpec parseRoot(Map<?, ?> root, ApiVersion version, List<String> warnings) {
+    ManifestFields.warnUnknownFields(root, KNOWN_FIELDS, warnings);
     String name = ManifestFields.requireString(root, "name");
     ModuleId moduleId = ManifestFields.parseModuleId(ManifestFields.requireMap(root, "module"));
     String artifactPath = ManifestFields.optionalArtifactPath(root, version, warnings);

@@ -30,6 +30,15 @@ public final class CronJobManifestParser {
 
   private static final ConcurrencyPolicy DEFAULT_CONCURRENCY_POLICY = ConcurrencyPolicy.ALLOW;
 
+  private static final Set<String> KNOWN_FIELDS =
+      Set.of(
+          "name",
+          "schedule",
+          "jobTemplate",
+          "startingDeadlineSeconds",
+          "concurrencyPolicy",
+          "tenantId");
+
   private CronJobManifestParser() {}
 
   /**
@@ -54,6 +63,7 @@ public final class CronJobManifestParser {
   // Package-visible, not private: ManifestParser calls this directly after peeling off kind: and
   // apiVersion:, mirroring JobManifestParser.parseRoot's own visibility exactly.
   static CronJobSpec parseRoot(Map<?, ?> root, ApiVersion version, List<String> warnings) {
+    ManifestFields.warnUnknownFields(root, KNOWN_FIELDS, warnings);
     String name = ManifestFields.requireString(root, "name");
     String schedule = ManifestFields.requireString(root, "schedule");
     JobTemplate jobTemplate =
