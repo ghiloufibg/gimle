@@ -717,6 +717,20 @@ public final class AndvariServer implements AutoCloseable {
 
   private void handleRepositoryMetadata(
       HttpExchange exchange, MavenCoordinates.MetadataFile metadataFile) throws IOException {
+    if ("PUT".equals(exchange.getRequestMethod())) {
+      // maven-metadata.xml (and its checksum sidecars) is always generated fresh from the stored
+      // version list -- see generateMavenMetadataXml -- never persisted from an upload. A real
+      // `mvn deploy` still PUTs its own locally-computed copy as the last step of its deploy
+      // lifecycle regardless of what the server does with it, so this is accepted and discarded
+      // rather than rejected with 405, which would otherwise drag an already-successful jar/pom
+      // publish to BUILD FAILURE over a file the server was always going to regenerate correctly
+      // on the very next GET.
+      try (InputStream body = exchange.getRequestBody()) {
+        body.transferTo(OutputStream.nullOutputStream());
+      }
+      respond(exchange, 200, "maven-metadata.xml is server-generated; upload discarded");
+      return;
+    }
     if (!"GET".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
       return;

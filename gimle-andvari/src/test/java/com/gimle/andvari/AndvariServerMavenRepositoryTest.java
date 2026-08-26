@@ -190,6 +190,38 @@ class AndvariServerMavenRepositoryTest {
 
   @Test
   @Timeout(10)
+  void a_maven_metadata_put_from_the_deploy_lifecycle_is_a_no_op_success() throws Exception {
+    send(
+        put(
+            "/repository/com/gimle/app/1.0.0/app-1.0.0.jar",
+            "v1".getBytes(StandardCharsets.UTF_8)));
+
+    // A real `mvn deploy` PUTs its own locally-computed maven-metadata.xml (and checksum
+    // sidecars) as the last step of its deploy lifecycle, even though the server always
+    // regenerates this file itself -- that PUT must not fail the whole deploy.
+    HttpResponse<String> puttedXml =
+        send(
+            put(
+                "/repository/com/gimle/app/maven-metadata.xml",
+                "<metadata><stale/></metadata>".getBytes(StandardCharsets.UTF_8)));
+    HttpResponse<String> puttedChecksum =
+        send(
+            put(
+                "/repository/com/gimle/app/maven-metadata.xml.sha256",
+                "not-a-real-digest".getBytes(StandardCharsets.UTF_8)));
+
+    assertEquals(200, puttedXml.statusCode());
+    assertEquals(200, puttedChecksum.statusCode());
+
+    // The server's own freshly-computed metadata is unaffected by the discarded upload.
+    HttpResponse<String> metadata = send(get("/repository/com/gimle/app/maven-metadata.xml"));
+    assertEquals(200, metadata.statusCode());
+    assertTrue(metadata.body().contains("<version>1.0.0</version>"));
+    assertTrue(!metadata.body().contains("stale"));
+  }
+
+  @Test
+  @Timeout(10)
   void a_single_segment_module_has_an_empty_group_id_in_the_generated_metadata() throws Exception {
     send(put("/repository/hello/1.0.0/hello-1.0.0.jar", "v1".getBytes(StandardCharsets.UTF_8)));
 
