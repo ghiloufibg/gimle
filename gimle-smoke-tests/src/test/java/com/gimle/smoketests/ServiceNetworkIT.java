@@ -269,14 +269,19 @@ class ServiceNetworkIT extends GreeterSmokeClusterSupport {
    * effect, mirroring {@code GreeterClusterTopologyIT}), then deploys the real, committed {@code
    * greeter-consumer} left untenanted and asserts its real fabric call is denied.
    *
-   * <p>Untenanted, not a second named tenant: {@code ServiceExport#permitsTenant} treats an
-   * untenanted caller identically to an unauthorized one -- {@code Optional.empty()} can never
-   * satisfy a restricted {@code allowedTenantIds} allow-list, so the denial this proves is exactly
-   * the same real check either way. Any two tenants (named or untenanted) can freely co-reside on
-   * this fixture's single-node cluster by default -- {@code NodeCandidate}'s own {@code taints}
-   * only excludes a tenant an operator has explicitly reserved a node against via {@code
-   * StateStore#putNodeTaint}, which this scenario never does, so an untenanted deployment coexists
-   * with the tenant-scoped provider on the one node without needing a second agent.
+   * <p>"Left untenanted" in the manifest, not a second named tenant: since every manifest that
+   * omits {@code tenantId} now resolves to {@link com.gimle.core.tenant.Tenant#DEFAULT_TENANT_ID}
+   * at parse time (the {@code default} namespace equivalent -- see {@code
+   * ManifestFields#parseTenantId}'s own javadoc), the consumer's real caller tenant is {@code
+   * "default"}, an ordinary named tenant like any other -- {@code ServiceExport#permitsTenant} is
+   * an ordinary allow-list membership check here, not the unconditional-deny special case an empty
+   * {@code Optional} used to force. The denial this proves is simply that {@code "default"} is not
+   * in the provider's {@code allowedTenantIds}, the same as any other non-member tenant would get.
+   * Any two tenants can freely co-reside on this fixture's single-node cluster by default -- {@code
+   * NodeCandidate}'s own {@code taints} only excludes a tenant an operator has explicitly reserved
+   * a node against via {@code StateStore#putNodeTaint}, which this scenario never does, so the
+   * consumer's {@code default}-tenant deployment coexists with the tenant-scoped provider on the
+   * one node without needing a second agent.
    *
    * <p>{@code ServiceExport#permitsTenant} is checked in two places: client-side, in {@code
    * FabricServiceRegistry#lookup} (filters a restricted candidate out before ever dialing it), and

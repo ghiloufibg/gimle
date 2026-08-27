@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 642
+- **Total requirements**: 643
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 519
-- **Release-readiness (automated coverage)**: 19.2%
+- **Not covered by automated test**: 520
+- **Release-readiness (automated coverage)**: 19.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 46 | 6 | 40 | 13.0% |
-| gimle-mimir | 57 | 35 | 22 | 61.4% |
+| gimle-mimir | 58 | 35 | 23 | 60.3% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
 | gimle-controlplane | 78 | 14 | 64 | 17.9% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
@@ -662,6 +662,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-604 | LimitRange: per-workload resource min/max bound, admission check, and reconciler | Given a LimitRange for tenant "acme" with max request memory "1Mi" and cpu "1m", When a deployment declaring 32Mi/20m request is submitted for tenant "acme", Then the submission is rejected with status 409. Given a deployment already running under a loose LimitRange for tenant "acme", When the LimitRange is retroactively tightened below the deployment's own request, Then the deployment reports a limit range violation within 60s while its running instance is never evicted. | Yes |
+
+#### Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-643 | Implicit Default Tenant for Untenanted Workloads | Given a deployment manifest with no tenantId submitted; When it is admitted; Then its tenantId resolves to "default", a real seeded tenant, and its config/secrets become addressable at /config/default/... without being subject to quota/limitrange/policy enforcement unless an operator explicitly configures those for "default". | No |
 
 #### Networking/Security
 

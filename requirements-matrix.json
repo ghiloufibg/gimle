@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 642,
+  "requirementCount": 643,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12663,6 +12663,27 @@
       "testCoverageDetail": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.",
       "gherkinSteps": [
         "Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-643",
+      "module": "gimle-mimir",
+      "feature": "Implicit Default Tenant for Untenanted Workloads",
+      "category": "Multi-tenancy",
+      "userStory": "As an operator, I want a deployment submitted with no tenantId to still have an addressable config/secret bucket, instead of 'no tenant' being a valid-but-broken state.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`",
+        "`ManifestFields#parseTenantId`",
+        "`ApiServer#seedDefaultTenantIfAbsent`",
+        "`TenantQuotaPlugin`/`LimitRangePlugin`/`PolicyConfigPlugin`/`QuotaReconciler`/`LimitRangeReconciler` (isEnforceable exemption)"
+      ],
+      "testCoverageDetail": "`DeploymentManifestParserTest#parses_a_minimal_manifest_with_no_placement_section`/`#an_explicit_tenant_id_is_kept_as_is`/`#blank_tenant_id_throws`, and the equivalent tenantId assertions in `DaemonSetManifestParserTest`/`StatefulSetManifestParserTest`/`JobManifestParserTest`/`CronJobManifestParserTest`; full `gimle-controlplane` suite (admission plugins, reconcilers, `ApiServerTest`) re-verified green against the new default-tenant seeding.",
+      "gherkinSteps": [
+        "Given a deployment manifest with no tenantId submitted; When it is admitted; Then its tenantId resolves to \"default\", a real seeded tenant, and its config/secrets become addressable at /config/default/... without being subject to quota/limitrange/policy enforcement unless an operator explicitly configures those for \"default\"."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

@@ -11,6 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +47,7 @@ class CronJobManifestParserTest {
     assertTrue(spec.jobTemplate().activeDeadline().isEmpty());
     assertTrue(spec.startingDeadline().isEmpty());
     assertEquals(ConcurrencyPolicy.ALLOW, spec.concurrencyPolicy());
-    assertTrue(spec.tenantId().isEmpty());
+    assertEquals(Optional.of("default"), spec.tenantId());
   }
 
   @Test

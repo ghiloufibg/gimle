@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 642,
+    "totalRequirements": 643,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 519,
-    "releaseReadinessPercent": 19.2
+    "notCoveredByAutomatedTest": 520,
+    "releaseReadinessPercent": 19.1
   },
   "items": [
     {
@@ -7064,6 +7064,17 @@
       "category": "Governance",
       "feature": "Plaintext Transport Is Explicitly Single-Tenant",
       "step": "Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-643",
+      "module": "gimle-mimir",
+      "category": "Multi-tenancy",
+      "feature": "Implicit Default Tenant for Untenanted Workloads",
+      "step": "Given a deployment manifest with no tenantId submitted; When it is admitted; Then its tenantId resolves to \"default\", a real seeded tenant, and its config/secrets become addressable at /config/default/... without being subject to quota/limitrange/policy enforcement unless an operator explicitly configures those for \"default\".",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

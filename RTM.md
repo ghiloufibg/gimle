@@ -657,6 +657,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-640 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | New | Not Covered | — |
 | GIMLE-641 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | New | Not Covered | — |
 | GIMLE-642 | Plaintext Transport Is Explicitly Single-Tenant | New | Not Covered | — |
+| GIMLE-643 | Implicit Default Tenant for Untenanted Workloads | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2744,6 +2745,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Covered by a real 15x/5x-repeated concurrency test (ApiServerDeploymentConcurrencyTest) against a real in-process ApiServer/StoreClient/StateStore, but no Holmgang Cucumber .feature scenario exercises a racing apply/delete end to end against a real multi-node cluster yet.
 - **Other test coverage (non-Holmgang, informational only)**: ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name.
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/MutationOutcome.java`, `StateMutation.java`, `RaftNode.java`, `RaftCodec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StateSnapshot.java`, `StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+
+#### GIMLE-643 — Implicit Default Tenant for Untenanted Workloads
+
+- **Category**: Multi-tenancy
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario yet exercises submitting an untenanted deployment and reading its config/secrets back at /config/default/... against a real running cluster -- coverage today is unit-level (manifest parser tests) and gimle-controlplane's admission/reconciler suite only.
+- **Other test coverage (non-Holmgang, informational only)**: `DeploymentManifestParserTest`, `DaemonSetManifestParserTest`, `StatefulSetManifestParserTest`, `JobManifestParserTest`, `CronJobManifestParserTest` (tenantId defaulting); full `gimle-controlplane` admission/reconciler/ApiServerTest suite
+- **Source location(s)**: `Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`, `ManifestFields#parseTenantId`, `ApiServer#seedDefaultTenantIfAbsent`
 
 ### gimle-fabric
 
@@ -6806,7 +6816,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**519 of 642 requirements are Not Covered.**
+**520 of 643 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7095,6 +7105,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-612 | gimle-os | Volume reclaim policy: Retain-by-default persistent volume release | Module System / Storage | `LocalDiskVolumeManagerTest` (release_under_default_retain_policy_leaves_the_data_on_disk, release_under_delete_policy_deletes_the_volume_directory_and_its_contents) |
 | GIMLE-009 | gimle-core | Vessel hosting mode (plain-process workload) | Module System / Vessel Hosting | `VesselSpecTest` (no probes/ports is valid, TCP readiness requires a declared port, fixed port allocation carries its number, negative fixed port rejected); VesselArtifacts NONE dedicated |
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
+| GIMLE-643 | gimle-mimir | Implicit Default Tenant for Untenanted Workloads | Multi-tenancy | `DeploymentManifestParserTest`, `DaemonSetManifestParserTest`, `StatefulSetManifestParserTest`, `JobManifestParserTest`, `CronJobManifestParserTest` (tenantId defaulting); full `gimle-controlplane` admission/reconciler/ApiServerTest suite |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
 | GIMLE-623 | gimle-fabric | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit) |
 | GIMLE-626 | gimle-agent | Bifrost locality-preferred forwarding and ClientIP session affinity | Networking / Services | `BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints) |

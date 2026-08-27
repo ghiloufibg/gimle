@@ -1,6 +1,7 @@
 package com.gimle.controlplane.admission;
 
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
@@ -23,7 +24,7 @@ public final class PolicyConfigPlugin implements AdmissionPlugin<DeploymentSpec>
   @Override
   public AdmissionDecision<DeploymentSpec> review(AdmissionRequest<DeploymentSpec> request) {
     DeploymentSpec spec = request.spec();
-    if (spec.tenantId().isEmpty()) {
+    if (!Tenant.isEnforceable(spec.tenantId())) {
       return AdmissionDecision.allow(spec);
     }
     String tenantId = spec.tenantId().get();

@@ -177,6 +177,11 @@ public final class ApiServer implements AutoCloseable {
   // that an operator never has to tune them for ordinary platform-extension traffic.
   private static final ResourceQuota RESERVED_SYSTEM_TENANT_QUOTA =
       new ResourceQuota(64L * 1024 * 1024 * 1024, 32_000, 1000);
+  // Generous on purpose, for the same reason: an untenanted deployment previously skipped quota
+  // checking entirely (see Tenant#DEFAULT_TENANT_ID's own javadoc), so this default must not turn
+  // into a surprise rejection for a workload that never had to fit inside any quota before.
+  private static final ResourceQuota DEFAULT_TENANT_QUOTA =
+      new ResourceQuota(32L * 1024 * 1024 * 1024, 16_000, 500);
 
   private final StoreClient storeClient;
   // Constructed from storeClient alone (it implements both StoreReader and MutationSink) rather
@@ -378,6 +383,7 @@ public final class ApiServer implements AutoCloseable {
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     seedReservedSystemTenantIfAbsent();
+    seedDefaultTenantIfAbsent();
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
     registerContexts(server);
@@ -399,6 +405,23 @@ public final class ApiServer implements AutoCloseable {
     storeClient.propose(
         new StateMutation.PutTenant(
             new Tenant(Tenant.RESERVED_SYSTEM_TENANT_ID, RESERVED_SYSTEM_TENANT_QUOTA)));
+  }
+
+  /**
+   * Ensures {@link Tenant#DEFAULT_TENANT_ID} exists as a real, persisted row before any request is
+   * ever served, the same check-then-propose shape {@link #seedReservedSystemTenantIfAbsent} uses
+   * just above and for the identical reason: every manifest parser now resolves an omitted {@code
+   * tenantId} to this id (see that field's own javadoc), so {@code TenantQuotaPlugin}'s existence
+   * check must never see it as unknown. Unlike the reserved system tenant, this one is an ordinary,
+   * unreserved tenant -- no write/delete guard singles it out, and an operator may freely rename
+   * its quota through the normal {@code /tenants/*} API without any special-casing.
+   */
+  private void seedDefaultTenantIfAbsent() {
+    if (storeClient.getTenant(Tenant.DEFAULT_TENANT_ID).isPresent()) {
+      return;
+    }
+    storeClient.propose(
+        new StateMutation.PutTenant(new Tenant(Tenant.DEFAULT_TENANT_ID, DEFAULT_TENANT_QUOTA)));
   }
 
   private void registerContexts(HttpServer target) throws IOException {
@@ -6579,10 +6602,11 @@ public final class ApiServer implements AutoCloseable {
    * quietly allowing shared multi-tenant use with no way to tell callers apart, plaintext mode is
    * treated as explicitly single-tenant: creating a second real tenant is refused outright, the
    * same "reject, don't silently allow" posture every other hard policy in this class already
-   * takes. The reserved {@link Tenant#RESERVED_SYSTEM_TENANT_ID} doesn't count toward the limit --
-   * it's seeded automatically on every replica regardless of transport, not an operator's own
-   * tenant. A no-op for an update to an already-existing tenant (this id itself) and for every mTLS
-   * caller, where a real peer identity exists for RBAC to actually check.
+   * takes. Neither {@link Tenant#RESERVED_SYSTEM_TENANT_ID} nor {@link Tenant#DEFAULT_TENANT_ID}
+   * counts toward the limit -- both are seeded automatically on every replica regardless of
+   * transport, not an operator's own tenant. A no-op for an update to an already-existing tenant
+   * (this id itself) and for every mTLS caller, where a real peer identity exists for RBAC to
+   * actually check.
    */
   private boolean rejectSecondTenantUnderPlaintext(HttpExchange exchange, String id) {
     if (exchange instanceof HttpsExchange || storeClient.getTenant(id).isPresent()) {
@@ -6590,7 +6614,10 @@ public final class ApiServer implements AutoCloseable {
     }
     boolean anotherRealTenantExists =
         storeClient.listTenants().stream()
-            .anyMatch(tenant -> !tenant.id().equals(Tenant.RESERVED_SYSTEM_TENANT_ID));
+            .anyMatch(
+                tenant ->
+                    !tenant.id().equals(Tenant.RESERVED_SYSTEM_TENANT_ID)
+                        && !tenant.id().equals(Tenant.DEFAULT_TENANT_ID));
     if (!anotherRealTenantExists) {
       return false;
     }

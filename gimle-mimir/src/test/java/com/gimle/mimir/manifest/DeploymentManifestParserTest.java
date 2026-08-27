@@ -48,6 +48,43 @@ class DeploymentManifestParserTest {
     assertEquals(3, spec.replicas());
     assertEquals(PlacementConstraints.NONE, spec.placement());
     assertTrue(spec.artifactSha256().isEmpty());
+    assertEquals(Optional.of("default"), spec.tenantId());
+  }
+
+  @Test
+  void an_explicit_tenant_id_is_kept_as_is() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 3
+                tenantId: acme
+                """));
+
+    assertEquals("acme", spec.tenantId().orElseThrow());
+  }
+
+  @Test
+  void blank_tenant_id_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 3
+                    tenantId: "   "
+                    """)));
   }
 
   @Test

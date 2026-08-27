@@ -652,6 +652,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-640 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Observability | Complete | Yes |
 | GIMLE-641 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | Scheduler | Complete | Yes |
 | GIMLE-642 | Plaintext Transport Is Explicitly Single-Tenant | Governance | Complete | Yes |
+| GIMLE-643 | Implicit Default Tenant for Untenanted Workloads | Multi-tenancy | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3661,6 +3662,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both.
   Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create.
+  ```
+
+#### GIMLE-643 — Implicit Default Tenant for Untenanted Workloads
+
+- **Category**: Multi-tenancy
+- **User story**: As an operator, I want a deployment submitted with no tenantId to still have an addressable config/secret bucket, instead of 'no tenant' being a valid-but-broken state.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`, `ManifestFields#parseTenantId`, `ApiServer#seedDefaultTenantIfAbsent`, `TenantQuotaPlugin`/`LimitRangePlugin`/`PolicyConfigPlugin`/`QuotaReconciler`/`LimitRangeReconciler` (isEnforceable exemption)
+- **Test coverage**: `DeploymentManifestParserTest#parses_a_minimal_manifest_with_no_placement_section`/`#an_explicit_tenant_id_is_kept_as_is`/`#blank_tenant_id_throws`, and the equivalent tenantId assertions in `DaemonSetManifestParserTest`/`StatefulSetManifestParserTest`/`JobManifestParserTest`/`CronJobManifestParserTest`; full `gimle-controlplane` suite (admission plugins, reconcilers, `ApiServerTest`) re-verified green against the new default-tenant seeding.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment manifest with no tenantId submitted; When it is admitted; Then its tenantId resolves to "default", a real seeded tenant, and its config/secrets become addressable at /config/default/... without being subject to quota/limitrange/policy enforcement unless an operator explicitly configures those for "default".
   ```
 
 ### gimle-fabric
