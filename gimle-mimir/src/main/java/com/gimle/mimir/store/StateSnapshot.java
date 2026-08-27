@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
  */
 public record StateSnapshot(
     List<DeploymentSpec> deployments,
+    Map<String, Long> deploymentGenerations,
     List<InstanceAssignment> assignments,
     List<JobSpec> jobSpecs,
     List<JobRun> jobRuns,
@@ -68,6 +69,7 @@ public record StateSnapshot(
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
+    deploymentGenerations = Map.copyOf(deploymentGenerations);
     assignments = List.copyOf(assignments);
     jobSpecs = List.copyOf(jobSpecs);
     jobRuns = List.copyOf(jobRuns);

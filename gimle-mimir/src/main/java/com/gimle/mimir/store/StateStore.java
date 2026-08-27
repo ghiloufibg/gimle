@@ -41,6 +41,7 @@ public final class StateStore implements StoreReader {
 
   private final Clock clock;
   private final Map<String, DeploymentSpec> deployments = new ConcurrentHashMap<>();
+  private final Map<String, Long> deploymentGenerations = new ConcurrentHashMap<>();
   private final Map<String, ServiceSpec> services = new ConcurrentHashMap<>();
   private final Map<String, NetworkPolicySpec> networkPolicies = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
@@ -184,10 +185,20 @@ public final class StateStore implements StoreReader {
 
   public void putDeployment(DeploymentSpec spec) {
     deployments.put(spec.name(), spec);
+    deploymentGenerations.merge(spec.name(), 1L, Long::sum);
   }
 
   public Optional<DeploymentSpec> getDeployment(String name) {
     return Optional.ofNullable(deployments.get(name));
+  }
+
+  /**
+   * See {@link StoreReader#getDeploymentGeneration}'s own javadoc for the CAS contract this
+   * backs.
+   */
+  @Override
+  public long getDeploymentGeneration(String name) {
+    return deploymentGenerations.getOrDefault(name, 0L);
   }
 
   public List<DeploymentSpec> listDeployments() {
@@ -196,6 +207,7 @@ public final class StateStore implements StoreReader {
 
   public void removeDeployment(String name) {
     deployments.remove(name);
+    deploymentGenerations.remove(name);
     clearAllRollingIndices(name);
     clearAllSurgeIndices(name);
     effectiveReplicas.remove(name);
@@ -1102,6 +1114,7 @@ public final class StateStore implements StoreReader {
   public StateSnapshot snapshot() {
     return new StateSnapshot(
         List.copyOf(deployments.values()),
+        Map.copyOf(deploymentGenerations),
         List.copyOf(assignments.values()),
         List.copyOf(jobSpecs.values()),
         List.copyOf(jobRuns.values()),
@@ -1213,6 +1226,12 @@ public final class StateStore implements StoreReader {
     clearAllControllerRevisions();
 
     snapshot.deployments().forEach(this::putDeployment);
+    // putDeployment above increments each name's generation from this replay's own arbitrary
+    // starting point (0), not the true accumulated value every other replica that replayed the
+    // full log instead of a snapshot already holds -- stomp with the snapshot's own recorded
+    // values so a restored replica's CAS decisions agree with the rest of the cluster.
+    deploymentGenerations.clear();
+    deploymentGenerations.putAll(snapshot.deploymentGenerations());
     snapshot.assignments().forEach(this::putAssignment);
     snapshot.jobSpecs().forEach(this::putJobSpec);
     snapshot.jobRuns().forEach(this::putJobRun);

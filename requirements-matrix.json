@@ -12577,6 +12577,28 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "No"
+    },
+    {
+      "id": "GIMLE-639",
+      "module": "gimle-mimir",
+      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race",
+      "category": "State Store",
+      "userStory": "As an operator firing a scale-up apply and a delete against the same deployment concurrently, I want exactly one of the two to durably win and the other to be refused with an honest conflict, so a delete response can never claim success while a concurrent apply's replicas are still running, or vice versa.",
+      "statusDetail": "Complete. StateMutation.PutDeployment/RemoveDeployment now carry an expectedGeneration precondition, checked inside applyTo against StateStore#getDeploymentGeneration -- computed identically on every node from the same prior state (the same determinism guarantee every other replicated mutation already relies on), so a mismatch is a real, cluster-wide fact about what committed in between, not a leader-side guess. StateMutation#applyTo now returns a MutationOutcome (Accepted/Rejected(reason)) instead of void; RaftNode#propose/MutationSink#propose/StoreClient#propose all return it, threaded across the control-plane/store process boundary via a new StoreRpc.MutationRejected response (deliberately not folded into the existing NotLeader redirect, since retrying a rejected CAS against the correct leader would reject identically). ApiServer's deployment apply/delete/rollback handlers read the current generation before proposing and translate a rejection into a 409 -- delete additionally re-checks whether the name is now absent regardless (a concurrent delete-of-nothing racing a brand-new create is still the established idempotent no-op, not a conflict). deploymentGenerations is snapshotted/restored alongside deployments so a replica recovering from a snapshot agrees with the rest of the cluster's CAS decisions rather than resetting to an arbitrary replay-order baseline. Replaces the first remediation pass's own delete-side-only fix (a post-hoc re-read after an unconditional RemoveDeployment), which closed the response-lies-about-success half of the race but left the underlying write ordering unguarded; a first attempt at a full fix reused an existing distributed-lease primitive for mutual exclusion and was reverted after it measurably degraded a different subsystem's reliability -- this generation guard replaces that attempt rather than layering onto it.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/MutationOutcome.java`, `StateMutation.java` (`PutDeployment`/`RemoveDeployment`/`Batch`), `RaftNode.java` (`pendingOutcomes`, `applyCommittedLocked`, `awaitAppliedThrowing`, `propose`), `RaftCodec.java` (mutation and snapshot wire format)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`deploymentGenerations`, `getDeploymentGeneration`), `StateSnapshot.java`, `StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java` (`GetDeploymentGeneration`, `GenerationResult`, `MutationRejected`), `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutDeployment`, `handleDeleteDeployment`, `handleRollbackDeployment`, `proposePutDeploymentOrConflict`)"
+      ],
+      "testCoverageDetail": "ApiServerDeploymentConcurrencyTest (rewritten): a 15x-repeated real racing apply/delete against an already-existing deployment now asserts the deterministic guarantee directly -- exactly one of the two wins with 200, the other is refused with a genuine 409, and the final state exactly matches whichever won; a second, 5x-repeated test proves a delete racing a brand-new name's own first create never blocks the create, since deleting nothing is still the established idempotent no-op.",
+      "gherkinSteps": [
+        "Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then exactly one of the two requests succeeds with 200 and the other is refused with 409, and the final state exactly matches whichever request won.",
+        "Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
     }
   ]
 }

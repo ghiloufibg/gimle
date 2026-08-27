@@ -95,7 +95,8 @@ class ApiServerEndpointsTest {
                     moduleId,
                     "/artifacts/billing.jar",
                     1,
-                    PlacementConstraints.NONE)));
+                    PlacementConstraints.NONE),
+                0));
     inProcessStore
         .client()
         .propose(
@@ -154,7 +155,8 @@ class ApiServerEndpointsTest {
         .propose(
             new StateMutation.PutDeployment(
                 new DeploymentSpec(
-                    "greeter", moduleId, "/artifacts/greeter.jar", 1, PlacementConstraints.NONE)));
+                    "greeter", moduleId, "/artifacts/greeter.jar", 1, PlacementConstraints.NONE),
+                0));
     inProcessStore
         .client()
         .propose(

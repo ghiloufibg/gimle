@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 638,
+  "requirementCount": 639,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11040,6 +11040,24 @@
         "`gimle-examples/node-local-cache/README.md`"
       ],
       "otherTestCoverage": "Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module."
+    },
+    {
+      "id": "GIMLE-639",
+      "module": "gimle-mimir",
+      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race",
+      "category": "State Store",
+      "status": "New",
+      "statusNote": "closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard)",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by a real 15x/5x-repeated concurrency test (ApiServerDeploymentConcurrencyTest) against a real in-process ApiServer/StoreClient/StateStore, but no Holmgang Cucumber .feature scenario exercises a racing apply/delete end to end against a real multi-node cluster yet.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/MutationOutcome.java`, `StateMutation.java`, `RaftNode.java`, `RaftCodec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StateSnapshot.java`, `StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+      ],
+      "otherTestCoverage": "ApiServerDeploymentConcurrencyTest (rewritten): 15 repetitions proving a deterministic exactly-one-winner outcome for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name."
     }
   ]
 }

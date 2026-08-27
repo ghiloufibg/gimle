@@ -27,23 +27,30 @@ import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * A racing {@code PUT}/{@code DELETE} pair against the same deployment name, fired with no ordering
- * between them -- the exact shape a QA session found could otherwise let a scale-up {@code apply}
- * silently outlive a {@code delete} that had already reported success. {@code
- * handleDeleteDeployment} re-reads the deployment immediately after proposing its removal and
- * refuses to claim success (409, not 200) if a concurrent write already raced it back into
- * existence -- see that method's own javadoc for why a full compare-and-set fix was not the safe
- * choice for this pass (a distributed-lease-based mutual-exclusion attempt was tried and reverted
- * after it measurably degraded a different, unrelated subsystem's reliability during testing; see
- * the commit history and final report for that investigation).
+ * A racing {@code PUT}/{@code DELETE} pair against the same, already-existing deployment -- the
+ * exact shape a QA session found could let a scale-up {@code apply} silently outlive a {@code
+ * delete} that had already reported success (5 running instances survived 30+ seconds past a
+ * "deleted" response, in 2 of 3 trials). Closed for real now, not just made honest: {@code
+ * handlePutDeployment}/{@code handleDeleteDeployment} both propose a generation-guarded {@code
+ * StateMutation.PutDeployment}/{@code RemoveDeployment} (see that record's own javadoc), read as a
+ * precondition before racing and checked deterministically -- identically on every node -- at the
+ * actual point of application. A first attempt at this fix reused an existing distributed-lease
+ * primitive for mutual exclusion and was reverted after it measurably degraded a different,
+ * unrelated subsystem's reliability during testing (see the commit history and final report for
+ * that investigation); the generation guard replaces it rather than layering on top.
  *
- * <p>This does <em>not</em> assert that delete always "wins" a race with no wait between the two
- * calls -- an apply that lands after a delete legitimately recreates the deployment, the same as if
- * the two commands had been typed one after the other on purpose; nothing server-side can (or
- * should) second-guess which of two genuinely concurrent, unordered requests a caller "really"
- * meant to land last. What this test rules out is the actual lost-update shape: a deployment left
- * behind carrying neither request's real content, or a request that fails outright instead of
- * returning one of its valid outcomes (200, 409, or 404).
+ * <p>Racing two writes against a deployment that already exists (not a brand-new name) is the
+ * scenario that actually exercises the guard: both requests read the same starting generation, so
+ * whichever commits first is guaranteed to win outright, and the other's own precondition no
+ * longer holds against the resulting state -- a real, cluster-wide fact, not a guess. This does
+ * <em>not</em> mean delete always "loses" a race that starts before any prior write -- deleting a
+ * name that has never existed is the established idempotent-no-op convention (see {@code
+ * CHAOS-2}), so a delete racing a brand-new name's very first create is free to succeed alongside
+ * it; nothing was destroyed that the create didn't itself just make. What this test rules out is
+ * the actual lost-update shape against an object with real prior state: a deployment left behind
+ * carrying neither request's real content, both requests reporting success while only one's write
+ * actually stuck, or a request that fails outright instead of returning one of its valid, honest
+ * outcomes.
  */
 class ApiServerDeploymentConcurrencyTest {
 
@@ -108,18 +115,22 @@ class ApiServerDeploymentConcurrencyTest {
   }
 
   /**
-   * Fires an apply (scale to 5 replicas) and a delete for the same never-yet-existing deployment
-   * name with no ordering between them, repeated 15 times over a fresh name each round so one
-   * round's outcome can't leak into the next. Every round's end state must be exactly one of the
-   * two legitimate serializations: gone, or present with precisely the 5-replica spec the apply
-   * submitted -- never a torn state (e.g. still present with some other replica count nobody wrote)
-   * and never a request that fails outright instead of completing one of those two outcomes.
+   * Creates a deployment (3 replicas) synchronously first -- matching the QA report's own
+   * reproduction exactly, an <em>already-existing</em> deployment, not a brand-new name -- then
+   * fires a scale-to-5 apply and a delete for it with no ordering between them, repeated 15 times
+   * over a fresh name each round so one round's outcome can't leak into the next. Both requests
+   * read the same starting generation, so the generation guard now guarantees a deterministic
+   * outcome every round: exactly one of the two succeeds (200) and the other is refused with an
+   * honest 409 (its own precondition no longer holds against whatever the winner just committed) --
+   * never both succeeding, never a torn state, and never a request failing outright.
    */
   @RepeatedTest(15)
   @Timeout(20)
-  void a_racing_apply_and_delete_on_the_same_deployment_never_leaves_a_torn_state(
+  void a_racing_apply_and_delete_on_an_existing_deployment_resolves_to_exactly_one_winner(
       RepetitionInfo repetitionInfo) throws Exception {
     String name = "race-dep-" + repetitionInfo.getCurrentRepetition();
+    assertEquals(200, putDeployment(name, 3).statusCode(), "initial create must succeed");
+
     ExecutorService pool = Executors.newFixedThreadPool(2);
     CountDownLatch ready = new CountDownLatch(2);
     CountDownLatch go = new CountDownLatch(1);
@@ -144,9 +155,7 @@ class ApiServerDeploymentConcurrencyTest {
       HttpResponse<String> putResponse = putFuture.get();
       HttpResponse<String> deleteResponse = deleteFuture.get();
 
-      // Neither request is ever allowed to fail outright -- a real internal error (500) here
-      // would itself be evidence of exactly the kind of interleaved, inconsistent read the lease
-      // exists to prevent (e.g. a revision-history append racing ahead of the spec it describes).
+      // Neither request is ever allowed to fail outright with a genuine internal error.
       assertTrue(
           putResponse.statusCode() < 500,
           "apply must not itself fail: " + putResponse.statusCode() + " " + putResponse.body());
@@ -157,17 +166,116 @@ class ApiServerDeploymentConcurrencyTest {
               + " "
               + deleteResponse.body());
 
+      boolean putWon = putResponse.statusCode() == 200;
+      boolean deleteWon = deleteResponse.statusCode() == 200;
+      assertTrue(
+          putWon ^ deleteWon,
+          "exactly one of apply/delete must win against an already-existing deployment, never"
+              + " both and never neither: put="
+              + putResponse.statusCode()
+              + " delete="
+              + deleteResponse.statusCode());
+      if (!putWon) {
+        assertEquals(
+            409,
+            putResponse.statusCode(),
+            "the loser must be a genuine conflict, not some other failure: " + putResponse.body());
+      }
+      if (!deleteWon) {
+        assertEquals(
+            409,
+            deleteResponse.statusCode(),
+            "the loser must be a genuine conflict, not some other failure: "
+                + deleteResponse.body());
+      }
+
       HttpResponse<String> finalState = getDeployment(name);
-      if (finalState.statusCode() != 404) {
-        assertEquals(200, finalState.statusCode());
+      if (deleteWon) {
+        assertEquals(
+            404, finalState.statusCode(), "delete won the race -- the deployment must be gone");
+      } else {
+        assertEquals(
+            200, finalState.statusCode(), "apply won the race -- the deployment must exist");
         @SuppressWarnings("unchecked")
         Map<String, Object> spec =
             (Map<String, Object>) ((Map<String, Object>) Json.parse(finalState.body())).get("spec");
-        // The only legitimate "still present" outcome: exactly the apply's own submitted content
-        // -- there was no pre-race state to have leaked through (this name never existed before
-        // this round), and no value neither request ever wrote.
+        // The only legitimate "still present" outcome: exactly the apply's own submitted content,
+        // never the pre-race 3 replicas and never some other value neither request ever wrote.
         assertEquals(5, ((Number) spec.get("replicas")).intValue());
       }
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  /**
+   * The narrower case the class javadoc calls out explicitly: racing a delete against a name that
+   * has never existed can never destroy anything a concurrent create just made, since deleting a
+   * genuinely absent name is a true no-op (the established idempotent convention, {@code CHAOS-2})
+   * that leaves the generation guard's own precondition untouched -- so the create's identical
+   * "expected absent" precondition still holds no matter which of the two actually commits first.
+   * The create must therefore always succeed here, unconditionally. The delete's own response does
+   * still depend on ordering, and correctly so: if its no-op commits before the create, it reports
+   * the plain 200 a no-op earns; if the create commits first, the delete's own precondition (this
+   * name was absent when I read it) no longer holds against the object that now exists, and it is
+   * refused with an honest 409 rather than silently no-op'ing against content it never observed --
+   * exactly the same "don't destroy or ignore a state you never actually saw" principle the
+   * already-existing-deployment test above proves, not a special case carved out from it.
+   */
+  @RepeatedTest(5)
+  @Timeout(20)
+  void a_racing_delete_of_a_never_existing_name_never_blocks_a_concurrent_create(
+      RepetitionInfo repetitionInfo) throws Exception {
+    String name = "fresh-race-dep-" + repetitionInfo.getCurrentRepetition();
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    CountDownLatch ready = new CountDownLatch(2);
+    CountDownLatch go = new CountDownLatch(1);
+    try {
+      Future<HttpResponse<String>> putFuture =
+          pool.submit(
+              () -> {
+                ready.countDown();
+                go.await();
+                return putDeployment(name, 5);
+              });
+      Future<HttpResponse<String>> deleteFuture =
+          pool.submit(
+              () -> {
+                ready.countDown();
+                go.await();
+                return deleteDeployment(name);
+              });
+      ready.await();
+      go.countDown();
+
+      HttpResponse<String> putResponse = putFuture.get();
+      HttpResponse<String> deleteResponse = deleteFuture.get();
+
+      assertEquals(
+          200,
+          putResponse.statusCode(),
+          "creating a brand-new name must always succeed, regardless of a concurrent delete racing"
+              + " a name that was never there to begin with: "
+              + putResponse.body());
+      assertTrue(
+          deleteResponse.statusCode() == 200 || deleteResponse.statusCode() == 409,
+          "delete of a never-existing name must resolve to its own no-op success (it committed"
+              + " before the create) or an honest conflict (the create committed first, so the"
+              + " name is no longer absent as this delete's own precondition assumed) -- never"
+              + " anything else: "
+              + deleteResponse.statusCode()
+              + " "
+              + deleteResponse.body());
+
+      HttpResponse<String> finalState = getDeployment(name);
+      assertEquals(
+          200,
+          finalState.statusCode(),
+          "the create must always have taken effect, whatever the delete's own outcome was");
+      @SuppressWarnings("unchecked")
+      Map<String, Object> spec =
+          (Map<String, Object>) ((Map<String, Object>) Json.parse(finalState.body())).get("spec");
+      assertEquals(5, ((Number) spec.get("replicas")).intValue());
     } finally {
       pool.shutdownNow();
     }

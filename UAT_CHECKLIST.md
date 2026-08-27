@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 638
+- **Total requirements**: 639
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 515
-- **Release-readiness (automated coverage)**: 19.3%
+- **Not covered by automated test**: 516
+- **Release-readiness (automated coverage)**: 19.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 46 | 6 | 40 | 13.0% |
-| gimle-mimir | 56 | 35 | 21 | 62.5% |
+| gimle-mimir | 57 | 35 | 22 | 61.4% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
 | gimle-controlplane | 76 | 14 | 62 | 18.4% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
@@ -724,6 +724,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically. | Yes |
 | [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
 | [ ] | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright. | No |
+| [ ] | GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race | Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then exactly one of the two requests succeeds with 200 and the other is refused with 409, and the final state exactly matches whichever request won. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. | No |
 
 #### Workload Lifecycle
 

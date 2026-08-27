@@ -18,6 +18,7 @@ import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.raft.MutationOutcome;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.StateMutation;
@@ -79,9 +80,18 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   // ---- MutationSink / leader-only writes ----
 
+  /**
+   * {@code MutationRejected} answers a CAS-guarded mutation's own precondition failure -- a normal,
+   * expected {@link MutationOutcome.Rejected} value, not folded into this method's usual {@link
+   * com.gimle.core.exception.GimleRaftException#storeUnreachable} failure path the way {@link
+   * StoreRpc.NotLeader} redirects already are.
+   */
   @Override
-  public void propose(StateMutation mutation) {
-    sendLeaderOnly("propose", new StoreRpc.Propose(mutation));
+  public MutationOutcome propose(StateMutation mutation) {
+    StoreRpc.Response response = sendLeaderOnly("propose", new StoreRpc.Propose(mutation));
+    return response instanceof StoreRpc.MutationRejected rejected
+        ? MutationOutcome.rejected(rejected.reason())
+        : MutationOutcome.accepted();
   }
 
   public void putHeartbeat(NodeHeartbeat heartbeat) {
@@ -154,6 +164,19 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     StoreRpc.DeploymentResult r =
         (StoreRpc.DeploymentResult) sendRead(new StoreRpc.GetDeployment(name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  /**
+   * Any-node-servable, unlike {@link #propose}: a stale answer here only ever causes a spurious,
+   * safe rejection at the actual CAS check inside {@code StateMutation.PutDeployment}/{@code
+   * RemoveDeployment}'s own {@code applyTo} -- evaluated against the true replicated state at apply
+   * time, never against this read -- so it can never cause an incorrect write, only an occasional
+   * unnecessary conflict response a caller can retry.
+   */
+  @Override
+  public long getDeploymentGeneration(String name) {
+    return ((StoreRpc.GenerationResult) sendRead(new StoreRpc.GetDeploymentGeneration(name)))
+        .value();
   }
 
   public List<DeploymentSpec> listDeployments() {

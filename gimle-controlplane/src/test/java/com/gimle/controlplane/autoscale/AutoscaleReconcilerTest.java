@@ -235,7 +235,7 @@ class AutoscaleReconcilerTest {
     MutationSink countingSink =
         mutation -> {
           proposals.incrementAndGet();
-          mutation.applyTo(store);
+          return mutation.applyTo(store);
         };
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store, countingSink);
 
@@ -263,7 +263,7 @@ class AutoscaleReconcilerTest {
     MutationSink countingSink =
         mutation -> {
           proposals.incrementAndGet();
-          mutation.applyTo(store);
+          return mutation.applyTo(store);
         };
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store, countingSink);
 

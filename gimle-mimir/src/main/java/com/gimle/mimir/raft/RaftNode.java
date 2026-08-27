@@ -176,6 +176,18 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
   private long commitIndex;
   private long lastApplied;
+
+  /**
+   * Every committed {@link StateMutation}'s own {@link MutationOutcome}, guarded by {@link #lock}
+   * like {@link #lastApplied} itself -- populated only while this node believes itself leader (a
+   * follower never has anyone waiting on {@link #awaitAppliedThrowing} for these indices, so
+   * recording them there would only leak) and consumed exactly once, by the one {@link #propose}
+   * call that appended this exact index, immediately after {@link #awaitAppliedThrowing} returns.
+   * A {@link MembershipChange} entry never populates this map; {@link #awaitAppliedThrowing}
+   * defaults to {@link MutationOutcome#accepted()} for an index with no entry, which every caller
+   * except {@link #propose} itself (addServer/removeServer) simply discards.
+   */
+  private final Map<Long, MutationOutcome> pendingOutcomes = new HashMap<>();
   private final Map<String, Long> nextIndex = new HashMap<>();
   private final Map<String, Long> matchIndex = new HashMap<>();
   private final Map<String, Semaphore> peerWake = new ConcurrentHashMap<>();
@@ -495,12 +507,15 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
 
   /**
    * Replicates {@code mutation} through the cluster and applies it to {@link StateStore}, blocking
-   * until this node itself has applied it. Throws {@link GimleRaftException#notLeader} immediately
-   * if this node isn't currently leader -- nothing is appended, nothing is sent; a non-leader
-   * rejects with a redirect rather than silently forwarding the write.
+   * until this node itself has applied it, then returning the resulting {@link MutationOutcome}.
+   * Throws {@link GimleRaftException#notLeader} immediately if this node isn't currently leader --
+   * nothing is appended, nothing is sent; a non-leader rejects with a redirect rather than silently
+   * forwarding the write. A {@link MutationOutcome.Rejected} result is a normal, expected value for
+   * a CAS-guarded mutation whose precondition no longer held -- not an exception, since retrying
+   * against this same, correct leader would reject identically.
    */
   @Override
-  public void propose(StateMutation mutation) {
+  public MutationOutcome propose(StateMutation mutation) {
     long index;
     lock.lock();
     try {
@@ -515,7 +530,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       lock.unlock();
     }
     wakePeerSenders();
-    awaitAppliedThrowing(index);
+    return awaitAppliedThrowing(index);
   }
 
   // ---- membership changes: etcd-style, one at a time, not full joint consensus ----
@@ -747,7 +762,16 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     return new MembershipChange(bootstrapPeerAddresses, Set.of());
   }
 
-  private void awaitAppliedThrowing(long index) {
+  /**
+   * Blocks until {@code index} is applied, then returns whatever {@link MutationOutcome} {@link
+   * #applyCommittedLocked} recorded for it -- {@link MutationOutcome#accepted()} for a {@link
+   * MembershipChange} entry or any index with no recorded outcome, which every caller except {@link
+   * #propose} itself (addServer/removeServer, proposing no {@link StateMutation}) discards
+   * unread. Read-and-remove happens here, still under {@link #lock}, in the same atomic step as the
+   * loop condition becoming false -- no window exists for a second caller to observe or clear this
+   * index's entry first.
+   */
+  private MutationOutcome awaitAppliedThrowing(long index) {
     lock.lock();
     try {
       // Deliberately System.nanoTime(), not clock: the actual wait below blocks this calling
@@ -772,6 +796,8 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
           throw giveUpAndTruncateLocked(index);
         }
       }
+      MutationOutcome outcome = pendingOutcomes.remove(index);
+      return outcome != null ? outcome : MutationOutcome.accepted();
     } finally {
       lock.unlock();
     }
@@ -1363,7 +1389,10 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
               .orElseThrow(
                   () -> new IllegalStateException("missing committed entry at index " + nextApply));
       if (entry.payload() instanceof StateMutation mutation) {
-        mutation.applyTo(store);
+        MutationOutcome outcome = mutation.applyTo(store);
+        if (role == Role.LEADER) {
+          pendingOutcomes.put(nextApply, outcome);
+        }
       }
       if (pendingMembershipChangeIndex != null && pendingMembershipChangeIndex == nextApply) {
         pendingMembershipChangeIndex = null;

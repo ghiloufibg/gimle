@@ -42,7 +42,7 @@ class RaftNodeRecoveryTest {
     StateStore store = new StateStore();
     RaftNode node = new RaftNode("n1", Map.of(), new RaftLog(dir), store);
     node.start();
-    node.propose(new StateMutation.PutDeployment(spec));
+    node.propose(new StateMutation.PutDeployment(spec, 0));
     assertEquals(Optional.of(spec), store.getDeployment("orders-service"));
     node.close();
 
@@ -82,13 +82,13 @@ class RaftNodeRecoveryTest {
     StateStore first = new StateStore();
     RaftNode nodeA = new RaftNode("n1", Map.of(), new RaftLog(dir), first);
     nodeA.start();
-    nodeA.propose(new StateMutation.PutDeployment(deployment("orders-service")));
+    nodeA.propose(new StateMutation.PutDeployment(deployment("orders-service"), 0));
     nodeA.close();
 
     StateStore second = new StateStore();
     RaftNode nodeB = new RaftNode("n1", Map.of(), new RaftLog(dir), second);
     nodeB.start();
-    nodeB.propose(new StateMutation.PutDeployment(deployment("catalog-service")));
+    nodeB.propose(new StateMutation.PutDeployment(deployment("catalog-service"), 0));
     nodeB.close();
 
     StateStore third = new StateStore();

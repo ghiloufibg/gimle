@@ -21,13 +21,14 @@ class RaftLogTest {
   @TempDir Path tempDir;
 
   private static LogEntry entry(long term, long index) {
-    return new LogEntry(term, index, new StateMutation.RemoveDeployment("deployment-" + index));
+    return new LogEntry(term, index, new StateMutation.RemoveDeployment("deployment-" + index, 0));
   }
 
   /** Every field empty/default -- a base other tests build on by overriding just what they need. */
   private static StateSnapshot emptySnapshot() {
     return new StateSnapshot(
         List.of(), // deployments
+        Map.of(), // deploymentGenerations
         List.of(), // assignments
         List.of(), // jobSpecs
         List.of(), // jobRuns
@@ -71,6 +72,7 @@ class RaftLogTest {
     StateSnapshot base = emptySnapshot();
     return new StateSnapshot(
         base.deployments(),
+        base.deploymentGenerations(),
         base.assignments(),
         base.jobSpecs(),
         base.jobRuns(),

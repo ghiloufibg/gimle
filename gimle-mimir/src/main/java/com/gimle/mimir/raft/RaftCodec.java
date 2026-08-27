@@ -386,10 +386,12 @@ public final class RaftCodec {
       case StateMutation.PutDeployment m -> {
         out.writeByte(MUT_PUT_DEPLOYMENT);
         DomainCodec.writeDeploymentSpec(out, m.spec());
+        out.writeLong(m.expectedGeneration());
       }
       case StateMutation.RemoveDeployment m -> {
         out.writeByte(MUT_REMOVE_DEPLOYMENT);
         out.writeUTF(m.name());
+        out.writeLong(m.expectedGeneration());
       }
       case StateMutation.PutService m -> {
         out.writeByte(MUT_PUT_SERVICE);
@@ -661,9 +663,14 @@ public final class RaftCodec {
   private static StateMutation readStateMutation(DataInputStream in) throws IOException {
     byte tag = in.readByte();
     return switch (tag) {
-      case MUT_PUT_DEPLOYMENT ->
-          new StateMutation.PutDeployment(DomainCodec.readDeploymentSpec(in));
-      case MUT_REMOVE_DEPLOYMENT -> new StateMutation.RemoveDeployment(in.readUTF());
+      case MUT_PUT_DEPLOYMENT -> {
+        DeploymentSpec spec = DomainCodec.readDeploymentSpec(in);
+        yield new StateMutation.PutDeployment(spec, in.readLong());
+      }
+      case MUT_REMOVE_DEPLOYMENT -> {
+        String name = in.readUTF();
+        yield new StateMutation.RemoveDeployment(name, in.readLong());
+      }
       case MUT_PUT_SERVICE -> new StateMutation.PutService(DomainCodec.readServiceSpec(in));
       case MUT_REMOVE_SERVICE -> new StateMutation.RemoveService(in.readUTF());
       case MUT_PUT_NETWORK_POLICY ->
@@ -780,6 +787,11 @@ public final class RaftCodec {
       out.writeInt(snapshot.deployments().size());
       for (DeploymentSpec spec : snapshot.deployments()) {
         DomainCodec.writeDeploymentSpec(out, spec);
+      }
+      out.writeInt(snapshot.deploymentGenerations().size());
+      for (Map.Entry<String, Long> e : snapshot.deploymentGenerations().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeLong(e.getValue());
       }
       out.writeInt(snapshot.assignments().size());
       for (InstanceAssignment assignment : snapshot.assignments()) {
@@ -959,6 +971,11 @@ public final class RaftCodec {
       int deploymentCount = in.readInt();
       for (int i = 0; i < deploymentCount; i++) {
         deployments.add(DomainCodec.readDeploymentSpec(in));
+      }
+      Map<String, Long> deploymentGenerations = new LinkedHashMap<>();
+      int deploymentGenerationCount = in.readInt();
+      for (int i = 0; i < deploymentGenerationCount; i++) {
+        deploymentGenerations.put(in.readUTF(), in.readLong());
       }
       List<InstanceAssignment> assignments = new ArrayList<>();
       int assignmentCount = in.readInt();
@@ -1161,6 +1178,7 @@ public final class RaftCodec {
       }
       return new StateSnapshot(
           deployments,
+          deploymentGenerations,
           assignments,
           jobSpecs,
           jobRuns,

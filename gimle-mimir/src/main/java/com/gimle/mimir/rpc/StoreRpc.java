@@ -68,6 +68,7 @@ public sealed interface StoreRpc {
           ListAccounts,
           GetTenant,
           GetDeployment,
+          GetDeploymentGeneration,
           ListDeployments,
           GetService,
           ListServices,
@@ -129,10 +130,12 @@ public sealed interface StoreRpc {
   sealed interface Response extends StoreRpc
       permits Ok,
           NotLeader,
+          MutationRejected,
           LeaseResult,
           BoolResult,
           IntResult,
           DeploymentResult,
+          GenerationResult,
           JobSpecResult,
           JobSpecListResult,
           JobRunListResult,
@@ -231,6 +234,16 @@ public sealed interface StoreRpc {
   record GetTenant(String id) implements Request {}
 
   record GetDeployment(String name) implements Request {}
+
+  /**
+   * The compare-and-set precondition read for {@code ApiServer}'s deployment apply/delete/rollback
+   * handlers -- see {@link StateMutation.PutDeployment}/{@link
+   * StateMutation.RemoveDeployment}'s own javadoc. Any-node-servable like every other plain read
+   * here: a stale answer only ever causes a spurious, safe rejection at the actual CAS check inside
+   * {@code applyTo} (evaluated against the true replicated state, not this read), never an
+   * incorrect write.
+   */
+  record GetDeploymentGeneration(String name) implements Request {}
 
   record ListDeployments() implements Request {}
 
@@ -377,6 +390,15 @@ public sealed interface StoreRpc {
    */
   record NotLeader(String leaderClientAddress) implements Response {}
 
+  /**
+   * {@link Propose} rejected a {@link StateMutation.PutDeployment}/{@link
+   * StateMutation.RemoveDeployment}'s own generation precondition -- deliberately not folded into
+   * {@link NotLeader}: retrying against the correct leader would just reject identically, unlike a
+   * genuine not-leader redirect, which retrying elsewhere resolves. {@code StoreClient} surfaces
+   * this as a real, expected {@code MutationOutcome.Rejected} value, not an exception.
+   */
+  record MutationRejected(String reason) implements Response {}
+
   record LeaseResult(boolean granted, String holderId, long expiresAtEpochMilli)
       implements Response {}
 
@@ -388,6 +410,12 @@ public sealed interface StoreRpc {
   record IntResult(boolean present, int value) implements Response {}
 
   record DeploymentResult(boolean present, DeploymentSpec value) implements Response {}
+
+  /**
+   * Answers {@link GetDeploymentGeneration} -- 0 means never-existed-or-fully-removed, never
+   * absent.
+   */
+  record GenerationResult(long value) implements Response {}
 
   record JobSpecResult(boolean present, JobSpec value) implements Response {}
 

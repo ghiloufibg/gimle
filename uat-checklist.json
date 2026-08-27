@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 638,
+    "totalRequirements": 639,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 515,
-    "releaseReadinessPercent": 19.3
+    "notCoveredByAutomatedTest": 516,
+    "releaseReadinessPercent": 19.2
   },
   "items": [
     {
@@ -7020,6 +7020,17 @@
       "category": "Documentation / Examples",
       "feature": "node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault",
       "step": "Given local-flag-cache-daemonset is already fully ACTIVE, When flag-consumer-deployment is deployed and its first FeatureFlagCache call races ahead of this node's own membership-propagation catch-up, Then the failure is logged at INFO with an explanation, not WARN. Given flag-consumer has already logged one successful FeatureFlagCache call, When a later call fails, Then that failure is logged at WARN, since a failure after a previous success is a genuine regression.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-639",
+      "module": "gimle-mimir",
+      "category": "State Store",
+      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race",
+      "step": "Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then exactly one of the two requests succeeds with 200 and the other is refused with 409, and the final state exactly matches whichever request won. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

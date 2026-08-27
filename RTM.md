@@ -653,6 +653,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | New | Not Covered | — |
 | GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | New | Not Covered | — |
 | GIMLE-638 | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | New | Not Covered | — |
+| GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2731,6 +2732,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario runs a real mTLS cluster and asserts a coordinate-only DaemonSet actually schedules -- registry-deploy.feature exercises coordinate-only deploy under plaintext only. To close: extend that scenario (or add a sibling) under a real mTLS topology and assert the DaemonSet reaches ACTIVE with no manual RoleBinding.
 - **Other test coverage (non-Holmgang, informational only)**: `AuthorizerTest` (a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all, a_controlplane_principal_may_never_write_or_delete_an_artifact, a_controlplane_principal_is_denied_every_non_artifact_resource); `PkiBootstrapMainTest#the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not`; `AndvariServerTlsTest#a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete`
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`
+
+#### GIMLE-639 — Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race
+
+- **Category**: State Store
+- **Status**: New  _(closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard))_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by a real 15x/5x-repeated concurrency test (ApiServerDeploymentConcurrencyTest) against a real in-process ApiServer/StoreClient/StateStore, but no Holmgang Cucumber .feature scenario exercises a racing apply/delete end to end against a real multi-node cluster yet.
+- **Other test coverage (non-Holmgang, informational only)**: ApiServerDeploymentConcurrencyTest (rewritten): 15 repetitions proving a deterministic exactly-one-winner outcome for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name.
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/MutationOutcome.java`, `StateMutation.java`, `RaftNode.java`, `RaftCodec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StateSnapshot.java`, `StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
 
 ### gimle-fabric
 
@@ -6766,7 +6776,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**515 of 638 requirements are Not Covered.**
+**516 of 639 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7202,6 +7212,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-569 | gimle-skald | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | `SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest` |
 | GIMLE-618 | gimle-agent | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port) |
 | GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
+| GIMLE-639 | gimle-mimir | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race | State Store | ApiServerDeploymentConcurrencyTest (rewritten): 15 repetitions proving a deterministic exactly-one-winner outcome for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
 | GIMLE-069 | gimle-os | Local-disk persistent volume allocation for StatefulSet-shaped instances | Storage | `LocalDiskVolumeManagerTest` (creates keyed directory, idempotent for same index, distinct dirs per index/statefulset, throws when exceeding usable space, release deletes contents, release of never-allocated is no-op) |
 | GIMLE-630 | gimle-module | Multi-volume modules: named volumes and dataDirectory(name) | Storage | `ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest` |

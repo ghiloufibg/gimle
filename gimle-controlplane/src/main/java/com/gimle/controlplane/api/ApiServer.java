@@ -87,6 +87,7 @@ import com.gimle.mimir.manifest.ParsedManifest;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
+import com.gimle.mimir.raft.MutationOutcome;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.ControllerRevision;
@@ -992,12 +993,41 @@ public final class ApiServer implements AutoCloseable {
               new StateMutation.AppendControllerRevision(
                   nextRevisionFor("Deployment", allow.spec(), OptionalInt.empty())));
         }
-        storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
+        if (!proposePutDeploymentOrConflict(
+            exchange, allow.spec(), storeClient.getDeploymentGeneration(name))) {
+          yield AuditOutcome.REJECTED;
+        }
         attachWarnings(exchange, warnings, "deployment", name);
         respond(exchange, 200, "ok");
         yield AuditOutcome.APPLIED;
       }
     };
+  }
+
+  /**
+   * Shared by {@link #handlePutDeployment} and {@link #handleRollbackDeployment}: proposes {@code
+   * spec} via a generation-guarded {@code StateMutation.PutDeployment}, returning {@code true} if
+   * it landed. On rejection -- the deployment was concurrently created, deleted, or changed since
+   * {@code expectedGeneration} was read -- writes a {@code 409} explaining that and returns {@code
+   * false}, so the caller's own success response never runs for a write that didn't durably take
+   * effect exactly as sent.
+   */
+  private boolean proposePutDeploymentOrConflict(
+      HttpExchange exchange, DeploymentSpec spec, long expectedGeneration) throws IOException {
+    MutationOutcome outcome =
+        storeClient.propose(new StateMutation.PutDeployment(spec, expectedGeneration));
+    if (outcome instanceof MutationOutcome.Rejected rejected) {
+      respond(
+          exchange,
+          409,
+          "deployment '"
+              + spec.name()
+              + "' was concurrently modified since it was last read ("
+              + rejected.reason()
+              + "); re-fetch and retry");
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -1204,27 +1234,29 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * A racing {@code apply} (scale-up or otherwise) submitted with no ordering against this delete
-   * can still commit its own {@code PutDeployment} after this method's own {@code RemoveDeployment}
-   * does -- two independent, unordered writes racing on one name is not something a single
-   * unconditional removal can prevent outright without a compare-and-set mechanism this store
-   * doesn't have (see {@code CLAUDE.md}'s own note on this class of race). What this re-read closes
-   * is the narrower, genuinely misleading half of that: this response never claims success while
-   * the read immediately following the removal still shows the deployment present -- an operator
-   * gets an honest {@code 409} instead of a `200` that turns out not to have reflected reality,
-   * rather than papering over a write that plainly didn't durably stick moments after being
-   * reported successful.
+   * Generation-guarded: proposes {@code RemoveDeployment} with the generation this handler last
+   * read as its precondition, so a racing {@code apply} that committed a change to this name after
+   * that read cannot be silently discarded by this delete -- see {@code
+   * StateMutation.RemoveDeployment}'s own javadoc for the full compare-and-set protocol this closes
+   * the concurrent apply/delete race with. A rejection here means someone else's write landed
+   * first; re-reading is only to decide which honest response fits: {@code 200} if the name is
+   * gone regardless (their write was itself a delete, or ours applied before theirs did -- either
+   * way, this caller's actual goal was met), {@code 409} if it is still present with content this
+   * caller never asked to keep.
    */
   private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
-    storeClient.propose(new StateMutation.RemoveDeployment(name));
-    if (storeClient.getDeployment(name).isPresent()) {
+    long expectedGeneration = storeClient.getDeploymentGeneration(name);
+    MutationOutcome outcome =
+        storeClient.propose(new StateMutation.RemoveDeployment(name, expectedGeneration));
+    if (outcome instanceof MutationOutcome.Rejected
+        && storeClient.getDeployment(name).isPresent()) {
       respond(
           exchange,
           409,
           "deployment "
               + name
-              + " still exists immediately after delete -- a concurrent write likely raced it;"
-              + " retry if this was unexpected");
+              + " was concurrently modified since it was last read -- retry if you still want it"
+              + " deleted");
       return;
     }
     respond(exchange, 200, "ok");
@@ -1303,8 +1335,10 @@ public final class ApiServer implements AutoCloseable {
         ControllerRevision newRevision =
             nextRevisionFor("Deployment", allow.spec(), targetRevision);
         storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
-        storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
-        respondJson(exchange, 200, controllerRevisionToJson(newRevision));
+        if (proposePutDeploymentOrConflict(
+            exchange, allow.spec(), storeClient.getDeploymentGeneration(name))) {
+          respondJson(exchange, 200, controllerRevisionToJson(newRevision));
+        }
       }
     }
   }
