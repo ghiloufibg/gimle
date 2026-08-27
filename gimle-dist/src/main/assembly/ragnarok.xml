@@ -29,6 +29,7 @@
         <include>com.gimle:gimle-testkit</include>
         <include>com.gimle:gimle-mimir</include>
         <include>com.gimle:gimle-module</include>
+        <include>com.gimle:gimle-hilmir</include>
         <include>org.slf4j:slf4j-api</include>
         <include>ch.qos.logback:logback-classic</include>
         <include>ch.qos.logback:logback-core</include>

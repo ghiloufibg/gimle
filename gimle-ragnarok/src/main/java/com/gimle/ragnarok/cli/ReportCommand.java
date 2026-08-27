@@ -2,6 +2,7 @@ package com.gimle.ragnarok.cli;
 
 import com.gimle.core.protocol.Json;
 import com.gimle.ragnarok.RagnarokException;
+import com.gimle.ragnarok.surtr.SurtrReport;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
@@ -73,27 +74,12 @@ public final class ReportCommand {
 
   private static int renderSurtrReport(final Path file, final PrintStream out) {
     final Map<String, Object> report = readJsonObject(file);
-    final boolean passed = boolFrom(report.get("passed"));
-    out.println(
-        "Surtr workload '"
-            + report.get("workload")
-            + "' on "
-            + report.get("topology")
-            + " -> "
-            + (passed ? "PASSED" : "FAILED"));
-    for (final Object gate : Json.asArray(report.getOrDefault("gates", List.of()))) {
-      final Map<String, Object> row = Json.asObject(gate);
-      out.println(
-          "  gate "
-              + row.get("name")
-              + " "
-              + (boolFrom(row.get("passed")) ? "PASS" : "FAIL")
-              + " observed="
-              + row.get("observed")
-              + " threshold="
-              + row.get("threshold"));
-    }
-    return passed ? 0 : 1;
+    // Shares SurtrReport's own render() formatter (via this JSON-backed sibling) rather than a
+    // second hand-rolled printer here, so this offline path can never again silently drop fields
+    // -- the scale factor, the startup-latency percentile table -- that the live `stress` run's
+    // own output includes.
+    out.print(SurtrReport.renderSummary(report));
+    return boolFrom(report.get("passed")) ? 0 : 1;
   }
 
   private static Map<String, Object> readJsonObject(final Path file) {

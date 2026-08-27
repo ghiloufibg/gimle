@@ -1,5 +1,6 @@
 package com.gimle.ragnarok;
 
+import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleTlsException;
 import com.gimle.ragnarok.cli.ChaosCommand;
 import com.gimle.ragnarok.cli.PreflightCommand;
@@ -48,7 +49,10 @@ public final class RagnarokMain {
   public static int run(final String[] args, final PrintStream out, final PrintStream err) {
     try {
       return dispatch(args, out);
-    } catch (final RagnarokException | GimleTlsException | UncheckedIOException e) {
+    } catch (final RagnarokException
+        | GimleTlsException
+        | GimleManifestException
+        | UncheckedIOException e) {
       err.println("error: " + e.getMessage());
       return 1;
     }

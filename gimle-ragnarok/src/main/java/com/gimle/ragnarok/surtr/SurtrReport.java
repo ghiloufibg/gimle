@@ -271,4 +271,51 @@ public final class SurtrReport {
     }
     return out.toString();
   }
+
+  /**
+   * The same human-readable shape as {@link #render}, read back from an already-written {@code
+   * summary.json} rather than a live {@link SurtrRunResult} -- used by {@code ragnarok report
+   * --surtr-report}, which has no live result object, only the file this class itself wrote via
+   * {@link #write}. Kept as one shared formatter rather than a second hand-rolled printer so the
+   * two can never drift the way {@code ragnarok report}'s own once did (silently dropping the scale
+   * factor and the whole startup-latency percentile table that {@link #render} always included).
+   */
+  public static String renderSummary(final Map<String, Object> summary) {
+    final StringBuilder out = new StringBuilder();
+    out.append("Surtr workload '")
+        .append(summary.get("workload"))
+        .append("' on ")
+        .append(summary.get("topology"))
+        .append(" (scale ")
+        .append(summary.get("scaleFactor"))
+        .append(") -> ")
+        .append(Boolean.TRUE.equals(summary.get("passed")) ? "PASSED" : "FAILED")
+        .append('\n');
+    final Map<String, Object> measurements =
+        Json.asObject(summary.getOrDefault("measurements", Map.of()));
+    final Object startupLatency = measurements.get("instanceStartupLatency");
+    if (startupLatency != null) {
+      final Map<String, Object> phases =
+          Json.asObject(Json.asObject(startupLatency).getOrDefault("phases", Map.of()));
+      phases.forEach(
+          (phase, raw) -> {
+            final Map<String, Object> p = Json.asObject(raw);
+            out.append(
+                String.format(
+                    "  startup %-20s p50=%-6s p95=%-6s p99=%-6s max=%-6s (n=%s)%n",
+                    phase, p.get("p50"), p.get("p95"), p.get("p99"), p.get("max"), p.get("count")));
+          });
+    }
+    for (final Object gate : Json.asArray(summary.getOrDefault("gates", List.of()))) {
+      final Map<String, Object> row = Json.asObject(gate);
+      out.append(
+          String.format(
+              "  gate %-24s %s observed=%s threshold=%s%n",
+              row.get("name"),
+              Boolean.TRUE.equals(row.get("passed")) ? "PASS" : "FAIL",
+              row.get("observed"),
+              row.get("threshold")));
+    }
+    return out.toString();
+  }
 }
