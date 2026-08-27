@@ -24,6 +24,12 @@
     an adapter with no process control of its own reports that honestly rather than failing.
   </description>
 
+  <properties>
+    <!-- Runtime-image profile (root pom); see gimle-hilmir/pom.xml for how this list was derived. -->
+    <gimle.runtimeImage.launcherClass>com.gimle.ragnarok.RagnarokMain</gimle.runtimeImage.launcherClass>
+    <gimle.runtimeImage.jdkModules>java.base,java.net.http</gimle.runtimeImage.jdkModules>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>com.gimle</groupId>
@@ -41,5 +47,57 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-mimir</artifactId>
     </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <!-- provided, not runtime: gimle-ragnarok's build embeds this module's own built jar as a
+         classpath resource (see the maven-dependency-plugin execution below) rather than shipping
+         it as a sibling lib jar, so it must never appear on gimle-ragnarok's own runtime/transitive
+         classpath. provided scope is exactly the "needed to resolve the reactor build order, never
+         to actually run against" scope gimle-dist's own pom.xml already uses for the example
+         modules it bundles the same way. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-ragnarok-pause</artifactId>
+      <scope>provided</scope>
+    </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Embeds gimle-ragnarok-pause's own built jar inside gimle-ragnarok's own jar as a classpath
+        resource (pause/pause-image.jar), so BundledModuleJarSource can extract it to a temp file at
+        runtime with no dependency on gimle-examples or any other sibling jar being present. The
+        single-artifact "copy" goal, not "copy-dependencies" (which the root pom's runtime-image
+        profile already uses for a directory of jars): this needs exactly one jar landing at one
+        fixed resource path inside this module's own jar, not a lib/ directory of jars beside it.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>copy-pause-image</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>com.gimle</groupId>
+                  <artifactId>gimle-ragnarok-pause</artifactId>
+                  <type>jar</type>
+                  <outputDirectory>${project.build.outputDirectory}/pause</outputDirectory>
+                  <destFileName>pause-image.jar</destFileName>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>

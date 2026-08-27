@@ -71,6 +71,10 @@
     </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
+      <artifactId>gimle-ragnarok</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
       <artifactId>gimle-cli</artifactId>
     </dependency>
     <!-- The gateway hosted module: ships under modules/, never on any process's own classpath. -->
@@ -137,6 +141,8 @@
     <gimle.dist.jre.hilmir.jdkModules>java.base,java.net.http</gimle.dist.jre.hilmir.jdkModules>
     <!-- duplicated from gimle-cli/pom.xml's own gimle.runtimeImage.jdkModules -->
     <gimle.dist.jre.cli.jdkModules>java.base,java.net.http</gimle.dist.jre.cli.jdkModules>
+    <!-- duplicated from gimle-ragnarok/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.ragnarok.jdkModules>java.base,java.net.http</gimle.dist.jre.ragnarok.jdkModules>
   </properties>
 
   <build>
@@ -214,6 +220,20 @@
               <appendAssemblyId>false</appendAssemblyId>
             </configuration>
           </execution>
+          <execution>
+            <id>ragnarok</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/main/assembly/ragnarok.xml</descriptor>
+              </descriptors>
+              <finalName>gimle-ragnarok-${project.version}</finalName>
+              <appendAssemblyId>false</appendAssemblyId>
+            </configuration>
+          </execution>
           <!--
             Deliberately not given a -with-jre override by the dist-with-jre profile: the Midgard
             image runs everything on its base image's own full JRE (see the Dockerfile's comment
@@ -267,6 +287,8 @@
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <checksum file="${project.build.directory}/gimle-hilmir-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
+                <checksum file="${project.build.directory}/gimle-ragnarok-${project.version}.tar.gz"
+                          algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <checksum file="${project.build.directory}/gimle-midgard-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <copy file="${project.build.directory}/bom.json"
@@ -275,6 +297,8 @@
                       tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"/>
                 <copy file="${project.build.directory}/bom.json"
                       tofile="${project.build.directory}/gimle-hilmir-${project.version}-cyclonedx.json"/>
+                <copy file="${project.build.directory}/bom.json"
+                      tofile="${project.build.directory}/gimle-ragnarok-${project.version}-cyclonedx.json"/>
                 <copy file="${project.build.directory}/bom.json"
                       tofile="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json"/>
               </target>
@@ -514,6 +538,25 @@
                   </arguments>
                 </configuration>
               </execution>
+              <execution>
+                <id>jlink-ragnarok</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.ragnarok.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/ragnarok/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
             </executions>
           </plugin>
 
@@ -560,6 +603,20 @@
                     <descriptor>src/main/assembly/hilmir-with-jre.xml</descriptor>
                   </descriptors>
                   <finalName>gimle-hilmir-${project.version}</finalName>
+                  <appendAssemblyId>false</appendAssemblyId>
+                </configuration>
+              </execution>
+              <execution>
+                <id>ragnarok</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+                <configuration>
+                  <descriptors combine.self="override">
+                    <descriptor>src/main/assembly/ragnarok-with-jre.xml</descriptor>
+                  </descriptors>
+                  <finalName>gimle-ragnarok-${project.version}</finalName>
                   <appendAssemblyId>false</appendAssemblyId>
                 </configuration>
               </execution>

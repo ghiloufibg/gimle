@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 630,
+    "totalRequirements": 634,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 507,
-    "releaseReadinessPercent": 19.5
+    "notCoveredByAutomatedTest": 511,
+    "releaseReadinessPercent": 19.4
   },
   "items": [
     {
@@ -5872,7 +5872,7 @@
     },
     {
       "id": "GIMLE-533",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "category": "Chaos Engineering",
       "feature": "Fenrir randomized chaos-fault soak executor",
       "step": "Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger.",
@@ -6037,7 +6037,7 @@
     },
     {
       "id": "GIMLE-548",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "category": "Load Testing",
       "feature": "Surtr scale/churn/performance workload runner",
       "step": "Given a SurtrWorkload and its declared topology, When SurtrRunner.run() executes each job in order, Then measurements are collected from real cluster state/event logs and gates evaluated into a SurtrRunResult.",
@@ -6932,6 +6932,50 @@
       "category": "Storage",
       "feature": "Multi-volume modules: named volumes and dataDirectory(name)",
       "step": "Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path. Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-631",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "Chaos-plan and target YAML configuration for Fenrir/Surtr",
+      "step": "Given a chaos-plan YAML naming a seed, soak window, and a mix of fault pools, When it is parsed, Then it builds the identical FenrirPlan a Java caller would have built by hand. Given a target YAML naming control-plane base URLs, store client endpoints, and a plaintext or mTLS transport, When it is opened, Then it produces a live EndpointClusterTarget reaching that cluster.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-632",
+      "module": "gimle-ragnarok",
+      "category": "Load Testing",
+      "feature": "Bundled pause-image reference module for stress testing",
+      "step": "Given no gimle-examples build and no --module-jar flag, When `ragnarok stress` runs the default pause-density workload, Then it deploys the bundled pause module and reaches its gates.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-633",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "ragnarok CLI: preflight/chaos/stress/replay/report verbs",
+      "step": "Given a real cluster and a plaintext target.yaml, When `ragnarok preflight` runs, Then it reports every configured endpoint's own reachability and exits non-zero if any is down. Given a chaos plan naming only network faults, When `ragnarok chaos` runs without --confirm-destructive, Then it is accepted and runs. Given a chaos plan naming a destructive fault kind, When `ragnarok chaos` runs without --confirm-destructive, Then it is refused with an error naming the missing flag.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-634",
+      "module": "gimle-dist",
+      "category": "Distribution",
+      "feature": "Standalone Ragnarok distribution archive",
+      "step": "Manually verify: Standalone Ragnarok distribution archive. Packaging/distribution concern, not a platform behavior; verified manually (extracted archive's bin/ragnarok --help and preflight run correctly), not by any Holmgang scenario.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

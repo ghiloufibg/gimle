@@ -1,6 +1,7 @@
 package com.gimle.ragnarok.surtr;
 
 import com.gimle.ragnarok.RagnarokException;
+import com.gimle.ragnarok.config.YamlParsing;
 import com.gimle.ragnarok.surtr.SurtrJob.ChurnMode;
 import com.gimle.ragnarok.surtr.SurtrJob.ChurnSpec;
 import com.gimle.ragnarok.surtr.SurtrWorkload.Gates;
@@ -69,14 +70,14 @@ public final class SurtrWorkloadParser {
   }
 
   private static SurtrWorkload parseRoot(final Map<?, ?> root) {
-    final String name = requireString(root, "name");
-    final String topology = requireString(root, "topology");
+    final String name = YamlParsing.requireString(root, "name");
+    final String topology = YamlParsing.requireString(root, "topology");
     final List<SurtrJob> jobs = new ArrayList<>();
-    for (final Map<?, ?> job : mapList(root, "jobs")) {
+    for (final Map<?, ?> job : YamlParsing.mapList(root, "jobs")) {
       jobs.add(parseJob(job));
     }
     final List<Measurement> measurements = new ArrayList<>();
-    for (final String entry : stringList(root, "measurements")) {
+    for (final String entry : YamlParsing.stringList(root, "measurements")) {
       measurements.add(Measurement.fromField(entry));
     }
     final Gates gates = parseGates(root.get("gates"));
@@ -85,30 +86,31 @@ public final class SurtrWorkloadParser {
   }
 
   private static SurtrJob parseJob(final Map<?, ?> job) {
-    final String name = requireString(job, "name");
-    final SurtrJob.Type type = SurtrJob.Type.fromField(requireString(job, "type"));
-    final int iterations = optionalInt(job, "iterations").orElse(0);
-    final double qps = optionalDouble(job, "qps").orElse(1.0);
-    final int burst = optionalInt(job, "burst").orElse(1);
+    final String name = YamlParsing.requireString(job, "name");
+    final SurtrJob.Type type = SurtrJob.Type.fromField(YamlParsing.requireString(job, "type"));
+    final int iterations = YamlParsing.optionalInt(job, "iterations").orElse(0);
+    final double qps = YamlParsing.optionalDouble(job, "qps").orElse(1.0);
+    final int burst = YamlParsing.optionalInt(job, "burst").orElse(1);
     final List<ObjectTemplate> objects = new ArrayList<>();
-    for (final Map<?, ?> object : mapList(job, "objects")) {
+    for (final Map<?, ?> object : YamlParsing.mapList(job, "objects")) {
       objects.add(parseObject(object));
     }
     final Duration waitForActive =
-        Duration.ofSeconds(optionalInt(job, "waitForActiveSeconds").orElse(120));
+        Duration.ofSeconds(YamlParsing.optionalInt(job, "waitForActiveSeconds").orElse(120));
     final ChurnSpec churn = parseChurn(job.get("churn"));
-    final Optional<String> target = optionalString(job, "target");
+    final Optional<String> target = YamlParsing.optionalString(job, "target");
     return new SurtrJob(name, type, iterations, qps, burst, objects, waitForActive, churn, target);
   }
 
   private static ObjectTemplate parseObject(final Map<?, ?> object) {
-    final ObjectTemplate.Kind kind = ObjectTemplate.Kind.fromField(requireString(object, "kind"));
+    final ObjectTemplate.Kind kind =
+        ObjectTemplate.Kind.fromField(YamlParsing.requireString(object, "kind"));
     return new ObjectTemplate(
         kind,
-        requireString(object, "name"),
-        optionalString(object, "tenant"),
-        optionalString(object, "module"),
-        optionalInt(object, "replicas").orElse(1));
+        YamlParsing.requireString(object, "name"),
+        YamlParsing.optionalString(object, "tenant"),
+        YamlParsing.optionalString(object, "module"),
+        YamlParsing.optionalInt(object, "replicas").orElse(1));
   }
 
   private static ChurnSpec parseChurn(final Object value) {
@@ -118,10 +120,13 @@ public final class SurtrWorkloadParser {
     if (!(value instanceof Map<?, ?> churn)) {
       throw new RagnarokException("'churn' must be a mapping");
     }
-    final Duration duration = Duration.ofSeconds(requireInt(churn, "durationSeconds", "churn."));
-    final int percent = requireInt(churn, "percent", "churn.");
+    final Duration duration =
+        Duration.ofSeconds(YamlParsing.requireInt(churn, "durationSeconds", "churn."));
+    final int percent = YamlParsing.requireInt(churn, "percent", "churn.");
     final ChurnMode mode =
-        optionalString(churn, "mode").map(ChurnMode::fromField).orElse(ChurnMode.REDEPLOY);
+        YamlParsing.optionalString(churn, "mode")
+            .map(ChurnMode::fromField)
+            .orElse(ChurnMode.REDEPLOY);
     return new ChurnSpec(duration, percent, mode);
   }
 
@@ -132,8 +137,9 @@ public final class SurtrWorkloadParser {
     if (!(value instanceof Map<?, ?> gates)) {
       throw new RagnarokException("'gates' must be a mapping");
     }
-    final int maxFailedSubmissions = optionalInt(gates, "maxFailedSubmissions").orElse(0);
-    final int maxNeverActive = optionalInt(gates, "maxNeverActive").orElse(0);
+    final int maxFailedSubmissions =
+        YamlParsing.optionalInt(gates, "maxFailedSubmissions").orElse(0);
+    final int maxNeverActive = YamlParsing.optionalInt(gates, "maxNeverActive").orElse(0);
     final Map<String, Long> latency = new LinkedHashMap<>();
     for (final Map.Entry<?, ?> entry : gates.entrySet()) {
       final String key = String.valueOf(entry.getKey());
@@ -146,90 +152,5 @@ public final class SurtrWorkloadParser {
       latency.put(key, number.longValue());
     }
     return new Gates(maxFailedSubmissions, maxNeverActive, latency);
-  }
-
-  private static String requireString(final Map<?, ?> map, final String key) {
-    final Object value = map.get(key);
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new RagnarokException("missing or blank required field: " + key);
-    }
-    return s;
-  }
-
-  private static Optional<String> optionalString(final Map<?, ?> map, final String key) {
-    final Object value = map.get(key);
-    if (value == null) {
-      return Optional.empty();
-    }
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new RagnarokException("field must be a non-blank string if present: " + key);
-    }
-    return Optional.of(s);
-  }
-
-  private static Optional<Integer> optionalInt(final Map<?, ?> map, final String key) {
-    final Object value = map.get(key);
-    if (value == null) {
-      return Optional.empty();
-    }
-    if (!(value instanceof Number number)) {
-      throw new RagnarokException("field must be numeric if present: " + key);
-    }
-    return Optional.of(number.intValue());
-  }
-
-  private static Optional<Double> optionalDouble(final Map<?, ?> map, final String key) {
-    final Object value = map.get(key);
-    if (value == null) {
-      return Optional.empty();
-    }
-    if (!(value instanceof Number number)) {
-      throw new RagnarokException("field must be numeric if present: " + key);
-    }
-    return Optional.of(number.doubleValue());
-  }
-
-  private static int requireInt(final Map<?, ?> map, final String key, final String prefix) {
-    final Object value = map.get(key);
-    if (!(value instanceof Number number)) {
-      throw new RagnarokException("missing or non-numeric required field: " + prefix + key);
-    }
-    return number.intValue();
-  }
-
-  private static List<String> stringList(final Map<?, ?> map, final String key) {
-    final Object value = map.get(key);
-    if (value == null) {
-      return List.of();
-    }
-    if (!(value instanceof List<?> list)) {
-      throw new RagnarokException("'" + key + "' must be a list");
-    }
-    final List<String> strings = new ArrayList<>();
-    for (final Object entry : list) {
-      if (!(entry instanceof String s) || s.isBlank()) {
-        throw new RagnarokException("each '" + key + "' entry must be a non-blank string");
-      }
-      strings.add(s);
-    }
-    return strings;
-  }
-
-  private static List<Map<?, ?>> mapList(final Map<?, ?> map, final String key) {
-    final Object value = map.get(key);
-    if (value == null) {
-      return List.of();
-    }
-    if (!(value instanceof List<?> list)) {
-      throw new RagnarokException("'" + key + "' must be a list");
-    }
-    final List<Map<?, ?>> maps = new ArrayList<>();
-    for (final Object entry : list) {
-      if (!(entry instanceof Map<?, ?> m)) {
-        throw new RagnarokException("each '" + key + "' entry must be a mapping");
-      }
-      maps.add(m);
-    }
-    return maps;
   }
 }

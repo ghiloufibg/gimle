@@ -1,0 +1,30 @@
+name: pause-density
+# Purely informational (see SurtrRunResult/SurtrReport) -- a ragnarok-CLI-driven run always
+# targets an already-live cluster via --target and never boots a topology from this field, unlike
+# gimle-holmgang's own SurtrIT.
+topology: "n/a (targets an already-live cluster via --target)"
+
+jobs:
+  - name: fill
+    type: create
+    iterations: 10
+    qps: 8
+    burst: 10
+    objects:
+      - kind: deployment
+        name: "ragnarok-pause-{{iteration}}"
+        module: pause
+        replicas: 1
+    waitForActiveSeconds: 180
+
+measurements:
+  - instanceStartupLatency
+  - apiLatency
+  - failures
+  - placementSpread
+
+gates:
+  maxFailedSubmissions: 0
+  maxNeverActive: 0
+
+gc: true

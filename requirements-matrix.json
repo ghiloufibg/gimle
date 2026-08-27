@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 630,
+  "requirementCount": 634,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10355,20 +10355,21 @@
     },
     {
       "id": "GIMLE-533",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "feature": "Fenrir randomized chaos-fault soak executor",
       "category": "Chaos Engineering",
       "userStory": "As a platform reliability engineer, I want a seeded, weighted-pool fault scheduler that strikes a healthy real cluster repeatedly and gates every next strike on full recovery.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
-        "`gimle-holmgang/src/test/java/com/gimle/holmgang/fenrir/Fenrir.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/Fenrir.java`",
         "`FaultKind.java`",
         "`FenrirPlan.java`",
         "`ChaosSchedule.java`",
-        "`Pool.java`"
+        "`Pool.java`",
+        "`ChaosPlanParser.java`"
       ],
-      "testCoverageDetail": "`FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature`",
+      "testCoverageDetail": "`FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature` `ChaosPlanParserTest` (YAML config parsing added in the ragnarok CLI phase).",
       "gherkinSteps": [
         "Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger."
       ],
@@ -10632,14 +10633,14 @@
     },
     {
       "id": "GIMLE-548",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "feature": "Surtr scale/churn/performance workload runner",
       "category": "Load Testing",
       "userStory": "As a platform performance engineer, I want to declaratively describe a load burn and run it against a real cluster, measuring instance startup latency, API latency, failures, and placement spread.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
-        "`gimle-holmgang/src/test/java/com/gimle/holmgang/surtr/SurtrRunner.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/SurtrRunner.java`",
         "`SurtrWorkload.java`",
         "`SurtrJob.java`",
         "`TokenBucket.java`",
@@ -12409,6 +12410,91 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-631",
+      "module": "gimle-ragnarok",
+      "feature": "Chaos-plan and target YAML configuration for Fenrir/Surtr",
+      "category": "Chaos Engineering",
+      "userStory": "As an operator running Fenrir/Surtr against a real cluster, I want to declare a chaos plan and a cluster target in YAML files rather than Java code, so a run is reproducible and reviewable without writing or compiling anything.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/ChaosPlanParser.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpecParser.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/config/YamlParsing.java`"
+      ],
+      "testCoverageDetail": "`ChaosPlanParserTest`, `TargetSpecParserTest`",
+      "gherkinSteps": [
+        "Given a chaos-plan YAML naming a seed, soak window, and a mix of fault pools, When it is parsed, Then it builds the identical FenrirPlan a Java caller would have built by hand.",
+        "Given a target YAML naming control-plane base URLs, store client endpoints, and a plaintext or mTLS transport, When it is opened, Then it produces a live EndpointClusterTarget reaching that cluster."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Unit only"
+    },
+    {
+      "id": "GIMLE-632",
+      "module": "gimle-ragnarok",
+      "feature": "Bundled pause-image reference module for stress testing",
+      "category": "Load Testing",
+      "userStory": "As an operator running `ragnarok stress` against a real cluster with nothing but the tool's own binary, I want a default deployable module bundled inside the tool itself, so I never need gimle-examples built or an operator-supplied jar just to smoke-test the cluster.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ragnarok-pause/src/main/resources/META-INF/gimle/gimle-module.yaml`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/BundledModuleJarSource.java`",
+        "`gimle-ragnarok/src/main/resources/workloads/pause-density.yaml`"
+      ],
+      "testCoverageDetail": "`BundledModuleJarSourceTest`",
+      "gherkinSteps": [
+        "Given no gimle-examples build and no --module-jar flag, When `ragnarok stress` runs the default pause-density workload, Then it deploys the bundled pause module and reaches its gates."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Unit + real cluster (RagnarokCliIT)"
+    },
+    {
+      "id": "GIMLE-633",
+      "module": "gimle-ragnarok",
+      "feature": "ragnarok CLI: preflight/chaos/stress/replay/report verbs",
+      "category": "Chaos Engineering",
+      "userStory": "As an operator, I want a single `ragnarok` binary with preflight/chaos/stress/replay/report verbs driving Fenrir and Surtr against a real, already-running cluster, so I can apply chaos and stress testing without writing or running any test code.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/RagnarokMain.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/cli/PreflightCommand.java`",
+        "`ChaosCommand.java`",
+        "`StressCommand.java`",
+        "`ReplayCommand.java`",
+        "`ReportCommand.java`"
+      ],
+      "testCoverageDetail": "`RagnarokCliIT` (real cluster: preflight, stress, chaos, and the --confirm-destructive refusal path)",
+      "gherkinSteps": [
+        "Given a real cluster and a plaintext target.yaml, When `ragnarok preflight` runs, Then it reports every configured endpoint's own reachability and exits non-zero if any is down.",
+        "Given a chaos plan naming only network faults, When `ragnarok chaos` runs without --confirm-destructive, Then it is accepted and runs.",
+        "Given a chaos plan naming a destructive fault kind, When `ragnarok chaos` runs without --confirm-destructive, Then it is refused with an error naming the missing flag."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Real cluster (RagnarokCliIT)"
+    },
+    {
+      "id": "GIMLE-634",
+      "module": "gimle-dist",
+      "feature": "Standalone Ragnarok distribution archive",
+      "category": "Distribution",
+      "userStory": "As an operator, I want a self-contained `gimle-ragnarok-<version>.tar.gz` archive with a `bin/ragnarok` launcher, so I can run chaos/stress tests against a real cluster from a plain download, the same way the `hilmir` archive already works.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-dist/src/main/assembly/ragnarok.xml`",
+        "`gimle-dist/src/main/dist/bin/ragnarok`",
+        "`gimle-dist/src/main/dist/bin/ragnarok.cmd`"
+      ],
+      "testCoverageDetail": "Manual: extracted archive's `bin/ragnarok --help` and `bin/ragnarok preflight` run correctly off only the archive's own bundled jars",
+      "gherkinSteps": [],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Manual smoke"
     }
   ]
 }

@@ -40,6 +40,7 @@
     <module>gimle-saga</module>
     <module>gimle-maven-plugin</module>
     <module>gimle-testkit</module>
+    <module>gimle-ragnarok-pause</module>
     <module>gimle-ragnarok</module>
     <module>gimle-examples/hello-module</module>
     <module>gimle-examples/greeter-provider</module>
@@ -238,6 +239,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-ragnarok</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-ragnarok-pause</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

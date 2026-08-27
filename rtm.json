@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 630,
+  "requirementCount": 634,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -9106,7 +9106,7 @@
     },
     {
       "id": "GIMLE-533",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "feature": "Fenrir randomized chaos-fault soak executor",
       "category": "Chaos Engineering",
       "status": "Active",
@@ -9125,13 +9125,14 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature`",
+      "otherTestCoverage": "`FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature`; `ChaosPlanParserTest`",
       "sourceLocations": [
-        "`gimle-holmgang/src/test/java/com/gimle/holmgang/fenrir/Fenrir.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/Fenrir.java`",
         "`FaultKind.java`",
         "`FenrirPlan.java`",
         "`ChaosSchedule.java`",
-        "`Pool.java`"
+        "`Pool.java`",
+        "`ChaosPlanParser.java`"
       ]
     },
     {
@@ -9453,7 +9454,7 @@
     },
     {
       "id": "GIMLE-548",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "feature": "Surtr scale/churn/performance workload runner",
       "category": "Load Testing",
       "status": "Active",
@@ -9463,7 +9464,7 @@
       "gapNote": "This is Holmgang's own test-infrastructure/tooling (used to *run* other scenarios), not a platform behavior a Cucumber scenario asserts on directly -- there is no meaningful \"scenario that would exercise this\" beyond the harness working at all, which every passing `.feature` file already demonstrates indirectly.",
       "otherTestCoverage": "`SurtrWorkloadParserTest`, `SurtrUnitTest`; `SurtrIT.runs_the_configured_surtr_workload` (opt-in via `-Dgimle.surtr.workload=<name|path>`)",
       "sourceLocations": [
-        "`gimle-holmgang/src/test/java/com/gimle/holmgang/surtr/SurtrRunner.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/SurtrRunner.java`",
         "`SurtrWorkload.java`",
         "`SurtrJob.java`",
         "`TokenBucket.java`",
@@ -10912,6 +10913,71 @@
         "`gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`"
       ],
       "otherTestCoverage": "`ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest`"
+    },
+    {
+      "id": "GIMLE-631",
+      "module": "gimle-ragnarok",
+      "feature": "Chaos-plan and target YAML configuration for Fenrir/Surtr",
+      "category": "Chaos Engineering",
+      "status": "New",
+      "statusNote": "newly added as part of the ragnarok CLI phase",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario drives Fenrir/Surtr through these parsers -- Holmgang's own steps still build a FenrirPlan/target in Java. To close: a scenario driving RagnarokMain itself against a booted topology, parsing a written YAML file.",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/ChaosPlanParser.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpecParser.java`"
+      ],
+      "otherTestCoverage": "`ChaosPlanParserTest`, `TargetSpecParserTest`"
+    },
+    {
+      "id": "GIMLE-632",
+      "module": "gimle-ragnarok",
+      "feature": "Bundled pause-image reference module for stress testing",
+      "category": "Load Testing",
+      "status": "New",
+      "statusNote": "newly added as part of the ragnarok CLI phase",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "This is tooling infrastructure (a fixture module Surtr deploys), not a platform behavior a Cucumber scenario asserts on directly -- RagnarokCliIT (a plain JUnit *IT, which does not count toward RTM coverage) already proves it deploys and reaches ACTIVE against a real cluster.",
+      "sourceLocations": [
+        "`gimle-ragnarok-pause/src/main/resources/META-INF/gimle/gimle-module.yaml`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/BundledModuleJarSource.java`"
+      ],
+      "otherTestCoverage": "`BundledModuleJarSourceTest`; `RagnarokCliIT` (real cluster)"
+    },
+    {
+      "id": "GIMLE-633",
+      "module": "gimle-ragnarok",
+      "feature": "ragnarok CLI: preflight/chaos/stress/replay/report verbs",
+      "category": "Chaos Engineering",
+      "status": "New",
+      "statusNote": "newly added as part of the ragnarok CLI phase",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario invokes the ragnarok binary itself (RagnarokCliIT, a plain JUnit *IT, does not count toward RTM coverage per this file's own coverage rule). To close: a .feature scenario shelling out to a packaged ragnarok binary against a booted topology.",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/RagnarokMain.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/cli/ChaosCommand.java`"
+      ],
+      "otherTestCoverage": "`RagnarokCliIT` (real cluster: preflight, stress, chaos, --confirm-destructive refusal)"
+    },
+    {
+      "id": "GIMLE-634",
+      "module": "gimle-dist",
+      "feature": "Standalone Ragnarok distribution archive",
+      "category": "Distribution",
+      "status": "New",
+      "statusNote": "newly added as part of the ragnarok CLI phase",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Packaging/distribution concern, not a platform behavior; verified manually (extracted archive's bin/ragnarok --help and preflight run correctly), not by any Holmgang scenario.",
+      "sourceLocations": [
+        "`gimle-dist/src/main/assembly/ragnarok.xml`",
+        "`gimle-dist/src/main/dist/bin/ragnarok`"
+      ],
+      "otherTestCoverage": "Manual smoke test of the extracted archive"
     }
   ]
 }

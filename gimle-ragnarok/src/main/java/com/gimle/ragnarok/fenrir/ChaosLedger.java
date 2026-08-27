@@ -2,6 +2,7 @@ package com.gimle.ragnarok.fenrir;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -90,6 +91,35 @@ public final class ChaosLedger {
       }
     }
     return counts;
+  }
+
+  /**
+   * The report shape for this ledger -- one seed, one entry list -- used by a report writer to
+   * serialize a run (via {@code Json.write}) or to embed it inside a larger aggregate report
+   * alongside other results, the same role {@link com.gimle.ragnarok.surtr.SurtrReport#reportRun}
+   * plays for a Surtr run.
+   */
+  public Map<String, Object> toJsonMap() {
+    final Map<String, Object> run = new LinkedHashMap<>();
+    run.put("seed", seed);
+    run.put("planned", strikeCount());
+    run.put("executed", executedCount());
+    run.put("skipped", skippedCount());
+    run.put("recovered", recoveredCount());
+    final List<Object> entryMaps = new ArrayList<>();
+    for (final Entry entry : entries) {
+      final Map<String, Object> row = new LinkedHashMap<>();
+      row.put("index", entry.index());
+      row.put("kind", entry.kind().name());
+      row.put("victim", entry.victim());
+      row.put("firedAtOffsetMillis", entry.firedAtOffsetMillis());
+      row.put("outcome", entry.outcome().name());
+      row.put("recoveryMillis", entry.recoveryMillis() >= 0 ? entry.recoveryMillis() : null);
+      row.put("skipReason", entry.skipReason());
+      entryMaps.add(row);
+    }
+    run.put("entries", entryMaps);
+    return run;
   }
 
   /** A compact human-readable summary for the scenario log and forensic reports. */

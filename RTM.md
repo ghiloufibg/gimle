@@ -645,6 +645,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | New | Not Covered | — |
 | GIMLE-629 | Vessel persistent volumes and secret-backed file mounts | New | Not Covered | — |
 | GIMLE-630 | Multi-volume modules: named volumes and dataDirectory(name) | New | Not Covered | — |
+| GIMLE-631 | Chaos-plan and target YAML configuration for Fenrir/Surtr | New | Not Covered | — |
+| GIMLE-632 | Bundled pause-image reference module for stress testing | New | Not Covered | — |
+| GIMLE-633 | ragnarok CLI: preflight/chaos/stress/replay/report verbs | New | Not Covered | — |
+| GIMLE-634 | Standalone Ragnarok distribution archive | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -6310,19 +6314,6 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `HaTopologyIT`, `MinimalTopologyIT` both use it directly
 - **Source location(s)**: `gimle-holmgang/src/test/java/com/gimle/holmgang/junit/Holmgang.java`, `HolmgangCluster.java`, `HolmgangExtension.java`
 
-#### GIMLE-533 — Fenrir randomized chaos-fault soak executor
-
-- **Category**: Chaos Engineering
-- **Status**: Active
-- **Coverage**: Covered
-- **Holmgang feature file(s) + scenario(s)**:
-  - `gimle-holmgang/src/test/resources/features/chaos-soak.feature` — Scenario: *The cluster survives a randomized fault soak with no lost writes*
-  - _Why this counts_: Unleashes Fenrir's weighted fault palette against a live write workload for 60s, asserting the chaos ledger records >=3 executed+recovered faults and every acknowledged write is readable.
-  - `gimle-holmgang/src/test/resources/features/observability-registry-ha.feature` — Scenario: *Artifact push/pull and shipped metrics survive Muninn and Andvari replica bounces*
-  - _Why this counts_: Pushes an artifact, strikes only Muninn/Andvari bounce faults via Fenrir, then asserts a coordinate-only deployment still reaches ACTIVE and control-plane metrics still ship to Muninn afterward.
-- **Other test coverage (non-Holmgang, informational only)**: `FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature`
-- **Source location(s)**: `gimle-holmgang/src/test/java/com/gimle/holmgang/fenrir/Fenrir.java`, `FaultKind.java`, `FenrirPlan.java`, `ChaosSchedule.java`, `Pool.java`
-
 #### GIMLE-534 — Chaos ledger recording and rendering
 
 - **Category**: Chaos Engineering
@@ -6485,15 +6476,6 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `HolmgangIT` executing `registry-deploy.feature`
 - **Source location(s)**: `gimle-holmgang/src/test/resources/features/registry-deploy.feature`; `RegistrySteps.java`
 
-#### GIMLE-548 — Surtr scale/churn/performance workload runner
-
-- **Category**: Load Testing
-- **Status**: Active
-- **Coverage**: Not Covered
-- **Gap note**: This is Holmgang's own test-infrastructure/tooling (used to *run* other scenarios), not a platform behavior a Cucumber scenario asserts on directly -- there is no meaningful "scenario that would exercise this" beyond the harness working at all, which every passing `.feature` file already demonstrates indirectly.
-- **Other test coverage (non-Holmgang, informational only)**: `SurtrWorkloadParserTest`, `SurtrUnitTest`; `SurtrIT.runs_the_configured_surtr_workload` (opt-in via `-Dgimle.surtr.workload=<name|path>`)
-- **Source location(s)**: `gimle-holmgang/src/test/java/com/gimle/holmgang/surtr/SurtrRunner.java`, `SurtrWorkload.java`, `SurtrJob.java`, `TokenBucket.java`, `Measurements.java`
-
 #### GIMLE-549 — Surtr Muninn-window measurement (documented gap)
 
 - **Category**: Load Testing
@@ -6597,6 +6579,57 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `gimle-holmgang/compose/docker-compose.bundled-jre.yml`, `docker-compose.full-jre.yml`, `topology-bundled-jre.yaml`, `topology-full-jre.yaml`
 
+### gimle-ragnarok
+
+#### GIMLE-533 — Fenrir randomized chaos-fault soak executor
+
+- **Category**: Chaos Engineering
+- **Status**: Active
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/chaos-soak.feature` — Scenario: *The cluster survives a randomized fault soak with no lost writes*
+  - _Why this counts_: Unleashes Fenrir's weighted fault palette against a live write workload for 60s, asserting the chaos ledger records >=3 executed+recovered faults and every acknowledged write is readable.
+  - `gimle-holmgang/src/test/resources/features/observability-registry-ha.feature` — Scenario: *Artifact push/pull and shipped metrics survive Muninn and Andvari replica bounces*
+  - _Why this counts_: Pushes an artifact, strikes only Muninn/Andvari bounce faults via Fenrir, then asserts a coordinate-only deployment still reaches ACTIVE and control-plane metrics still ship to Muninn afterward.
+- **Other test coverage (non-Holmgang, informational only)**: `FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature`; `ChaosPlanParserTest`
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/Fenrir.java`, `FaultKind.java`, `FenrirPlan.java`, `ChaosSchedule.java`, `Pool.java`, `ChaosPlanParser.java`
+
+#### GIMLE-548 — Surtr scale/churn/performance workload runner
+
+- **Category**: Load Testing
+- **Status**: Active
+- **Coverage**: Not Covered
+- **Gap note**: This is Holmgang's own test-infrastructure/tooling (used to *run* other scenarios), not a platform behavior a Cucumber scenario asserts on directly -- there is no meaningful "scenario that would exercise this" beyond the harness working at all, which every passing `.feature` file already demonstrates indirectly.
+- **Other test coverage (non-Holmgang, informational only)**: `SurtrWorkloadParserTest`, `SurtrUnitTest`; `SurtrIT.runs_the_configured_surtr_workload` (opt-in via `-Dgimle.surtr.workload=<name|path>`)
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/SurtrRunner.java`, `SurtrWorkload.java`, `SurtrJob.java`, `TokenBucket.java`, `Measurements.java`
+
+#### GIMLE-631 — Chaos-plan and target YAML configuration for Fenrir/Surtr
+
+- **Category**: Chaos Engineering
+- **Status**: New  _(newly added as part of the ragnarok CLI phase)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario drives Fenrir/Surtr through these parsers -- Holmgang's own steps still build a FenrirPlan/target in Java. To close: a scenario driving RagnarokMain itself against a booted topology, parsing a written YAML file.
+- **Other test coverage (non-Holmgang, informational only)**: `ChaosPlanParserTest`, `TargetSpecParserTest`
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/ChaosPlanParser.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpecParser.java`
+
+#### GIMLE-632 — Bundled pause-image reference module for stress testing
+
+- **Category**: Load Testing
+- **Status**: New  _(newly added as part of the ragnarok CLI phase)_
+- **Coverage**: Not Covered
+- **Gap note**: This is tooling infrastructure (a fixture module Surtr deploys), not a platform behavior a Cucumber scenario asserts on directly -- RagnarokCliIT (a plain JUnit *IT, which does not count toward RTM coverage) already proves it deploys and reaches ACTIVE against a real cluster.
+- **Other test coverage (non-Holmgang, informational only)**: `BundledModuleJarSourceTest`; `RagnarokCliIT` (real cluster)
+- **Source location(s)**: `gimle-ragnarok-pause/src/main/resources/META-INF/gimle/gimle-module.yaml`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/BundledModuleJarSource.java`
+
+#### GIMLE-633 — ragnarok CLI: preflight/chaos/stress/replay/report verbs
+
+- **Category**: Chaos Engineering
+- **Status**: New  _(newly added as part of the ragnarok CLI phase)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario invokes the ragnarok binary itself (RagnarokCliIT, a plain JUnit *IT, does not count toward RTM coverage per this file's own coverage rule). To close: a .feature scenario shelling out to a packaged ragnarok binary against a booted topology.
+- **Other test coverage (non-Holmgang, informational only)**: `RagnarokCliIT` (real cluster: preflight, stress, chaos, --confirm-destructive refusal)
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/RagnarokMain.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/cli/ChaosCommand.java`
+
 ### gimle-dist
 
 #### GIMLE-560 — Standalone CLI distribution archive
@@ -6653,6 +6686,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Manual end-to-end verification: docker compose up from the built archive boots all process kinds to readiness, seeded example deployments reach ACTIVE from registry coordinates, console serves on the published port, docker stop tears down via hilmir down.
 - **Source location(s)**: `gimle-dist/src/main/assembly/midgard.xml`, `gimle-dist/pom.xml`, `gimle-dist/src/main/midgard/`
 
+#### GIMLE-634 — Standalone Ragnarok distribution archive
+
+- **Category**: Distribution
+- **Status**: New  _(newly added as part of the ragnarok CLI phase)_
+- **Coverage**: Not Covered
+- **Gap note**: Packaging/distribution concern, not a platform behavior; verified manually (extracted archive's bin/ragnarok --help and preflight run correctly), not by any Holmgang scenario.
+- **Other test coverage (non-Holmgang, informational only)**: Manual smoke test of the extracted archive
+- **Source location(s)**: `gimle-dist/src/main/assembly/ragnarok.xml`, `gimle-dist/src/main/dist/bin/ragnarok`
+
 ### gimle-skald
 
 #### GIMLE-569 — gimle-skald: cluster DNS server resolving Service names to live endpoints
@@ -6686,7 +6728,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**507 of 630 requirements are Not Covered.**
+**511 of 634 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6771,6 +6813,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-387 | gimle-cli | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | CLI / Security | NONE recorded in the baseline |
 | GIMLE-107 | gimle-agent | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Cgroup Management | `ResourceLimitEnforcementTest#a_spawned_jvm_honors_the_computed_memory_and_processor_ceiling` (gimle-agent, real subprocess); `PortableJvmFlagsResourceLimiterTest` (gimle-os) |
 | GIMLE-108 | gimle-agent | Tier 3 isolation rejection | Cgroup Management / Config | NONE recorded in the baseline |
+| GIMLE-631 | gimle-ragnarok | Chaos-plan and target YAML configuration for Fenrir/Surtr | Chaos Engineering | `ChaosPlanParserTest`, `TargetSpecParserTest` |
+| GIMLE-633 | gimle-ragnarok | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Chaos Engineering | `RagnarokCliIT` (real cluster: preflight, stress, chaos, --confirm-destructive refusal) |
 | GIMLE-186 | gimle-fabric | Per-Endpoint Circuit Breaker | Circuit Breaking | `CircuitBreakerTest#opens_once_error_rate_crosses_threshold_over_the_window`, `#half_opens_after_cooldown_and_allows_exactly_one_trial`, `#half_open_success_closes_the_breaker`, `#half_open_failure_reopens_the_breaker`, `FabricServiceRegistryTest#a_failing_endpoints_breaker_opens_and_is_excluded` |
 | GIMLE-187 | gimle-fabric | Circuit Breaker Exponential Cooldown Backoff | Circuit Breaking | `CircuitBreakerTest#repeated_reopens_double_the_effective_cooldown`, `#the_doubling_backoff_stops_at_its_documented_ceiling`, `#a_successful_half_open_trial_resets_the_backoff_to_the_base_cooldown` |
 | GIMLE-188 | gimle-fabric | Panic-Mode Ejection Floor | Circuit Breaking | `FabricServiceRegistryTest#all_endpoints_failing_still_yields_a_candidate_once_the_panic_threshold_is_crossed`, `#no_known_exporter_anywhere_throws_gimle_cluster_exception` |
@@ -6813,6 +6857,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-581 | gimle-controlplane | ConfigMap store and API with optimistic-concurrency writes | Configuration Management | `ConfigMapStoreTest` (version bump by exactly one, PUT full-replace vs PATCH merge, PATCH `expectedVersion=0` create case, stale-`expectedVersion` conflict carries the right snapshot, delete, get-on-absent, `getMany` batch filtering, and a 6-thread concurrency regression proving no writer's key is silently dropped under contention); `ApiServerConfigMapTest` (full HTTP round trip, batch-get via `?names=`, 409 on stale `expectedVersion`, 400 on writing a `configmap:`-prefixed key through `/config/*`, a ConfigMap row never leaks into a plain `/config/*` listing); `ApiServerConfigMapAuthzTest` (RBAC gating via `ResourceKind.CONFIGMAP` over real mTLS) |
 | GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
+| GIMLE-634 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-125 | gimle-agent | SWIM gossip membership integration with service catalog relay | Fabric | NONE recorded in the baseline |
 | GIMLE-131 | gimle-agent | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Fabric / Config | `AgentRelayControlPlaneReadTest#a_non_whitelisted_path_is_rejected_locally_and_never_reaches_the_control_plane`, `#a_path_traversal_attempt_disguised_as_a_single_segment_is_rejected`, `#a_whitelisted_path_triggers_a_real_call_and_relays_the_response_back`; end-to-end via `RelayControlPlaneEndToEndTest#a_hosted_modules_relay_call_round_trips_through_a_real_worker_process` |
 | GIMLE-095 | gimle-worker | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Fabric / Internal-Infra | `ControlPlaneRelayTest#a_matching_response_completes_the_waiting_caller_and_leaves_no_pending_entry`, `#no_response_times_out_and_still_leaves_no_pending_entry`, `#a_late_response_after_the_caller_already_gave_up_is_dropped_without_error` |
@@ -6931,9 +6976,10 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-040 | gimle-core | SPA static file serving with client-side-route fallback | Internal/Infra / Web | `SpaStaticHandlerTest` (serves real static file, falls back to shell, missing asset 404s, rejects traversal, rejects symlink escape) |
 | GIMLE-184 | gimle-fabric | Locality-Aware Load Balancing with Spillover | Load Balancing | `FabricServiceRegistryTest#same_machine_tier_spills_over_to_remote_once_saturated`, `#an_open_breaker_on_every_same_machine_endpoint_spills_over_to_a_healthy_remote_endpoint` |
 | GIMLE-185 | gimle-fabric | Least-Outstanding-Requests Selection | Load Balancing | `LeastOutstandingRequestsSelectorTest#selects_the_candidate_with_fewest_outstanding_requests`, `#ties_are_broken_round_robin`, `#end_never_goes_negative`, `FabricServiceRegistryTest#least_outstanding_requests_prefers_the_idle_endpoint` |
-| GIMLE-548 | gimle-holmgang | Surtr scale/churn/performance workload runner | Load Testing | `SurtrWorkloadParserTest`, `SurtrUnitTest`; `SurtrIT.runs_the_configured_surtr_workload` (opt-in via `-Dgimle.surtr.workload=<name\|path>`) |
+| GIMLE-548 | gimle-ragnarok | Surtr scale/churn/performance workload runner | Load Testing | `SurtrWorkloadParserTest`, `SurtrUnitTest`; `SurtrIT.runs_the_configured_surtr_workload` (opt-in via `-Dgimle.surtr.workload=<name\|path>`) |
 | GIMLE-549 | gimle-holmgang | Surtr Muninn-window measurement (documented gap) | Load Testing | NONE recorded in the baseline |
 | GIMLE-550 | gimle-holmgang | Module-density Tier 1 packing Surtr reference workload | Load Testing | `SurtrIT` (opt-in, `-Dgimle.surtr.workload=module-density`) |
+| GIMLE-632 | gimle-ragnarok | Bundled pause-image reference module for stress testing | Load Testing | `BundledModuleJarSourceTest`; `RagnarokCliIT` (real cluster) |
 | GIMLE-521 | gimle-smoke-tests | Autoscaling under real request-rate, error-rate, queue-depth, and weighted-blended load | Load Testing / Cluster Validation | `AutoscaleIT.a_deployment_scales_up_under_real_gatling_generated_request_rate_load`, `a_deployment_scales_up_under_real_error_rate_load`, `a_deployment_scales_up_under_real_queue_depth_load`, `a_weighted_policy_blends_request_rate_and_queue_depth_signals_under_real_load` |
 | GIMLE-319 | gimle-muninn | Node platform-log ingest | Logging | `MuninnServerLogsIngestTest#an_ingested_node_log_line_is_readable_back`, `#a_malformed_batch_is_rejected_entirely_and_nothing_from_it_is_readable` |
 | GIMLE-320 | gimle-muninn | Instance-log ingest | Logging | `MuninnServerLogsIngestTest#an_ingested_instance_log_line_is_readable_back` |

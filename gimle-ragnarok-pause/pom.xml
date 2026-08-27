@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-alpha.2</version>
+  </parent>
+
+  <artifactId>gimle-ragnarok-pause</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Ragnarok Pause</name>
+  <description>
+    A minimal, deliberately inert Gimle module artifact -- the same shape as
+    gimle-examples/hello-module -- built solely so gimle-ragnarok's own bundled
+    ModuleJarSource has something to deploy without requiring gimle-examples to be
+    built: Surtr's stress workloads only need instances to reach ACTIVE, not exercise
+    fabric calls, so no hooks/probes are needed here either. gimle-ragnarok's own build
+    copies this module's built jar into its own jar as a classpath resource (see
+    gimle-ragnarok/pom.xml's maven-dependency-plugin copy execution); nothing else in
+    the reactor depends on this module directly.
+  </description>
+
+  <properties>
+    <!-- Sample/fixture code, not part of Gimle's platform API surface: same treatment
+         gimle-examples/hello-module's own pom.xml gives itself. -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+  </properties>
+</project>

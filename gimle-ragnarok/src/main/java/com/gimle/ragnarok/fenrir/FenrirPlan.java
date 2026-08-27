@@ -3,8 +3,10 @@ package com.gimle.ragnarok.fenrir;
 import com.gimle.ragnarok.RagnarokException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -86,6 +88,32 @@ public final class FenrirPlan {
 
   public Duration gateTimeout() {
     return gateTimeout;
+  }
+
+  /**
+   * The field shape {@link ChaosPlanParser#fromMap} reads back, so a resolved plan round-trips
+   * through JSON exactly -- {@code replay} embeds this in a {@code chaos} run's own report and
+   * reconstructs an identical plan from it later, deployment-name order and pool order preserved.
+   */
+  public Map<String, Object> toJsonMap() {
+    final Map<String, Object> map = new LinkedHashMap<>();
+    map.put("seed", seed);
+    map.put("soakSeconds", soak.toSeconds());
+    map.put("strikeEveryMinSeconds", gapMin.toSeconds());
+    map.put("strikeEveryMaxSeconds", gapMax.toSeconds());
+    map.put("eligibleDeployments", eligibleDeployments);
+    map.put("convergeBetweenFaults", convergeBetweenFaults);
+    map.put("gateTimeoutSeconds", gateTimeout.toSeconds());
+    final List<Object> poolMaps = new ArrayList<>();
+    for (final Pool pool : pools) {
+      final Map<String, Object> poolMap = new LinkedHashMap<>();
+      poolMap.put("kind", pool.kind().name());
+      poolMap.put("weight", pool.weight());
+      poolMap.put("dwellSeconds", pool.dwell().toSeconds());
+      poolMaps.add(poolMap);
+    }
+    map.put("pools", poolMaps);
+    return map;
   }
 
   /** The fluent builder; every knob has a default except the pools and the soak window. */
