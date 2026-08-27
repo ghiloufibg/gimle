@@ -650,6 +650,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-633 | Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding | New | Not Covered | — |
 | GIMLE-634 | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | New | Not Covered | — |
 | GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | New | Not Covered | — |
+| GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -6122,6 +6123,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `AutoscaleIT.a_deployment_scales_up_under_real_gatling_generated_request_rate_load`; `autoscale.feature`
 - **Source location(s)**: `gimle-examples/greeter-load-generator/src/main/java/com/gimle/examples/greeter/loadgen/GreeterLoadGeneratorHooks.java`, `gimle-module.yaml`
 
+#### GIMLE-636 — orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly
+
+- **Category**: Documentation
+- **Status**: New  _(a real doc/CLI mismatch, fixed by documenting the working CLI command and the absent-vs-empty distinction inline rather than changing CLI behavior)_
+- **Coverage**: Not Covered
+- **Gap note**: Documentation-only fix with no new runtime behavior to exercise; NetworkPolicyCommand's own --deny-all-callers/--allowed-caller-tenant validation is already covered by GIMLE-579's own Holmgang coverage.
+- **Other test coverage (non-Holmgang, informational only)**: Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation.
+- **Source location(s)**: `gimle-examples/orders-platform/web-ui/networkpolicy.yaml`, `gimle-examples/orders-platform/README.md`
+
 ### gimle-smoke-tests
 
 #### GIMLE-507 — Real multi-process cluster fixture (store/control-plane/agent/Fafnir/Muninn)
@@ -6736,7 +6746,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**512 of 635 requirements are Not Covered.**
+**513 of 636 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6865,6 +6875,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
 | GIMLE-632 | gimle-console | Toast notifications render app-wide (write failures, and every other toast call site) | Console | No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged |
+| GIMLE-636 | gimle-examples | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation. |
 | GIMLE-125 | gimle-agent | SWIM gossip membership integration with service catalog relay | Fabric | NONE recorded in the baseline |
 | GIMLE-131 | gimle-agent | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Fabric / Config | `AgentRelayControlPlaneReadTest#a_non_whitelisted_path_is_rejected_locally_and_never_reaches_the_control_plane`, `#a_path_traversal_attempt_disguised_as_a_single_segment_is_rejected`, `#a_whitelisted_path_triggers_a_real_call_and_relays_the_response_back`; end-to-end via `RelayControlPlaneEndToEndTest#a_hosted_modules_relay_call_round_trips_through_a_real_worker_process` |
 | GIMLE-095 | gimle-worker | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Fabric / Internal-Infra | `ControlPlaneRelayTest#a_matching_response_completes_the_waiting_caller_and_leaves_no_pending_entry`, `#no_response_times_out_and_still_leaves_no_pending_entry`, `#a_late_response_after_the_caller_already_gave_up_is_dropped_without_error` |

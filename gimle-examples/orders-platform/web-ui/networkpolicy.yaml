@@ -6,6 +6,15 @@
 #     -d '{"name":"web-ui-deny-cross-tenant","tenantId":"orders-platform",
 #          "deploymentNames":["web-ui-deployment"],"allowedCallerTenantIds":[]}'
 #
+# or the CLI equivalent -- note the explicit --deny-all-callers, not just omitting
+# --allowed-caller-tenant: the two are different states (see NetworkPolicySpec's own javadoc --
+# an *absent* direction restricts nothing, an *empty* one denies every cross-tenant peer), and
+# gimle set networkpolicy requires you say which one you mean rather than guessing from an
+# omitted flag:
+#
+#   gimle set networkpolicy web-ui-deny-cross-tenant --tenant orders-platform \
+#     --deployment web-ui-deployment --deny-all-callers --server 127.0.0.1:8080
+#
 # Deliberately optional, and honest about what it does and doesn't cover in this single-tenant
 # sandbox app -- see ../README.md's "Restricting cross-tenant access (optional)" section for the
 # full explanation. Short version: web-ui exports no fabric service of its own (it only consumes

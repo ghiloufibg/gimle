@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 635,
+  "requirementCount": 636,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10992,6 +10992,22 @@
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java`"
       ],
       "otherTestCoverage": "`HilmirMainTest` (top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb, top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb, enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h, enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server, disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h, disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server)"
+    },
+    {
+      "id": "GIMLE-636",
+      "module": "gimle-examples",
+      "feature": "orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly",
+      "category": "Documentation",
+      "status": "New",
+      "statusNote": "a real doc/CLI mismatch, fixed by documenting the working CLI command and the absent-vs-empty distinction inline rather than changing CLI behavior",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Documentation-only fix with no new runtime behavior to exercise; NetworkPolicyCommand's own --deny-all-callers/--allowed-caller-tenant validation is already covered by GIMLE-579's own Holmgang coverage.",
+      "sourceLocations": [
+        "`gimle-examples/orders-platform/web-ui/networkpolicy.yaml`",
+        "`gimle-examples/orders-platform/README.md`"
+      ],
+      "otherTestCoverage": "Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation."
     }
   ]
 }

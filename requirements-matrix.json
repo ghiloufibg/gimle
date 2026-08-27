@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 635,
+  "requirementCount": 636,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12510,6 +12510,28 @@
         "Given no other arguments, When hilmir is run with -h or --help as the verb, Then it prints the full usage text and exits 0 rather than the unknown-verb error.",
         "Given the enable or disable verb, When -h/--help appears as the extension name (e.g. hilmir enable -h), Then the scoped ENABLE_USAGE/DISABLE_USAGE text is printed and exits 0 rather than \"unknown extension: -h\".",
         "Given the enable gateway or disable gateway subcommand, When -h/--help appears anywhere in its own arguments (e.g. hilmir enable gateway -h), Then the scoped usage text is printed and exits 0 without requiring --server or reaching the extension's own flag parser."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-636",
+      "module": "gimle-examples",
+      "feature": "orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly",
+      "category": "Documentation",
+      "userStory": "As an operator following the orders-platform example's NetworkPolicy documentation, I want the CLI form of the deny-cross-tenant policy shown alongside the raw curl form, with the flag that actually produces deny-all spelled out, so that copying the documented command doesn't fail with \"a network policy must restrict at least one direction\" the way omitting --allowed-caller-tenant silently would.",
+      "statusDetail": "Fixed (docs only): web-ui/networkpolicy.yaml's header comment previously showed only the raw POST /networkpolicies body, which passes an explicit empty allowedCallerTenantIds array (a valid, present-but-empty deny-all direction). A reader translating that into the gimle set networkpolicy CLI form by simply omitting --allowed-caller-tenant hits a real mismatch: the CLI's own NetworkPolicySpec validation treats an *absent* direction as \"restricts nothing\" and an *empty* one as \"deny all\", and requires the explicit --deny-all-callers flag to express the latter -- omitting the flag throws \"a network policy must restrict at least one direction\" instead. The header comment now shows the working CLI command side by side with the curl form, and the README's own \"Restricting cross-tenant access\" section explains the absent-vs-empty distinction inline rather than only linking the raw API.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-examples/orders-platform/web-ui/networkpolicy.yaml`",
+        "`gimle-examples/orders-platform/README.md`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/NetworkPolicySpec.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`"
+      ],
+      "testCoverageDetail": "Documentation-only change, cross-checked directly against NetworkPolicyCommand's own flag parsing (--deny-all-callers cannot combine with --allowed-caller-tenant; at least one of the two, or their egress equivalents, is required) and NetworkPolicySpec's own absent-vs-empty validation, both already covered by NetworkPolicyCommandTest and NetworkPolicySpecTest.",
+      "gherkinSteps": [
+        "Given the orders-platform example's networkpolicy.yaml header comment, When an operator copies its documented gimle set networkpolicy command verbatim, Then the policy is created successfully with an empty (deny-all) caller allow-list, matching the raw curl example beside it.",
+        "Given the same documentation, When an operator reads the README's \"Restricting cross-tenant access\" section, Then it explains that omitting --allowed-caller-tenant is not equivalent to --deny-all-callers before they attempt either command."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

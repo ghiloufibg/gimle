@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 635
+- **Total requirements**: 636
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 512
-- **Release-readiness (automated coverage)**: 19.4%
+- **Not covered by automated test**: 513
+- **Release-readiness (automated coverage)**: 19.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -36,7 +36,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
 | gimle-saga | 14 | 0 | 14 | 0.0% |
 | gimle-testkit | 7 | 0 | 7 | 0.0% |
-| gimle-examples | 4 | 3 | 1 | 75.0% |
+| gimle-examples | 5 | 3 | 2 | 60.0% |
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 31 | 16 | 15 | 51.6% |
 | gimle-dist | 6 | 0 | 6 | 0.0% |
@@ -1650,6 +1650,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-502 | Forensic failure reporting | Given a condition times out or a process dies, When the failure is raised, Then the error message includes the last ClusterView, process liveness, recent harness events, and recent platform events. | No |
 
 ### gimle-examples
+
+#### Documentation
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Given the orders-platform example's networkpolicy.yaml header comment, When an operator copies its documented gimle set networkpolicy command verbatim, Then the policy is created successfully with an empty (deny-all) caller allow-list, matching the raw curl example beside it. Given the same documentation, When an operator reads the README's "Restricting cross-tenant access" section, Then it explains that omitting --allowed-caller-tenant is not equivalent to --deny-all-callers before they attempt either command. | No |
 
 #### Sample Module
 

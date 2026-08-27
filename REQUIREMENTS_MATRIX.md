@@ -645,6 +645,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-633 | Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding | Security / RBAC | Complete | Yes |
 | GIMLE-634 | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | Security / RBAC | Complete | Yes |
 | GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | CLI UX | Complete | Yes |
+| GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -8593,6 +8594,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given greeter-load-generator deployed with load.port via tenant config, When an HTTP GET hits /call, Then it performs a real lookupService(Greeter.class)+greet("Gatling") call and reflects 200/502/503 based on outcome.
+  ```
+
+#### GIMLE-636 — orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly
+
+- **Category**: Documentation
+- **User story**: As an operator following the orders-platform example's NetworkPolicy documentation, I want the CLI form of the deny-cross-tenant policy shown alongside the raw curl form, with the flag that actually produces deny-all spelled out, so that copying the documented command doesn't fail with "a network policy must restrict at least one direction" the way omitting --allowed-caller-tenant silently would.
+- **Status**: Fixed (docs only): web-ui/networkpolicy.yaml's header comment previously showed only the raw POST /networkpolicies body, which passes an explicit empty allowedCallerTenantIds array (a valid, present-but-empty deny-all direction). A reader translating that into the gimle set networkpolicy CLI form by simply omitting --allowed-caller-tenant hits a real mismatch: the CLI's own NetworkPolicySpec validation treats an *absent* direction as "restricts nothing" and an *empty* one as "deny all", and requires the explicit --deny-all-callers flag to express the latter -- omitting the flag throws "a network policy must restrict at least one direction" instead. The header comment now shows the working CLI command side by side with the curl form, and the README's own "Restricting cross-tenant access" section explains the absent-vs-empty distinction inline rather than only linking the raw API.
+- **Confidence**: High
+- **Source location(s)**: `gimle-examples/orders-platform/web-ui/networkpolicy.yaml`, `gimle-examples/orders-platform/README.md`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/NetworkPolicySpec.java`, `gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`
+- **Test coverage**: Documentation-only change, cross-checked directly against NetworkPolicyCommand's own flag parsing (--deny-all-callers cannot combine with --allowed-caller-tenant; at least one of the two, or their egress equivalents, is required) and NetworkPolicySpec's own absent-vs-empty validation, both already covered by NetworkPolicyCommandTest and NetworkPolicySpecTest.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the orders-platform example's networkpolicy.yaml header comment, When an operator copies its documented gimle set networkpolicy command verbatim, Then the policy is created successfully with an empty (deny-all) caller allow-list, matching the raw curl example beside it.
+  Given the same documentation, When an operator reads the README's "Restricting cross-tenant access" section, Then it explains that omitting --allowed-caller-tenant is not equivalent to --deny-all-callers before they attempt either command.
   ```
 
 ### gimle-smoke-tests

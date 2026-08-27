@@ -198,9 +198,13 @@ whether a problem is in `web-ui` itself or in the Service/gateway layer in front
 ## Restricting cross-tenant access (optional)
 
 `networkpolicy.yaml` in this directory declares a deny-by-default `NetworkPolicySpec` scoped to
-`web-ui-deployment` — apply it the same way as `service.yaml`, via `POST /networkpolicies`. Worth
-being precise about what it actually restricts in this single-tenant sandbox, rather than
-overstating it:
+`web-ui-deployment` — apply it the same way as `service.yaml`, via `POST /networkpolicies`, or via
+`gimle set networkpolicy web-ui-deny-cross-tenant --tenant orders-platform --deployment
+web-ui-deployment --deny-all-callers` (see `networkpolicy.yaml`'s own header comment for both
+forms side by side; the CLI requires the explicit `--deny-all-callers` flag to mean "deny every
+cross-tenant caller" — just omitting `--allowed-caller-tenant` means "no restriction at all" in
+that direction, not deny-all). Worth being precise about what it actually restricts in this
+single-tenant sandbox, rather than overstating it:
 
 - **It has no effect on the gateway route above.** `gimle-gateway`'s own `SERVICE` route has no
   tenant-policy check of its own — external reachability is an operator's own opt-in publishing
