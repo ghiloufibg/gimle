@@ -50,6 +50,7 @@ tls:                    # required when transport: mtls
 workDir: /var/lib/ragnarok/work   # optional, default a temp directory
 
 inventory:                        # optional -- adds real SSH process control (see below)
+  sudo: false                      # optional, default false -- see "Firewall faults" below
   machines:
     - name: node-1
       host: 10.0.1.10
@@ -60,6 +61,7 @@ inventory:                        # optional -- adds real SSH process control (s
       pidFile: /opt/gimle/data/store-0.pid
       logFile: /opt/gimle/data/store-0.log
       command: [java, -cp, /opt/gimle/lib/*, com.gimle.mimir.StoreMain, "7100", "7101"]
+      raftPort: 7100                # optional -- only needed for STORE_PARTITION, see below
   controlPlane: []   # same shape, for control-plane replicas
   fafnir: []          # same shape, for Fafnir replicas
   muninn: []           # same shape, for Muninn replicas
@@ -91,6 +93,21 @@ inherit one). `agents` maps a Gimlé node id to the machine hosting it and that 
 `-Dgimle.log.root` directory, letting `WORKER_KILL` resolve a worker's real OS pid from the agent's
 own `"spawned worker ... as pid ..."` platform-log line — no worker-kill victim can be resolved for
 a node with no matching `agents` entry.
+
+### Firewall faults (`LINK_CUT`/`STORE_PARTITION`) over SSH
+
+An `inventory:`-backed target also fires `LINK_CUT`/`STORE_PARTITION` for real, via `iptables` rules
+pushed over the same SSH transport — real `kill -9 $(cat pidFile)`/reinstall-owned processes need no
+elevated privilege, but a firewall rule does, so this is opt-in: `sudo: true` prefixes every
+`iptables` invocation with `sudo -n` (non-interactive — a target without real passwordless sudo
+configured for `iptables` fails fast rather than hanging on a password prompt); leave it `false` when
+the inventory's SSH user is already root. `LINK_CUT` needs no extra configuration (it uses the target
+document's own `storeClientEndpoints`); `STORE_PARTITION` needs every declared `store:` role's own
+`raftPort` — a plan naming `STORE_PARTITION` against an inventory where any store role omits it is
+refused up front, before the soak starts, naming exactly which store roles are missing it.
+`STORE_BOUNCE`/`LEADER_BOUNCE`'s own quorum-floor guard (above) applies here too — a single-replica
+store can never clear it, so `STORE_PARTITION` needs at least three store replicas to ever actually
+fire, independent of whether `raftPort` is configured.
 
 ## `preflight`
 

@@ -645,6 +645,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-633 | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Chaos Engineering | Complete | Real cluster (RagnarokCliIT) |
 | GIMLE-634 | Standalone Ragnarok distribution archive | Distribution | Complete | Manual smoke |
 | GIMLE-635 | SSH-backed managed-inventory ClusterTarget for real process control | Chaos Engineering | Complete | Partial (unit + one real-SSH IT; not every bounce kind exercised end to end) |
+| GIMLE-636 | Real iptables host-firewall network faults over SSH | Chaos Engineering | Complete | Partial (unit + one real-SSH mechanism IT; not exercised through a full ragnarok chaos run against a live multi-store cluster) |
 
 ## Detailed Requirements
 
@@ -9270,6 +9271,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED.
+  ```
+
+#### GIMLE-636 — Real iptables host-firewall network faults over SSH
+
+- **Category**: Chaos Engineering
+- **User story**: As an operator running Fenrir/Surtr with an inventory:-backed target, I want LINK_CUT and STORE_PARTITION to actually fire real iptables rules over SSH instead of always recording SKIPPED, so a full chaos plan (not just the bounce/kill family) can be run against a real external cluster.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshNetworkFaultInjector.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshInventoryClusterTarget.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/ManagedRoleSpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/cli/ChaosCommand.java`, `gimle-holmgang/compose/ssh-remote/Dockerfile`
+- **Test coverage**: `SshNetworkFaultInjectorTest` (exact iptables argv for cutControlPlaneFromStores/cutStoreFromPeers, sudo prefixing, heal() reversal), `SshInventoryClusterTargetTest` (faults() presence, requireStorePartitionSupport() validation); end-to-end against a real sshd container granted CAP_NET_ADMIN via `gimle-holmgang`'s `RagnarokFirewallFaultIT` (-Pvalidation, opt-in), which drives a real cutControlPlaneFromStores over SSH and asserts the resulting iptables rule is present via `iptables -C`, then asserts heal() removes it.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule.
   ```
 
 ### gimle-dist

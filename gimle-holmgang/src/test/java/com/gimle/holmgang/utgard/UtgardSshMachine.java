@@ -1,6 +1,7 @@
 package com.gimle.holmgang.utgard;
 
 import com.gimle.holmgang.HolmgangException;
+import com.github.dockerjava.api.model.Capability;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -99,7 +100,14 @@ public final class UtgardSshMachine implements AutoCloseable {
                 MountableFile.forHostPath(ENTRYPOINT_SCRIPT), "/holmgang/sshd-entrypoint.sh")
             .withCommand("/bin/sh", "/holmgang/sshd-entrypoint.sh")
             .waitingFor(Wait.forListeningPorts(SSH_PORT))
-            .withStartupTimeout(STARTUP_TIMEOUT);
+            .withStartupTimeout(STARTUP_TIMEOUT)
+            // NET_ADMIN, not full privileged mode: the narrowest grant that lets the operator
+            // user's own sudo-scoped iptables (see the Dockerfile's own sudoers.d entry) actually
+            // install/remove rules -- only RagnarokFirewallFaultIT's own SshNetworkFaultInjector
+            // calls ever need this; every other Utgard SSH scenario just carries the capability
+            // unused.
+            .withCreateContainerCmdModifier(
+                cmd -> cmd.getHostConfig().withCapAdd(Capability.NET_ADMIN));
     container.start();
     installHilmirLauncher(container);
     return new UtgardSshMachine(container);

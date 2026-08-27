@@ -650,6 +650,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-633 | ragnarok CLI: preflight/chaos/stress/replay/report verbs | New | Not Covered | — |
 | GIMLE-634 | Standalone Ragnarok distribution archive | New | Not Covered | — |
 | GIMLE-635 | SSH-backed managed-inventory ClusterTarget for real process control | New | Not Covered | — |
+| GIMLE-636 | Real iptables host-firewall network faults over SSH | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -6640,6 +6641,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: SshManagedProcessTest, SshWorkerHandleTest, InventorySpecParserTest (unit); RagnarokInventoryChaosIT (-Pvalidation, real sshd container, plain JUnit)
 - **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshInventoryClusterTarget.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshManagedProcess.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/WorkerHandle.java`
 
+#### GIMLE-636 — Real iptables host-firewall network faults over SSH
+
+- **Category**: Chaos Engineering
+- **Status**: New  _(newly added as part of the Ragnarök Phase 4 (S13) host-firewall network faults)_
+- **Coverage**: Not Covered
+- **Gap note**: Exercised end to end by gimle-holmgang's plain-JUnit RagnarokFirewallFaultIT (-Pvalidation) against a real sshd container with CAP_NET_ADMIN, not by a Holmgang Cucumber .feature scenario -- per this file's own coverage rule, a plain JUnit *IT does not count as Covered even though it installs and verifies a real iptables rule over SSH.
+- **Other test coverage (non-Holmgang, informational only)**: SshNetworkFaultInjectorTest, SshInventoryClusterTargetTest (unit); RagnarokFirewallFaultIT (-Pvalidation, real sshd container, plain JUnit)
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshNetworkFaultInjector.java`
+
 ### gimle-dist
 
 #### GIMLE-560 — Standalone CLI distribution archive
@@ -6738,7 +6748,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**512 of 635 requirements are Not Covered.**
+**513 of 636 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6826,6 +6836,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-631 | gimle-ragnarok | Chaos-plan and target YAML configuration for Fenrir/Surtr | Chaos Engineering | `ChaosPlanParserTest`, `TargetSpecParserTest` |
 | GIMLE-633 | gimle-ragnarok | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Chaos Engineering | `RagnarokCliIT` (real cluster: preflight, stress, chaos, --confirm-destructive refusal) |
 | GIMLE-635 | gimle-ragnarok | SSH-backed managed-inventory ClusterTarget for real process control | Chaos Engineering | SshManagedProcessTest, SshWorkerHandleTest, InventorySpecParserTest (unit); RagnarokInventoryChaosIT (-Pvalidation, real sshd container, plain JUnit) |
+| GIMLE-636 | gimle-ragnarok | Real iptables host-firewall network faults over SSH | Chaos Engineering | SshNetworkFaultInjectorTest, SshInventoryClusterTargetTest (unit); RagnarokFirewallFaultIT (-Pvalidation, real sshd container, plain JUnit) |
 | GIMLE-186 | gimle-fabric | Per-Endpoint Circuit Breaker | Circuit Breaking | `CircuitBreakerTest#opens_once_error_rate_crosses_threshold_over_the_window`, `#half_opens_after_cooldown_and_allows_exactly_one_trial`, `#half_open_success_closes_the_breaker`, `#half_open_failure_reopens_the_breaker`, `FabricServiceRegistryTest#a_failing_endpoints_breaker_opens_and_is_excluded` |
 | GIMLE-187 | gimle-fabric | Circuit Breaker Exponential Cooldown Backoff | Circuit Breaking | `CircuitBreakerTest#repeated_reopens_double_the_effective_cooldown`, `#the_doubling_backoff_stops_at_its_documented_ceiling`, `#a_successful_half_open_trial_resets_the_backoff_to_the_base_cooldown` |
 | GIMLE-188 | gimle-fabric | Panic-Mode Ejection Floor | Circuit Breaking | `FabricServiceRegistryTest#all_endpoints_failing_still_yields_a_candidate_once_the_panic_threshold_is_crossed`, `#no_known_exporter_anywhere_throws_gimle_cluster_exception` |

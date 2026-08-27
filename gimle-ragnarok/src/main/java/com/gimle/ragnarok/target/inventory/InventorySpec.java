@@ -16,6 +16,12 @@ import java.util.Set;
  * `controlPlane(int)`, ...) already expect -- and which {@link AgentSpec} backs each node id, for
  * resolving a worker's real OS pid. Every role's/agent's own {@code machine} field is validated
  * against the declared {@link #machines()} here, once, rather than at every lookup.
+ *
+ * <p>{@code sudo} applies only to the firewall commands {@link SshNetworkFaultInjector} issues --
+ * {@code SshManagedProcess}'s own kill/restart scripts stay unprefixed regardless, since they
+ * already assume the SSH user owns the target process; a firewall rule needs real privilege the
+ * platform never assumed before this. {@code false} (root SSH user, or no firewall faults used) by
+ * default.
  */
 public record InventorySpec(
     List<Machine> machines,
@@ -24,7 +30,8 @@ public record InventorySpec(
     List<ManagedRoleSpec> fafnir,
     List<ManagedRoleSpec> muninn,
     List<ManagedRoleSpec> andvari,
-    List<AgentSpec> agents) {
+    List<AgentSpec> agents,
+    boolean sudo) {
 
   public InventorySpec {
     machines = List.copyOf(machines);

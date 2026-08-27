@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 635,
+  "requirementCount": 636,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10995,6 +10995,21 @@
         "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/WorkerHandle.java`"
       ],
       "otherTestCoverage": "SshManagedProcessTest, SshWorkerHandleTest, InventorySpecParserTest (unit); RagnarokInventoryChaosIT (-Pvalidation, real sshd container, plain JUnit)"
+    },
+    {
+      "id": "GIMLE-636",
+      "module": "gimle-ragnarok",
+      "feature": "Real iptables host-firewall network faults over SSH",
+      "category": "Chaos Engineering",
+      "status": "New",
+      "statusNote": "newly added as part of the Ragnarök Phase 4 (S13) host-firewall network faults",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Exercised end to end by gimle-holmgang's plain-JUnit RagnarokFirewallFaultIT (-Pvalidation) against a real sshd container with CAP_NET_ADMIN, not by a Holmgang Cucumber .feature scenario -- per this file's own coverage rule, a plain JUnit *IT does not count as Covered even though it installs and verifies a real iptables rule over SSH.",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshNetworkFaultInjector.java`"
+      ],
+      "otherTestCoverage": "SshNetworkFaultInjectorTest, SshInventoryClusterTargetTest (unit); RagnarokFirewallFaultIT (-Pvalidation, real sshd container, plain JUnit)"
     }
   ]
 }

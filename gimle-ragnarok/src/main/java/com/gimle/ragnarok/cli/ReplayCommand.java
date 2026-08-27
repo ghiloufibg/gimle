@@ -4,11 +4,13 @@ import com.gimle.core.protocol.Json;
 import com.gimle.ragnarok.RagnarokException;
 import com.gimle.ragnarok.fenrir.ChaosLedger;
 import com.gimle.ragnarok.fenrir.ChaosPlanParser;
+import com.gimle.ragnarok.fenrir.FaultKind;
 import com.gimle.ragnarok.fenrir.Fenrir;
 import com.gimle.ragnarok.fenrir.FenrirPlan;
 import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.endpoint.TargetSpec;
 import com.gimle.ragnarok.target.endpoint.TargetSpecParser;
+import com.gimle.ragnarok.target.inventory.SshInventoryClusterTarget;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
@@ -39,6 +41,10 @@ public final class ReplayCommand {
     final FenrirPlan plan = planFrom(reportFile);
     ChaosCommand.requireConfirmed(plan, args);
     try (ClusterTarget target = spec.open()) {
+      if (target instanceof SshInventoryClusterTarget sshTarget
+          && plan.pools().stream().anyMatch(p -> p.kind() == FaultKind.STORE_PARTITION)) {
+        sshTarget.requireStorePartitionSupport();
+      }
       final ChaosLedger ledger = Fenrir.unleash(target, plan);
       out.print(ledger.render());
       CliArgs.optionalFlag(args, "--report")

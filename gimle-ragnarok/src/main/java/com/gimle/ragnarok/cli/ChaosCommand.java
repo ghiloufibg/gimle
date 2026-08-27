@@ -11,6 +11,7 @@ import com.gimle.ragnarok.fenrir.Pool;
 import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.endpoint.TargetSpec;
 import com.gimle.ragnarok.target.endpoint.TargetSpecParser;
+import com.gimle.ragnarok.target.inventory.SshInventoryClusterTarget;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
@@ -28,11 +29,15 @@ import java.util.Set;
  *
  * <p>The safety gate: a plan whose pools include anything beyond a pure network fault (killing or
  * bouncing a real process) is refused unless {@code --confirm-destructive} is passed. This checks
- * the plan's own declared pools, not what the target can currently fire -- {@link ClusterTarget}
- * today has no process control at all (every fault beyond {@link FaultKind#LINK_CUT}/{@link
- * FaultKind#STORE_PARTITION} always records {@code SKIPPED}), but the gate is meant to hold for
- * whatever {@link com.gimle.ragnarok.target.ClusterTarget} a future, process-control-capable
- * adapter provides too.
+ * the plan's own declared pools, not what the target can currently fire -- an {@link
+ * com.gimle.ragnarok.target.endpoint.EndpointClusterTarget} (no {@code inventory:} block) has no
+ * process control at all, so every fault kind it can't fire always records {@code SKIPPED} rather
+ * than being refused for real capability reasons; the gate exists independent of that.
+ *
+ * <p>A {@link SshInventoryClusterTarget} additionally gets one target-specific pre-flight check
+ * here, before {@link Fenrir#unleash} ever runs: {@link FaultKind#STORE_PARTITION} needs every
+ * declared store role to carry a {@code raftPort}, a configuration requirement no other target kind
+ * or fault kind shares, so it isn't worth a general hook on {@link ClusterTarget} itself.
  */
 public final class ChaosCommand {
 
@@ -53,6 +58,10 @@ public final class ChaosCommand {
     plan = withSeedOverride(plan, args);
     requireConfirmed(plan, args);
     try (ClusterTarget target = spec.open()) {
+      if (target instanceof SshInventoryClusterTarget sshTarget
+          && plan.pools().stream().anyMatch(p -> p.kind() == FaultKind.STORE_PARTITION)) {
+        sshTarget.requireStorePartitionSupport();
+      }
       final ChaosLedger ledger = Fenrir.unleash(target, plan);
       out.print(ledger.render());
       final FenrirPlan finalPlan = plan;

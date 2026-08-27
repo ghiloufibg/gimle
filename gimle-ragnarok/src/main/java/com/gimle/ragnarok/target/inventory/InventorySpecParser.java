@@ -32,7 +32,8 @@ public final class InventorySpecParser {
         parseRoles(root, "fafnir"),
         parseRoles(root, "muninn"),
         parseRoles(root, "andvari"),
-        parseAgents(root));
+        parseAgents(root),
+        YamlParsing.optionalBoolean(root, "sudo").orElse(false));
   }
 
   private static Machine parseMachine(final Map<?, ?> map) {
@@ -72,7 +73,10 @@ public final class InventorySpecParser {
         YamlParsing.requireString(map, "id"),
         Path.of(YamlParsing.requireString(map, "pidFile")),
         Path.of(YamlParsing.requireString(map, "logFile")),
-        YamlParsing.stringList(map, "command"));
+        YamlParsing.stringList(map, "command"),
+        // Only ever meaningful for a store: role -- parsed uniformly across all five role lists
+        // anyway, since a role-kind-specific parser split here would buy nothing.
+        YamlParsing.optionalInt(map, "raftPort"));
   }
 
   private static List<AgentSpec> parseAgents(final Map<?, ?> root) {

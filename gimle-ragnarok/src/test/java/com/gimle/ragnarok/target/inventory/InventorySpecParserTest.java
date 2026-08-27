@@ -1,6 +1,7 @@
 package com.gimle.ragnarok.target.inventory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -146,5 +147,31 @@ final class InventorySpecParserTest {
                 agents:
                   - {machine: node-1, nodeId: node-abc}
                 """));
+  }
+
+  @Test
+  void parses_a_store_roles_raft_port_and_defaults_it_to_empty_for_every_other_role_kind() {
+    final InventorySpec spec =
+        parse(
+            """
+            machines:
+              - {name: node-1, host: 10.0.1.10}
+            store:
+              - {machine: node-1, id: store-0, pidFile: /a.pid, logFile: /a.log,
+                 command: [java], raftPort: 9080}
+            controlPlane:
+              - {machine: node-1, id: controlplane-0, pidFile: /b.pid, logFile: /b.log,
+                 command: [java]}
+            """);
+    assertEquals(9080, spec.store().get(0).raftPort().orElseThrow());
+    assertTrue(spec.controlPlane().get(0).raftPort().isEmpty());
+  }
+
+  @Test
+  void sudo_defaults_to_false_and_can_be_declared_true() {
+    assertFalse(parse("machines:\n  - {name: node-1, host: 10.0.1.10}\n").sudo());
+    final InventorySpec spec =
+        parse("machines:\n  - {name: node-1, host: 10.0.1.10}\nsudo: true\n");
+    assertTrue(spec.sudo());
   }
 }

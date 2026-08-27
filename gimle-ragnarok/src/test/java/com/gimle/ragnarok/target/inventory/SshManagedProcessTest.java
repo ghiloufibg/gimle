@@ -35,7 +35,8 @@ final class SshManagedProcessTest {
             Optional.empty(),
             Optional.empty());
     final ManagedRoleSpec role =
-        new ManagedRoleSpec("node-1", "store-0", pidFile, logFile, List.of("sleep", "300"));
+        new ManagedRoleSpec(
+            "node-1", "store-0", pidFile, logFile, List.of("sleep", "300"), Optional.empty());
     return new SshManagedProcess(new FakeRemoteExec(), target, role, "127.0.0.1:0");
   }
 

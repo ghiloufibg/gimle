@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 635,
+    "totalRequirements": 636,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 512,
-    "releaseReadinessPercent": 19.4
+    "notCoveredByAutomatedTest": 513,
+    "releaseReadinessPercent": 19.3
   },
   "items": [
     {
@@ -6987,6 +6987,17 @@
       "category": "Chaos Engineering",
       "feature": "SSH-backed managed-inventory ClusterTarget for real process control",
       "step": "Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-636",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "Real iptables host-firewall network faults over SSH",
+      "step": "Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

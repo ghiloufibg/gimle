@@ -273,9 +273,33 @@ public final class SshInventoryClusterTarget implements ClusterTarget {
 
   @Override
   public Optional<NetworkFaultInjector> faults() {
-    // No boot-time interposition here either -- an inventory target gains process control, not
-    // network-fault injection; link-cut/store-partition still always skip.
-    return Optional.empty();
+    if (inventory.store().isEmpty() && inventory.controlPlane().isEmpty()) {
+      // Truly nothing declared to inject a fault against.
+      return Optional.empty();
+    }
+    return Optional.of(
+        new SshNetworkFaultInjector(
+            remoteExec, inventory, storeClientEndpoints, this::ensurePinned));
+  }
+
+  /**
+   * Refuses a {@code STORE_PARTITION} run up front rather than letting {@link
+   * SshNetworkFaultInjector#cutStoreFromPeers} throw the first time Fenrir happens to draw that
+   * fault kind, possibly hours into a soak -- a store role missing {@code raftPort} is an operator
+   * configuration error, not a runtime condition, so it should fail loudly once before anything
+   * starts rather than abort mid-soak.
+   */
+  public void requireStorePartitionSupport() {
+    final List<String> missing =
+        inventory.store().stream()
+            .filter(r -> r.raftPort().isEmpty())
+            .map(ManagedRoleSpec::id)
+            .toList();
+    if (!missing.isEmpty()) {
+      throw new RagnarokException(
+          "STORE_PARTITION requires every store role to declare raftPort -- missing on: "
+              + missing);
+    }
   }
 
   @Override

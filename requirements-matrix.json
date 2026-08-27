@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 635,
+  "requirementCount": 636,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12520,6 +12520,29 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Partial (unit + one real-SSH IT; not every bounce kind exercised end to end)"
+    },
+    {
+      "id": "GIMLE-636",
+      "module": "gimle-ragnarok",
+      "feature": "Real iptables host-firewall network faults over SSH",
+      "category": "Chaos Engineering",
+      "userStory": "As an operator running Fenrir/Surtr with an inventory:-backed target, I want LINK_CUT and STORE_PARTITION to actually fire real iptables rules over SSH instead of always recording SKIPPED, so a full chaos plan (not just the bounce/kill family) can be run against a real external cluster.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshNetworkFaultInjector.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshInventoryClusterTarget.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/ManagedRoleSpec.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpec.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/cli/ChaosCommand.java`",
+        "`gimle-holmgang/compose/ssh-remote/Dockerfile`"
+      ],
+      "testCoverageDetail": "`SshNetworkFaultInjectorTest` (exact iptables argv for cutControlPlaneFromStores/cutStoreFromPeers, sudo prefixing, heal() reversal), `SshInventoryClusterTargetTest` (faults() presence, requireStorePartitionSupport() validation); end-to-end against a real sshd container granted CAP_NET_ADMIN via `gimle-holmgang`'s `RagnarokFirewallFaultIT` (-Pvalidation, opt-in), which drives a real cutControlPlaneFromStores over SSH and asserts the resulting iptables rule is present via `iptables -C`, then asserts heal() removes it.",
+      "gherkinSteps": [
+        "Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial (unit + one real-SSH mechanism IT; not exercised through a full ragnarok chaos run against a live multi-store cluster)"
     }
   ]
 }
