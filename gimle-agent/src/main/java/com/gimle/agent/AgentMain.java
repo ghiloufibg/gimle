@@ -932,6 +932,12 @@ public final class AgentMain {
     observation.put("queueDepth", instance.queueDepth);
     observation.put("ports", instance.ports);
     observation.put("volumeUsageBytes", instance.volumeUsageBytes);
+    // Absent until this worker's own Hello handshake arrives (see the connection-reader loop
+    // that sets fabricWorkerId) -- omitted entirely rather than sent null, the same "present only
+    // when known" convention every other optional field on this map already follows.
+    if (instance.fabricWorkerId != null) {
+      observation.put("workerId", instance.fabricWorkerId);
+    }
     return observation;
   }
 

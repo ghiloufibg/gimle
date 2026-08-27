@@ -17,6 +17,7 @@ interface RawStatefulSetInstance {
     queueDepth: number;
     cpuMillicoresUsed: number;
     memoryBytesUsed: number;
+    workerId?: string;
   };
 }
 interface RawStatefulSet {
@@ -39,6 +40,7 @@ const UNOBSERVED: StatefulSetInstance["observation"] = {
   queueDepth: 0,
   cpuMillicoresUsed: 0,
   memoryBytesUsed: 0,
+  workerId: null,
 };
 
 function mapStatefulSet(raw: RawStatefulSet): StatefulSet {
@@ -47,7 +49,12 @@ function mapStatefulSet(raw: RawStatefulSet): StatefulSet {
     instances: raw.instances.map((i) => ({
       instanceIndex: i.instanceIndex,
       nodeId: i.nodeId,
-      observation: (i.observation ?? UNOBSERVED) as StatefulSetInstance["observation"],
+      observation: i.observation
+        ? ({
+            ...i.observation,
+            workerId: i.observation.workerId ?? null,
+          } as StatefulSetInstance["observation"])
+        : UNOBSERVED,
     })),
     unplacedCount: raw.unplacedCount,
   };

@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 639,
+    "totalRequirements": 640,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 516,
+    "notCoveredByAutomatedTest": 517,
     "releaseReadinessPercent": 19.2
   },
   "items": [
@@ -7029,8 +7029,19 @@
       "id": "GIMLE-639",
       "module": "gimle-mimir",
       "category": "State Store",
-      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race",
-      "step": "Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then exactly one of the two requests succeeds with 200 and the other is refused with 409, and the final state exactly matches whichever request won. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create.",
+      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race",
+      "step": "Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-640",
+      "module": "gimle-console",
+      "category": "Observability",
+      "feature": "Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker",
+      "step": "Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API. Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value. Given an instance detail page shows a real workerId, When the operator clicks \"Worker metrics\" or \"Worker traces\", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

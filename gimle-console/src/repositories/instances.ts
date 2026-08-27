@@ -36,6 +36,7 @@ function flatten(): ModuleInstance[] {
         queueDepth: inst.observation.queueDepth,
         cpuMillicoresUsed: inst.observation.cpuMillicoresUsed,
         memoryBytesUsed: inst.observation.memoryBytesUsed,
+        workerId: inst.observation.workerId,
       });
     }
   }

@@ -4,8 +4,9 @@ import { useInstancesStore } from "@/stores/useInstancesStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { LifecycleBadge, StatusDot } from "@/components/status";
 import { Button } from "@/components/ui/button";
+import { joinWorkerProcessId } from "@/components/process-picker";
 import { fmtBytes, fmtMillicores } from "@/lib/format";
-import { FileText } from "lucide-react";
+import { Activity, FileText, Waypoints } from "lucide-react";
 
 export const Route = createFileRoute("/instances/$name/$idx")({
   head: ({ params }) => ({
@@ -81,6 +82,34 @@ function InstanceDetail() {
                 View logs
               </Link>
             </Button>
+            {r.workerId && (
+              <>
+                <Button variant="outline" size="sm" asChild>
+                  <Link
+                    to="/metrics"
+                    search={{
+                      processKind: "WORKER" as const,
+                      processId: joinWorkerProcessId(r.nodeId, r.workerId),
+                    }}
+                  >
+                    <Activity className="h-4 w-4" />
+                    Worker metrics
+                  </Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link
+                    to="/traces"
+                    search={{
+                      processKind: "WORKER" as const,
+                      processId: joinWorkerProcessId(r.nodeId, r.workerId),
+                    }}
+                  >
+                    <Waypoints className="h-4 w-4" />
+                    Worker traces
+                  </Link>
+                </Button>
+              </>
+            )}
           </>
         }
       />
@@ -114,6 +143,7 @@ function InstanceDetail() {
             </Link>
           }
         />
+        <StatCell label="Worker" value={r.workerId ?? "—"} mono />
         <StatCell label="Tenant" value={r.tenantId ?? "—"} mono />
       </div>
 

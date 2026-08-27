@@ -125,6 +125,14 @@ const MODULE_NAMES = [
   "quota-enforcer",
 ];
 
+// A worker JVM's own id, exactly as reported in its Hello handshake -- only assigned once an
+// instance is actually alive in a worker (never for one still INSTALLED/UNINSTALLED, which has no
+// worker JVM yet or anymore), matching AgentMain#observationJson's own "present only once known"
+// convention.
+function fixtureWorkerId(alive: boolean): string | null {
+  return alive ? `worker-${intBetween(1000, 9999)}` : null;
+}
+
 function makeInstance(idx: number, nodeId: string): DeploymentInstance {
   const state = weightedLifecycle();
   const active = state === "ACTIVE";
@@ -141,6 +149,7 @@ function makeInstance(idx: number, nodeId: string): DeploymentInstance {
       queueDepth: active ? intBetween(0, 25) : 0,
       cpuMillicoresUsed: active ? intBetween(50, 1500) : intBetween(0, 30),
       memoryBytesUsed: intBetween(64, 1024) * 1024 * 1024,
+      workerId: fixtureWorkerId(alive),
     },
   };
 }
@@ -176,9 +185,7 @@ function limitRangeViolationFixture(): Pick<
   const violating = rand() < 0.08;
   return {
     limitRangeViolating: violating,
-    limitRangeViolationReason: violating
-      ? "request memory 512Mi above maximum 256Mi"
-      : undefined,
+    limitRangeViolationReason: violating ? "request memory 512Mi above maximum 256Mi" : undefined,
   };
 }
 
@@ -219,6 +226,7 @@ export const jobs: Job[] = Array.from({ length: 12 }, (_, i) => {
             queueDepth: 0,
             cpuMillicoresUsed: intBetween(50, 800),
             memoryBytesUsed: intBetween(64, 512) * 1024 * 1024,
+            workerId: fixtureWorkerId(true),
           },
         }
       : null;
@@ -284,6 +292,7 @@ function makeDaemonSetInstance(nodeId: string): DaemonSetInstance {
       queueDepth: active ? intBetween(0, 5) : 0,
       cpuMillicoresUsed: active ? intBetween(20, 400) : intBetween(0, 20),
       memoryBytesUsed: intBetween(32, 256) * 1024 * 1024,
+      workerId: fixtureWorkerId(alive),
     },
   };
 }
@@ -328,6 +337,7 @@ function makeStatefulSetInstance(idx: number, nodeId: string): StatefulSetInstan
       queueDepth: active ? intBetween(0, 15) : 0,
       cpuMillicoresUsed: active ? intBetween(50, 800) : intBetween(0, 30),
       memoryBytesUsed: intBetween(128, 2048) * 1024 * 1024,
+      workerId: fixtureWorkerId(alive),
     },
   };
 }

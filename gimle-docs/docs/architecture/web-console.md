@@ -70,8 +70,15 @@ before the UI did:
   real node list, `FAFNIR`/`STORE` are a plain editable address field since the console has no
   equivalent same-origin trick for either, and `WORKER` combines that same node dropdown with a
   free-text `workerId` field into the `{nodeId}:{workerId}` `processId` shape a worker JVM's own
-  shipped data uses (see [Observability](./observability.md)) — no worker-discovery API exists
-  either, so the operator supplies the id from elsewhere (a log line, the CLI).
+  shipped data uses (see [Observability](./observability.md)) — still the only way to type one in
+  cold, since no API enumerates every `workerId` a node currently hosts. What no longer requires
+  typing anything in at all: every instance-carrying screen (Instances, Deployments, an instance's
+  own detail page) now surfaces that instance's own `workerId` alongside its node, reported by the
+  worker's own `Hello` handshake with its agent and threaded through the same heartbeat path
+  `nodeId`/`lifecycleState` already ride — the instance detail page's "Worker metrics"/"Worker
+  traces" buttons deep-link straight into this same picker's `WORKER` target pre-filled with that
+  instance's real `nodeId:workerId`, so the picker's free-text field stays a fallback for a worker
+  with no instance in view, not the only path in.
 - **Traces** (`GET /traces-history/{processKind}/{processId}`, same envelope and process-picker
   pattern as metrics history): a flat, sortable span table (trace id, span name, kind, status,
   time) — not a flame graph or waterfall, since the wire shape carries no span duration or start

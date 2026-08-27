@@ -3506,7 +3506,8 @@ public final class ApiServer implements AutoCloseable {
         numberField(map, "memoryBytesUsed", 0L).longValue(),
         numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
         portsFromJson(map.get("ports")),
-        numberField(map, "volumeUsageBytes", 0L).longValue());
+        numberField(map, "volumeUsageBytes", 0L).longValue(),
+        Optional.ofNullable((String) map.get("workerId")));
   }
 
   /** {@code ports}, when present, is a vessel instance's own declared-port-name -> number map. */
@@ -3543,6 +3544,7 @@ public final class ApiServer implements AutoCloseable {
     if (obs.volumeUsageBytes() > 0) {
       map.put("volumeUsageBytes", obs.volumeUsageBytes());
     }
+    obs.workerId().ifPresent(id -> map.put("workerId", id));
     return map;
   }
 

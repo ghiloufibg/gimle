@@ -1,5 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { z } from "zod";
 import {
   Cell,
   Pie,
@@ -23,7 +24,21 @@ import { useOverviewStore } from "@/stores/useOverviewStore";
 import { useTenantsStore } from "@/stores/useTenantsStore";
 import type { LifecycleState, ProcessTarget } from "@/types";
 
+// Exported for other routes to build a deep link into a specific process' history (e.g. an
+// instance detail page linking to its own worker's metrics) without hand-assembling search
+// params. A bare /metrics navigation (typed, bookmarked, or shared with no query string) falls
+// back to the default target rather than throwing out of validateSearch, the same posture
+// routes/logs.tsx's own searchSchemaWithFallback takes.
+export const processTargetSearchSchema = z.object({
+  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER"]),
+  processId: z.string(),
+});
+export const processTargetSearchSchemaWithFallback = processTargetSearchSchema.catch(() =>
+  defaultProcessTarget(),
+);
+
 export const Route = createFileRoute("/metrics")({
+  validateSearch: (search) => processTargetSearchSchemaWithFallback.parse(search),
   head: () => ({
     meta: [
       { title: "Metrics — Gimlé Console" },
@@ -100,7 +115,20 @@ function Bullet({
 
 function Metrics() {
   const s = useOverviewStore();
-  const [historyTarget, setHistoryTarget] = useState<ProcessTarget>(defaultProcessTarget);
+  const search = Route.useSearch();
+  const navigate = useNavigate();
+  const [historyTarget, setHistoryTarget] = useState<ProcessTarget>(search);
+  // Deep-linking a process in from elsewhere (e.g. an instance's own "view worker metrics" link)
+  // while this route is already mounted -- a bare useState initializer only ever runs once, so a
+  // second navigation to /metrics with a different search string needs this to actually update.
+  useEffect(() => {
+    setHistoryTarget(search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.processKind, search.processId]);
+  function updateHistoryTarget(t: ProcessTarget) {
+    setHistoryTarget(t);
+    navigate({ to: ".", search: t, replace: true });
+  }
   const tenants = useTenantsStore((t) => t.items);
   const loadTenants = useTenantsStore((t) => t.loadFirstPage);
 
@@ -557,7 +585,7 @@ function Metrics() {
               Process time series
             </h2>
           </div>
-          <ProcessPicker value={historyTarget} onChange={setHistoryTarget} />
+          <ProcessPicker value={historyTarget} onChange={updateHistoryTarget} />
         </div>
         <MetricsHistoryPanel
           key={`${historyTarget.processKind}:${historyTarget.processId}`}

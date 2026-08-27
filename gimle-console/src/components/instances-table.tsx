@@ -137,6 +137,7 @@ export function InstancesTable({
               <th className="px-2 py-1.5 font-medium">Idx</th>
               <th className="px-2 py-1.5 font-medium">Module</th>
               <th className="px-2 py-1.5 font-medium">Node</th>
+              <th className="px-2 py-1.5 font-medium">Worker</th>
               <th className="px-2 py-1.5 font-medium">Lifecycle</th>
               <th className="px-2 py-1.5 font-medium">A/R</th>
               <th className="px-2 py-1.5 font-medium text-right">req/s</th>
@@ -174,6 +175,7 @@ export function InstancesTable({
                     {r.nodeId}
                   </Link>
                 </td>
+                <td className="px-2 py-1.5 font-mono text-muted-foreground">{r.workerId ?? "—"}</td>
                 <td className="px-2 py-1.5">
                   <LifecycleBadge state={r.lifecycleState} />
                 </td>
@@ -205,7 +207,7 @@ export function InstancesTable({
             ))}
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">
                   No instances match the current filters.
                 </td>
               </tr>

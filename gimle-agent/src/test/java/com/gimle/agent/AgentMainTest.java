@@ -342,6 +342,35 @@ class AgentMainTest {
   }
 
   @Test
+  void observation_json_omits_worker_id_until_the_workers_hello_arrives() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "web-ui", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "STARTING";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertFalse(observation.containsKey("workerId"));
+  }
+
+  @Test
+  void observation_json_reports_the_workers_self_reported_id_once_its_hello_arrives() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "web-ui", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "ACTIVE";
+    instance.fabricWorkerId = "worker-4821";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals("worker-4821", observation.get("workerId"));
+  }
+
+  @Test
   void observation_json_reports_a_completed_job_run_as_alive_but_not_ready() {
     // Regression test locking in observationJson's own documented reasoning: alive is an exclusion
     // check ("not FAILED"), not an inclusion list, so a COMPLETED job run already reports

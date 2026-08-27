@@ -16,6 +16,7 @@ interface RawDaemonSetInstance {
     queueDepth: number;
     cpuMillicoresUsed: number;
     memoryBytesUsed: number;
+    workerId?: string;
   };
 }
 interface RawDaemonSet {
@@ -37,6 +38,7 @@ const UNOBSERVED: DaemonSetInstance["observation"] = {
   queueDepth: 0,
   cpuMillicoresUsed: 0,
   memoryBytesUsed: 0,
+  workerId: null,
 };
 
 function mapDaemonSet(raw: RawDaemonSet): DaemonSet {
@@ -50,7 +52,12 @@ function mapDaemonSet(raw: RawDaemonSet): DaemonSet {
     },
     instances: raw.instances.map((i) => ({
       nodeId: i.nodeId,
-      observation: (i.observation ?? UNOBSERVED) as DaemonSetInstance["observation"],
+      observation: i.observation
+        ? ({
+            ...i.observation,
+            workerId: i.observation.workerId ?? null,
+          } as DaemonSetInstance["observation"])
+        : UNOBSERVED,
     })),
   };
 }

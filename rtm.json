@@ -11044,10 +11044,10 @@
     {
       "id": "GIMLE-639",
       "module": "gimle-mimir",
-      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race",
+      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race",
       "category": "State Store",
-      "status": "New",
-      "statusNote": "closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard)",
+      "status": "Modified",
+      "statusNote": "closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard) -- corrected after real compile/test verification (blocked in the prior session by a sandbox-wide Maven/TLS misconfiguration, since fixed) proved the originally-claimed exactly-one-winner guarantee false for a versionless apply; the achievable guarantee (no lost update, no torn state) is what's actually implemented and tested now",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "Covered by a real 15x/5x-repeated concurrency test (ApiServerDeploymentConcurrencyTest) against a real in-process ApiServer/StoreClient/StateStore, but no Holmgang Cucumber .feature scenario exercises a racing apply/delete end to end against a real multi-node cluster yet.",
@@ -11057,7 +11057,27 @@
         "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
       ],
-      "otherTestCoverage": "ApiServerDeploymentConcurrencyTest (rewritten): 15 repetitions proving a deterministic exactly-one-winner outcome for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name."
+      "otherTestCoverage": "ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name."
+    },
+    {
+      "id": "GIMLE-640",
+      "module": "gimle-console",
+      "feature": "Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "closes the console-side discoverability gap the web-console design doc's own Metrics/Traces section documented (\"no worker-discovery API exists either, so the operator supplies the id from elsewhere\")",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by real Java unit tests (AgentMainTest, DomainCodecTest) and gimle-console Vitest repository tests, but no Holmgang Cucumber .feature scenario exercises the console UI's worker-id deep link against a real running cluster yet -- gimle-smoke-tests' GreeterClusterTopologyIT also runs the console's Playwright suite but does not yet assert this specific link.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-console/src/types/index.ts`, `components/process-picker.tsx`, `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`",
+        "`gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`"
+      ],
+      "otherTestCoverage": "AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged)."
     }
   ]
 }

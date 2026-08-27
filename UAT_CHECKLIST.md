@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 639
+- **Total requirements**: 640
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 516
+- **Not covered by automated test**: 517
 - **Release-readiness (automated coverage)**: 19.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 28 | 0 | 28 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 32 | 0 | 32 | 0.0% |
+| gimle-console | 33 | 0 | 33 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -724,7 +724,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-163 | RBAC Data Persistence (Roles, RoleBindings, Accounts) | Given a custom Role, RoleBinding, and Account; When put and a fresh StateStore instance opened; Then all three round-trip identically. | Yes |
 | [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
 | [ ] | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright. | No |
-| [ ] | GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race | Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then exactly one of the two requests succeeds with 200 and the other is refused with 409, and the final state exactly matches whichever request won. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. | No |
+| [ ] | GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. | No |
 
 #### Workload Lifecycle
 
@@ -1502,6 +1502,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | Given a read-only account's New Deployment submit is refused with 403, When the control plane's response comes back, Then a visible error toast appears -- the page's own text is no longer byte-for-byte identical before and after the submit. | No |
+
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-640 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API. Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value. Given an instance detail page shows a real workerId, When the operator clicks "Worker metrics" or "Worker traces", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing. | No |
 
 #### Web Console / Auth
 

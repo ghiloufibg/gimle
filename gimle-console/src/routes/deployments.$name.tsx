@@ -16,7 +16,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { fmtBytes, fmtMillicores } from "@/lib/format";
-import { Trash2, FileText } from "lucide-react";
+import { Trash2, FileText, Activity } from "lucide-react";
+import { joinWorkerProcessId } from "@/components/process-picker";
 import { toast } from "sonner";
 import type { AutoscalePolicy, DisruptionBudget } from "@/types";
 
@@ -156,6 +157,7 @@ function DeploymentDetail() {
             <tr className="text-left">
               <th className="px-2 py-1.5 font-medium">Idx</th>
               <th className="px-2 py-1.5 font-medium">Node</th>
+              <th className="px-2 py-1.5 font-medium">Worker</th>
               <th className="px-2 py-1.5 font-medium">Lifecycle</th>
               <th className="px-2 py-1.5 font-medium">A/R</th>
               <th className="px-2 py-1.5 font-medium text-right">req/s</th>
@@ -186,6 +188,9 @@ function DeploymentDetail() {
                     {i.nodeId}
                   </Link>
                 </td>
+                <td className="px-2 py-1.5 font-mono text-muted-foreground">
+                  {i.observation.workerId ?? "—"}
+                </td>
                 <td className="px-2 py-1.5">
                   <LifecycleBadge state={i.observation.lifecycleState} />
                 </td>
@@ -208,25 +213,40 @@ function DeploymentDetail() {
                   {fmtBytes(i.observation.memoryBytesUsed)}
                 </td>
                 <td className="px-2 py-1.5">
-                  <Link
-                    to="/logs"
-                    search={{
-                      kind: "instance",
-                      deploymentName: d.spec.name,
-                      instanceIndex: i.instanceIndex,
-                      category: "APPLICATION" as const,
-                    }}
-                    className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                  >
-                    <FileText className="h-3 w-3" />
-                    logs
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to="/logs"
+                      search={{
+                        kind: "instance",
+                        deploymentName: d.spec.name,
+                        instanceIndex: i.instanceIndex,
+                        category: "APPLICATION" as const,
+                      }}
+                      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                    >
+                      <FileText className="h-3 w-3" />
+                      logs
+                    </Link>
+                    {i.observation.workerId && (
+                      <Link
+                        to="/metrics"
+                        search={{
+                          processKind: "WORKER" as const,
+                          processId: joinWorkerProcessId(i.nodeId, i.observation.workerId),
+                        }}
+                        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                      >
+                        <Activity className="h-3 w-3" />
+                        metrics
+                      </Link>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
             {d.instances.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={10} className="px-4 py-6 text-center text-muted-foreground">
                   No placed instances.
                 </td>
               </tr>

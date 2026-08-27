@@ -653,7 +653,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | New | Not Covered | — |
 | GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | New | Not Covered | — |
 | GIMLE-638 | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | New | Not Covered | — |
-| GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race | New | Not Covered | — |
+| GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Modified | Not Covered | — |
+| GIMLE-640 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2733,13 +2734,13 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `AuthorizerTest` (a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all, a_controlplane_principal_may_never_write_or_delete_an_artifact, a_controlplane_principal_is_denied_every_non_artifact_resource); `PkiBootstrapMainTest#the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not`; `AndvariServerTlsTest#a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete`
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`
 
-#### GIMLE-639 — Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race
+#### GIMLE-639 — Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race
 
 - **Category**: State Store
-- **Status**: New  _(closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard))_
+- **Status**: Modified  _(closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard) -- corrected after real compile/test verification (blocked in the prior session by a sandbox-wide Maven/TLS misconfiguration, since fixed) proved the originally-claimed exactly-one-winner guarantee false for a versionless apply; the achievable guarantee (no lost update, no torn state) is what's actually implemented and tested now)_
 - **Coverage**: Not Covered
 - **Gap note**: Covered by a real 15x/5x-repeated concurrency test (ApiServerDeploymentConcurrencyTest) against a real in-process ApiServer/StoreClient/StateStore, but no Holmgang Cucumber .feature scenario exercises a racing apply/delete end to end against a real multi-node cluster yet.
-- **Other test coverage (non-Holmgang, informational only)**: ApiServerDeploymentConcurrencyTest (rewritten): 15 repetitions proving a deterministic exactly-one-winner outcome for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name.
+- **Other test coverage (non-Holmgang, informational only)**: ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name.
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/MutationOutcome.java`, `StateMutation.java`, `RaftNode.java`, `RaftCodec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StateSnapshot.java`, `StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
 
 ### gimle-fabric
@@ -5712,6 +5713,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged
 - **Source location(s)**: `gimle-console/src/routes/__root.tsx`, `gimle-console/src/components/ui/sonner.tsx`
 
+#### GIMLE-640 — Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker
+
+- **Category**: Observability
+- **Status**: New  _(closes the console-side discoverability gap the web-console design doc's own Metrics/Traces section documented ("no worker-discovery API exists either, so the operator supplies the id from elsewhere"))_
+- **Coverage**: Not Covered
+- **Gap note**: Covered by real Java unit tests (AgentMainTest, DomainCodecTest) and gimle-console Vitest repository tests, but no Holmgang Cucumber .feature scenario exercises the console UI's worker-id deep link against a real running cluster yet -- gimle-smoke-tests' GreeterClusterTopologyIT also runs the console's Playwright suite but does not yet assert this specific link.
+- **Other test coverage (non-Holmgang, informational only)**: AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged).
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-console/src/types/index.ts`, `components/process-picker.tsx`, `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`, `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`
+
 ### gimle-fafnir-console
 
 #### GIMLE-461 — Vault operator login/logout (session-cookie auth)
@@ -6776,7 +6786,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**516 of 639 requirements are Not Covered.**
+**517 of 640 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7080,6 +7090,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-331 | gimle-muninn | Age-based retention sweep | Observability | `RetentionSweeperTest#a_day_file_older_than_the_retention_window_is_deleted`, `#a_day_file_within_the_retention_window_survives`, `#sweeping_twice_is_idempotent...`, `#sweeping_a_data_root_that_does_not_exist_yet_is_a_no_op` |
 | GIMLE-339 | gimle-muninn | `/status` operational endpoint | Observability | `MuninnServerTest#a_fresh_server_defaults_to_plaintext_and_answers_status`, `#a_non_get_status_request_is_rejected` |
 | GIMLE-351 | gimle-observability | JFR-based per-module CPU/allocation attribution | Observability | `ThreadNameJfrAttributorTest#construction_and_shutdown_do_not_throw`, `#register_and_unregister_module_do_not_throw`, `#unregistering_a_module_never_registered_does_not_throw` (no test directly asserts a classified sample producing a counter increment — JFR event emission isn't driven from the test) |
+| GIMLE-640 | gimle-console | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Observability | AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged). |
 | GIMLE-097 | gimle-worker | Per-module CPU/memory/request-rate/error-rate metrics reporting (portable, no cgroup) | Observability / Cgroup Management | NONE recorded in the baseline |
 | GIMLE-129 | gimle-agent | `hs_err_pid*.log` crash-dump listing and fetch | Observability / Cgroup Management | `AgentLogServerTest#crash_dumps_are_listed_from_the_right_worker_directory_only`, `#crash_dumps_list_is_empty_when_the_worker_never_crashed`, `#a_crash_dump_is_fetched_with_its_exact_content_and_a_plain_text_content_type`, `#crash_dump_fetch_rejects_a_filename_that_does_not_match_the_expected_pattern` |
 | GIMLE-083 | gimle-worker | Per-instance MDC log tagging for lifecycle/hook/probe/request-dispatch logging | Observability / Internal-Infra | `BoundedModuleSchedulerTest#mdc_tags_are_visible_inside_a_tagged_submission`, `#empty_mdc_tags_leave_the_submission_untagged`; `InstanceTaggingServiceRegistryTest#registers_untagged_when_no_identity_is_known_for_the_owner`, `#registers_a_tagging_proxy_when_identity_is_known` |
@@ -7212,7 +7223,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-569 | gimle-skald | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | `SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest` |
 | GIMLE-618 | gimle-agent | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port) |
 | GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
-| GIMLE-639 | gimle-mimir | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete race | State Store | ApiServerDeploymentConcurrencyTest (rewritten): 15 repetitions proving a deterministic exactly-one-winner outcome for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. |
+| GIMLE-639 | gimle-mimir | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | State Store | ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
 | GIMLE-069 | gimle-os | Local-disk persistent volume allocation for StatefulSet-shaped instances | Storage | `LocalDiskVolumeManagerTest` (creates keyed directory, idempotent for same index, distinct dirs per index/statefulset, throws when exceeding usable space, release deletes contents, release of never-allocated is no-op) |
 | GIMLE-630 | gimle-module | Multi-volume modules: named volumes and dataDirectory(name) | Storage | `ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest` |
