@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-alpha.2</version>
+  </parent>
+
+  <artifactId>gimle-ragnarok</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Ragnarok</name>
+  <description>
+    The chaos-testing engine (Fenrir) and stress/load-testing engine (Surtr) as a shipping
+    library, decoupled from gimle-holmgang's own in-JVM test harness behind the ClusterTarget
+    seam so the same engines can eventually be pointed at a real, already-running cluster. Phase
+    1 of the extraction: the seam and the two engines move here unchanged in behavior; the
+    harness-only Loki network-fault interposition and process-control faults stay available only
+    to a ClusterTarget backed by a harness-owned cluster (gimle-holmgang's own GimleCluster) --
+    an adapter with no process control of its own reports that honestly rather than failing.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-testkit</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-mimir</artifactId>
+    </dependency>
+  </dependencies>
+</project>
