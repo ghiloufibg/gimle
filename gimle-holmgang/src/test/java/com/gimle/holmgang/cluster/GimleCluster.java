@@ -1501,9 +1501,7 @@ public final class GimleCluster implements AutoCloseable {
 
     @Override
     public Optional<WorkerHandle> workerFor(final String deploymentName, final int instanceIndex) {
-      return GimleCluster.this
-          .workerFor(deploymentName, instanceIndex)
-          .map(LocalWorkerHandle::new);
+      return GimleCluster.this.workerFor(deploymentName, instanceIndex).map(LocalWorkerHandle::new);
     }
 
     @Override

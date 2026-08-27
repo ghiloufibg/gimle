@@ -75,7 +75,9 @@ class RagnarokInventoryChaosIT {
   void startMachine() {
     workDir =
         Path.of(
-            "target", "holmgang", "ragnarok-inventory-chaos-" + Long.toHexString(System.nanoTime()));
+            "target",
+            "holmgang",
+            "ragnarok-inventory-chaos-" + Long.toHexString(System.nanoTime()));
     final Path keyDir = workDir.resolve("ssh-key");
     final Path publicKeyFile;
     try {
@@ -121,8 +123,7 @@ class RagnarokInventoryChaosIT {
     final int fafnirPort = machine.mappedFafnirPort();
     final int storeClientPort = machine.mappedStoreClientPort();
 
-    final Path targetFile =
-        writeTargetFile(sshPort, controlPlanePort, fafnirPort, storeClientPort);
+    final Path targetFile = writeTargetFile(sshPort, controlPlanePort, fafnirPort, storeClientPort);
 
     // Boot the trio in dependency order -- Ragnarök's own restart() is what launches each process
     // for the first time (no pidfile yet means "not alive"), exactly like a bounce's own restart
@@ -191,7 +192,10 @@ class RagnarokInventoryChaosIT {
   }
 
   private Path writeTargetFile(
-      final int sshPort, final int controlPlanePort, final int fafnirPort, final int storeClientPort) {
+      final int sshPort,
+      final int controlPlanePort,
+      final int fafnirPort,
+      final int storeClientPort) {
     final String storeDataDir = "/opt/gimle/data/store-0";
     final String fafnirDataDir = "/opt/gimle/data/fafnir-0";
     final String controlPlaneDataDir = "/opt/gimle/data/controlplane-0";
@@ -289,7 +293,8 @@ class RagnarokInventoryChaosIT {
     }
     if (jars.isEmpty()) {
       throw new HolmgangException(
-          "expected at least one .jar on the test JVM's own classpath, found none in: " + classpath);
+          "expected at least one .jar on the test JVM's own classpath, found none in: "
+              + classpath);
     }
     for (final Path jar : jars) {
       machine.copyHostFileToContainer(jar, RAGNAROK_LIB_DIR + "/" + jar.getFileName());
