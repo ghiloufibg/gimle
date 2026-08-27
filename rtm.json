@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 630,
+  "requirementCount": 635,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10977,6 +10977,21 @@
         "`gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`"
       ],
       "otherTestCoverage": "`AuthorizerTest` (a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all, a_controlplane_principal_may_never_write_or_delete_an_artifact, a_controlplane_principal_is_denied_every_non_artifact_resource); `PkiBootstrapMainTest#the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not`; `AndvariServerTlsTest#a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete`"
+    },
+    {
+      "id": "GIMLE-635",
+      "module": "gimle-hilmir",
+      "feature": "hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "a real bug fix -- hilmir's own dispatch never intercepted -h/--help at all, so enable/disable forwarded a bare -h into their extension's own flag parser or the unknown-extension branch instead of printing usage, unlike gimle-cli which already scopes help this way",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises the hilmir CLI's own argument parsing at all (Holmgang drives real clusters through the HTTP API and other CLIs' own commands, not hilmir's help text). To close: add a lightweight Holmgang scenario -- or accept this as a case plain-JUnit coverage in HilmirMainTest is the right level for, since it is pure CLI argument-parsing behavior with no cluster state involved.",
+      "sourceLocations": [
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java`"
+      ],
+      "otherTestCoverage": "`HilmirMainTest` (top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb, top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb, enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h, enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server, disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h, disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server)"
     }
   ]
 }

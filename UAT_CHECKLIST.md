@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 634
+- **Total requirements**: 635
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 511
+- **Not covered by automated test**: 512
 - **Release-readiness (automated coverage)**: 19.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -28,7 +28,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
 | gimle-cli | 27 | 0 | 27 | 0.0% |
-| gimle-hilmir | 31 | 0 | 31 | 0.0% |
+| gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 32 | 0 | 32 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
@@ -1410,6 +1410,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-410 | Doctor cluster-aware checks (`--server`, `--tenant`) | Given a coordinate not present in the registry, When "hilmir doctor my-module.jar --server host:port", Then REGISTRY_COORDINATE_NOT_FOUND (ERROR); an unreachable registry gives REGISTRY_UNREACHABLE (WARNING) instead of a hard failure. | No |
 | [ ] | GIMLE-411 | Manifest scaffolding (`hilmir init`) | Given a module-shaped jar with a detected LivenessProbe, When "hilmir init my-module.jar", Then both YAMLs written with the probe class filled confidently; existing deployment.yaml is never overwritten. | No |
 | [ ] | GIMLE-573 | Doctor advisory-only outbound-connection hazard detection | Given a module jar whose bytecode constructs a connecting java.net.Socket, opens a SocketChannel, or builds a java.net.http.HttpClient, When `hilmir doctor` analyzes it, Then it reports MAKES_OUTBOUND_CALLS at INFO severity, explaining that nothing on the platform restricts a module's outbound traffic today. Given a module jar with no outbound-connection call sites, When `hilmir doctor` analyzes it, Then MAKES_OUTBOUND_CALLS is not reported. | No |
+
+#### CLI UX
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | Given no other arguments, When hilmir is run with -h or --help as the verb, Then it prints the full usage text and exits 0 rather than the unknown-verb error. Given the enable or disable verb, When -h/--help appears as the extension name (e.g. hilmir enable -h), Then the scoped ENABLE_USAGE/DISABLE_USAGE text is printed and exits 0 rather than "unknown extension: -h". Given the enable gateway or disable gateway subcommand, When -h/--help appears anywhere in its own arguments (e.g. hilmir enable gateway -h), Then the scoped usage text is printed and exits 0 without requiring --server or reaching the extension's own flag parser. | No |
 
 #### Internal/Infra
 

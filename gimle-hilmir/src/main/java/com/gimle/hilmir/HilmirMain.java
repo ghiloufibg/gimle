@@ -174,6 +174,10 @@ public final class HilmirMain {
       throw new HilmirException(usage());
     }
     final String verb = args[0];
+    if (isHelpFlag(verb)) {
+      out.println(usage());
+      return 0;
+    }
     final List<String> rest = List.of(args).subList(1, args.length);
     return switch (verb) {
       case "validate" -> runValidate(rest, out);
@@ -309,11 +313,19 @@ public final class HilmirMain {
   }
 
   private static int handleEnable(final List<String> args, final PrintStream out) {
+    if (!args.isEmpty() && isHelpFlag(args.get(0))) {
+      out.println(ENABLE_USAGE);
+      return 0;
+    }
     if (args.isEmpty()) {
       throw new HilmirException(ENABLE_USAGE);
     }
     final String extension = args.get(0);
     final List<String> extensionArgs = args.subList(1, args.size());
+    if (containsHelpFlag(extensionArgs)) {
+      out.println(ENABLE_USAGE);
+      return 0;
+    }
     return switch (extension) {
       case "gateway" -> EnableGatewayCommand.run(extensionArgs, out);
       default ->
@@ -322,16 +334,33 @@ public final class HilmirMain {
   }
 
   private static int handleDisable(final List<String> args, final PrintStream out) {
+    if (!args.isEmpty() && isHelpFlag(args.get(0))) {
+      out.println(DISABLE_USAGE);
+      return 0;
+    }
     if (args.isEmpty()) {
       throw new HilmirException(DISABLE_USAGE);
     }
     final String extension = args.get(0);
     final List<String> extensionArgs = args.subList(1, args.size());
+    if (containsHelpFlag(extensionArgs)) {
+      out.println(DISABLE_USAGE);
+      return 0;
+    }
     return switch (extension) {
       case "gateway" -> DisableGatewayCommand.run(extensionArgs, out);
       default ->
           throw new HilmirException("unknown extension: " + extension + " (supported: gateway)");
     };
+  }
+
+  /** {@code -h}/{@code --help}, matching {@code gimle-cli}'s own help-flag convention. */
+  private static boolean isHelpFlag(final String token) {
+    return "-h".equals(token) || "--help".equals(token);
+  }
+
+  private static boolean containsHelpFlag(final List<String> args) {
+    return args.stream().anyMatch(HilmirMain::isHelpFlag);
   }
 
   private static int runDeploy(final List<String> args, final PrintStream out) {

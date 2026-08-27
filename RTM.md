@@ -649,6 +649,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | New | Not Covered | — |
 | GIMLE-633 | Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding | New | Not Covered | — |
 | GIMLE-634 | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | New | Not Covered | — |
+| GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -5235,6 +5236,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `RemoteDispatchTest.upgrade_cluster_dispatches_the_new_classpath_and_roles_to_every_machine`
 - **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/RemoteDispatch.java` (`upgradeCluster`), `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java` (`runUpgradeCluster`'s `--remote` branch), `gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`
 
+#### GIMLE-635 — hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token
+
+- **Category**: CLI UX
+- **Status**: New  _(a real bug fix -- hilmir's own dispatch never intercepted -h/--help at all, so enable/disable forwarded a bare -h into their extension's own flag parser or the unknown-extension branch instead of printing usage, unlike gimle-cli which already scopes help this way)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises the hilmir CLI's own argument parsing at all (Holmgang drives real clusters through the HTTP API and other CLIs' own commands, not hilmir's help text). To close: add a lightweight Holmgang scenario -- or accept this as a case plain-JUnit coverage in HilmirMainTest is the right level for, since it is pure CLI argument-parsing behavior with no cluster state involved.
+- **Other test coverage (non-Holmgang, informational only)**: `HilmirMainTest` (top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb, top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb, enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h, enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server, disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h, disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server)
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java`
+
 ### gimle-maven-plugin
 
 #### GIMLE-418 — `mvn gimle:agent` — spawn a real node agent (plus its worker command tail)
@@ -6726,7 +6736,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**511 of 634 requirements are Not Covered.**
+**512 of 635 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6809,6 +6819,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-385 | gimle-cli | RBAC role binding management | CLI / Security | `GimleCliTest.set_rolebinding_then_get_rolebindings_round_trips_then_delete` |
 | GIMLE-386 | gimle-cli | Operator account management | CLI / Security | `GimleCliTest.set_account_then_get_accounts_round_trips_and_never_leaks_the_password_hash` |
 | GIMLE-387 | gimle-cli | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | CLI / Security | NONE recorded in the baseline |
+| GIMLE-635 | gimle-hilmir | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | CLI UX | `HilmirMainTest` (top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb, top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb, enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h, enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server, disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h, disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server) |
 | GIMLE-107 | gimle-agent | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Cgroup Management | `ResourceLimitEnforcementTest#a_spawned_jvm_honors_the_computed_memory_and_processor_ceiling` (gimle-agent, real subprocess); `PortableJvmFlagsResourceLimiterTest` (gimle-os) |
 | GIMLE-108 | gimle-agent | Tier 3 isolation rejection | Cgroup Management / Config | NONE recorded in the baseline |
 | GIMLE-186 | gimle-fabric | Per-Endpoint Circuit Breaker | Circuit Breaking | `CircuitBreakerTest#opens_once_error_rate_crosses_threshold_over_the_window`, `#half_opens_after_cooldown_and_allows_exactly_one_trial`, `#half_open_success_closes_the_breaker`, `#half_open_failure_reopens_the_breaker`, `FabricServiceRegistryTest#a_failing_endpoints_breaker_opens_and_is_excluded` |

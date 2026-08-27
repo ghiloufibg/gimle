@@ -644,6 +644,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | Console | Complete | Partial |
 | GIMLE-633 | Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding | Security / RBAC | Complete | Yes |
 | GIMLE-634 | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | Security / RBAC | Complete | Yes |
+| GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | CLI UX | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -7325,6 +7326,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a topology declaring an already-running machine, When "hilmir upgrade-cluster -f topology.yaml --remote --new-classpath <cp>" dispatches to it, Then the identical local upgrade-cluster command runs there over SSH with the new classpath and requested roles.
+  ```
+
+#### GIMLE-635 — hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token
+
+- **Category**: CLI UX
+- **User story**: As an operator running hilmir enable/disable, I want -h or --help at any position in the command line to print the right usage text, so that hilmir enable gateway -h and hilmir enable -h behave the same way every other Gimle CLI already does instead of failing with a confusing "-h requires a value" or "unknown extension: -h" error.
+- **Status**: Fixed: HilmirMain#dispatch never intercepted -h/--help at all before its verb switch, so hilmir -h/--help fell through to the unknown-verb branch, and handleEnable/handleDisable treated a bare -h as the extension name (producing "unknown extension: -h (supported: gateway)") or, once past that, forwarded it into EnableGatewayCommand/DisableGatewayCommand's own ExtensionFlags parser, which rejected it as a flag missing its value ("-h requires a value") -- matching gimle-cli, which already special-cases isHelpFlag/containsHelpFlag before its own verb switch. dispatch now prints the full usage() and returns 0 when the verb itself is -h/--help; handleEnable/handleDisable now recognize -h/--help both as the extension-name position and anywhere in the extension's own args, printing ENABLE_USAGE/DISABLE_USAGE without ever reaching the extension's own flag parser or requiring --server.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java`
+- **Test coverage**: `HilmirMainTest` (top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb, top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb, enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h, enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server, disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h, disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server)
+- **Gherkin scenario**:
+  ```gherkin
+  Given no other arguments, When hilmir is run with -h or --help as the verb, Then it prints the full usage text and exits 0 rather than the unknown-verb error.
+  Given the enable or disable verb, When -h/--help appears as the extension name (e.g. hilmir enable -h), Then the scoped ENABLE_USAGE/DISABLE_USAGE text is printed and exits 0 rather than "unknown extension: -h".
+  Given the enable gateway or disable gateway subcommand, When -h/--help appears anywhere in its own arguments (e.g. hilmir enable gateway -h), Then the scoped usage text is printed and exits 0 without requiring --server or reaching the extension's own flag parser.
   ```
 
 ### gimle-maven-plugin

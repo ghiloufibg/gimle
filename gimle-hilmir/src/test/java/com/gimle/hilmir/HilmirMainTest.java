@@ -360,4 +360,53 @@ class HilmirMainTest {
     assertEquals(1, result.exitCode());
     assertTrue(result.err().contains("unknown extension: frobnicate"));
   }
+
+  @Test
+  void top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb() {
+    final Result result = run("-h");
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("usage: hilmir <verb> [args]"));
+    assertTrue(result.err().isEmpty());
+  }
+
+  @Test
+  void top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb() {
+    final Result result = run("--help");
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("usage: hilmir <verb> [args]"));
+  }
+
+  @Test
+  void enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h() {
+    final Result result = run("enable", "-h");
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("usage: hilmir enable gateway"));
+    assertTrue(result.err().isEmpty());
+  }
+
+  @Test
+  void enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server() {
+    // Without the fix this reaches EnableGatewayCommand's own flag parser, which rejects "-h" as
+    // a flag expecting a value rather than recognizing it as help.
+    final Result result = run("enable", "gateway", "-h");
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("usage: hilmir enable gateway"));
+    assertTrue(result.err().isEmpty());
+  }
+
+  @Test
+  void disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h() {
+    final Result result = run("disable", "-h");
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("usage: hilmir disable gateway"));
+    assertTrue(result.err().isEmpty());
+  }
+
+  @Test
+  void disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server() {
+    final Result result = run("disable", "gateway", "--help");
+    assertEquals(0, result.exitCode());
+    assertTrue(result.out().contains("usage: hilmir disable gateway"));
+    assertTrue(result.err().isEmpty());
+  }
 }
