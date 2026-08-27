@@ -88,6 +88,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.GetLimitRangeViolationReason r ->
           stringResult(store.limitRangeViolationReason(r.deploymentName()));
       case StoreRpc.IsNodeCordoned r -> new StoreRpc.BoolResult(store.isNodeCordoned(r.nodeId()));
+      case StoreRpc.GetNodeTaints r ->
+          new StoreRpc.StringSetResult(List.copyOf(store.getNodeTaints(r.nodeId())));
       case StoreRpc.IsCertificateRevoked r ->
           new StoreRpc.BoolResult(store.isCertificateRevoked(r.serialNumber()));
       case StoreRpc.ListRevokedCertificateSerials r ->

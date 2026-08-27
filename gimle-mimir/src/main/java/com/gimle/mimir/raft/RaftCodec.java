@@ -129,6 +129,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_WORKLOAD_TOKEN = 58;
   private static final byte MUT_REMOVE_WORKLOAD_TOKEN = 59;
   private static final byte MUT_PUT_JOB_RUN_SUMMARY = 60;
+  private static final byte MUT_PUT_NODE_TAINT = 61;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -532,6 +533,12 @@ public final class RaftCodec {
         out.writeUTF(m.nodeId());
         out.writeBoolean(m.cordoned());
       }
+      case StateMutation.PutNodeTaint m -> {
+        out.writeByte(MUT_PUT_NODE_TAINT);
+        out.writeUTF(m.nodeId());
+        out.writeUTF(m.tenantId());
+        out.writeBoolean(m.tainted());
+      }
       case StateMutation.PutCertificateRevocation m -> {
         out.writeByte(MUT_PUT_CERTIFICATE_REVOCATION);
         out.writeUTF(m.serialNumber());
@@ -724,6 +731,8 @@ public final class RaftCodec {
       case MUT_REMOVE_RECONCILER_INSTANCE_STATE ->
           new StateMutation.RemoveReconcilerInstanceState(in.readUTF(), in.readInt());
       case MUT_PUT_NODE_CORDON -> new StateMutation.PutNodeCordon(in.readUTF(), in.readBoolean());
+      case MUT_PUT_NODE_TAINT ->
+          new StateMutation.PutNodeTaint(in.readUTF(), in.readUTF(), in.readBoolean());
       case MUT_PUT_CERTIFICATE_REVOCATION ->
           new StateMutation.PutCertificateRevocation(in.readUTF(), in.readBoolean());
       case MUT_PUT_WORKLOAD_TOKEN ->
@@ -958,6 +967,14 @@ public final class RaftCodec {
       for (WorkloadTokenRecord record : snapshot.workloadTokens()) {
         DomainCodec.writeWorkloadTokenRecord(out, record);
       }
+      out.writeInt(snapshot.nodeTaints().size());
+      for (Map.Entry<String, Set<String>> e : snapshot.nodeTaints().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeInt(e.getValue().size());
+        for (String tenantId : e.getValue()) {
+          out.writeUTF(tenantId);
+        }
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1176,6 +1193,17 @@ public final class RaftCodec {
       for (int i = 0; i < workloadTokenCount; i++) {
         workloadTokens.add(DomainCodec.readWorkloadTokenRecord(in));
       }
+      Map<String, Set<String>> nodeTaints = new LinkedHashMap<>();
+      int nodeTaintCount = in.readInt();
+      for (int i = 0; i < nodeTaintCount; i++) {
+        String nodeId = in.readUTF();
+        int taintedTenantCount = in.readInt();
+        Set<String> tenantIds = new LinkedHashSet<>();
+        for (int j = 0; j < taintedTenantCount; j++) {
+          tenantIds.add(in.readUTF());
+        }
+        nodeTaints.put(nodeId, tenantIds);
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1213,7 +1241,8 @@ public final class RaftCodec {
           limitRanges,
           limitRangeViolations,
           revokedCertificateSerials,
-          workloadTokens);
+          workloadTokens,
+          nodeTaints);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

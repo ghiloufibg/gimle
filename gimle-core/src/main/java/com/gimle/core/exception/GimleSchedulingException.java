@@ -44,29 +44,29 @@ public class GimleSchedulingException extends RuntimeException {
   }
 
   /**
-   * A Tier 2/3 replica for a tenant couldn't be placed without co-residing on a node already
-   * running a different tenant's instance -- the node-level segregation enforced for tiers with a
-   * real process/kernel isolation boundary. Deliberately a hard policy, not a soft preference: this
-   * is never relaxed to let placement succeed anyway, so an operator who hits it needs to know
-   * exactly which node(s) and tenant(s) are blocking, not just that placement failed -- {@code
-   * conflictingTenantsByNode} is every otherwise-eligible node this replica could not use, mapped
-   * to the other tenant(s) already resident there, so the message names the specific conflict
-   * rather than describing the policy in the abstract.
+   * A replica couldn't be placed because every otherwise-eligible node is tainted for a tenant this
+   * deployment doesn't tolerate -- the Kubernetes node-taint/toleration analogue: an operator's
+   * per-node reservation, checked unconditionally across every isolation tier and workload kind
+   * (unlike the co-residency check this replaced, which only applied to Tier 2/3). Deliberately a
+   * hard policy, not a soft preference: this is never relaxed to let placement succeed anyway, so
+   * an operator who hits it needs to know exactly which node(s) and taint(s) are blocking, not just
+   * that placement failed -- {@code conflictingTaintsByNode} is every otherwise-eligible node this
+   * replica could not use, mapped to the tenant(s) it's tainted for, so the message names the
+   * specific conflict rather than describing the policy in the abstract.
    */
-  public static GimleSchedulingException tenantIsolationViolated(
-      String deploymentName, int instanceIndex, Map<String, Set<String>> conflictingTenantsByNode) {
+  public static GimleSchedulingException nodeTaintsExcludeTenant(
+      String deploymentName, int instanceIndex, Map<String, Set<String>> conflictingTaintsByNode) {
     StringBuilder detail = new StringBuilder();
     // TreeMap/TreeSet: deterministic message text regardless of the caller's own iteration order,
     // so this exception's message (and the durable event a caller may derive from it) doesn't
     // flap between otherwise-identical retries.
-    for (Map.Entry<String, Set<String>> entry :
-        new TreeMap<>(conflictingTenantsByNode).entrySet()) {
+    for (Map.Entry<String, Set<String>> entry : new TreeMap<>(conflictingTaintsByNode).entrySet()) {
       if (!detail.isEmpty()) {
         detail.append("; ");
       }
       detail
           .append(entry.getKey())
-          .append(" already hosts tenant(s) ")
+          .append(" is tainted for tenant(s) ")
           .append(String.join(", ", new TreeSet<>(entry.getValue())));
     }
     return new GimleSchedulingException(
@@ -74,8 +74,8 @@ public class GimleSchedulingException extends RuntimeException {
             + deploymentName
             + " instance "
             + instanceIndex
-            + " cannot be placed: tenant isolation forbids co-residing with a different tenant's"
-            + " instance, and every node with capacity and tier support already hosts one -- "
+            + " cannot be placed: every node with capacity and tier support is tainted for a"
+            + " different tenant -- "
             + detail);
   }
 

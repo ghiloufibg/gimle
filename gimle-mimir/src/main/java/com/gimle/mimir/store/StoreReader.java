@@ -67,6 +67,11 @@ public interface StoreReader {
 
   boolean isNodeCordoned(String nodeId);
 
+  /**
+   * Empty means the node is open to any tenant -- see {@code StateStore#putNodeTaint}'s javadoc.
+   */
+  Set<String> getNodeTaints(String nodeId);
+
   boolean isCertificateRevoked(String serialNumber);
 
   Set<String> listRevokedCertificateSerials();

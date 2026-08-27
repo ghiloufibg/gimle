@@ -9,20 +9,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Bin-packing across registered nodes' latest heartbeat capacity: first-fit-decreasing over free
- * {@code (memory, cpu)}, filtered by isolation-tier support, an operator's node-cordon flag, and,
- * if requested, anti-affinity against nodes already running another replica of the same deployment.
- * A pure function of its inputs -- it never reads the state store itself, so it's testable with
- * synthetic candidates and doesn't need a real module artifact to resolve a tier/resource request
- * against.
+ * {@code (memory, cpu)}, filtered by isolation-tier support, an operator's node-cordon flag, node
+ * taints/tenant tolerations, and, if requested, anti-affinity against nodes already running another
+ * replica of the same deployment. A pure function of its inputs -- it never reads the state store
+ * itself, so it's testable with synthetic candidates and doesn't need a real module artifact to
+ * resolve a tier/resource request against.
  *
  * <p>Cordoning is deliberately just an exclusion filter, evaluated right after the tier filter and
  * before every other constraint: it never evicts an instance already running on a cordoned node,
- * only keeps new placements off it. Preemption and taint/toleration-style soft constraints are out
- * of scope -- this is a binary "don't schedule here" flag, nothing more.
+ * only keeps new placements off it. Preemption is out of scope -- cordoning is a binary "don't
+ * schedule here" flag, nothing more.
  *
  * <p>{@link #eligibleNodes} is the same five-step eligibility filter {@link #place} applies,
  * extracted so a caller that wants "every survivor" rather than "one pick" -- {@code
@@ -64,12 +63,12 @@ public final class Scheduler {
   }
 
   /**
-   * {@code tenantId} enforces node-level tenant segregation for {@code TIER_2}/{@code TIER_3}
-   * placements only: a candidate already hosting a *different* tenant's instance is excluded
-   * outright, the same "reject, don't silently violate" posture anti-affinity already uses above.
-   * Absent, or for {@code TIER_1}, this filter is a no-op -- Tier 1 density packing across separate
-   * deployments isn't implemented anywhere in this codebase today, so there is nothing for a
-   * same-node Tier 1 exclusion to protect against yet.
+   * {@code tenantId} is checked against every candidate's node taints (an operator's per-node
+   * tenant reservation via {@code StateStore#putNodeTaint}, the Kubernetes taint/toleration
+   * analogue) unconditionally across every isolation tier: a candidate tainted for one or more
+   * tenants is excluded unless {@code tenantId} is present and tolerates (is a member of) that
+   * taint set, the same "reject, don't silently violate" posture anti-affinity already uses above.
+   * An untainted node (the common case) admits any tenant, including an untenanted deployment.
    */
   public String place(
       String deploymentName,
@@ -120,12 +119,12 @@ public final class Scheduler {
   /**
    * {@code stickyNodeId} is a {@code StatefulSet} index's sticky node binding: when present, this
    * collapses the entire eligibility/bin-packing chain above to "is {@code stickyNodeId} itself
-   * still eligible? Y/N" -- tier, cordon, tenant isolation, and required labels are all still
-   * checked (they're properties of the node itself), but {@code antiAffinityAcrossNodes} and
-   * bin-packing candidate selection are both skipped entirely: there is only ever one candidate
-   * under consideration, never a choice among several, so "exclude nodes already running this
-   * deployment" and "prefer the roomiest node" have nothing to apply to. Never falls back to a
-   * different node if the sticky one fails eligibility -- see {@link
+   * still eligible? Y/N" -- tier, cordon, node taints, and required labels are all still checked
+   * (they're properties of the node itself), but {@code antiAffinityAcrossNodes} and bin-packing
+   * candidate selection are both skipped entirely: there is only ever one candidate under
+   * consideration, never a choice among several, so "exclude nodes already running this deployment"
+   * and "prefer the roomiest node" have nothing to apply to. Never falls back to a different node
+   * if the sticky one fails eligibility -- see {@link
    * GimleSchedulingException#stickyNodeUnavailable} for why that's the deliberate behavior, not a
    * gap.
    */
@@ -163,18 +162,14 @@ public final class Scheduler {
       throw GimleSchedulingException.antiAffinityViolated(deploymentName, instanceIndex);
     }
 
-    List<NodeCandidate> tenantEligible = filterByTenant(affinityEligible, tier, tenantId);
-    if (enforcesTenantIsolation(tier, tenantId)
-        && tenantEligible.isEmpty()
-        && !affinityEligible.isEmpty()) {
-      throw GimleSchedulingException.tenantIsolationViolated(
-          deploymentName,
-          instanceIndex,
-          conflictingTenantsByNode(affinityEligible, tenantId.get()));
+    List<NodeCandidate> taintEligible = filterByTaint(affinityEligible, tenantId);
+    if (taintEligible.isEmpty() && !affinityEligible.isEmpty()) {
+      throw GimleSchedulingException.nodeTaintsExcludeTenant(
+          deploymentName, instanceIndex, conflictingTaintsByNode(affinityEligible, tenantId));
     }
 
-    List<NodeCandidate> labelEligible = filterByLabels(tenantEligible, requiredNodeLabels);
-    if (!requiredNodeLabels.isEmpty() && labelEligible.isEmpty() && !tenantEligible.isEmpty()) {
+    List<NodeCandidate> labelEligible = filterByLabels(taintEligible, requiredNodeLabels);
+    if (!requiredNodeLabels.isEmpty() && labelEligible.isEmpty() && !taintEligible.isEmpty()) {
       throw GimleSchedulingException.requiredLabelsUnsatisfied(deploymentName, instanceIndex);
     }
 
@@ -195,11 +190,11 @@ public final class Scheduler {
   }
 
   /**
-   * The same five-step eligibility filter {@link #place} applies (tier, cordon, anti-affinity,
-   * tenant isolation, required labels), minus its final bin-packing pick -- every surviving
-   * candidate is returned, never just one. Never throws: an empty result is an ordinary "no node is
-   * eligible right now" outcome for a caller like {@code DaemonSetReconciler} that places on every
-   * survivor rather than needing exactly one.
+   * The same five-step eligibility filter {@link #place} applies (tier, cordon, anti-affinity, node
+   * taints, required labels), minus its final bin-packing pick -- every surviving candidate is
+   * returned, never just one. Never throws: an empty result is an ordinary "no node is eligible
+   * right now" outcome for a caller like {@code DaemonSetReconciler} that places on every survivor
+   * rather than needing exactly one.
    */
   public List<NodeCandidate> eligibleNodes(
       IsolationTier tier,
@@ -211,8 +206,8 @@ public final class Scheduler {
     List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
     List<NodeCandidate> affinityEligible =
         filterByAntiAffinity(uncordonedEligible, antiAffinityAcrossNodes);
-    List<NodeCandidate> tenantEligible = filterByTenant(affinityEligible, tier, tenantId);
-    return filterByLabels(tenantEligible, requiredNodeLabels);
+    List<NodeCandidate> taintEligible = filterByTaint(affinityEligible, tenantId);
+    return filterByLabels(taintEligible, requiredNodeLabels);
   }
 
   private String placeSticky(
@@ -228,8 +223,8 @@ public final class Scheduler {
         candidates.stream().filter(c -> c.nodeId().equals(stickyNodeId)).toList();
     List<NodeCandidate> tierEligible = filterByTier(tier, stickyOnly);
     List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
-    List<NodeCandidate> tenantEligible = filterByTenant(uncordonedEligible, tier, tenantId);
-    List<NodeCandidate> labelEligible = filterByLabels(tenantEligible, requiredNodeLabels);
+    List<NodeCandidate> taintEligible = filterByTaint(uncordonedEligible, tenantId);
+    List<NodeCandidate> labelEligible = filterByLabels(taintEligible, requiredNodeLabels);
 
     long requiredMemory = resourceRequest.memoryBytes();
     long requiredCpu = resourceRequest.cpuMillicores();
@@ -263,38 +258,29 @@ public final class Scheduler {
     return candidates.stream().filter(c -> !c.alreadyRunsThisDeployment()).toList();
   }
 
-  private static boolean enforcesTenantIsolation(IsolationTier tier, Optional<String> tenantId) {
-    return tenantId.isPresent() && (tier == IsolationTier.TIER_2 || tier == IsolationTier.TIER_3);
-  }
-
-  private static List<NodeCandidate> filterByTenant(
-      List<NodeCandidate> candidates, IsolationTier tier, Optional<String> tenantId) {
-    if (!enforcesTenantIsolation(tier, tenantId)) {
-      return candidates;
-    }
-    String thisTenant = tenantId.get();
+  private static List<NodeCandidate> filterByTaint(
+      List<NodeCandidate> candidates, Optional<String> tenantId) {
     return candidates.stream()
-        .filter(c -> c.tenantsPresent().stream().allMatch(thisTenant::equals))
+        .filter(
+            c ->
+                c.taints().isEmpty()
+                    || (tenantId.isPresent() && c.taints().contains(tenantId.get())))
         .toList();
   }
 
   /**
-   * The tenant-isolation rejection's own explanatory detail: every candidate {@link
-   * #filterByTenant} would exclude for {@code thisTenant} (i.e. one hosting at least one other
-   * tenant already), mapped to exactly which other tenant(s) are there -- named specifics for
-   * {@link GimleSchedulingException#tenantIsolationViolated}'s message, not just "some node
-   * conflicts."
+   * The taint rejection's own explanatory detail: every candidate {@link #filterByTaint} would
+   * exclude for {@code tenantId} (i.e. tainted for a tenant this deployment doesn't tolerate),
+   * mapped to exactly which tenant(s) it's tainted for -- named specifics for {@link
+   * GimleSchedulingException#nodeTaintsExcludeTenant}'s message, not just "some node conflicts."
    */
-  private static Map<String, Set<String>> conflictingTenantsByNode(
-      List<NodeCandidate> candidates, String thisTenant) {
+  private static Map<String, Set<String>> conflictingTaintsByNode(
+      List<NodeCandidate> candidates, Optional<String> tenantId) {
     Map<String, Set<String>> conflicts = new LinkedHashMap<>();
     for (NodeCandidate candidate : candidates) {
-      Set<String> otherTenants =
-          candidate.tenantsPresent().stream()
-              .filter(tenant -> !tenant.equals(thisTenant))
-              .collect(Collectors.toSet());
-      if (!otherTenants.isEmpty()) {
-        conflicts.put(candidate.nodeId(), otherTenants);
+      boolean tolerates = tenantId.isPresent() && candidate.taints().contains(tenantId.get());
+      if (!candidate.taints().isEmpty() && !tolerates) {
+        conflicts.put(candidate.nodeId(), candidate.taints());
       }
     }
     return conflicts;

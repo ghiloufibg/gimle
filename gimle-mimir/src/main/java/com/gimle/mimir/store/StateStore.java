@@ -102,6 +102,7 @@ public final class StateStore implements StoreReader {
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
   private final Map<String, Boolean> nodeCordons = new ConcurrentHashMap<>();
+  private final Map<String, Set<String>> nodeTaints = new ConcurrentHashMap<>();
   private final Map<String, Boolean> revokedCertificateSerials = new ConcurrentHashMap<>();
   private final Map<String, WorkloadTokenRecord> workloadTokens = new ConcurrentHashMap<>();
   private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
@@ -790,6 +791,37 @@ public final class StateStore implements StoreReader {
     return nodeCordons.getOrDefault(nodeId, Boolean.FALSE);
   }
 
+  // ---- node taint bookkeeping ----
+
+  /**
+   * Operator-set "this node is reserved for these tenants only" flag, read by {@code Scheduler}'s
+   * taint filter stage -- an empty set (the default, for every node no operator has ever tainted)
+   * means the node is open to any tenant, matching a fresh Kubernetes cluster's own default of no
+   * built-in tenant isolation. A non-empty set excludes every candidate whose own {@code tenantId}
+   * isn't a member of it, replacing the old blanket "no other tenant may already be present"
+   * co-residency filter with a real, deliberately-declared boundary that doesn't degrade as the
+   * number of distinct tenants on a node grows. Same present-means-added shape as {@link
+   * #putNodeCordon}, except keyed by (nodeId, tenantId) pair rather than a single boolean, since
+   * one node may be dedicated to more than one tenant.
+   */
+  public void putNodeTaint(String nodeId, String tenantId, boolean tainted) {
+    if (!tainted) {
+      Set<String> existing = nodeTaints.get(nodeId);
+      if (existing != null) {
+        existing.remove(tenantId);
+        if (existing.isEmpty()) {
+          nodeTaints.remove(nodeId);
+        }
+      }
+      return;
+    }
+    nodeTaints.computeIfAbsent(nodeId, key -> ConcurrentHashMap.newKeySet()).add(tenantId);
+  }
+
+  public Set<String> getNodeTaints(String nodeId) {
+    return Set.copyOf(nodeTaints.getOrDefault(nodeId, Set.of()));
+  }
+
   // ---- certificate revocation bookkeeping ----
 
   /**
@@ -1156,7 +1188,14 @@ public final class StateStore implements StoreReader {
         List.copyOf(limitRanges.values()),
         Map.copyOf(limitRangeViolations),
         Set.copyOf(revokedCertificateSerials.keySet()),
-        List.copyOf(workloadTokens.values()));
+        List.copyOf(workloadTokens.values()),
+        nodeTaintsSnapshot());
+  }
+
+  /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
+  private Map<String, Set<String>> nodeTaintsSnapshot() {
+    return nodeTaints.entrySet().stream()
+        .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
   }
 
   /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
@@ -1211,6 +1250,11 @@ public final class StateStore implements StoreReader {
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
     List.copyOf(nodeCordons.keySet()).forEach(nodeId -> putNodeCordon(nodeId, false));
+    List.copyOf(nodeTaints.entrySet())
+        .forEach(
+            e ->
+                List.copyOf(e.getValue())
+                    .forEach(tenantId -> putNodeTaint(e.getKey(), tenantId, false)));
     List.copyOf(revokedCertificateSerials.keySet())
         .forEach(serial -> putCertificateRevocation(serial, false));
     List.copyOf(workloadTokens.keySet()).forEach(this::removeWorkloadToken);
@@ -1273,6 +1317,11 @@ public final class StateStore implements StoreReader {
     snapshot.tenants().forEach(this::putTenant);
     snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
     snapshot.cordonedNodes().forEach(nodeId -> putNodeCordon(nodeId, true));
+    snapshot
+        .nodeTaints()
+        .forEach(
+            (nodeId, tenantIds) ->
+                tenantIds.forEach(tenantId -> putNodeTaint(nodeId, tenantId, true)));
     snapshot.revokedCertificateSerials().forEach(serial -> putCertificateRevocation(serial, true));
     snapshot.workloadTokens().forEach(record -> putWorkloadToken(record, 0L));
     snapshot.configEntries().forEach(this::putConfigEntry);

@@ -272,14 +272,11 @@ class ServiceNetworkIT extends GreeterSmokeClusterSupport {
    * <p>Untenanted, not a second named tenant: {@code ServiceExport#permitsTenant} treats an
    * untenanted caller identically to an unauthorized one -- {@code Optional.empty()} can never
    * satisfy a restricted {@code allowedTenantIds} allow-list, so the denial this proves is exactly
-   * the same real check either way. A second named tenant was tried first and found to hit a real,
-   * separate, intentional scheduler policy instead: {@code NodeCandidate}'s own {@code
-   * tenantsPresent} enforces node-level tenant segregation for Tier 2 placements, so two different
-   * non-empty tenants can never co-reside on this fixture's single-node cluster -- {@code
-   * DeploymentReconciler} correctly refuses to place the second one, which is real, intentional
-   * behavior this scenario has no need to fight; an untenanted deployment is exempt from that
-   * filter entirely (empty tenant set), so it coexists with the tenant-scoped provider on the one
-   * node without needing a second agent.
+   * the same real check either way. Any two tenants (named or untenanted) can freely co-reside on
+   * this fixture's single-node cluster by default -- {@code NodeCandidate}'s own {@code taints}
+   * only excludes a tenant an operator has explicitly reserved a node against via {@code
+   * StateStore#putNodeTaint}, which this scenario never does, so an untenanted deployment coexists
+   * with the tenant-scoped provider on the one node without needing a second agent.
    *
    * <p>{@code ServiceExport#permitsTenant} is checked in two places: client-side, in {@code
    * FabricServiceRegistry#lookup} (filters a restricted candidate out before ever dialing it), and

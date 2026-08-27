@@ -1,5 +1,6 @@
 package com.gimle.cli;
 
+import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.time.Duration;
 import java.time.Instant;
@@ -11,7 +12,7 @@ import java.util.Map;
 
 /**
  * {@code get nodes}, {@code get node-assignments <nodeId>}, {@code cordon <nodeId>}, {@code
- * uncordon <nodeId>}.
+ * uncordon <nodeId>}, {@code taint <nodeId> <tenantId>}, {@code untaint <nodeId> <tenantId>}.
  */
 public final class NodesCommand {
 
@@ -57,6 +58,18 @@ public final class NodesCommand {
     out.println("node/" + nodeId + " uncordoned");
   }
 
+  public void taint(String nodeId, String tenantId) {
+    client.expectSuccess(
+        client.post("/nodes/" + nodeId + "/taint", Json.write(Map.of("tenantId", tenantId))));
+    out.println("node/" + nodeId + " tainted for tenant " + tenantId);
+  }
+
+  public void untaint(String nodeId, String tenantId) {
+    client.expectSuccess(
+        client.post("/nodes/" + nodeId + "/untaint", Json.write(Map.of("tenantId", tenantId))));
+    out.println("node/" + nodeId + " untainted for tenant " + tenantId);
+  }
+
   /**
    * Flattens each node's own {@code capabilities}/{@code capacity} JSON blobs into
    * table-column-friendly derived fields -- percent-used, human-readable byte/millicore totals, and
@@ -74,6 +87,7 @@ public final class NodesCommand {
       row.put("nodeId", node.get("nodeId"));
       row.put("tiers", String.join(",", supportedTiers(node)));
       row.put("cordoned", node.getOrDefault("cordoned", false));
+      row.put("taints", String.join(",", taints(node)));
       row.put("status", statusOf(node.get("lastHeartbeatAt")));
       row.put("lastHeartbeatAt", node.getOrDefault("lastHeartbeatAt", "-"));
 
@@ -121,6 +135,17 @@ public final class NodesCommand {
       List<String> names = new ArrayList<>();
       for (Object tier : tiers) {
         names.add(String.valueOf(tier));
+      }
+      return names;
+    }
+    return List.of();
+  }
+
+  private static List<String> taints(Map<String, Object> node) {
+    if (node.get("taints") instanceof List<?> taints) {
+      List<String> names = new ArrayList<>();
+      for (Object taint : taints) {
+        names.add(String.valueOf(taint));
       }
       return names;
     }

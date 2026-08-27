@@ -341,7 +341,8 @@ class RaftCodecTest {
             Set.of("0a1b2c"),
             List.of(
                 new WorkloadTokenRecord(
-                    "orders#node-1", "ab12cd", Optional.of("tenant-1"), "orders", 9_999L)));
+                    "orders#node-1", "ab12cd", Optional.of("tenant-1"), "orders", 9_999L)),
+            Map.of("node-1", Set.of("tenant-1", "tenant-2")));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -376,6 +377,7 @@ class RaftCodecTest {
     assertEquals(snapshot.revokedCertificateSerials(), decoded.revokedCertificateSerials());
     assertEquals(snapshot.workloadTokens(), decoded.workloadTokens());
     assertEquals(snapshot.jobRunSummaries(), decoded.jobRunSummaries());
+    assertEquals(snapshot.nodeTaints(), decoded.nodeTaints());
   }
 
   @Test

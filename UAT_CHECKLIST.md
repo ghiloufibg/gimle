@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 640
+- **Total requirements**: 641
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 517
+- **Not covered by automated test**: 518
 - **Release-readiness (automated coverage)**: 19.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 57 | 35 | 22 | 61.4% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 76 | 14 | 62 | 18.4% |
+| gimle-controlplane | 77 | 14 | 63 | 18.2% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -1012,6 +1012,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-566 | Service abstraction: stable name, CRUD API, and endpoint reconciliation | Given a Service "orders" selecting deployment "orders-service" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of "orders-service", Then GET /services/orders/endpoints returns that instance's real host:port. Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing. Given a Service posted with the same name twice, When the second POST carries a different deploymentNames/port, Then GET returns the second spec, replacing the first entirely. | Yes |
+
+#### Scheduler
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-641 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | Given an untainted node open to any tenant; When an operator taints it for tenant-a; Then a tenant-b replica is excluded from it and a tenant-a replica is still admitted; untainting clears the reservation. | No |
 
 #### Scheduling
 

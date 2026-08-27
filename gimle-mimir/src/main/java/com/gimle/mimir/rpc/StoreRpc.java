@@ -77,6 +77,7 @@ public sealed interface StoreRpc {
           ListAssignmentsFor,
           IsQuotaViolating,
           IsNodeCordoned,
+          GetNodeTaints,
           IsCertificateRevoked,
           ListRevokedCertificateSerials,
           GetWorkloadToken,
@@ -268,6 +269,11 @@ public sealed interface StoreRpc {
   record GetLimitRangeViolationReason(String deploymentName) implements Request {}
 
   record IsNodeCordoned(String nodeId) implements Request {}
+
+  /**
+   * Response reuses {@link StringSetResult} -- same shape as {@link ListRollingDaemonSetNodes}'s.
+   */
+  record GetNodeTaints(String nodeId) implements Request {}
 
   record IsCertificateRevoked(String serialNumber) implements Request {}
 

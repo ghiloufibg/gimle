@@ -650,6 +650,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-638 | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | Documentation / Examples | Complete | No |
 | GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | State Store | Complete | Yes |
 | GIMLE-640 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Observability | Complete | Yes |
+| GIMLE-641 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | Scheduler | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5097,6 +5098,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a StatefulSet index assigned to a node that has gone dark past nodeDarkTimeout + placementGracePeriod, When the reconciler ticks, Then that index's assignment is released while its sticky node binding survives, and the next tick re-places it on the same node once its heartbeat is fresh again.
   Given a StatefulSet index assigned to a node merely dark within the grace period, When the reconciler ticks, Then the assignment is left untouched -- a transient partition never relocates sticky data.
   Given a DaemonSet assignment evicted because its node fell out of eligibility, When the eviction is logged, Then the log line names the specific reason (heartbeat loss, cordon, or a placement-requirement mismatch), not just that an eviction happened.
+  ```
+
+#### GIMLE-641 — Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation)
+
+- **Category**: Scheduler
+- **User story**: As an operator, I want to reserve a node for one tenant so no other tenant's replica can land there, without that guarantee degrading as more tenants join the cluster.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `StateStore#putNodeTaint`/`#getNodeTaints`, `StateMutation.PutNodeTaint`, `Scheduler#filterByTaint`, `NodeCandidate#taints`, `ApiServer#handleTaint`, `GimleCli`/`NodesCommand` `taint`/`untaint` verbs
+- **Test coverage**: `SchedulerTest` (taint_excludes_a_node_tainted_for_a_different_tenant, taint_permits_a_node_tainted_for_the_same_tenant, taint_fails_outright_when_every_capable_node_is_tainted_for_a_different_tenant, taint_failure_names_the_specific_blocking_node_and_tenant, taint_failure_names_every_blocking_node_when_more_than_one_conflicts, taint_is_enforced_at_tier1_too_unlike_the_co_residency_check_it_replaced, an_untenanted_deployment_never_tolerates_a_taint, an_untainted_node_admits_any_tenant, eligible_nodes_applies_node_taints, sticky_placement_still_enforces_node_taints_on_the_sticky_node), `ApiServerTest#taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list`, `#untaint_endpoint_clears_the_reservation_for_that_tenant`, `#taint_endpoint_rejects_a_request_with_no_tenant_id`, `RaftCodecTest#round_trips_a_state_snapshot`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an untainted node open to any tenant; When an operator taints it for tenant-a; Then a tenant-b replica is excluded from it and a tenant-a replica is still admitted; untainting clears the reservation.
   ```
 
 ### gimle-fafnir

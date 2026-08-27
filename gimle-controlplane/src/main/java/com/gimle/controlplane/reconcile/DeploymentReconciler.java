@@ -668,22 +668,10 @@ public final class DeploymentReconciler {
   private List<NodeCandidate> buildCandidates(
       String deploymentName, Set<String> alsoRunningThisDeployment) {
     Set<String> nodesAlreadyRunningThisDeployment = new HashSet<>(alsoRunningThisDeployment);
-    // Every distinct tenantId already assigned to each node, across every deployment (not just
-    // this one) -- the scheduler needs the full picture to enforce node-level tenant segregation
-    // for Tier 2/3 placements.
-    Map<String, Set<String>> tenantsByNode = new HashMap<>();
     for (InstanceAssignment assignment : store.listAssignments()) {
       if (assignment.deploymentName().equals(deploymentName)) {
         nodesAlreadyRunningThisDeployment.add(assignment.nodeId());
       }
-      store
-          .getDeployment(assignment.deploymentName())
-          .flatMap(DeploymentSpec::tenantId)
-          .ifPresent(
-              tenantId ->
-                  tenantsByNode
-                      .computeIfAbsent(assignment.nodeId(), key -> new HashSet<>())
-                      .add(tenantId));
     }
 
     Instant now = clock.instant();
@@ -708,7 +696,7 @@ public final class DeploymentReconciler {
               registration.capabilities(),
               heartbeat.get().heartbeat().capacity(),
               nodesAlreadyRunningThisDeployment.contains(registration.nodeId()),
-              tenantsByNode.getOrDefault(registration.nodeId(), Set.of()),
+              store.getNodeTaints(registration.nodeId()),
               store.isNodeCordoned(registration.nodeId())));
     }
     return candidates;

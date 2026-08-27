@@ -3069,6 +3069,8 @@ public final class ApiServer implements AutoCloseable {
         case "assignments" -> handleAssignments(exchange, nodeId);
         case "cordon" -> handleCordon(exchange, nodeId, true);
         case "uncordon" -> handleCordon(exchange, nodeId, false);
+        case "taint" -> handleTaint(exchange, nodeId, true);
+        case "untaint" -> handleTaint(exchange, nodeId, false);
         case "events" -> handleAppendInstanceEvent(exchange);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
@@ -3262,6 +3264,30 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * Reserves (or releases) {@code nodeId} for one tenant -- the Kubernetes node-taint/toleration
+   * analogue described in {@code Scheduler}'s own javadoc: a tainted node excludes every tenant
+   * that isn't a member of its taint set from future placement, unconditionally across every
+   * isolation tier, until untainted. Never evicts an instance already running there, only keeps a
+   * non-tolerating tenant's new placements off it. Idempotent: tainting an already-tainted {@code
+   * (nodeId, tenantId)} pair, or untainting a pair that isn't tainted, is a no-op success.
+   */
+  private void handleTaint(HttpExchange exchange, String nodeId, boolean tainted)
+      throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Object tenantId = body.get("tenantId");
+    if (!(tenantId instanceof String tenantIdString) || tenantIdString.isBlank()) {
+      respond(exchange, 400, "missing tenantId");
+      return;
+    }
+    storeClient.propose(new StateMutation.PutNodeTaint(nodeId, tenantIdString, tainted));
+    respond(exchange, 200, "ok");
+  }
+
+  /**
    * Relays one worker-reported {@link InstanceEvent}, forwarded by its agent, into the durable
    * per-instance event log -- the {@code nodeId} in the URL is only used for the {@code NODE:WRITE}
    * self-service authorization {@link #handleNode} already applied; the event itself carries its
@@ -3424,6 +3450,8 @@ public final class ApiServer implements AutoCloseable {
         capabilities.put("labels", List.copyOf(registration.capabilities().labels()));
         node.put("capabilities", capabilities);
         node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
+        node.put(
+            "taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
         storeClient
             .getNodeHeartbeat(registration.nodeId())
             .ifPresent(

@@ -439,6 +439,18 @@ public sealed interface StateMutation extends RaftLogPayload {
   }
 
   /**
+   * Adds (or removes) one tenant from a node's taint set -- see {@code StateStore#putNodeTaint}'s
+   * own javadoc for the scheduling semantics this backs.
+   */
+  record PutNodeTaint(String nodeId, String tenantId, boolean tainted) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putNodeTaint(nodeId, tenantId, tainted);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
    * Marks (or clears) one issued certificate's serial number as revoked -- the portable revocation
    * answer for a compromised leaf: {@code ApiServer#resolvePrincipal} refuses a peer certificate
    * whose serial is on this list before any authorization runs, without CRL/OCSP infrastructure.

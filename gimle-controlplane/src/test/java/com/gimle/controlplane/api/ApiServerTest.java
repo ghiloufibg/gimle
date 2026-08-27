@@ -1141,6 +1141,72 @@ class ApiServerTest {
   }
 
   @Test
+  void taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list()
+      throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+
+    HttpResponse<String> taint =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/taint"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"tenantId\":\"tenant-a\"}"))
+                .build());
+
+    assertEquals(200, taint.statusCode());
+    assertEquals(Set.of("tenant-a"), store.getNodeTaints("node-a"));
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(List.of("tenant-a"), body.get(0).get("taints"));
+  }
+
+  @Test
+  void untaint_endpoint_clears_the_reservation_for_that_tenant() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/taint"))
+            .POST(HttpRequest.BodyPublishers.ofString("{\"tenantId\":\"tenant-a\"}"))
+            .build());
+
+    HttpResponse<String> untaint =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/untaint"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"tenantId\":\"tenant-a\"}"))
+                .build());
+
+    assertEquals(200, untaint.statusCode());
+    assertEquals(Set.of(), store.getNodeTaints("node-a"));
+  }
+
+  @Test
+  void taint_endpoint_rejects_a_request_with_no_tenant_id() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+
+    HttpResponse<String> taint =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/taint"))
+                .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                .build());
+
+    assertEquals(400, taint.statusCode());
+  }
+
+  @Test
   void register_and_heartbeat_are_reflected_in_the_store() throws Exception {
     HttpResponse<String> register =
         send(

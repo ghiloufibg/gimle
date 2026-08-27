@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 640,
+    "totalRequirements": 641,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 517,
+    "notCoveredByAutomatedTest": 518,
     "releaseReadinessPercent": 19.2
   },
   "items": [
@@ -7042,6 +7042,17 @@
       "category": "Observability",
       "feature": "Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker",
       "step": "Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API. Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value. Given an instance detail page shows a real workerId, When the operator clicks \"Worker metrics\" or \"Worker traces\", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-641",
+      "module": "gimle-controlplane",
+      "category": "Scheduler",
+      "feature": "Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation)",
+      "step": "Given an untainted node open to any tenant; When an operator taints it for tenant-a; Then a tenant-b replica is excluded from it and a tenant-a replica is still admitted; untainting clears the reservation.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

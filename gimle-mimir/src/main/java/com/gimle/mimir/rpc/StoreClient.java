@@ -239,6 +239,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   }
 
   @Override
+  public Set<String> getNodeTaints(String nodeId) {
+    return Set.copyOf(
+        ((StoreRpc.StringSetResult) sendRead(new StoreRpc.GetNodeTaints(nodeId))).values());
+  }
+
+  @Override
   public boolean isCertificateRevoked(String serialNumber) {
     return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsCertificateRevoked(serialNumber)))
         .value();

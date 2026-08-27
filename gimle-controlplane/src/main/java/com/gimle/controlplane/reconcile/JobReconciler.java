@@ -9,7 +9,6 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
-import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
@@ -25,10 +24,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -68,15 +65,6 @@ import org.slf4j.LoggerFactory;
  * observation already takes. Without this, a run whose node vanished for good (not merely
  * partitioned) would sit forever in whatever non-terminal state its last heartbeat reported, with
  * no path back to health at all.
- *
- * <p><b>Known, documented gap, not an oversight</b>: {@link #buildCandidates} folds ordinary
- * deployment replicas' tenant occupancy into its own Tier 2/3 isolation check (a Job must not land
- * on a node already running a different tenant's deployment replica), but the reverse does not hold
- * -- {@link DeploymentReconciler#buildCandidates} was deliberately left untouched, to keep nothing
- * existing needing to change, so a deployment replica can still be placed onto a node already
- * running a different tenant's Job. Closing this symmetrically means editing {@code
- * DeploymentReconciler}, which every other choice in this design avoided; worth revisiting if Job
- * workloads ever see real Tier 2/3 multi-tenant use.
  */
 public final class JobReconciler {
 
@@ -381,36 +369,14 @@ public final class JobReconciler {
 
   /**
    * Mirrors {@link DeploymentReconciler#buildCandidates} exactly, built from {@link JobRun}s
-   * instead of {@link InstanceAssignment}s -- see this class's own javadoc for the one-directional
-   * tenant-isolation gap this introduces.
+   * instead of {@link InstanceAssignment}s.
    */
   private List<NodeCandidate> buildCandidates(String jobName) {
     Set<String> nodesAlreadyRunningThisJob = new HashSet<>();
-    Map<String, Set<String>> tenantsByNode = new HashMap<>();
     for (JobRun run : store.listJobRuns()) {
       if (run.jobName().equals(jobName)) {
         nodesAlreadyRunningThisJob.add(run.nodeId());
       }
-      store
-          .getJobSpec(run.jobName())
-          .flatMap(JobSpec::tenantId)
-          .ifPresent(
-              tenantId ->
-                  tenantsByNode
-                      .computeIfAbsent(run.nodeId(), key -> new HashSet<>())
-                      .add(tenantId));
-    }
-    // Fold in ordinary deployment replicas' tenant occupancy too -- Tier 2/3 isolation must hold
-    // across every workload kind sharing a node, not just within Job's own bookkeeping.
-    for (InstanceAssignment assignment : store.listAssignments()) {
-      store
-          .getDeployment(assignment.deploymentName())
-          .flatMap(DeploymentSpec::tenantId)
-          .ifPresent(
-              tenantId ->
-                  tenantsByNode
-                      .computeIfAbsent(assignment.nodeId(), key -> new HashSet<>())
-                      .add(tenantId));
     }
 
     Instant now = clock.instant();
@@ -429,7 +395,7 @@ public final class JobReconciler {
               registration.capabilities(),
               heartbeat.get().heartbeat().capacity(),
               nodesAlreadyRunningThisJob.contains(registration.nodeId()),
-              tenantsByNode.getOrDefault(registration.nodeId(), Set.of()),
+              store.getNodeTaints(registration.nodeId()),
               store.isNodeCordoned(registration.nodeId())));
     }
     return candidates;

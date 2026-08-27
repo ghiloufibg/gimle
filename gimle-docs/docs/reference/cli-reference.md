@@ -40,6 +40,8 @@ gimle get nodes
 gimle get node-assignments <nodeId>
 gimle cordon <nodeId>
 gimle uncordon <nodeId>
+gimle taint <nodeId> <tenantId>
+gimle untaint <nodeId> <tenantId>
 gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
 gimle events <deploymentName> <instanceIndex> [--limit N]
@@ -293,6 +295,10 @@ gimle get node-assignments node-1 --server 127.0.0.1:8080
 # Exclude a node from future placement without evicting what's already running there
 gimle cordon node-1 --server 127.0.0.1:8080
 gimle uncordon node-1 --server 127.0.0.1:8080
+
+# Reserve a node for one tenant -- every other tenant's replica is excluded from it
+gimle taint node-1 tenant-a --server 127.0.0.1:8080
+gimle untaint node-1 tenant-a --server 127.0.0.1:8080
 
 # An instance's own lifecycle timeline (installed, resolved, started, active, ...) -- --limit caps
 # a crash-looping instance's otherwise-hundreds-of-lines timeline to the most recent entries

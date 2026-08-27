@@ -63,7 +63,8 @@ class RaftLogTest {
         List.of(), // limitRanges
         Map.of(), // limitRangeViolations
         Set.of(), // revokedCertificateSerials
-        List.of()); // workloadTokens
+        List.of(), // workloadTokens
+        Map.of()); // nodeTaints
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -107,7 +108,8 @@ class RaftLogTest {
         base.limitRanges(),
         base.limitRangeViolations(),
         base.revokedCertificateSerials(),
-        base.workloadTokens());
+        base.workloadTokens(),
+        base.nodeTaints());
   }
 
   @Test

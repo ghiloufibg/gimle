@@ -65,7 +65,8 @@ public record StateSnapshot(
     List<LimitRangeSpec> limitRanges,
     Map<String, String> limitRangeViolations,
     Set<String> revokedCertificateSerials,
-    List<WorkloadTokenRecord> workloadTokens) {
+    List<WorkloadTokenRecord> workloadTokens,
+    Map<String, Set<String>> nodeTaints) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -119,5 +120,10 @@ public record StateSnapshot(
     limitRangeViolations = Map.copyOf(limitRangeViolations);
     revokedCertificateSerials = Set.copyOf(revokedCertificateSerials);
     workloadTokens = List.copyOf(workloadTokens);
+    // Deep-copied for the same reason rollingDaemonSetNodes/rollingIndices are above.
+    nodeTaints =
+        nodeTaints.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
   }
 }

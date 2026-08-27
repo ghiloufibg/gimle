@@ -175,6 +175,7 @@ public final class StoreCodec {
   private static final byte TAG_GET_WORKLOAD_TOKEN = 114;
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
   private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
+  private static final byte TAG_GET_NODE_TAINTS = 121;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -274,6 +275,10 @@ public final class StoreCodec {
         case StoreRpc.GetLimitRangeViolationReason v -> {
           out.writeByte(TAG_GET_LIMIT_RANGE_VIOLATION_REASON);
           out.writeUTF(v.deploymentName());
+        }
+        case StoreRpc.GetNodeTaints v -> {
+          out.writeByte(TAG_GET_NODE_TAINTS);
+          out.writeUTF(v.nodeId());
         }
         case StoreRpc.IsNodeCordoned v -> {
           out.writeByte(TAG_IS_NODE_CORDONED);
@@ -829,6 +834,7 @@ public final class StoreCodec {
         case TAG_GET_LIMIT_RANGE_VIOLATION_REASON ->
             new StoreRpc.GetLimitRangeViolationReason(in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
+        case TAG_GET_NODE_TAINTS -> new StoreRpc.GetNodeTaints(in.readUTF());
         case TAG_IS_CERTIFICATE_REVOKED -> new StoreRpc.IsCertificateRevoked(in.readUTF());
         case TAG_LIST_REVOKED_CERTIFICATE_SERIALS -> new StoreRpc.ListRevokedCertificateSerials();
         case TAG_GET_WORKLOAD_TOKEN -> new StoreRpc.GetWorkloadToken(in.readUTF());

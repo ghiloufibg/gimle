@@ -181,10 +181,18 @@ answering rather than bouncing back onto the dead one.
 
 An operator can also cordon a node (`gimle cordon <nodeId>` / `gimle uncordon <nodeId>`, or
 `POST /nodes/{id}/cordon`/`/uncordon`) to exclude it from future placement — evaluated as the
-scheduler's first filter stage, right after isolation-tier support and before anti-affinity,
-tenant isolation, and required labels. Cordoning is deliberately just a binary "don't schedule
-here" flag: it never evicts an instance already running on the node, and preemption and
-taint/toleration-style soft constraints remain out of scope.
+scheduler's first filter stage, right after isolation-tier support and before anti-affinity, node
+taints, and required labels. Cordoning is deliberately just a binary "don't schedule here" flag: it
+never evicts an instance already running on the node. Preemption remains out of scope.
+
+Node taints (`gimle taint <nodeId> <tenantId>` / `gimle untaint <nodeId> <tenantId>`, or
+`POST /nodes/{id}/taint`/`/untaint`) are the Kubernetes taint/toleration analogue: an operator
+reserves a node for one tenant, and every other tenant's replica — including an untenanted one — is
+excluded from it, unconditionally across every isolation tier. A node with no taints is open to any
+tenant, the common case. Unlike an ad hoc co-residency check computed from current assignments, a
+taint is a single per-node property read directly from the store, so it doesn't degrade as more
+tenants or workload kinds share the cluster, and it never evicts an instance already running there
+— only keeps a non-tolerating tenant's new placements off it.
 
 The scheduler's own anti-affinity is node-granularity only — it keeps two replicas of one module
 off the *same node*, not necessarily the same worker JVM. Whether two *different* modules placed

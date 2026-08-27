@@ -655,6 +655,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-638 | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | New | Not Covered | — |
 | GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Modified | Not Covered | — |
 | GIMLE-640 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | New | Not Covered | — |
+| GIMLE-641 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3762,6 +3763,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest`
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`
 
+#### GIMLE-641 — Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation)
+
+- **Category**: Scheduler
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises operator taint/untaint against a real running cluster yet -- coverage today is SchedulerTest (unit), ApiServerTest (HTTP endpoint), and RaftCodecTest (wire round-trip) only.
+- **Other test coverage (non-Holmgang, informational only)**: `SchedulerTest` (10 taint-focused methods), `ApiServerTest#taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list`, `#untaint_endpoint_clears_the_reservation_for_that_tenant`, `#taint_endpoint_rejects_a_request_with_no_tenant_id`, `RaftCodecTest#round_trips_a_state_snapshot`
+- **Source location(s)**: `StateStore#putNodeTaint`/`#getNodeTaints`, `StateMutation.PutNodeTaint`, `Scheduler#filterByTaint`, `NodeCandidate#taints`, `ApiServer#handleTaint`, `GimleCli`/`NodesCommand` `taint`/`untaint` verbs
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -6786,7 +6796,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**517 of 640 requirements are Not Covered.**
+**518 of 641 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7179,6 +7189,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-066 | gimle-os | Tier 3 (namespace isolation) — deliberately unsupported by the current limiter | Resource Limiting | `PortableJvmFlagsResourceLimiterTest#supports_tier_1_and_tier_2_but_not_tier_3` |
 | GIMLE-067 | gimle-os | Kernel-level (cgroup v2) resource enforcement — deferred | Resource Limiting | NONE recorded in the baseline |
 | GIMLE-503 | gimle-examples | `hello-module` — minimal inert deployable fixture | Sample Module | NONE recorded in the baseline |
+| GIMLE-641 | gimle-controlplane | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | Scheduler | `SchedulerTest` (10 taint-focused methods), `ApiServerTest#taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list`, `#untaint_endpoint_clears_the_reservation_for_that_tenant`, `#taint_endpoint_rejects_a_request_with_no_tenant_id`, `RaftCodecTest#round_trips_a_state_snapshot` |
 | GIMLE-035 | gimle-core | Assigned-instance work-order model (incl. in-place rename and vessel dispatch) | Scheduling | NONE recorded in the baseline |
 | GIMLE-211 | gimle-controlplane | First-fit-decreasing bin-packing scheduler | Scheduling | `SchedulerTest` — `places_on_the_only_feasible_node`, `prefers_the_node_with_more_free_capacity`, `throws_when_no_node_has_enough_free_capacity` |
 | GIMLE-212 | gimle-controlplane | Isolation-tier placement filtering | Scheduling | `SchedulerTest` — `rejects_a_node_that_does_not_support_the_requested_tier`, `throws_when_no_node_supports_the_requested_tier` |
