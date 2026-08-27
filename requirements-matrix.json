@@ -11073,10 +11073,11 @@
         "`gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`",
         "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`",
         "`gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceListing.java`",
         "`gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`",
         "`gimle-skald/src/main/java/com/gimle/skald/dns/ServiceDnsNames.java`"
       ],
-      "testCoverageDetail": "`SkaldServerTest` (answers_a_tenant_scoped_hit_with_one_a_record, answers_an_untenanted_hit_and_round_robins_across_endpoints, answers_unknown_name_with_nxdomain, answers_unsupported_query_type_with_notimp, answers_unsupported_opcode_with_notimp, drops_a_malformed_datagram_instead_of_replying); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest`",
+      "testCoverageDetail": "`SkaldServerTest` (answers_a_tenant_scoped_hit_with_one_a_record, answers_an_untenanted_hit_and_round_robins_across_endpoints, answers_unknown_name_with_nxdomain, answers_unsupported_query_type_with_notimp, answers_unsupported_opcode_with_notimp, drops_a_malformed_datagram_instead_of_replying); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest` (including a_tenant_scoped_service_is_cached_under_its_qualified_name_not_its_bare_one, covering the poller deriving the directory cache key from name+tenantId rather than the bare registry name); `HttpServiceCatalogClientTest` (lists_services_from_the_services_endpoint asserts tenantId travels alongside each bare name); `DnsCodecTest`; `ServiceDnsNamesTest`",
       "gherkinSteps": [
         "Given SkaldServer's directory cache holds \"orders.acme.svc.gimle.local\" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record.",
         "Given the directory holds no entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN.",

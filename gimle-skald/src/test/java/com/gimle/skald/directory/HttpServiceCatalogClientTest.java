@@ -56,7 +56,7 @@ class HttpServiceCatalogClientTest {
 
   @Test
   @Timeout(15)
-  void lists_service_names_from_the_services_endpoint() throws Exception {
+  void lists_services_from_the_services_endpoint() throws Exception {
     // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson), not bare
     // name strings -- the exact bug this test exists to catch.
     URI baseUri =
@@ -65,14 +65,21 @@ class HttpServiceCatalogClientTest {
             200,
             """
             [{"name":"orders","deploymentNames":["orders-service"],"port":8080,"targetPort":8080},
-             {"name":"payments","deploymentNames":["payments-service"],"port":9090,"targetPort":9090}]
+             {"name":"payments","tenantId":"acme","deploymentNames":["payments-service"],
+              "port":9090,"targetPort":9090}]
             """);
     HttpServiceCatalogClient client =
         new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
-    List<String> names = client.listServiceNames();
+    List<ServiceListing> listings = client.listServices();
 
-    assertEquals(List.of("orders", "payments"), names);
+    // ADD-6: tenantId travels alongside the bare name -- without it, every tenant-scoped
+    // Service's endpoints get cached under a key no DNS query for it can ever derive.
+    assertEquals(
+        List.of(
+            new ServiceListing("orders", Optional.empty()),
+            new ServiceListing("payments", Optional.of("acme"))),
+        listings);
   }
 
   @Test
@@ -116,6 +123,6 @@ class HttpServiceCatalogClientTest {
     HttpServiceCatalogClient client =
         new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
-    assertThrows(IOException.class, client::listServiceNames);
+    assertThrows(IOException.class, client::listServices);
   }
 }

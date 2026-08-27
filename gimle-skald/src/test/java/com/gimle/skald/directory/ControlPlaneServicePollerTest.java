@@ -16,9 +16,10 @@ final class ControlPlaneServicePollerTest {
   @Test
   void a_poll_populates_the_directory_from_the_catalog() {
     FakeServiceCatalogClient client = new FakeServiceCatalogClient();
-    client.put("orders", 8080, 8080, List.of(new HostPort("10.0.0.5", 8080)));
+    client.put("orders", Optional.empty(), 8080, 8080, List.of(new HostPort("10.0.0.5", 8080)));
     client.put(
-        "payments.acme",
+        "payments",
+        Optional.of("acme"),
         9090,
         9090,
         List.of(new HostPort("10.0.0.6", 9090), new HostPort("10.0.0.7", 9090)));
@@ -39,9 +40,36 @@ final class ControlPlaneServicePollerTest {
   }
 
   @Test
+  void a_tenant_scoped_service_is_cached_under_its_qualified_name_not_its_bare_one() {
+    // ADD-6: the control plane's own /services/{name}/endpoints path needs the bare name, but
+    // the directory must be keyed by the qualified name a DNS query resolves to -- caching under
+    // the bare name made every tenant-scoped Service unresolvable (NXDOMAIN) no matter how live
+    // its endpoint was.
+    FakeServiceCatalogClient client = new FakeServiceCatalogClient();
+    client.put(
+        "web-ui",
+        Optional.of("orders-platform"),
+        80,
+        8090,
+        List.of(new HostPort("10.0.0.9", 8090)));
+    CachingServiceDirectory directory = new CachingServiceDirectory();
+    ControlPlaneServicePoller poller =
+        new ControlPlaneServicePoller(client, directory, Duration.ofHours(1));
+    try {
+      poller.poll();
+
+      assertTrue(directory.resolveAll("web-ui").isEmpty());
+      assertEquals(
+          List.of(new HostPort("10.0.0.9", 8090)), directory.resolveAll("web-ui.orders-platform"));
+    } finally {
+      poller.close();
+    }
+  }
+
+  @Test
   void a_service_with_no_endpoints_is_left_out_of_the_cache() {
     FakeServiceCatalogClient client = new FakeServiceCatalogClient();
-    client.put("orders", 8080, 8080, List.of());
+    client.put("orders", Optional.empty(), 8080, 8080, List.of());
     CachingServiceDirectory directory = new CachingServiceDirectory();
     ControlPlaneServicePoller poller =
         new ControlPlaneServicePoller(client, directory, Duration.ofHours(1));
@@ -84,10 +112,17 @@ final class ControlPlaneServicePollerTest {
    */
   private static final class FakeServiceCatalogClient implements ServiceCatalogClient {
 
+    private final Map<String, ServiceListing> listingsByName = new LinkedHashMap<>();
     private final Map<String, ServiceEndpoints> byName = new LinkedHashMap<>();
     private volatile boolean alwaysFailListing;
 
-    void put(String name, int port, int targetPort, List<HostPort> endpoints) {
+    void put(
+        String name,
+        Optional<String> tenantId,
+        int port,
+        int targetPort,
+        List<HostPort> endpoints) {
+      listingsByName.put(name, new ServiceListing(name, tenantId));
       byName.put(name, new ServiceEndpoints(name, port, targetPort, endpoints));
     }
 
@@ -96,11 +131,11 @@ final class ControlPlaneServicePollerTest {
     }
 
     @Override
-    public List<String> listServiceNames() throws IOException {
+    public List<ServiceListing> listServices() throws IOException {
       if (alwaysFailListing) {
         throw new IOException("simulated control-plane failure");
       }
-      return List.copyOf(byName.keySet());
+      return List.copyOf(listingsByName.values());
     }
 
     @Override

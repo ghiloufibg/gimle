@@ -50,9 +50,9 @@ public final class ControlPlaneServicePoller implements AutoCloseable {
    * number of services resolved into the cache this pass.
    */
   int poll() {
-    List<String> names;
+    List<ServiceListing> listings;
     try {
-      names = client.listServiceNames();
+      listings = client.listServices();
     } catch (IOException | InterruptedException e) {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
@@ -65,17 +65,20 @@ public final class ControlPlaneServicePoller implements AutoCloseable {
       return 0;
     }
     Map<String, List<HostPort>> next = new LinkedHashMap<>();
-    for (String name : names) {
+    for (ServiceListing listing : listings) {
       try {
+        // fetchEndpoints needs the bare name (the control plane's registry key), but the
+        // directory cache is keyed by the qualified name a DNS query resolves to -- the two
+        // differ for every tenant-scoped Service.
         client
-            .fetchEndpoints(name)
+            .fetchEndpoints(listing.name())
             .filter(endpoints -> !endpoints.endpoints().isEmpty())
-            .ifPresent(endpoints -> next.put(name, endpoints.endpoints()));
+            .ifPresent(endpoints -> next.put(listing.qualifiedName(), endpoints.endpoints()));
       } catch (IOException | InterruptedException e) {
         if (e instanceof InterruptedException) {
           Thread.currentThread().interrupt();
         }
-        log.warn("failed to fetch endpoints for service {}: {}", name, e.getMessage());
+        log.warn("failed to fetch endpoints for service {}: {}", listing.name(), e.getMessage());
       }
     }
     directory.replaceAll(next);

@@ -35,7 +35,7 @@ public final class HttpServiceCatalogClient implements ServiceCatalogClient {
   }
 
   @Override
-  public List<String> listServiceNames() throws IOException, InterruptedException {
+  public List<ServiceListing> listServices() throws IOException, InterruptedException {
     HttpResponse<String> response =
         httpClient.send(
             HttpRequest.newBuilder(baseUri.resolve("services"))
@@ -48,13 +48,17 @@ public final class HttpServiceCatalogClient implements ServiceCatalogClient {
           "control plane answered " + response.statusCode() + " for GET /services");
     }
     // GET /services answers an array of Service JSON objects (ApiServer#serviceToJson), not bare
-    // name strings -- each entry's "name" field is what this poller actually needs.
+    // name strings -- each entry's "name" and "tenantId" fields are what this poller actually
+    // needs (tenantId is absent for an untenanted Service, present for a tenant-scoped one).
     List<Map<String, Object>> raw = Json.asObjectList(Json.parse(response.body()));
-    List<String> names = new ArrayList<>(raw.size());
+    List<ServiceListing> listings = new ArrayList<>(raw.size());
     for (Map<String, Object> entry : raw) {
-      names.add(String.valueOf(entry.get("name")));
+      String name = String.valueOf(entry.get("name"));
+      Optional<String> tenantId =
+          entry.get("tenantId") instanceof String s ? Optional.of(s) : Optional.empty();
+      listings.add(new ServiceListing(name, tenantId));
     }
-    return List.copyOf(names);
+    return List.copyOf(listings);
   }
 
   @Override

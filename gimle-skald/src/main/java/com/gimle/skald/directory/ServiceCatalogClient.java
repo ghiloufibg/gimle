@@ -6,14 +6,15 @@ import java.util.Optional;
 
 /**
  * The control plane's Service catalog, as {@link ControlPlaneServicePoller} needs to see it: the
- * full list of known service names, plus each one's current endpoint set. A narrow interface (two
- * read-only methods) so tests can swap in a plain in-memory fake instead of a real HTTP round trip
- * -- {@link HttpServiceCatalogClient} is the only production implementation.
+ * full list of known services (each with its own tenant, if any), plus each one's current endpoint
+ * set. A narrow interface (two read-only methods) so tests can swap in a plain in-memory fake
+ * instead of a real HTTP round trip -- {@link HttpServiceCatalogClient} is the only production
+ * implementation.
  */
 public interface ServiceCatalogClient {
 
-  /** The qualified names of every Service the control plane currently knows about. */
-  List<String> listServiceNames() throws IOException, InterruptedException;
+  /** Every Service the control plane currently knows about, bare name plus tenant. */
+  List<ServiceListing> listServices() throws IOException, InterruptedException;
 
   /**
    * The current endpoint set for {@code serviceName}, or {@link Optional#empty()} if the control
