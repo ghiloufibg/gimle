@@ -17,6 +17,16 @@ import org.slf4j.LoggerFactory;
  * config, read once at {@link #onStart}) makes a real, non-trivial fraction of charges fail on
  * purpose, so a real batch run actually exercises the saga's reservation-release compensation
  * path rather than only ever succeeding.
+ *
+ * <p>A single-instance in-memory charge ledger -- deliberately {@code replicas: 1} (see
+ * ../deployment.yaml's own comment), the same reason {@code InventoryReservationHooks} is: each
+ * replica would otherwise hold its own independent copy of {@link #chargedAmountById}, so a
+ * {@link #charge} and its later compensating {@link #refund} for the same order could land on
+ * different replicas via the fabric's own least-outstanding-requests routing (no session
+ * affinity) -- the replica handling the refund would never recognize the {@code chargeId} and
+ * silently no-op, leaving a real charge un-refunded with no error surfaced anywhere. A real
+ * system would back this with a shared, transactional store; this one keeps the mechanism
+ * (charge/refund as a genuine compensable step) visible without that added machinery.
  */
 public final class PaymentServiceHooks implements ModuleLifecycleHooks, PaymentService {
 

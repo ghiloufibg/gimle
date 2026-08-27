@@ -1,6 +1,13 @@
 # tenantId is required: payment.failureRate is delivered via tenant config, never to an untenanted
 # instance (AgentMain#deliverConfig). See ../README.md for the gimle set tenant/config commands to
 # run first.
+#
+# replicas: 1, deliberately, the same reason ../inventory-reservation/deployment.yaml is: this
+# module's own charge ledger is per-instance in-memory, not shared -- with more than one replica,
+# a charge() and a later refund() for the same order can land on different replicas via the
+# fabric's own least-outstanding-requests routing (no session affinity), so the replica handling
+# the refund never recognizes the chargeId and silently no-ops, a real charge left un-refunded
+# with no error surfaced anywhere. See PaymentServiceHooks's own javadoc.
 kind: Deployment
 name: payment-service-deployment
 module:
@@ -8,6 +15,4 @@ module:
   version: 1.0.0
 tenantId: order-fulfillment-saga
 artifactPath: gimle-examples/order-fulfillment-saga/payment-service/target/payment-service.jar
-replicas: 2
-placement:
-  antiAffinity: true
+replicas: 1

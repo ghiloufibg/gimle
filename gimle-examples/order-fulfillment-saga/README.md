@@ -26,7 +26,11 @@ convention `greeter-provider`/`greeter-consumer` already establish):
   double-sell) seeded with one plentiful sku (`widget`) and one deliberately scarce one
   (`gadget`, 200 units) so a real batch genuinely exhausts it.
 - **`payment-service`** — `charge`/`refund`. A configurable `payment.failureRate` (default
-  `0.15`) makes a real fraction of charges fail on purpose.
+  `0.15`) makes a real fraction of charges fail on purpose. Also deliberately **`replicas: 1`**,
+  the same reason `inventory-reservation` is: its own in-memory charge ledger is per-instance, so
+  a charge and its later refund could otherwise land on different replicas (no session affinity
+  in the fabric's own routing) and the refund would silently no-op against a replica that never
+  saw the original charge — see its own hooks javadoc.
 - **`shipping-service`** — `ship`. A configurable `shipping.failureRate` (default `0.1`) makes a
   real fraction of shipments fail on purpose — the trigger for the *full* refund-and-release
   compensation chain.
@@ -117,10 +121,11 @@ actually happened, not just that the orchestrator claimed it would.
 
 ## What was, and wasn't, verified building this
 
-This sandbox has no JDK 25, no network access to fetch one, and no running Gimlé cluster — the
-same limitation every other standalone example in this directory documents. Every hooks/probe
-class here is stub-compiled against the real `ModuleContext`/`JobHooks`/`ModuleLifecycleHooks`/
-`LivenessProbe`/`ReadinessProbe`/`CompletionStatus` signatures to catch type/syntax errors,
-following the exact same bounded-retry, re-resolve-per-call, and bounded-concurrency patterns
-`orders-platform`'s `orders-report-job` and `mapreduce-wordcount`'s coordinator already establish
-end to end.
+`mvn -f gimle-examples/order-fulfillment-saga/pom.xml package` builds all four modules cleanly
+against the real `ModuleContext`/`JobHooks`/`ModuleLifecycleHooks`/`LivenessProbe`/
+`ReadinessProbe`/`CompletionStatus` signatures. A real running cluster is what an end-user QA
+pass used to find and confirm ADD-1 (`payment-service`'s own `replicas: 2` default let a charge
+and its later refund land on different replicas, silently no-refunding a real charge) -- that
+pass is what fixed it to `replicas: 1`, matching `inventory-reservation`'s own precedent, but no
+automated test in this reactor exercises the full deployed saga end to end; a real cluster run is
+still the way to confirm the fix.
