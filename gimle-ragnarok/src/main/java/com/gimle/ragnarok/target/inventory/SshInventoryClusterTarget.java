@@ -26,11 +26,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * A {@link ClusterTarget} reaching a real, already-running cluster the same network way {@link
@@ -51,7 +51,12 @@ public final class SshInventoryClusterTarget implements ClusterTarget {
   private final InventorySpec inventory;
   private final RemoteExec remoteExec;
   private final Set<String> pinnedMachines = ConcurrentHashMap.newKeySet();
-  private final List<SshManagedProcess> spawnedProcesses = new CopyOnWriteArrayList<>();
+  // Keyed by the ManagedRoleSpec record itself (value equality, not identity -- the same role
+  // parsed from the inventory document compares equal on every call), one process per role for
+  // this target's whole lifetime: Fenrir re-resolves store(i)/controlPlane(i)/etc. on every
+  // strike attempt across a soak that can run for hours, so a fresh SshManagedProcess per call
+  // would grow this collection unboundedly instead of ever reusing one.
+  private final Map<ManagedRoleSpec, SshManagedProcess> processCache = new ConcurrentHashMap<>();
   private Heimdall heimdall;
 
   public SshInventoryClusterTarget(
@@ -71,6 +76,27 @@ public final class SshInventoryClusterTarget implements ClusterTarget {
     this.knownHostsFile = workDir.resolve("known_hosts");
     this.inventory = inventory;
     this.remoteExec = new SshProcessExec(knownHostsFile);
+  }
+
+  /** Test-only: substitutes {@code remoteExec} for the real {@link SshProcessExec}. */
+  SshInventoryClusterTarget(
+      final List<String> controlPlaneBaseUrls,
+      final HttpClient httpClient,
+      final List<SocketAddress> storeClientEndpoints,
+      final List<String> muninnBaseUrls,
+      final List<String> andvariBaseUrls,
+      final Path workDir,
+      final InventorySpec inventory,
+      final RemoteExec remoteExec) {
+    this.controlPlaneBaseUrls = List.copyOf(controlPlaneBaseUrls);
+    this.httpClient = httpClient;
+    this.storeClientEndpoints = List.copyOf(storeClientEndpoints);
+    this.muninnBaseUrls = List.copyOf(muninnBaseUrls);
+    this.andvariBaseUrls = List.copyOf(andvariBaseUrls);
+    this.workDir = workDir;
+    this.knownHostsFile = workDir.resolve("known_hosts");
+    this.inventory = inventory;
+    this.remoteExec = remoteExec;
   }
 
   // ---- network-facing methods, identical to EndpointClusterTarget ----
@@ -304,7 +330,7 @@ public final class SshInventoryClusterTarget implements ClusterTarget {
 
   @Override
   public void close() {
-    spawnedProcesses.forEach(SshManagedProcess::close);
+    processCache.values().forEach(SshManagedProcess::close);
     if (heimdall != null) {
       heimdall.close();
       heimdall = null;
@@ -319,6 +345,10 @@ public final class SshInventoryClusterTarget implements ClusterTarget {
   }
 
   private GimleProcess processFor(final ManagedRoleSpec role) {
+    return processCache.computeIfAbsent(role, this::newProcessFor);
+  }
+
+  private SshManagedProcess newProcessFor(final ManagedRoleSpec role) {
     final Machine machine =
         inventory
             .machineNamed(role.machine())
@@ -332,10 +362,7 @@ public final class SshInventoryClusterTarget implements ClusterTarget {
                             + "'"));
     ensurePinned(machine);
     final ResolvedSshTarget resolvedTarget = inventory.resolvedTarget(role);
-    final SshManagedProcess process =
-        new SshManagedProcess(remoteExec, resolvedTarget, role, machine.host());
-    spawnedProcesses.add(process);
-    return process;
+    return new SshManagedProcess(remoteExec, resolvedTarget, role, machine.host());
   }
 
   private void ensurePinned(final Machine machine) {

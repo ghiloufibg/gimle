@@ -1,5 +1,6 @@
 package com.gimle.ragnarok.fenrir;
 
+import com.gimle.core.tenant.Tenant;
 import com.gimle.ragnarok.RagnarokException;
 import com.gimle.ragnarok.fenrir.ChaosLedger.Entry;
 import com.gimle.ragnarok.fenrir.ChaosLedger.Outcome;
@@ -305,7 +306,14 @@ public final class Fenrir {
                     "a secret write round-trips again",
                     () -> {
                       try {
-                        cluster.api().putSecret("holmgang-tenant", "fenrir-probe", "v");
+                        // The reserved system tenant, not a Holmgang-specific fixture name left
+                        // over from before Fenrir ran against arbitrary real clusters -- it's the
+                        // one tenant every control plane seeds unconditionally at startup, so the
+                        // probe never depends on a target-specific tenant this tool has no reason
+                        // to know about.
+                        cluster
+                            .api()
+                            .putSecret(Tenant.RESERVED_SYSTEM_TENANT_ID, "fenrir-probe", "v");
                         return true;
                       } catch (final RuntimeException e) {
                         return false;

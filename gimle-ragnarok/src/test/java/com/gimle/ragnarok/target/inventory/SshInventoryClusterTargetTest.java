@@ -1,11 +1,13 @@
 package com.gimle.ragnarok.target.inventory;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.hilmir.topology.Machine;
 import com.gimle.ragnarok.RagnarokException;
+import com.gimle.ragnarok.target.GimleProcess;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.util.List;
@@ -111,5 +113,37 @@ final class SshInventoryClusterTargetTest {
             RagnarokException.class, () -> target(inventory).requireStorePartitionSupport());
     assertTrue(e.getMessage().contains("store-0"));
     assertFalse(e.getMessage().contains("store-1"));
+  }
+
+  @Test
+  void repeated_calls_for_the_same_store_index_return_the_same_process_instance() {
+    // Fenrir re-resolves store(i)/controlPlane(i)/etc. on every strike attempt across a soak that
+    // can run for hours -- a fresh SshManagedProcess (and its own SSH host-key pin) per call would
+    // never be reused, growing unboundedly instead.
+    final InventorySpec inventory =
+        new InventorySpec(
+            List.of(machine("m1")),
+            List.of(storeRole("store-0", Optional.empty())),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            false);
+    final SshInventoryClusterTarget target =
+        new SshInventoryClusterTarget(
+            List.of("http://localhost:1"),
+            HttpClient.newHttpClient(),
+            List.of(),
+            List.of(),
+            List.of(),
+            workDir,
+            inventory,
+            new RecordingRemoteExec());
+
+    final GimleProcess first = target.store(0).orElseThrow();
+    final GimleProcess second = target.store(0).orElseThrow();
+
+    assertSame(first, second);
   }
 }
