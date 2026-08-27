@@ -960,6 +960,16 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return AuditOutcome.REJECTED;
     }
+    // Read as the very first store interaction this handler makes, before admissionArtifact/
+    // deploymentAdmissionChain below -- both of those make their own store round-trips, and a
+    // concurrent delete's own handler has nothing comparable in front of its own generation read,
+    // so it normally finishes its whole read-then-propose cycle first. Reading late (after that
+    // admission work) would silently observe the post-delete state as this request's own
+    // precondition instead of racing against the same starting point delete does; reading here
+    // instead means any change that lands during admission is correctly caught as a conflict by
+    // proposePutDeploymentOrConflict below, not absorbed.
+    Optional<DeploymentSpec> previous = storeClient.getDeployment(name);
+    long expectedGeneration = storeClient.getDeploymentGeneration(name);
     // Computed here, once, regardless of tenancy -- never trusted from the submitted
     // manifest itself (DeploymentManifestParser only parses artifactSha256 back out of StateStore's
     // own previously-written YAML on reload, never treats a caller-supplied value as
@@ -987,14 +997,12 @@ public final class ApiServer implements AutoCloseable {
         yield AuditOutcome.REJECTED;
       }
       case AdmissionDecision.Allow<DeploymentSpec> allow -> {
-        Optional<DeploymentSpec> previous = storeClient.getDeployment(name);
         if (previous.isEmpty() || deploymentContentChanged(previous.get(), allow.spec())) {
           storeClient.propose(
               new StateMutation.AppendControllerRevision(
                   nextRevisionFor("Deployment", allow.spec(), OptionalInt.empty())));
         }
-        if (!proposePutDeploymentOrConflict(
-            exchange, allow.spec(), storeClient.getDeploymentGeneration(name))) {
+        if (!proposePutDeploymentOrConflict(exchange, allow.spec(), expectedGeneration)) {
           yield AuditOutcome.REJECTED;
         }
         attachWarnings(exchange, warnings, "deployment", name);
@@ -1239,10 +1247,10 @@ public final class ApiServer implements AutoCloseable {
    * that read cannot be silently discarded by this delete -- see {@code
    * StateMutation.RemoveDeployment}'s own javadoc for the full compare-and-set protocol this closes
    * the concurrent apply/delete race with. A rejection here means someone else's write landed
-   * first; re-reading is only to decide which honest response fits: {@code 200} if the name is
-   * gone regardless (their write was itself a delete, or ours applied before theirs did -- either
-   * way, this caller's actual goal was met), {@code 409} if it is still present with content this
-   * caller never asked to keep.
+   * first; re-reading is only to decide which honest response fits: {@code 200} if the name is gone
+   * regardless (their write was itself a delete, or ours applied before theirs did -- either way,
+   * this caller's actual goal was met), {@code 409} if it is still present with content this caller
+   * never asked to keep.
    */
   private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
     long expectedGeneration = storeClient.getDeploymentGeneration(name);
@@ -1296,6 +1304,12 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
+    // Read before any other store interaction below (revision listing, admissionArtifact,
+    // deploymentAdmissionChain) for the same reason handlePutDeployment reads it first thing: a
+    // concurrent delete's own handler has nothing comparable in front of its own generation read,
+    // so it normally finishes first, and reading this late would silently observe the post-delete
+    // state as this request's own precondition instead of racing against the same starting point.
+    long expectedGeneration = storeClient.getDeploymentGeneration(name);
     List<ControllerRevision> revisions = storeClient.listControllerRevisions("Deployment", name);
     if (revisions.isEmpty()) {
       respond(exchange, 404, "no revision history for deployment: " + name);
@@ -1335,8 +1349,7 @@ public final class ApiServer implements AutoCloseable {
         ControllerRevision newRevision =
             nextRevisionFor("Deployment", allow.spec(), targetRevision);
         storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
-        if (proposePutDeploymentOrConflict(
-            exchange, allow.spec(), storeClient.getDeploymentGeneration(name))) {
+        if (proposePutDeploymentOrConflict(exchange, allow.spec(), expectedGeneration)) {
           respondJson(exchange, 200, controllerRevisionToJson(newRevision));
         }
       }

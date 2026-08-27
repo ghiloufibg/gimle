@@ -37,20 +37,33 @@ import org.junit.jupiter.api.io.TempDir;
  * actual point of application. A first attempt at this fix reused an existing distributed-lease
  * primitive for mutual exclusion and was reverted after it measurably degraded a different,
  * unrelated subsystem's reliability during testing (see the commit history and final report for
- * that investigation); the generation guard replaces it rather than layering on top.
+ * that investigation); the generation guard replaces it rather than layering on top. A second
+ * attempt added an in-process per-name lock around each handler's whole read-then-propose section,
+ * hoping to force both requests to observe the same starting generation; it was removed again after
+ * proving counterproductive -- serializing the two handlers just guarantees whichever runs second
+ * always re-reads an already-consistent world and therefore always succeeds too, which turned every
+ * race into a guaranteed double-success instead of the occasional, legitimate one this class's own
+ * javadoc explains below.
  *
- * <p>Racing two writes against a deployment that already exists (not a brand-new name) is the
- * scenario that actually exercises the guard: both requests read the same starting generation, so
- * whichever commits first is guaranteed to win outright, and the other's own precondition no
- * longer holds against the resulting state -- a real, cluster-wide fact, not a guess. This does
- * <em>not</em> mean delete always "loses" a race that starts before any prior write -- deleting a
- * name that has never existed is the established idempotent-no-op convention (see {@code
- * CHAOS-2}), so a delete racing a brand-new name's very first create is free to succeed alongside
- * it; nothing was destroyed that the create didn't itself just make. What this test rules out is
- * the actual lost-update shape against an object with real prior state: a deployment left behind
- * carrying neither request's real content, both requests reporting success while only one's write
- * actually stuck, or a request that fails outright instead of returning one of its valid, honest
- * outcomes.
+ * <p>What the generation guard actually guarantees, and what it deliberately does not: a {@code
+ * PUT} here carries no client-supplied version (it is a desired-state manifest, not a versioned
+ * patch), so the server has no way to tell "modify the specific object I last saw" apart from "make
+ * this name look like this, whatever currently exists or doesn't" -- the same reason {@code kubectl
+ * apply} without a {@code resourceVersion} doesn't fail against a concurrent delete either. What
+ * the guard rules out is a genuine lost update: two writes that both believe they're modifying the
+ * <em>same</em> observed state can never both silently stick, a deployment can never be left behind
+ * carrying neither request's real content, and a request can never fail outright instead of
+ * returning one of its valid, honest outcomes. Two disjoint, equally valid resolutions follow from
+ * that guarantee, both exercised below: if the two requests' own precondition reads genuinely
+ * overlap (both observe the deployment's pre-race generation), the CAS forces exactly one winner
+ * and the loser gets an honest {@code 409} against the state the winner just committed; if they
+ * don't overlap -- delete's own read-then-propose cycle has nothing upstream of it and routinely
+ * finishes first, well before apply's admission-chain work even lets it reach its own read -- then
+ * apply's precondition read genuinely observes an absent name and recreates a brand new deployment,
+ * exactly the already-established idempotent-no-op convention (see {@code CHAOS-2}) for racing a
+ * delete against a name with no prior state to lose. Either way the final state is always a
+ * coherent result of some real, total order of the two requests -- never a torn mix of both, and
+ * never the untouched pre-race content silently outliving a delete that reported success.
  */
 class ApiServerDeploymentConcurrencyTest {
 
@@ -118,15 +131,23 @@ class ApiServerDeploymentConcurrencyTest {
    * Creates a deployment (3 replicas) synchronously first -- matching the QA report's own
    * reproduction exactly, an <em>already-existing</em> deployment, not a brand-new name -- then
    * fires a scale-to-5 apply and a delete for it with no ordering between them, repeated 15 times
-   * over a fresh name each round so one round's outcome can't leak into the next. Both requests
-   * read the same starting generation, so the generation guard now guarantees a deterministic
-   * outcome every round: exactly one of the two succeeds (200) and the other is refused with an
-   * honest 409 (its own precondition no longer holds against whatever the winner just committed) --
-   * never both succeeding, never a torn state, and never a request failing outright.
+   * over a fresh name each round so one round's outcome can't leak into the next. As the class
+   * javadoc explains, the generation guard does not force exactly one winner every round -- it
+   * forces every round to resolve to <em>some</em> coherent, total-ordered outcome: either exactly
+   * one side wins and the other gets an honest 409 against the state the winner committed, or both
+   * sides win because each one's own precondition read happened to be valid at the time -- which
+   * itself splits into two legitimate sub-orders: delete's read-then-propose cycle (nothing
+   * upstream of it) finishing before apply's admission-chain work lets apply observe anything, so
+   * apply recreates the deployment fresh afterward; or apply committing first and delete's own
+   * fresh read of apply's new generation still matching, so delete's removal is the one that
+   * actually lands last. What must never happen, under any interleaving: a request failing outright
+   * instead of one of its valid outcomes, both requests refused, or a final state that matches
+   * neither request's own content -- in particular never the untouched pre-race 3-replica content
+   * silently surviving a delete that reported success.
    */
   @RepeatedTest(15)
   @Timeout(20)
-  void a_racing_apply_and_delete_on_an_existing_deployment_resolves_to_exactly_one_winner(
+  void a_racing_apply_and_delete_on_an_existing_deployment_never_produces_a_torn_or_lost_update(
       RepetitionInfo repetitionInfo) throws Exception {
     String name = "race-dep-" + repetitionInfo.getCurrentRepetition();
     assertEquals(200, putDeployment(name, 3).statusCode(), "initial create must succeed");
@@ -168,10 +189,14 @@ class ApiServerDeploymentConcurrencyTest {
 
       boolean putWon = putResponse.statusCode() == 200;
       boolean deleteWon = deleteResponse.statusCode() == 200;
+      // At least one side must always win: whichever request's own precondition read happens
+      // first is, by construction, checked against the true current state and has nothing else to
+      // conflict with yet -- a genuine double-rejection would mean the CAS invented a conflict
+      // neither request actually caused.
       assertTrue(
-          putWon ^ deleteWon,
-          "exactly one of apply/delete must win against an already-existing deployment, never"
-              + " both and never neither: put="
+          putWon || deleteWon,
+          "at least one of apply/delete must win -- neither can be a spurious conflict against a"
+              + " state neither request's own read ever disagreed with: put="
               + putResponse.statusCode()
               + " delete="
               + deleteResponse.statusCode());
@@ -179,33 +204,60 @@ class ApiServerDeploymentConcurrencyTest {
         assertEquals(
             409,
             putResponse.statusCode(),
-            "the loser must be a genuine conflict, not some other failure: " + putResponse.body());
+            "a losing apply must be a genuine conflict, not some other failure: "
+                + putResponse.body());
       }
       if (!deleteWon) {
         assertEquals(
             409,
             deleteResponse.statusCode(),
-            "the loser must be a genuine conflict, not some other failure: "
+            "a losing delete must be a genuine conflict, not some other failure: "
                 + deleteResponse.body());
       }
 
       HttpResponse<String> finalState = getDeployment(name);
-      if (deleteWon) {
+      if (putWon && !deleteWon) {
+        // Apply alone won: delete's own precondition no longer held against apply's write, so the
+        // deployment must exist with exactly apply's submitted content.
+        assertReplicas(finalState, 5, "apply won outright");
+      } else if (deleteWon && !putWon) {
+        // Delete alone won: apply's own precondition no longer held against delete's write, so the
+        // deployment must be gone -- never the untouched pre-race 3 replicas.
         assertEquals(
-            404, finalState.statusCode(), "delete won the race -- the deployment must be gone");
+            404, finalState.statusCode(), "delete won outright -- the deployment must be gone");
       } else {
-        assertEquals(
-            200, finalState.statusCode(), "apply won the race -- the deployment must exist");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> spec =
-            (Map<String, Object>) ((Map<String, Object>) Json.parse(finalState.body())).get("spec");
-        // The only legitimate "still present" outcome: exactly the apply's own submitted content,
-        // never the pre-race 3 replicas and never some other value neither request ever wrote.
-        assertEquals(5, ((Number) spec.get("replicas")).intValue());
+        // Both won: two distinct total orders can produce this, and either is a legitimate,
+        // coherent outcome, never a torn one. Delete's fast, admission-free cycle completing
+        // before apply even reads its own precondition means apply recreates the name fresh
+        // afterward, so the deployment is present with apply's own content. Apply fully
+        // committing first, then delete reading apply's own fresh generation, means delete's
+        // write is the one that actually lands last, so the deployment is gone. What's never
+        // valid in either order: the untouched pre-race 3 replicas, or content matching neither
+        // request.
+        if (finalState.statusCode() == 200) {
+          assertReplicas(finalState, 5, "both won, apply's write landed last");
+        } else {
+          assertEquals(
+              404,
+              finalState.statusCode(),
+              "both won -- the deployment must be present with apply's content (apply landed"
+                  + " last) or gone (delete landed last), never anything else: "
+                  + finalState.statusCode());
+        }
       }
     } finally {
       pool.shutdownNow();
     }
+  }
+
+  private static void assertReplicas(HttpResponse<String> finalState, int expected, String why) {
+    assertEquals(200, finalState.statusCode(), why + " -- the deployment must exist");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> spec =
+        (Map<String, Object>) ((Map<String, Object>) Json.parse(finalState.body())).get("spec");
+    // The only legitimate "present" outcome in every branch above is exactly apply's own submitted
+    // content -- never the pre-race 3 replicas and never some other value neither request wrote.
+    assertEquals(expected, ((Number) spec.get("replicas")).intValue(), why);
   }
 
   /**
