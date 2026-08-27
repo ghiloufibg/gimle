@@ -135,7 +135,7 @@ class ApiServerAccountManagementTest {
   // ---- GOV-7: ACCOUNT/ROLE/ROLE_BINDING audit entries carry targetId ----
 
   @Test
-  void account_write_and_delete_audit_entries_carry_the_username_as_targetId() throws Exception {
+  void account_write_and_delete_audit_entries_carry_the_username_as_target_id() throws Exception {
     putAccount("carol", "s3cret-password");
     deleteAccount("carol");
 
@@ -149,7 +149,7 @@ class ApiServerAccountManagementTest {
   }
 
   @Test
-  void role_write_audit_entry_carries_the_role_name_as_targetId() throws Exception {
+  void role_write_audit_entry_carries_the_role_name_as_target_id() throws Exception {
     putRole("editor");
 
     List<AuditEvent> roleEvents =
@@ -159,7 +159,7 @@ class ApiServerAccountManagementTest {
   }
 
   @Test
-  void rolebinding_write_audit_entry_carries_the_binding_id_as_targetId() throws Exception {
+  void rolebinding_write_audit_entry_carries_the_binding_id_as_target_id() throws Exception {
     putRole("editor");
     putRoleBinding("binding-1", "user:dave", "editor");
 
