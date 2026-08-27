@@ -6,9 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
-import com.gimle.holmgang.surtr.Measurements.FailureCounts;
-import com.gimle.holmgang.surtr.SurtrRunResult;
-import com.gimle.holmgang.surtr.SurtrRunResult.GateOutcome;
+import com.gimle.ragnarok.surtr.Measurements.FailureCounts;
+import com.gimle.ragnarok.surtr.SurtrRunResult;
+import com.gimle.ragnarok.surtr.SurtrRunResult.GateOutcome;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;

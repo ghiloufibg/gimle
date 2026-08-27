@@ -8,6 +8,7 @@ import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.cluster.ClusterApi;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.LeaseGrant;
+import com.gimle.ragnarok.target.ControlPlaneClient;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
@@ -296,7 +297,7 @@ public final class StateStoreSteps {
     return world.cluster().api().statefulSetPlacements(name).stream()
         .filter(p -> p.instanceIndex() == index)
         .findFirst()
-        .map(ClusterApi.InstancePlacement::nodeId)
+        .map(ControlPlaneClient.InstancePlacement::nodeId)
         .orElseThrow(
             () ->
                 new HolmgangException(

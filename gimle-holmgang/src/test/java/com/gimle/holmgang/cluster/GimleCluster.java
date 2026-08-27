@@ -33,6 +33,10 @@ import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.rpc.StoreRpc;
+import com.gimle.ragnarok.target.ClusterTarget;
+import com.gimle.ragnarok.target.ControlPlaneClient;
+import com.gimle.ragnarok.target.GimleProcess;
+import com.gimle.ragnarok.target.NetworkFaultInjector;
 import com.gimle.testkit.PortLease;
 import com.gimle.testkit.heimdall.Heimdall;
 import com.gimle.testkit.heimdall.HeimdallScope;
@@ -341,6 +345,20 @@ public final class GimleCluster implements AutoCloseable {
     return scheme() + "://" + controlPlanes.get(index).endpoint();
   }
 
+  /** Every store's own real client-port address -- what an {@code EndpointClusterTarget} dials. */
+  public List<SocketAddress> storeClientEndpoints() {
+    final List<SocketAddress> endpoints = new ArrayList<>();
+    for (final int port : storeClientPorts) {
+      endpoints.add(new InetSocketAddress(host(), port));
+    }
+    return endpoints;
+  }
+
+  /** This cluster's own operator {@link HttpClient} -- mTLS-configured when the topology is. */
+  public HttpClient operatorHttpClient() {
+    return operatorClient;
+  }
+
   public ClusterApi api() {
     return api(0);
   }
@@ -568,6 +586,20 @@ public final class GimleCluster implements AutoCloseable {
 
   public List<GimleProcess> processes() {
     return List.copyOf(spawnOrder);
+  }
+
+  /**
+   * A {@link ClusterTarget} view of this cluster, for handing to the Ragnarök chaos/stress engines.
+   * A separate adapter rather than {@code implements ClusterTarget} directly: several of this
+   * class's own accessors ({@link #store}, {@link #storeLeader}, {@link #controlPlane}, {@link
+   * #fafnir}, {@link #muninn}, {@link #andvari}, {@link #faults}) already return a raw value or
+   * throw on absence, a shape half a dozen other scenario steps depend on today -- {@link
+   * ClusterTarget} needs those same accessors to report absence through {@link Optional} instead,
+   * which is a different, incompatible method signature Java cannot overload on return type alone.
+   * The adapter translates between the two without touching either existing surface.
+   */
+  public ClusterTarget asClusterTarget() {
+    return new ClusterTargetView();
   }
 
   public Path workDir() {
@@ -1345,6 +1377,139 @@ public final class GimleCluster implements AutoCloseable {
 
     String storeEndpointsSpec() {
       return endpointsSpecOf(host, storeClientPorts);
+    }
+  }
+
+  /**
+   * Wraps the enclosing cluster's own accessors, translating "throws on absence" to {@link
+   * Optional#empty()} where {@link ClusterTarget} calls for it -- see {@link #asClusterTarget}.
+   */
+  private final class ClusterTargetView implements ClusterTarget {
+
+    @Override
+    public List<String> controlPlaneBaseUrls() {
+      return GimleCluster.this.controlPlaneBaseUrls();
+    }
+
+    @Override
+    public int controlPlaneCount() {
+      return GimleCluster.this.controlPlaneCount();
+    }
+
+    @Override
+    public ControlPlaneClient api() {
+      return GimleCluster.this.api();
+    }
+
+    @Override
+    public ControlPlaneClient api(final int controlPlaneIndex) {
+      return GimleCluster.this.api(controlPlaneIndex);
+    }
+
+    @Override
+    public HeimdallScope when() {
+      return GimleCluster.this.when();
+    }
+
+    @Override
+    public HeimdallScope when(final int controlPlaneIndex) {
+      return GimleCluster.this.when(controlPlaneIndex);
+    }
+
+    @Override
+    public Optional<String> storeLeaderId() {
+      return GimleCluster.this.storeLeaderId();
+    }
+
+    @Override
+    public List<String> storeMemberIds() {
+      return GimleCluster.this.storeMemberIds();
+    }
+
+    @Override
+    public int storeCount() {
+      return GimleCluster.this.storeCount();
+    }
+
+    @Override
+    public Optional<GimleProcess> store(final int index) {
+      return Optional.of(GimleCluster.this.store(index));
+    }
+
+    @Override
+    public Optional<GimleProcess> storeLeader() {
+      try {
+        return Optional.of(GimleCluster.this.storeLeader());
+      } catch (final HolmgangException e) {
+        return Optional.empty();
+      }
+    }
+
+    @Override
+    public Optional<GimleProcess> controlPlane(final int index) {
+      return Optional.of(GimleCluster.this.controlPlane(index));
+    }
+
+    @Override
+    public int fafnirCount() {
+      return GimleCluster.this.fafnirCount();
+    }
+
+    @Override
+    public Optional<GimleProcess> fafnir(final int index) {
+      return Optional.of(GimleCluster.this.fafnir(index));
+    }
+
+    @Override
+    public int muninnCount() {
+      return GimleCluster.this.muninnCount();
+    }
+
+    @Override
+    public Optional<GimleProcess> muninn(final int index) {
+      try {
+        return Optional.of(GimleCluster.this.muninn(index));
+      } catch (final HolmgangException e) {
+        return Optional.empty();
+      }
+    }
+
+    @Override
+    public boolean muninnServing(final int index) {
+      return GimleCluster.this.muninnServing(index);
+    }
+
+    @Override
+    public int andvariCount() {
+      return GimleCluster.this.andvariCount();
+    }
+
+    @Override
+    public Optional<GimleProcess> andvari(final int index) {
+      try {
+        return Optional.of(GimleCluster.this.andvari(index));
+      } catch (final HolmgangException e) {
+        return Optional.empty();
+      }
+    }
+
+    @Override
+    public boolean andvariServing(final int index) {
+      return GimleCluster.this.andvariServing(index);
+    }
+
+    @Override
+    public Optional<ProcessHandle> workerFor(final String deploymentName, final int instanceIndex) {
+      return GimleCluster.this.workerFor(deploymentName, instanceIndex);
+    }
+
+    @Override
+    public Optional<NetworkFaultInjector> faults() {
+      try {
+        return Optional.of(GimleCluster.this.faults());
+      } catch (final HolmgangException e) {
+        return Optional.empty();
+      }
     }
   }
 }

@@ -5,6 +5,7 @@ import com.gimle.core.protocol.Json;
 import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.topology.LimitRangeSpec;
 import com.gimle.holmgang.topology.QuotaSpec;
+import com.gimle.ragnarok.target.ControlPlaneClient;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -25,7 +26,7 @@ import java.util.OptionalLong;
  * and "connection refused" both just mean "not yet", never a hard failure worth surfacing). Waiting
  * for state belongs to the Heimdall condition API, not here.
  */
-public final class ClusterApi {
+public final class ClusterApi implements ControlPlaneClient {
 
   private final HttpClient httpClient;
   private final String baseUrl;
@@ -62,6 +63,20 @@ public final class ClusterApi {
     } catch (final Exception e) {
       throw new HolmgangException("tenant write attempt failed against " + baseUrl, e);
     }
+  }
+
+  /**
+   * The {@link ControlPlaneClient} contract's primitive-quota shape, delegating to {@link
+   * #tryPutTenant(String, QuotaSpec)} -- kept as a thin overload rather than changing that method's
+   * own signature, since every other caller here already has a {@link QuotaSpec} in hand.
+   */
+  @Override
+  public int tryPutTenant(
+      final String tenantId,
+      final long maxMemoryBytes,
+      final long maxCpuMillicores,
+      final int maxInstances) {
+    return tryPutTenant(tenantId, new QuotaSpec(maxMemoryBytes, maxCpuMillicores, maxInstances));
   }
 
   private static String tenantBody(final QuotaSpec quota) {
@@ -283,6 +298,7 @@ public final class ClusterApi {
     }
   }
 
+  @Override
   public void putSecret(final String tenantId, final String key, final String value) {
     final String body =
         Json.write(
@@ -444,6 +460,7 @@ public final class ClusterApi {
    * Like {@link #submitDeployment}, but returns the raw status instead of failing on a non-200 --
    * for scenarios asserting the rejection itself (admission control's 409).
    */
+  @Override
   public int trySubmitDeployment(
       final String deploymentName,
       final String moduleName,
@@ -523,6 +540,7 @@ public final class ClusterApi {
     return response.isPresent() && response.get().statusCode() == 200;
   }
 
+  @Override
   public void deleteDeployment(final String deploymentName) {
     expectOkNoBody("DELETE", "/deployments/" + deploymentName, "deployment deletion");
   }
@@ -540,6 +558,7 @@ public final class ClusterApi {
     expectOkNoBody("DELETE", "/statefulsets/" + name, "statefulset deletion");
   }
 
+  @Override
   public void deleteTenant(final String tenantId) {
     expectOkNoBody("DELETE", "/tenants/" + tenantId, "tenant deletion");
   }
@@ -585,6 +604,7 @@ public final class ClusterApi {
                 .orElse(""));
   }
 
+  @Override
   public boolean isDeploymentActive(final String deploymentName) {
     try {
       final List<Map<String, Object>> instances = instancesOf(deploymentName);
@@ -603,6 +623,7 @@ public final class ClusterApi {
     }
   }
 
+  @Override
   public int activeInstanceCount(final String deploymentName) {
     try {
       int active = 0;
@@ -662,15 +683,14 @@ public final class ClusterApi {
         && response.get().body().contains(text);
   }
 
+  @Override
   public boolean isServing() {
     final Optional<HttpResponse<String>> response = tryGet("/deployments");
     return response.isPresent() && response.get().statusCode() < 500;
   }
 
-  /** One instance's placement: its index, the node hosting it, and its lifecycle state. */
-  public record InstancePlacement(int instanceIndex, String nodeId, String lifecycleState) {}
-
   /** Every instance of a deployment with its node and state -- the placement-spread source. */
+  @Override
   public List<InstancePlacement> placements(final String deploymentName) {
     final List<InstancePlacement> placements = new ArrayList<>();
     for (final Map<String, Object> instance : instancesOf(deploymentName)) {
@@ -693,6 +713,7 @@ public final class ClusterApi {
    * instance has no events yet or the read fails. This is the authoritative source for
    * startup-phase latencies -- timestamps the platform recorded, not the harness observed.
    */
+  @Override
   public List<Map<String, Object>> instanceEvents(
       final String deploymentName, final int instanceIndex) {
     final Optional<HttpResponse<String>> response =
