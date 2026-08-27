@@ -67,4 +67,24 @@ final class SurtrReportTest {
     assertTrue(rendered.contains("startup submitToActive"), rendered);
     assertTrue(rendered.contains("gate maxFailedSubmissions"), rendered);
   }
+
+  @Test
+  void render_summary_tolerates_an_explicit_null_measurements_or_gates_field() {
+    // A hand-edited or future-schema summary.json carrying a literal `null` for a section this
+    // reads -- Map.getOrDefault only falls back on an *absent* key, not a present-but-null one, so
+    // this is the exact shape that regressed to a NullPointerException before objectOrEmpty/
+    // arrayOrEmpty existed.
+    final Map<String, Object> summary = new java.util.HashMap<>();
+    summary.put("workload", "pause-density");
+    summary.put("topology", "n/a");
+    summary.put("scaleFactor", 1.0);
+    summary.put("passed", true);
+    summary.put("measurements", null);
+    summary.put("gates", null);
+
+    final String rendered = SurtrReport.renderSummary(summary);
+
+    assertTrue(rendered.startsWith("Surtr workload 'pause-density'"), rendered);
+    assertEquals("Surtr workload 'pause-density' on n/a (scale 1.0) -> PASSED\n", rendered);
+  }
 }

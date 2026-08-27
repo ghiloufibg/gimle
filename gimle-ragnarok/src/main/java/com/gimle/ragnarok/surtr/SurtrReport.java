@@ -291,12 +291,10 @@ public final class SurtrReport {
         .append(") -> ")
         .append(Boolean.TRUE.equals(summary.get("passed")) ? "PASSED" : "FAILED")
         .append('\n');
-    final Map<String, Object> measurements =
-        Json.asObject(summary.getOrDefault("measurements", Map.of()));
+    final Map<String, Object> measurements = objectOrEmpty(summary, "measurements");
     final Object startupLatency = measurements.get("instanceStartupLatency");
     if (startupLatency != null) {
-      final Map<String, Object> phases =
-          Json.asObject(Json.asObject(startupLatency).getOrDefault("phases", Map.of()));
+      final Map<String, Object> phases = objectOrEmpty(Json.asObject(startupLatency), "phases");
       phases.forEach(
           (phase, raw) -> {
             final Map<String, Object> p = Json.asObject(raw);
@@ -306,7 +304,7 @@ public final class SurtrReport {
                     phase, p.get("p50"), p.get("p95"), p.get("p99"), p.get("max"), p.get("count")));
           });
     }
-    for (final Object gate : Json.asArray(summary.getOrDefault("gates", List.of()))) {
+    for (final Object gate : arrayOrEmpty(summary, "gates")) {
       final Map<String, Object> row = Json.asObject(gate);
       out.append(
           String.format(
@@ -317,5 +315,24 @@ public final class SurtrReport {
               row.get("threshold")));
     }
     return out.toString();
+  }
+
+  /**
+   * {@code map.get(key)}, defaulting to an empty map for both an absent key and one explicitly
+   * mapped to {@code null} -- unlike {@link Map#getOrDefault}, which only falls back on absence, so
+   * an externally-authored or corrupted {@code summary.json} carrying a literal {@code null} for a
+   * section {@link #renderSummary} reads (a hand-edited file, or a future schema version that omits
+   * one) degrades to "nothing there" instead of a {@code NullPointerException}.
+   */
+  private static Map<String, Object> objectOrEmpty(
+      final Map<String, Object> map, final String key) {
+    final Object value = map.get(key);
+    return value != null ? Json.asObject(value) : Map.of();
+  }
+
+  /** Same null-vs-absent fix as {@link #objectOrEmpty}, for a JSON array field. */
+  private static List<Object> arrayOrEmpty(final Map<String, Object> map, final String key) {
+    final Object value = map.get(key);
+    return value != null ? Json.asArray(value) : List.of();
   }
 }
