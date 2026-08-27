@@ -641,6 +641,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-629 | Vessel persistent volumes and secret-backed file mounts | Storage / Vessels | Complete | Partial |
 | GIMLE-630 | Multi-volume modules: named volumes and dataDirectory(name) | Storage | Complete | Yes |
 | GIMLE-631 | StatefulSet/DaemonSet machine-level self-healing on node death | Self-Healing | Complete | Yes |
+| GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | Console | Complete | Partial |
 
 ## Detailed Requirements
 
@@ -7921,6 +7922,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks "Roll back" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked "rollback of v1".
+  ```
+
+#### GIMLE-632 — Toast notifications render app-wide (write failures, and every other toast call site)
+
+- **Category**: Console
+- **User story**: As a console user, I want a failed write (or any other toast.success/toast.error call already scattered through the app) to actually show me something, so a rejected action doesn't look identical to a hung or broken page.
+- **Status**: Fixed: the sonner Toaster wrapper component existed but was never mounted anywhere in the route tree, so every toast.success/toast.error call across all 14 files that use one -- not only the write-permission case that surfaced it -- was a silent no-op. Confirmed via a real logged-in read-only account submitting the New Deployment form: the control plane correctly refused with 403, but the page's own visible text was byte-for-byte identical before and after, sampled six times over 1.8 seconds. Toaster is now mounted once in __root.tsx's RootComponent, in both the /login and the AppShell render branches, matching the pattern gimle-fafnir-console/gimle-andvari-console's own __root.tsx already established (gimle-saga-console has the identical gap, not fixed here -- out of scope for this pass). Read-only accounts still see the full write UI un-hidden/un-disabled (the harder half of the original GOV-6 oracle) -- a real, if smaller, frontend feature deliberately left open, the same class of gap OBS-6 was left open for.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/routes/__root.tsx`, `gimle-console/src/components/ui/sonner.tsx`
+- **Test coverage**: No direct test -- sonner's own portal-rendered toast DOM isn't practically assertable from gimle-console's existing Vitest/jsdom setup; verified by full app build + the existing 254-test Vitest suite passing unchanged, confirming no regression in the routes that already exercise toast.error/toast.success call sites.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a read-only account's New Deployment submit is refused with 403, When the control plane's response comes back, Then a visible error toast appears -- the page's own text is no longer byte-for-byte identical before and after the submit.
   ```
 
 ### gimle-fafnir-console

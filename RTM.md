@@ -646,6 +646,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-629 | Vessel persistent volumes and secret-backed file mounts | New | Not Covered | — |
 | GIMLE-630 | Multi-volume modules: named volumes and dataDirectory(name) | New | Not Covered | — |
 | GIMLE-631 | StatefulSet/DaemonSet machine-level self-healing on node death | New | Not Covered | — |
+| GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -5650,6 +5651,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `repositories/secretmaps.test.ts` (Mock repository group-version stamping and rollback), `repositories/http/secretmaps.test.ts` (HTTP request shapes for both new endpoints), `stores/useSecretMapsStore.test.ts` (`select` loading history, `rollback` refreshing both the SecretMap and its history, repository-level rejection surfaced as `store.error`).
 - **Source location(s)**: `gimle-console/src/types/index.ts` (`SecretMapGroupVersion`, `SecretMapRollbackResult`), `gimle-console/src/repositories/secretmaps.ts`, `http/secretmaps.ts`, `fixture.ts`, `gimle-console/src/stores/useSecretMapsStore.ts`, `gimle-console/src/routes/secretmaps.tsx`
 
+#### GIMLE-632 — Toast notifications render app-wide (write failures, and every other toast call site)
+
+- **Category**: Console
+- **Status**: New  _(a real bug fix -- the Toaster component existed but was never mounted, so every toast call site app-wide was a silent no-op, not just the write-permission case)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario drives the console through a real browser and asserts a toast appears; gimle-holmgang's own console coverage is a route-sweep, not an interaction assertion. To close: extend the console's own Playwright e2e suite (greeter-smoke.spec.ts or a sibling) to assert a visible toast after a failing write.
+- **Other test coverage (non-Holmgang, informational only)**: No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged
+- **Source location(s)**: `gimle-console/src/routes/__root.tsx`, `gimle-console/src/components/ui/sonner.tsx`
+
 ### gimle-fafnir-console
 
 #### GIMLE-461 — Vault operator login/logout (session-cookie auth)
@@ -6696,7 +6706,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**508 of 631 requirements are Not Covered.**
+**509 of 632 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6823,6 +6833,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-581 | gimle-controlplane | ConfigMap store and API with optimistic-concurrency writes | Configuration Management | `ConfigMapStoreTest` (version bump by exactly one, PUT full-replace vs PATCH merge, PATCH `expectedVersion=0` create case, stale-`expectedVersion` conflict carries the right snapshot, delete, get-on-absent, `getMany` batch filtering, and a 6-thread concurrency regression proving no writer's key is silently dropped under contention); `ApiServerConfigMapTest` (full HTTP round trip, batch-get via `?names=`, 409 on stale `expectedVersion`, 400 on writing a `configmap:`-prefixed key through `/config/*`, a ConfigMap row never leaks into a plain `/config/*` listing); `ApiServerConfigMapAuthzTest` (RBAC gating via `ResourceKind.CONFIGMAP` over real mTLS) |
 | GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
+| GIMLE-632 | gimle-console | Toast notifications render app-wide (write failures, and every other toast call site) | Console | No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged |
 | GIMLE-125 | gimle-agent | SWIM gossip membership integration with service catalog relay | Fabric | NONE recorded in the baseline |
 | GIMLE-131 | gimle-agent | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Fabric / Config | `AgentRelayControlPlaneReadTest#a_non_whitelisted_path_is_rejected_locally_and_never_reaches_the_control_plane`, `#a_path_traversal_attempt_disguised_as_a_single_segment_is_rejected`, `#a_whitelisted_path_triggers_a_real_call_and_relays_the_response_back`; end-to-end via `RelayControlPlaneEndToEndTest#a_hosted_modules_relay_call_round_trips_through_a_real_worker_process` |
 | GIMLE-095 | gimle-worker | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Fabric / Internal-Infra | `ControlPlaneRelayTest#a_matching_response_completes_the_waiting_caller_and_leaves_no_pending_entry`, `#no_response_times_out_and_still_leaves_no_pending_entry`, `#a_late_response_after_the_caller_already_gave_up_is_dropped_without_error` |

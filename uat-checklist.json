@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 631,
+    "totalRequirements": 632,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 508,
+    "notCoveredByAutomatedTest": 509,
     "releaseReadinessPercent": 19.5
   },
   "items": [
@@ -6943,6 +6943,17 @@
       "category": "Self-Healing",
       "feature": "StatefulSet/DaemonSet machine-level self-healing on node death",
       "step": "Given a StatefulSet index assigned to a node that has gone dark past nodeDarkTimeout + placementGracePeriod, When the reconciler ticks, Then that index's assignment is released while its sticky node binding survives, and the next tick re-places it on the same node once its heartbeat is fresh again. Given a StatefulSet index assigned to a node merely dark within the grace period, When the reconciler ticks, Then the assignment is left untouched -- a transient partition never relocates sticky data. Given a DaemonSet assignment evicted because its node fell out of eligibility, When the eviction is logged, Then the log line names the specific reason (heartbeat loss, cordon, or a placement-requirement mismatch), not just that an eviction happened.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-632",
+      "module": "gimle-console",
+      "category": "Console",
+      "feature": "Toast notifications render app-wide (write failures, and every other toast call site)",
+      "step": "Given a read-only account's New Deployment submit is refused with 403, When the control plane's response comes back, Then a visible error toast appears -- the page's own text is no longer byte-for-byte identical before and after the submit.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

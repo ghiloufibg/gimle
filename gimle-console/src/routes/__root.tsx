@@ -13,6 +13,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DisplayPanel } from "@/components/display-panel";
+import { Toaster } from "@/components/ui/sonner";
 import { useThemeStore } from "@/stores/useThemeStore";
 import { useAuthStore } from "@/stores/useAuthStore";
 
@@ -107,6 +108,7 @@ function RootComponent() {
     return (
       <QueryClientProvider client={queryClient}>
         <Outlet />
+        <Toaster position="bottom-right" />
       </QueryClientProvider>
     );
   }
@@ -116,6 +118,7 @@ function RootComponent() {
       <AppShell>
         <Outlet />
       </AppShell>
+      <Toaster position="bottom-right" />
     </QueryClientProvider>
   );
 }

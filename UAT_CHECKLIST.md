@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 631
+- **Total requirements**: 632
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 508
+- **Not covered by automated test**: 509
 - **Release-readiness (automated coverage)**: 19.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 27 | 0 | 27 | 0.0% |
 | gimle-hilmir | 31 | 0 | 31 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 31 | 0 | 31 | 0.0% |
+| gimle-console | 32 | 0 | 32 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -1476,6 +1476,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-434 | Internal — surefire report discovery and totals aggregation, including flaky-testcase counting | Given a mix of testsuite-rooted and testsuites-wrapped XML files, When SurefireReports.totals is called, Then counts summed correctly; a testcase with a flakyFailure element counts once regardless of rerun attempts; unparseable files are warned about and skipped. | No |
 
 ### gimle-console
+
+#### Console
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | Given a read-only account's New Deployment submit is refused with 403, When the control plane's response comes back, Then a visible error toast appears -- the page's own text is no longer byte-for-byte identical before and after the submit. | No |
 
 #### Web Console / Auth
 

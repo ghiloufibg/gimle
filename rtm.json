@@ -10929,6 +10929,22 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`"
       ],
       "otherTestCoverage": "`StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest`"
+    },
+    {
+      "id": "GIMLE-632",
+      "module": "gimle-console",
+      "feature": "Toast notifications render app-wide (write failures, and every other toast call site)",
+      "category": "Console",
+      "status": "New",
+      "statusNote": "a real bug fix -- the Toaster component existed but was never mounted, so every toast call site app-wide was a silent no-op, not just the write-permission case",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario drives the console through a real browser and asserts a toast appears; gimle-holmgang's own console coverage is a route-sweep, not an interaction assertion. To close: extend the console's own Playwright e2e suite (greeter-smoke.spec.ts or a sibling) to assert a visible toast after a failing write.",
+      "sourceLocations": [
+        "`gimle-console/src/routes/__root.tsx`",
+        "`gimle-console/src/components/ui/sonner.tsx`"
+      ],
+      "otherTestCoverage": "No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged"
     }
   ]
 }
