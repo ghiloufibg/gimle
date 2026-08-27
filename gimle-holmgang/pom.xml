@@ -56,6 +56,11 @@
     </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
+      <artifactId>gimle-ragnarok</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
       <artifactId>gimle-controlplane</artifactId>
       <scope>test</scope>
     </dependency>

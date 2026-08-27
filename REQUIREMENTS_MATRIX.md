@@ -648,6 +648,13 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Complete | Yes |
 | GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | CLI UX | Complete | Yes |
 | GIMLE-638 | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | Documentation / Examples | Complete | No |
+| GIMLE-639 | Chaos-plan and target YAML configuration for Fenrir/Surtr | Chaos Engineering | Complete | Unit only |
+| GIMLE-640 | Bundled pause-image reference module for stress testing | Load Testing | Complete | Unit + real cluster (RagnarokCliIT) |
+| GIMLE-641 | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Chaos Engineering | Complete | Real cluster (RagnarokCliIT) |
+| GIMLE-642 | Standalone Ragnarok distribution archive | Distribution | Complete | Manual smoke |
+| GIMLE-643 | SSH-backed managed-inventory ClusterTarget for real process control | Chaos Engineering | Complete | Partial (unit + one real-SSH IT; not every bounce kind exercised end to end) |
+| GIMLE-644 | Real iptables host-firewall network faults over SSH | Chaos Engineering | Complete | Partial (unit + one real-SSH mechanism IT; not exercised through a full ragnarok chaos run against a live multi-store cluster) |
+| GIMLE-645 | Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface | Chaos Engineering | Complete | Partial (unit-level real-mechanism coverage in gimle-agent/gimle-ragnarok; not exercised through a full ragnarok chaos run against a live multi-node GimleCluster -- deliberately scoped down, see gapNote in rtm.json) |
 
 ## Detailed Requirements
 
@@ -8983,19 +8990,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a class annotated @Holmgang(topology="...") with a @HolmgangCluster field, When JUnit runs the test, Then the extension boots the topology and injects the cluster.
   ```
 
-#### GIMLE-533 — Fenrir randomized chaos-fault soak executor
-
-- **Category**: Chaos Engineering
-- **User story**: As a platform reliability engineer, I want a seeded, weighted-pool fault scheduler that strikes a healthy real cluster repeatedly and gates every next strike on full recovery.
-- **Status**: Complete
-- **Confidence**: High
-- **Source location(s)**: `gimle-holmgang/src/test/java/com/gimle/holmgang/fenrir/Fenrir.java`, `FaultKind.java`, `FenrirPlan.java`, `ChaosSchedule.java`, `Pool.java`
-- **Test coverage**: `FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature`
-- **Gherkin scenario**:
-  ```gherkin
-  Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger.
-  ```
-
 #### GIMLE-534 — Chaos ledger recording and rendering
 
 - **Category**: Chaos Engineering
@@ -9178,19 +9172,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a running "registry" topology, When greeter-provider is pushed and a deployment is submitted with no artifact path, Then within 60s the deployment is ACTIVE.
   ```
 
-#### GIMLE-548 — Surtr scale/churn/performance workload runner
-
-- **Category**: Load Testing
-- **User story**: As a platform performance engineer, I want to declaratively describe a load burn and run it against a real cluster, measuring instance startup latency, API latency, failures, and placement spread.
-- **Status**: Complete
-- **Confidence**: High
-- **Source location(s)**: `gimle-holmgang/src/test/java/com/gimle/holmgang/surtr/SurtrRunner.java`, `SurtrWorkload.java`, `SurtrJob.java`, `TokenBucket.java`, `Measurements.java`
-- **Test coverage**: `SurtrWorkloadParserTest`, `SurtrUnitTest`; `SurtrIT.runs_the_configured_surtr_workload` (opt-in via `-Dgimle.surtr.workload=<name|path>`)
-- **Gherkin scenario**:
-  ```gherkin
-  Given a SurtrWorkload and its declared topology, When SurtrRunner.run() executes each job in order, Then measurements are collected from real cluster state/event logs and gates evaluated into a SurtrRunResult.
-  ```
-
 #### GIMLE-549 — Surtr Muninn-window measurement (documented gap)
 
 - **Category**: Load Testing
@@ -9334,6 +9315,115 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given `mvn -pl gimle-dist -am install -P dist-with-jre` produced the tarball, When `docker compose -f docker-compose.bundled-jre.yml up` runs, Then every service launches off `jre/<component>/bin/java` from a shared volume, with agent alone using a real eclipse-temurin base image.
   ```
 
+### gimle-ragnarok
+
+#### GIMLE-533 — Fenrir randomized chaos-fault soak executor
+
+- **Category**: Chaos Engineering
+- **User story**: As a platform reliability engineer, I want a seeded, weighted-pool fault scheduler that strikes a healthy real cluster repeatedly and gates every next strike on full recovery.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/Fenrir.java`, `FaultKind.java`, `FenrirPlan.java`, `ChaosSchedule.java`, `Pool.java`, `ChaosPlanParser.java`
+- **Test coverage**: `FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature` `ChaosPlanParserTest` (YAML config parsing added in the ragnarok CLI phase).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger.
+  ```
+
+#### GIMLE-548 — Surtr scale/churn/performance workload runner
+
+- **Category**: Load Testing
+- **User story**: As a platform performance engineer, I want to declaratively describe a load burn and run it against a real cluster, measuring instance startup latency, API latency, failures, and placement spread.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/SurtrRunner.java`, `SurtrWorkload.java`, `SurtrJob.java`, `TokenBucket.java`, `Measurements.java`
+- **Test coverage**: `SurtrWorkloadParserTest`, `SurtrUnitTest`; `SurtrIT.runs_the_configured_surtr_workload` (opt-in via `-Dgimle.surtr.workload=<name|path>`)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a SurtrWorkload and its declared topology, When SurtrRunner.run() executes each job in order, Then measurements are collected from real cluster state/event logs and gates evaluated into a SurtrRunResult.
+  ```
+
+#### GIMLE-639 — Chaos-plan and target YAML configuration for Fenrir/Surtr
+
+- **Category**: Chaos Engineering
+- **User story**: As an operator running Fenrir/Surtr against a real cluster, I want to declare a chaos plan and a cluster target in YAML files rather than Java code, so a run is reproducible and reviewable without writing or compiling anything.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/ChaosPlanParser.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpecParser.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/config/YamlParsing.java`
+- **Test coverage**: `ChaosPlanParserTest`, `TargetSpecParserTest`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a chaos-plan YAML naming a seed, soak window, and a mix of fault pools, When it is parsed, Then it builds the identical FenrirPlan a Java caller would have built by hand.
+  Given a target YAML naming control-plane base URLs, store client endpoints, and a plaintext or mTLS transport, When it is opened, Then it produces a live EndpointClusterTarget reaching that cluster.
+  ```
+
+#### GIMLE-640 — Bundled pause-image reference module for stress testing
+
+- **Category**: Load Testing
+- **User story**: As an operator running `ragnarok stress` against a real cluster with nothing but the tool's own binary, I want a default deployable module bundled inside the tool itself, so I never need gimle-examples built or an operator-supplied jar just to smoke-test the cluster.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok-pause/src/main/resources/META-INF/gimle/gimle-module.yaml`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/BundledModuleJarSource.java`, `gimle-ragnarok/src/main/resources/workloads/pause-density.yaml`
+- **Test coverage**: `BundledModuleJarSourceTest`
+- **Gherkin scenario**:
+  ```gherkin
+  Given no gimle-examples build and no --module-jar flag, When `ragnarok stress` runs the default pause-density workload, Then it deploys the bundled pause module and reaches its gates.
+  ```
+
+#### GIMLE-641 — ragnarok CLI: preflight/chaos/stress/replay/report verbs
+
+- **Category**: Chaos Engineering
+- **User story**: As an operator, I want a single `ragnarok` binary with preflight/chaos/stress/replay/report verbs driving Fenrir and Surtr against a real, already-running cluster, so I can apply chaos and stress testing without writing or running any test code.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/RagnarokMain.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/cli/PreflightCommand.java`, `ChaosCommand.java`, `StressCommand.java`, `ReplayCommand.java`, `ReportCommand.java`
+- **Test coverage**: `RagnarokCliIT` (real cluster: preflight, stress, chaos, and the --confirm-destructive refusal path)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a real cluster and a plaintext target.yaml, When `ragnarok preflight` runs, Then it reports every configured endpoint's own reachability and exits non-zero if any is down.
+  Given a chaos plan naming only network faults, When `ragnarok chaos` runs without --confirm-destructive, Then it is accepted and runs.
+  Given a chaos plan naming a destructive fault kind, When `ragnarok chaos` runs without --confirm-destructive, Then it is refused with an error naming the missing flag.
+  ```
+
+#### GIMLE-643 — SSH-backed managed-inventory ClusterTarget for real process control
+
+- **Category**: Chaos Engineering
+- **User story**: As an operator running Fenrir/Surtr against a real external cluster I did not boot with Holmgang, I want the bounce/kill fault kinds (store, control plane, Fafnir, Muninn, Andvari bounce; worker kill) to actually fire and recover over SSH, not always record SKIPPED, so a live-fire chaos run against a real deployment is possible from a plain target.yaml.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshInventoryClusterTarget.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshManagedProcess.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshWorkerHandle.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpecParser.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/WorkerHandle.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/SshProcessExec.java`
+- **Test coverage**: `SshManagedProcessTest`, `SshWorkerHandleTest` (real local process kill/restart/pid/onExit over a fake SSH transport), `InventorySpecParserTest` (machines/roles/agents parsing and validation); end-to-end against a real sshd container via `gimle-holmgang`'s `RagnarokInventoryChaosIT` (`-Pvalidation`, opt-in), which boots a real single-node store/Fafnir/control-plane trio over SSH and drives a `CONTROL_PLANE_BOUNCE` fault through the `ragnarok chaos` CLI, asserting the ledger records RECOVERED rather than SKIPPED. `STORE_BOUNCE`/`LEADER_BOUNCE` and `WORKER_KILL`'s own end-to-end deploy-and-kill path are not exercised by that IT (the former needs a 3-node store to clear Fenrir's own quorum floor, the latter a deployed module instance) -- both are covered only at the unit level.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED.
+  ```
+
+#### GIMLE-644 — Real iptables host-firewall network faults over SSH
+
+- **Category**: Chaos Engineering
+- **User story**: As an operator running Fenrir/Surtr with an inventory:-backed target, I want LINK_CUT and STORE_PARTITION to actually fire real iptables rules over SSH instead of always recording SKIPPED, so a full chaos plan (not just the bounce/kill family) can be run against a real external cluster.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshNetworkFaultInjector.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshInventoryClusterTarget.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/ManagedRoleSpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/cli/ChaosCommand.java`, `gimle-holmgang/compose/ssh-remote/Dockerfile`
+- **Test coverage**: `SshNetworkFaultInjectorTest` (exact iptables argv for cutControlPlaneFromStores/cutStoreFromPeers, sudo prefixing, heal() reversal), `SshInventoryClusterTargetTest` (faults() presence, requireStorePartitionSupport() validation); end-to-end against a real sshd container granted CAP_NET_ADMIN via `gimle-holmgang`'s `RagnarokFirewallFaultIT` (-Pvalidation, opt-in), which drives a real cutControlPlaneFromStores over SSH and asserts the resulting iptables rule is present via `iptables -C`, then asserts heal() removes it.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule.
+  ```
+
+#### GIMLE-645 — Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface
+
+- **Category**: Chaos Engineering
+- **User story**: As an operator who does not want to grant SSH access to any cluster machine, I want ragnarok chaos to trigger WORKER_KILL against a real worker process through an authenticated HTTP call to its node agent instead, so the platform's own supervisor can prove out its crash-detection-and-respawn path without handing out shell access at all.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentAdminServer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/adminapi/AdminApiClusterTarget.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/adminapi/AdminApiWorkerHandle.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/adminapi/AdminApiSpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`
+- **Test coverage**: `AgentAdminServerTest` (real InProcessStore-backed StoreClient, a real WorkerProcessSupervisor supervising a genuine OS subprocess, a real HTTP round trip driving a genuine kill and the supervisor's own genuine respawn; pid-match/pid-mismatch/unsupervised-instance cases) -- the mTLS RBAC decision matrix itself is not re-tested here, being structurally identical to Fafnir's/Andvari's own already-covered authorizeSecrets/authorizeArtifacts (see the test's own javadoc); `AdminApiWorkerHandleTest` (real local HttpServer standing in for a node agent, proving the client-side wire protocol end to end); `AdminApiSpecParserTest` (adminApi: YAML parsing/validation).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node agent with gimle.agent.storeEndpoints configured, When an authorized operator POSTs the currently-supervised pid to that worker's /admin/faults/workers/{deployment}/{index}/kill endpoint, Then the underlying OS process is force-killed and the agent's own WorkerProcessSupervisor respawns it under a new pid with no further action from the caller.
+  ```
+
 ### gimle-dist
 
 #### GIMLE-560 — Standalone CLI distribution archive
@@ -9414,6 +9504,18 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the unpacked gimle-midgard archive on a machine with Docker, When docker compose up -d runs, Then one container boots a store, control plane, Fafnir, Muninn, Andvari, and a node agent via hilmir up, and the web console serves on the published port 8080.
   Given the container is up with seeding enabled, When the entrypoint's seed step runs, Then the bundled example jars are pushed to the artifact registry and their v1 coordinate-only deployments reach ACTIVE.
   Given a running Midgard container, When docker stop is issued, Then the entrypoint tears the cluster down via hilmir down before exiting.
+  ```
+
+#### GIMLE-642 — Standalone Ragnarok distribution archive
+
+- **Category**: Distribution
+- **User story**: As an operator, I want a self-contained `gimle-ragnarok-<version>.tar.gz` archive with a `bin/ragnarok` launcher, so I can run chaos/stress tests against a real cluster from a plain download, the same way the `hilmir` archive already works.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-dist/src/main/assembly/ragnarok.xml`, `gimle-dist/src/main/dist/bin/ragnarok`, `gimle-dist/src/main/dist/bin/ragnarok.cmd`
+- **Test coverage**: Manual: extracted archive's `bin/ragnarok --help` and `bin/ragnarok preflight` run correctly off only the archive's own bundled jars
+- **Gherkin scenario**:
+  ```gherkin
   ```
 
 ### gimle-skald

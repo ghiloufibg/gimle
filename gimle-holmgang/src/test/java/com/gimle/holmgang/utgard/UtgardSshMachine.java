@@ -1,6 +1,7 @@
 package com.gimle.holmgang.utgard;
 
 import com.gimle.holmgang.HolmgangException;
+import com.github.dockerjava.api.model.Capability;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -40,12 +41,18 @@ import org.testcontainers.utility.MountableFile;
  * RemoteDispatch}/{@code SshProcessExec} always exec {@code <installDir>/bin/hilmir}, a shell
  * script that globs only {@code .jar} files, so a plain classpath-directory copy (the {@code
  * UtgardMachines} trick) would leave that script silently finding nothing.
+ *
+ * <p>Public (rather than the package-private visibility this class started with) so {@code
+ * gimle-ragnarok}'s own SSH-backed inventory target can reuse this exact container fixture from a
+ * sibling test package instead of building a parallel one -- a pure visibility widening, no
+ * behavior change.
  */
-final class UtgardSshMachine implements AutoCloseable {
+public final class UtgardSshMachine implements AutoCloseable {
 
   static final int SSH_PORT = 22;
   static final int CONTROL_PLANE_PORT = UtgardMachines.CONTROL_PLANE_PORT;
   static final int FAFNIR_PORT = UtgardMachines.FAFNIR_PORT;
+  static final int STORE_CLIENT_PORT = UtgardMachines.STORE_CLIENT_PORT;
   static final String SSH_USER = "operator";
   static final String INSTALL_DIR = "/opt/gimle";
 
@@ -87,13 +94,20 @@ final class UtgardSshMachine implements AutoCloseable {
     final byte[] publicKeyBytes = Files.readAllBytes(publicKeyFile);
     final GenericContainer<?> container =
         new GenericContainer<>(new ImageFromDockerfile().withDockerfile(DOCKERFILE))
-            .withExposedPorts(SSH_PORT, CONTROL_PLANE_PORT, FAFNIR_PORT)
+            .withExposedPorts(SSH_PORT, CONTROL_PLANE_PORT, FAFNIR_PORT, STORE_CLIENT_PORT)
             .withCopyToContainer(Transferable.of(publicKeyBytes), "/run/secrets/operator-pubkey")
             .withCopyFileToContainer(
                 MountableFile.forHostPath(ENTRYPOINT_SCRIPT), "/holmgang/sshd-entrypoint.sh")
             .withCommand("/bin/sh", "/holmgang/sshd-entrypoint.sh")
             .waitingFor(Wait.forListeningPorts(SSH_PORT))
-            .withStartupTimeout(STARTUP_TIMEOUT);
+            .withStartupTimeout(STARTUP_TIMEOUT)
+            // NET_ADMIN, not full privileged mode: the narrowest grant that lets the operator
+            // user's own sudo-scoped iptables (see the Dockerfile's own sudoers.d entry) actually
+            // install/remove rules -- only RagnarokFirewallFaultIT's own SshNetworkFaultInjector
+            // calls ever need this; every other Utgard SSH scenario just carries the capability
+            // unused.
+            .withCreateContainerCmdModifier(
+                cmd -> cmd.getHostConfig().withCapAdd(Capability.NET_ADMIN));
     container.start();
     installHilmirLauncher(container);
     return new UtgardSshMachine(container);
@@ -105,6 +119,14 @@ final class UtgardSshMachine implements AutoCloseable {
 
   int mappedControlPlanePort() {
     return container.getMappedPort(CONTROL_PLANE_PORT);
+  }
+
+  int mappedFafnirPort() {
+    return container.getMappedPort(FAFNIR_PORT);
+  }
+
+  int mappedStoreClientPort() {
+    return container.getMappedPort(STORE_CLIENT_PORT);
   }
 
   /** Writes a host file into the machine's install root, e.g. a deployment's own module jar. */

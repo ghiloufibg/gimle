@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 638,
+    "totalRequirements": 645,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 515,
-    "releaseReadinessPercent": 19.3
+    "notCoveredByAutomatedTest": 522,
+    "releaseReadinessPercent": 19.1
   },
   "items": [
     {
@@ -1982,17 +1982,6 @@
       "category": "Internal/Infra",
       "feature": "module-info JPMS Boundary for gimle-mimir",
       "step": "Given the gimle-mimir module descriptor; When another module requires com.gimle.mimir; Then it can access authz/cron/manifest/store/raft/rpc, nothing unexported.",
-      "automatedCoverage": false,
-      "signedOff": false,
-      "signedOffBy": null,
-      "signedOffAt": null
-    },
-    {
-      "id": "GIMLE-565",
-      "module": "gimle-mimir",
-      "category": "Raft Consensus / Internal-Infra / Testing",
-      "feature": "Norn deterministic virtual-time Raft fault-injection simulation",
-      "step": "Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run — each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader — Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round. Given a seed's 40-round fault storm has just ended, When every node is healed via healAll, Then the cluster eventually elects a leader and commits a fresh proposal within a 10-second virtual-time liveness budget. Given one of the 20 seeds fails a safety or liveness assertion, When the failure is reported, Then it includes that seed's full per-round action ledger so the exact failing schedule reproduces by rerunning only that seed.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -5872,7 +5861,7 @@
     },
     {
       "id": "GIMLE-533",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "category": "Chaos Engineering",
       "feature": "Fenrir randomized chaos-fault soak executor",
       "step": "Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger.",
@@ -6037,7 +6026,7 @@
     },
     {
       "id": "GIMLE-548",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "category": "Load Testing",
       "feature": "Surtr scale/churn/performance workload runner",
       "step": "Given a SurtrWorkload and its declared topology, When SurtrRunner.run() executes each job in order, Then measurements are collected from real cluster state/event logs and gates evaluated into a SurtrRunResult.",
@@ -6217,6 +6206,17 @@
       "category": "Packaging",
       "feature": "Distribution archive checksums and SBOM generation",
       "step": "Given `mvn -pl gimle-dist package`, When cyclonedx-maven-plugin and maven-antrun-plugin executions run, Then bom.json is generated and copied per archive, and a .sha256 checksum file is written next to each.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-565",
+      "module": "gimle-mimir",
+      "category": "Raft Consensus / Internal-Infra / Testing",
+      "feature": "Norn deterministic virtual-time Raft fault-injection simulation",
+      "step": "Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run — each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader — Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round. Given a seed's 40-round fault storm has just ended, When every node is healed via healAll, Then the cluster eventually elects a leader and commits a fresh proposal within a 10-second virtual-time liveness budget. Given one of the 20 seeds fails a safety or liveness assertion, When the failure is reported, Then it includes that seed's full per-round action ledger so the exact failing schedule reproduces by rerunning only that seed.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -7020,6 +7020,83 @@
       "category": "Documentation / Examples",
       "feature": "node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault",
       "step": "Given local-flag-cache-daemonset is already fully ACTIVE, When flag-consumer-deployment is deployed and its first FeatureFlagCache call races ahead of this node's own membership-propagation catch-up, Then the failure is logged at INFO with an explanation, not WARN. Given flag-consumer has already logged one successful FeatureFlagCache call, When a later call fails, Then that failure is logged at WARN, since a failure after a previous success is a genuine regression.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-639",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "Chaos-plan and target YAML configuration for Fenrir/Surtr",
+      "step": "Given a chaos-plan YAML naming a seed, soak window, and a mix of fault pools, When it is parsed, Then it builds the identical FenrirPlan a Java caller would have built by hand. Given a target YAML naming control-plane base URLs, store client endpoints, and a plaintext or mTLS transport, When it is opened, Then it produces a live EndpointClusterTarget reaching that cluster.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-640",
+      "module": "gimle-ragnarok",
+      "category": "Load Testing",
+      "feature": "Bundled pause-image reference module for stress testing",
+      "step": "Given no gimle-examples build and no --module-jar flag, When `ragnarok stress` runs the default pause-density workload, Then it deploys the bundled pause module and reaches its gates.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-641",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "ragnarok CLI: preflight/chaos/stress/replay/report verbs",
+      "step": "Given a real cluster and a plaintext target.yaml, When `ragnarok preflight` runs, Then it reports every configured endpoint's own reachability and exits non-zero if any is down. Given a chaos plan naming only network faults, When `ragnarok chaos` runs without --confirm-destructive, Then it is accepted and runs. Given a chaos plan naming a destructive fault kind, When `ragnarok chaos` runs without --confirm-destructive, Then it is refused with an error naming the missing flag.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-642",
+      "module": "gimle-dist",
+      "category": "Distribution",
+      "feature": "Standalone Ragnarok distribution archive",
+      "step": "Manually verify: Standalone Ragnarok distribution archive. Packaging/distribution concern, not a platform behavior; verified manually (extracted archive's bin/ragnarok --help and preflight run correctly), not by any Holmgang scenario.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-643",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "SSH-backed managed-inventory ClusterTarget for real process control",
+      "step": "Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-644",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "Real iptables host-firewall network faults over SSH",
+      "step": "Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-645",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface",
+      "step": "Given a node agent with gimle.agent.storeEndpoints configured, When an authorized operator POSTs the currently-supervised pid to that worker's /admin/faults/workers/{deployment}/{index}/kill endpoint, Then the underlying OS process is force-killed and the agent's own WorkerProcessSupervisor respawns it under a new pid with no further action from the caller.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

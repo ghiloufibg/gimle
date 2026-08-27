@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 638
+- **Total requirements**: 645
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 515
-- **Release-readiness (automated coverage)**: 19.3%
+- **Not covered by automated test**: 522
+- **Release-readiness (automated coverage)**: 19.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -38,8 +38,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-testkit | 7 | 0 | 7 | 0.0% |
 | gimle-examples | 6 | 3 | 3 | 50.0% |
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
-| gimle-holmgang | 31 | 16 | 15 | 51.6% |
-| gimle-dist | 6 | 0 | 6 | 0.0% |
+| gimle-holmgang | 29 | 15 | 14 | 51.7% |
+| gimle-ragnarok | 8 | 1 | 7 | 12.5% |
+| gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 3 | 0 | 3 | 0.0% |
 
 ## Checklist
@@ -1728,7 +1729,6 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-533 | Fenrir randomized chaos-fault soak executor | Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger. | Yes |
 | [ ] | GIMLE-534 | Chaos ledger recording and rendering | Given a completed Fenrir run, When its ChaosLedger is queried, Then executedCount()/recoveredCount()/skippedCount()/allRecovered() reflect actual strikes. | Yes |
 | [ ] | GIMLE-535 | Randomized fault soak with no lost writes (basic and compound-fault modes) | Given a running HA cluster and a background write workload, When Fenrir is unleashed striking every 15s, Then at least 3 faults execute, every fault recovers, and every acknowledged write remains readable. | Yes |
 | [ ] | GIMLE-536 | Muninn/Andvari replica-bounce resilience soak | Given a topology with 2 Muninn and 2 Andvari replicas, When Fenrir strikes only Muninn/Andvari bounces, Then at least 2 faults execute and recover, and a coordinate-only deployment still reaches ACTIVE afterward. | Yes |
@@ -1770,7 +1770,6 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-546 | Request-rate autoscaling under real Gatling-driven fabric load (Gherkin coverage) | Given greeter-load-generator deployed and an autoscaling deployment targeting 5 rps min 1/max 2, When 20 rps load runs for 60s, Then within 120s the deployment has 2 ACTIVE replicas. | Yes |
-| [ ] | GIMLE-548 | Surtr scale/churn/performance workload runner | Given a SurtrWorkload and its declared topology, When SurtrRunner.run() executes each job in order, Then measurements are collected from real cluster state/event logs and gates evaluated into a SurtrRunResult. | No |
 | [ ] | GIMLE-549 | Surtr Muninn-window measurement (documented gap) | Given a workload requesting the muninnWindow measurement, When the run completes, Then it always reports a skipped placeholder series ("Muninn window metrics collection is not implemented in this build"). | No |
 | [ ] | GIMLE-550 | Module-density Tier 1 packing Surtr reference workload | Given workloads/module-density.yaml (10 iterations at 8 qps against topologies/surtr-density.yaml), When run via SurtrIT, Then all created deployments reach ACTIVE within 180s and the gates pass. | No |
 
@@ -1780,7 +1779,33 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-559 | Docker Compose manual validation topologies (bundled-JRE and full-JRE) | Given `mvn -pl gimle-dist -am install -P dist-with-jre` produced the tarball, When `docker compose -f docker-compose.bundled-jre.yml up` runs, Then every service launches off `jre/<component>/bin/java` from a shared volume, with agent alone using a real eclipse-temurin base image. | No |
 
+### gimle-ragnarok
+
+#### Chaos Engineering
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-533 | Fenrir randomized chaos-fault soak executor | Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger. | Yes |
+| [ ] | GIMLE-639 | Chaos-plan and target YAML configuration for Fenrir/Surtr | Given a chaos-plan YAML naming a seed, soak window, and a mix of fault pools, When it is parsed, Then it builds the identical FenrirPlan a Java caller would have built by hand. Given a target YAML naming control-plane base URLs, store client endpoints, and a plaintext or mTLS transport, When it is opened, Then it produces a live EndpointClusterTarget reaching that cluster. | No |
+| [ ] | GIMLE-641 | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Given a real cluster and a plaintext target.yaml, When `ragnarok preflight` runs, Then it reports every configured endpoint's own reachability and exits non-zero if any is down. Given a chaos plan naming only network faults, When `ragnarok chaos` runs without --confirm-destructive, Then it is accepted and runs. Given a chaos plan naming a destructive fault kind, When `ragnarok chaos` runs without --confirm-destructive, Then it is refused with an error naming the missing flag. | No |
+| [ ] | GIMLE-643 | SSH-backed managed-inventory ClusterTarget for real process control | Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED. | No |
+| [ ] | GIMLE-644 | Real iptables host-firewall network faults over SSH | Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule. | No |
+| [ ] | GIMLE-645 | Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface | Given a node agent with gimle.agent.storeEndpoints configured, When an authorized operator POSTs the currently-supervised pid to that worker's /admin/faults/workers/{deployment}/{index}/kill endpoint, Then the underlying OS process is force-killed and the agent's own WorkerProcessSupervisor respawns it under a new pid with no further action from the caller. | No |
+
+#### Load Testing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-548 | Surtr scale/churn/performance workload runner | Given a SurtrWorkload and its declared topology, When SurtrRunner.run() executes each job in order, Then measurements are collected from real cluster state/event logs and gates evaluated into a SurtrRunResult. | No |
+| [ ] | GIMLE-640 | Bundled pause-image reference module for stress testing | Given no gimle-examples build and no --module-jar flag, When `ragnarok stress` runs the default pause-density workload, Then it deploys the bundled pause module and reaches its gates. | No |
+
 ### gimle-dist
+
+#### Distribution
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-642 | Standalone Ragnarok distribution archive | Manually verify: Standalone Ragnarok distribution archive. Packaging/distribution concern, not a platform behavior; verified manually (extracted archive's bin/ragnarok --help and preflight run correctly), not by any Holmgang scenario. | No |
 
 #### Packaging
 

@@ -3,10 +3,10 @@ package com.gimle.holmgang.steps;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.holmgang.HolmgangException;
-import com.gimle.holmgang.fenrir.ChaosLedger;
-import com.gimle.holmgang.fenrir.Fenrir;
-import com.gimle.holmgang.fenrir.FenrirPlan;
-import com.gimle.holmgang.fenrir.Pools;
+import com.gimle.ragnarok.fenrir.ChaosLedger;
+import com.gimle.ragnarok.fenrir.Fenrir;
+import com.gimle.ragnarok.fenrir.FenrirPlan;
+import com.gimle.ragnarok.fenrir.Pools;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 import java.time.Duration;
@@ -112,7 +112,7 @@ public final class ChaosSteps {
   }
 
   private void unleash(final FenrirPlan.Builder plan, final int soakSeconds) {
-    final ChaosLedger ledger = Fenrir.unleash(world.cluster(), plan.build());
+    final ChaosLedger ledger = Fenrir.unleash(world.cluster().asClusterTarget(), plan.build());
     world.chaosLedger = ledger;
     com.gimle.holmgang.saga.SagaCollector.instance()
         .recordFenrir(world.scenarioName, ledger, Duration.ofSeconds(soakSeconds).toMillis());

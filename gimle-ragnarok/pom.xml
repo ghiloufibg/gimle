@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-alpha.2</version>
+  </parent>
+
+  <artifactId>gimle-ragnarok</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Ragnarok</name>
+  <description>
+    The chaos-testing engine (Fenrir) and stress/load-testing engine (Surtr) as a shipping
+    library, decoupled from gimle-holmgang's own in-JVM test harness behind the ClusterTarget
+    seam so the same engines can eventually be pointed at a real, already-running cluster. Phase
+    1 of the extraction: the seam and the two engines move here unchanged in behavior; the
+    harness-only Loki network-fault interposition and process-control faults stay available only
+    to a ClusterTarget backed by a harness-owned cluster (gimle-holmgang's own GimleCluster) --
+    an adapter with no process control of its own reports that honestly rather than failing.
+  </description>
+
+  <properties>
+    <!-- Runtime-image profile (root pom); see gimle-hilmir/pom.xml for how this list was derived. -->
+    <gimle.runtimeImage.launcherClass>com.gimle.ragnarok.RagnarokMain</gimle.runtimeImage.launcherClass>
+    <gimle.runtimeImage.jdkModules>java.base,java.net.http</gimle.runtimeImage.jdkModules>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-testkit</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-mimir</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <!-- RemoteExec/SshProcessExec (the SSH transport hilmir's own remote-dispatch verbs already
+         hardened) and the Machine/SshSettings/ResolvedSshTarget topology types, reused as-is by
+         the managed-inventory ClusterTarget rather than reimplementing SSH transport a second
+         time. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-hilmir</artifactId>
+    </dependency>
+    <!-- provided, not runtime: gimle-ragnarok's build embeds this module's own built jar as a
+         classpath resource (see the maven-dependency-plugin execution below) rather than shipping
+         it as a sibling lib jar, so it must never appear on gimle-ragnarok's own runtime/transitive
+         classpath. provided scope is exactly the "needed to resolve the reactor build order, never
+         to actually run against" scope gimle-dist's own pom.xml already uses for the example
+         modules it bundles the same way. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-ragnarok-pause</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Embeds gimle-ragnarok-pause's own built jar inside gimle-ragnarok's own jar as a classpath
+        resource (pause/pause-image.jar), so BundledModuleJarSource can extract it to a temp file at
+        runtime with no dependency on gimle-examples or any other sibling jar being present. The
+        single-artifact "copy" goal, not "copy-dependencies" (which the root pom's runtime-image
+        profile already uses for a directory of jars): this needs exactly one jar landing at one
+        fixed resource path inside this module's own jar, not a lib/ directory of jars beside it.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>copy-pause-image</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>com.gimle</groupId>
+                  <artifactId>gimle-ragnarok-pause</artifactId>
+                  <type>jar</type>
+                  <outputDirectory>${project.build.outputDirectory}/pause</outputDirectory>
+                  <destFileName>pause-image.jar</destFileName>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

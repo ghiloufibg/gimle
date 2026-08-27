@@ -4,13 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.gimle.holmgang.cluster.GimleCluster;
-import com.gimle.holmgang.surtr.SurtrReport;
-import com.gimle.holmgang.surtr.SurtrRunResult;
-import com.gimle.holmgang.surtr.SurtrRunner;
-import com.gimle.holmgang.surtr.SurtrWorkload;
-import com.gimle.holmgang.surtr.SurtrWorkloadParser;
+import com.gimle.holmgang.surtr.ExampleModuleJarSource;
 import com.gimle.holmgang.topology.ClusterSpec;
 import com.gimle.holmgang.topology.ClusterTopologyParser;
+import com.gimle.ragnarok.surtr.SurtrReport;
+import com.gimle.ragnarok.surtr.SurtrRunResult;
+import com.gimle.ragnarok.surtr.SurtrRunner;
+import com.gimle.ragnarok.surtr.SurtrWorkload;
+import com.gimle.ragnarok.surtr.SurtrWorkloadParser;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Tag;
@@ -44,7 +45,8 @@ class SurtrIT {
         Path.of("target", "holmgang", "surtr-cluster-" + Long.toHexString(System.nanoTime()));
     final GimleCluster cluster = GimleCluster.start(spec, workDir);
     try {
-      final SurtrRunResult result = new SurtrRunner(cluster, workload).run();
+      final SurtrRunResult result =
+          new SurtrRunner(cluster.asClusterTarget(), workload, new ExampleModuleJarSource()).run();
       com.gimle.holmgang.saga.SagaCollector.instance().recordSurtr(result);
       final Path report = SurtrReport.write(result, Path.of("target", "holmgang", "surtr"));
       System.out.println(SurtrReport.render(result));

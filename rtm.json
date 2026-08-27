@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 638,
+  "requirementCount": 645,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -3322,23 +3322,6 @@
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`/home/user/gimle/gimle-mimir/src/main/java/module-info.java`"
-      ]
-    },
-    {
-      "id": "GIMLE-565",
-      "module": "gimle-mimir",
-      "feature": "Norn deterministic virtual-time Raft fault-injection simulation",
-      "category": "Raft Consensus / Internal-Infra / Testing",
-      "status": "New",
-      "statusNote": "newly discovered since the baseline scan; see commit `6bd450f`",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "Deliberately incompatible with Holmgang's own model, not merely untested by it: Norn is an in-process, virtual-time harness over real `RaftNode` objects with no sockets and no `RaftTransport` (see `NornCluster`'s own javadoc) -- its entire value is running far more election/partition/recovery activity per real second than a live-timer test could afford. Holmgang's model is the opposite: real, separately-spawned OS subprocesses talking over real sockets at real wall-clock speed (`raft-resilience.feature` already covers the real-process equivalent: killing a real store node/leader mid-workload). A Cucumber scenario cannot replay one of Norn's seeded virtual-time fault schedules against a real Holmgang cluster without rebuilding Norn's whole in-process/virtual-clock mechanism on top of real subprocesses -- at which point it would no longer be Norn. This gap is a permanent, structural one, not a backlog item.",
-      "otherTestCoverage": "`NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds, asserting Election Safety and Log Matching after every round plus eventual liveness after each seed's storm ends",
-      "sourceLocations": [
-        "`gimle-mimir/src/test/java/com/gimle/mimir/raft/NornCluster.java`",
-        "`NornScheduler.java`",
-        "`NornRaftSimulationTest.java` (added in commit `6bd450f`, \"test: add Norn deterministic Raft fault-injection simulation\")"
       ]
     },
     {
@@ -9106,7 +9089,7 @@
     },
     {
       "id": "GIMLE-533",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "feature": "Fenrir randomized chaos-fault soak executor",
       "category": "Chaos Engineering",
       "status": "Active",
@@ -9125,13 +9108,14 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature`",
+      "otherTestCoverage": "`FenrirPlanTest`, `ChaosScheduleTest`; end-to-end via `chaos-soak.feature`/`observability-registry-ha.feature`; `ChaosPlanParserTest`",
       "sourceLocations": [
-        "`gimle-holmgang/src/test/java/com/gimle/holmgang/fenrir/Fenrir.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/Fenrir.java`",
         "`FaultKind.java`",
         "`FenrirPlan.java`",
         "`ChaosSchedule.java`",
-        "`Pool.java`"
+        "`Pool.java`",
+        "`ChaosPlanParser.java`"
       ]
     },
     {
@@ -9453,7 +9437,7 @@
     },
     {
       "id": "GIMLE-548",
-      "module": "gimle-holmgang",
+      "module": "gimle-ragnarok",
       "feature": "Surtr scale/churn/performance workload runner",
       "category": "Load Testing",
       "status": "Active",
@@ -9463,7 +9447,7 @@
       "gapNote": "This is Holmgang's own test-infrastructure/tooling (used to *run* other scenarios), not a platform behavior a Cucumber scenario asserts on directly -- there is no meaningful \"scenario that would exercise this\" beyond the harness working at all, which every passing `.feature` file already demonstrates indirectly.",
       "otherTestCoverage": "`SurtrWorkloadParserTest`, `SurtrUnitTest`; `SurtrIT.runs_the_configured_surtr_workload` (opt-in via `-Dgimle.surtr.workload=<name|path>`)",
       "sourceLocations": [
-        "`gimle-holmgang/src/test/java/com/gimle/holmgang/surtr/SurtrRunner.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/SurtrRunner.java`",
         "`SurtrWorkload.java`",
         "`SurtrJob.java`",
         "`TokenBucket.java`",
@@ -9743,6 +9727,23 @@
       "otherTestCoverage": "NONE recorded in the baseline",
       "sourceLocations": [
         "`gimle-dist/pom.xml` (cyclonedx-maven-plugin and maven-antrun-plugin executions)"
+      ]
+    },
+    {
+      "id": "GIMLE-565",
+      "module": "gimle-mimir",
+      "feature": "Norn deterministic virtual-time Raft fault-injection simulation",
+      "category": "Raft Consensus / Internal-Infra / Testing",
+      "status": "New",
+      "statusNote": "newly discovered since the baseline scan; see commit `6bd450f`",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Deliberately incompatible with Holmgang's own model, not merely untested by it: Norn is an in-process, virtual-time harness over real `RaftNode` objects with no sockets and no `RaftTransport` (see `NornCluster`'s own javadoc) -- its entire value is running far more election/partition/recovery activity per real second than a live-timer test could afford. Holmgang's model is the opposite: real, separately-spawned OS subprocesses talking over real sockets at real wall-clock speed (`raft-resilience.feature` already covers the real-process equivalent: killing a real store node/leader mid-workload). A Cucumber scenario cannot replay one of Norn's seeded virtual-time fault schedules against a real Holmgang cluster without rebuilding Norn's whole in-process/virtual-clock mechanism on top of real subprocesses -- at which point it would no longer be Norn. This gap is a permanent, structural one, not a backlog item.",
+      "otherTestCoverage": "`NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds, asserting Election Safety and Log Matching after every round plus eventual liveness after each seed's storm ends",
+      "sourceLocations": [
+        "`gimle-mimir/src/test/java/com/gimle/mimir/raft/NornCluster.java`",
+        "`NornScheduler.java`",
+        "`NornRaftSimulationTest.java` (added in commit `6bd450f`, \"test: add Norn deterministic Raft fault-injection simulation\")"
       ]
     },
     {
@@ -11040,6 +11041,118 @@
         "`gimle-examples/node-local-cache/README.md`"
       ],
       "otherTestCoverage": "Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module."
+    },
+    {
+      "id": "GIMLE-639",
+      "module": "gimle-ragnarok",
+      "feature": "Chaos-plan and target YAML configuration for Fenrir/Surtr",
+      "category": "Chaos Engineering",
+      "status": "New",
+      "statusNote": "newly added as part of the ragnarok CLI phase",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario drives Fenrir/Surtr through these parsers -- Holmgang's own steps still build a FenrirPlan/target in Java. To close: a scenario driving RagnarokMain itself against a booted topology, parsing a written YAML file.",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/fenrir/ChaosPlanParser.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpecParser.java`"
+      ],
+      "otherTestCoverage": "`ChaosPlanParserTest`, `TargetSpecParserTest`"
+    },
+    {
+      "id": "GIMLE-640",
+      "module": "gimle-ragnarok",
+      "feature": "Bundled pause-image reference module for stress testing",
+      "category": "Load Testing",
+      "status": "New",
+      "statusNote": "newly added as part of the ragnarok CLI phase",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "This is tooling infrastructure (a fixture module Surtr deploys), not a platform behavior a Cucumber scenario asserts on directly -- RagnarokCliIT (a plain JUnit *IT, which does not count toward RTM coverage) already proves it deploys and reaches ACTIVE against a real cluster.",
+      "sourceLocations": [
+        "`gimle-ragnarok-pause/src/main/resources/META-INF/gimle/gimle-module.yaml`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/surtr/BundledModuleJarSource.java`"
+      ],
+      "otherTestCoverage": "`BundledModuleJarSourceTest`; `RagnarokCliIT` (real cluster)"
+    },
+    {
+      "id": "GIMLE-641",
+      "module": "gimle-ragnarok",
+      "feature": "ragnarok CLI: preflight/chaos/stress/replay/report verbs",
+      "category": "Chaos Engineering",
+      "status": "New",
+      "statusNote": "newly added as part of the ragnarok CLI phase",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario invokes the ragnarok binary itself (RagnarokCliIT, a plain JUnit *IT, does not count toward RTM coverage per this file's own coverage rule). To close: a .feature scenario shelling out to a packaged ragnarok binary against a booted topology.",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/RagnarokMain.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/cli/ChaosCommand.java`"
+      ],
+      "otherTestCoverage": "`RagnarokCliIT` (real cluster: preflight, stress, chaos, --confirm-destructive refusal)"
+    },
+    {
+      "id": "GIMLE-642",
+      "module": "gimle-dist",
+      "feature": "Standalone Ragnarok distribution archive",
+      "category": "Distribution",
+      "status": "New",
+      "statusNote": "newly added as part of the ragnarok CLI phase",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Packaging/distribution concern, not a platform behavior; verified manually (extracted archive's bin/ragnarok --help and preflight run correctly), not by any Holmgang scenario.",
+      "sourceLocations": [
+        "`gimle-dist/src/main/assembly/ragnarok.xml`",
+        "`gimle-dist/src/main/dist/bin/ragnarok`"
+      ],
+      "otherTestCoverage": "Manual smoke test of the extracted archive"
+    },
+    {
+      "id": "GIMLE-643",
+      "module": "gimle-ragnarok",
+      "feature": "SSH-backed managed-inventory ClusterTarget for real process control",
+      "category": "Chaos Engineering",
+      "status": "New",
+      "statusNote": "newly added as part of the Ragnarök Phase 3 (S10/S11) SSH-backed managed-inventory target",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Exercised end to end by gimle-holmgang's plain-JUnit RagnarokInventoryChaosIT (-Pvalidation) against a real sshd container, not by a Holmgang Cucumber .feature scenario -- per this file's own coverage rule, a plain JUnit *IT does not count as Covered even though it boots a real cluster and drives a real CONTROL_PLANE_BOUNCE over SSH.",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshInventoryClusterTarget.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshManagedProcess.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/WorkerHandle.java`"
+      ],
+      "otherTestCoverage": "SshManagedProcessTest, SshWorkerHandleTest, InventorySpecParserTest (unit); RagnarokInventoryChaosIT (-Pvalidation, real sshd container, plain JUnit)"
+    },
+    {
+      "id": "GIMLE-644",
+      "module": "gimle-ragnarok",
+      "feature": "Real iptables host-firewall network faults over SSH",
+      "category": "Chaos Engineering",
+      "status": "New",
+      "statusNote": "newly added as part of the Ragnarök Phase 4 (S13) host-firewall network faults",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Exercised end to end by gimle-holmgang's plain-JUnit RagnarokFirewallFaultIT (-Pvalidation) against a real sshd container with CAP_NET_ADMIN, not by a Holmgang Cucumber .feature scenario -- per this file's own coverage rule, a plain JUnit *IT does not count as Covered even though it installs and verifies a real iptables rule over SSH.",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshNetworkFaultInjector.java`"
+      ],
+      "otherTestCoverage": "SshNetworkFaultInjectorTest, SshInventoryClusterTargetTest (unit); RagnarokFirewallFaultIT (-Pvalidation, real sshd container, plain JUnit)"
+    },
+    {
+      "id": "GIMLE-645",
+      "module": "gimle-ragnarok",
+      "feature": "Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface",
+      "category": "Chaos Engineering",
+      "status": "New",
+      "statusNote": "newly added as part of the Ragnarök Phase 4 (S12) Admin Fault API",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Deliberately not exercised end to end through a GimleCluster-backed Holmgang IT: the store/control-plane client port a spawned agent's own -Dgimle.agent.storeEndpoints would need is only known inside GimleCluster.boot(), strictly after ClusterSpec's own jvmFlags are already fixed at topology-build time -- wiring it through would need a real GimleCluster/ClusterTopology enhancement (lazy, post-port-allocation per-role flags), not a test-only workaround, and is a separately-scoped harness change disproportionate to the marginal coverage gained over AgentAdminServerTest's already-genuine real-process-kill-and-respawn proof. No Holmgang Cucumber .feature scenario exists for this feature.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentAdminServer.java`"
+      ],
+      "otherTestCoverage": "AgentAdminServerTest (real WorkerProcessSupervisor + real InProcessStore, unit); AdminApiWorkerHandleTest, AdminApiSpecParserTest (unit)"
     }
   ]
 }

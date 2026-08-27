@@ -65,5 +65,13 @@ public enum ResourceKind {
   // ResourceQuota): a role can be granted "manage this tenant" without also getting "constrain
   // what any single deployment within it may request," the same independent-grant reasoning
   // NETWORK_POLICY already establishes relative to SERVICE.
-  LIMIT_RANGE
+  LIMIT_RANGE,
+  // Guards triggering a chaos fault against a running instance (a node agent's own Admin Fault
+  // API) -- a materially more consequential grant than an ordinary deployment operation, matching
+  // the ARTIFACT/DAEMONSET/NETWORK_POLICY precedent of an independently-withholdable kind rather
+  // than folding into DEPLOYMENT. Deliberately absent from every tenant role template
+  // (TENANT_VIEWABLE_KINDS/TENANT_EDITABLE_KINDS/TENANT_ADMIN_ONLY_KINDS in BuiltinRoles) --
+  // cluster-admin-only by default, the same posture BOOTSTRAP_TOKEN/CERTIFICATE_REQUEST already
+  // take; an operator delegating it must create an explicit Role/RoleBinding.
+  FAULT
 }

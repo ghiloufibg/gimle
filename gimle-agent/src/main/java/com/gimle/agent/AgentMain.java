@@ -47,6 +47,7 @@ import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.cluster.GossipConfig;
 import com.gimle.fabric.cluster.GossipMember;
 import com.gimle.fabric.cluster.MemberId;
+import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.module.artifact.ArtifactPullCache;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.artifact.ResolvedArtifact;
@@ -67,6 +68,7 @@ import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.UnknownHostException;
@@ -219,6 +221,18 @@ public final class AgentMain {
     // a resolution a different configured one could have answered.
     String andvariEndpoint = System.getProperty("gimle.agent.andvariEndpoint");
     List<URI> andvariBaseUrls = parseAndvariEndpoints(andvariEndpoint, baseUrl.getScheme());
+    // Same optional-system-property posture once more: null means the Admin Fault API never opens
+    // a port on this agent at all -- an operator who never uses it (SSH-based fault injection, or
+    // no chaos tool at all) sees zero behavior change. One or more comma-separated host:port
+    // gimle-mimir store replicas, the same shape gimle.agent.storeEndpoints' sibling properties
+    // already use.
+    String storeEndpoint = System.getProperty("gimle.agent.storeEndpoints");
+    // The Admin Fault API binds ephemerally (port 0) by default, discovered only via this agent's
+    // own log line below -- fine for a human operator reading logs, useless for a static
+    // `adminApi:` target document (or a test) that must know the port in advance. This lets either
+    // pin it to a known value; still defaults to ephemeral so multiple agents on one host never
+    // collide by accident.
+    int adminApiPort = Integer.getInteger("gimle.agent.adminApiPort", 0);
     // Off by default -- an agent that never sets this property behaves exactly as it did before
     // Bifrost existed. Poll interval is its own separate property so an operator can tune
     // convergence latency without touching the control-plane-loop TICK_INTERVAL above, which
@@ -368,6 +382,18 @@ public final class AgentMain {
     gossipServer.start();
     log.info("agent {} serving gossip membership at :{}", nodeId, gossipServer.port());
 
+    // Constructed only when storeEndpoint is configured -- see AgentAdminServer's own javadoc for
+    // why this is the one HTTP surface on this agent with its own independent StoreClient/
+    // Authorizer, matching Fafnir/Andvari/Muninn's defense-in-depth pattern rather than
+    // AgentLogServer's "trust the network topology" posture.
+    AgentAdminServer adminServer = null;
+    if (storeEndpoint != null && !storeEndpoint.isBlank()) {
+      StoreClient adminStoreClient = new StoreClient(parseStoreEndpoints(storeEndpoint));
+      adminServer = new AgentAdminServer(adminStoreClient, adminApiPort, supervised);
+      adminServer.start();
+      log.info("agent {} serving admin fault API at :{}", nodeId, adminServer.port());
+    }
+
     register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
 
@@ -477,6 +503,9 @@ public final class AgentMain {
         httpClient = rotationOutcome.httpClient();
         if (rotationOutcome.rotated()) {
           gossipMember.reloadDtlsMaterial();
+          if (adminServer != null) {
+            adminServer.reloadTlsMaterial();
+          }
         }
       } catch (RuntimeException | IOException e) {
         tickFailed = true;
@@ -521,6 +550,22 @@ public final class AgentMain {
       String trimmed = entry.trim();
       if (!trimmed.isEmpty()) {
         endpoints.add(URI.create(scheme + "://" + trimmed));
+      }
+    }
+    return endpoints;
+  }
+
+  /**
+   * One or more comma-separated {@code host:port} gimle-mimir store replicas for {@link
+   * AgentAdminServer}'s own {@code StoreClient} -- reuses {@link #parseHostPort} directly, the same
+   * parser {@code gossipBindHost:port}/{@code seeds} already use.
+   */
+  private static List<SocketAddress> parseStoreEndpoints(String storeEndpoint) {
+    List<SocketAddress> endpoints = new ArrayList<>();
+    for (String entry : storeEndpoint.split(",")) {
+      String trimmed = entry.trim();
+      if (!trimmed.isEmpty()) {
+        endpoints.add(parseHostPort(trimmed));
       }
     }
     return endpoints;

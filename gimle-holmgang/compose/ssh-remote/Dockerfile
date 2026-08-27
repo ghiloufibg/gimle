@@ -6,11 +6,13 @@
 FROM eclipse-temurin:25-jdk
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-server \
+    && apt-get install -y --no-install-recommends openssh-server iptables sudo \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd \
     && (getent group operator || groupadd operator) \
-    && useradd --create-home --shell /bin/bash --gid operator operator
+    && useradd --create-home --shell /bin/bash --gid operator operator \
+    && echo "operator ALL=(root) NOPASSWD: /usr/sbin/iptables" > /etc/sudoers.d/operator-iptables \
+    && chmod 0440 /etc/sudoers.d/operator-iptables
 
 # The base image's own PATH (including this Temurin build's own /opt/java/openjdk/bin) is set via
 # Docker ENV metadata, which "docker exec" inherits but a real sshd session never does -- sshd spawns

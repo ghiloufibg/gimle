@@ -1,6 +1,7 @@
 package com.gimle.holmgang.loki;
 
 import com.gimle.holmgang.HolmgangException;
+import com.gimle.ragnarok.target.NetworkFaultInjector;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,19 +13,10 @@ import java.util.Map;
  * and every store is handed proxy endpoints for its own peers instead of their real raft ports --
  * which is why cutting one replica's view cannot disturb another's. Faults are applied and removed
  * live; every cut hands back a {@link Partition} whose {@code heal()} (or try-with-resources close)
- * restores the link.
+ * restores the link. This is the one {@link NetworkFaultInjector} implementation that can exist --
+ * only a topology this harness itself booted has links it interposed at spawn time to cut.
  */
-public final class Loki implements AutoCloseable {
-
-  /** A live network cut; {@link #heal()} (or closing) restores the link. */
-  public interface Partition extends AutoCloseable {
-    void heal();
-
-    @Override
-    default void close() {
-      heal();
-    }
-  }
+public final class Loki implements AutoCloseable, NetworkFaultInjector {
 
   private final Map<Integer, List<LokiProxy>> controlPlaneToStoreProxies = new LinkedHashMap<>();
   private final Map<Integer, Map<Integer, LokiProxy>> storeToStoreProxies = new LinkedHashMap<>();
@@ -44,6 +36,7 @@ public final class Loki implements AutoCloseable {
   }
 
   /** Severs one control-plane replica's every link to the store cluster. */
+  @Override
   public Partition cutControlPlaneFromStores(final int controlPlaneIndex) {
     final List<LokiProxy> proxies = controlPlaneToStoreProxies.get(controlPlaneIndex);
     if (proxies == null) {
@@ -91,6 +84,7 @@ public final class Loki implements AutoCloseable {
    * alike go silent instead of erroring out, the realistic shape of a genuine network partition
    * rather than a refused or reset one.
    */
+  @Override
   public Partition cutStoreFromPeers(final int storeIndex) {
     final Map<Integer, LokiProxy> outbound = storeToStoreProxies.get(storeIndex);
     if (outbound == null) {

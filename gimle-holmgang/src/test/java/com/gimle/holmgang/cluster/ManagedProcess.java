@@ -2,6 +2,7 @@ package com.gimle.holmgang.cluster;
 
 import com.gimle.holmgang.HolmgangException;
 import com.gimle.holmgang.topology.ProcessRole;
+import com.gimle.ragnarok.target.GimleProcess;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -58,8 +59,8 @@ final class ManagedProcess implements GimleProcess {
   }
 
   @Override
-  public ProcessRole role() {
-    return role;
+  public String role() {
+    return role.name();
   }
 
   @Override
