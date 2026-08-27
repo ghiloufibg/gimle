@@ -4,6 +4,8 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.ragnarok.RagnarokException;
 import com.gimle.ragnarok.config.YamlParsing;
+import com.gimle.ragnarok.target.inventory.InventorySpec;
+import com.gimle.ragnarok.target.inventory.InventorySpecParser;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -54,6 +56,7 @@ public final class TargetSpecParser {
     final var andvariBaseUrls = YamlParsing.stringList(root, "andvariBaseUrls");
     final TransportProtocol transport = parseTransport(root);
     final Optional<TlsSettings> tls = parseTls(root);
+    final Optional<InventorySpec> inventory = parseInventory(root);
     final Path workDir =
         YamlParsing.optionalString(root, "workDir")
             .map(Path::of)
@@ -65,6 +68,7 @@ public final class TargetSpecParser {
         andvariBaseUrls,
         transport,
         tls,
+        inventory,
         workDir);
   }
 
@@ -95,6 +99,17 @@ public final class TargetSpecParser {
             Path.of(YamlParsing.requireString(tls, "certFile")),
             Path.of(YamlParsing.requireString(tls, "keyFile")),
             Path.of(YamlParsing.requireString(tls, "caFile"))));
+  }
+
+  private static Optional<InventorySpec> parseInventory(final Map<?, ?> root) {
+    final Object value = root.get("inventory");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof Map<?, ?> inventory)) {
+      throw new RagnarokException("'inventory' must be a mapping");
+    }
+    return Optional.of(InventorySpecParser.parse(inventory));
   }
 
   private static Path defaultWorkDir() {

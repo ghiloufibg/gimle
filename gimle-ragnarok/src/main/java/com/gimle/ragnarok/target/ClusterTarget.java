@@ -16,8 +16,12 @@ import java.util.Optional;
  * back, and returning empty rather than throwing lets Fenrir record the fault as skipped with a
  * reason instead of crashing the soak. Every other accessor here is already
  * Optional-or-empty-collection-shaped for the same reason.
+ *
+ * <p>Extends {@link AutoCloseable} (narrowed to no checked exception) so a CLI command can build
+ * one from a target document and use it in a single try-with-resources, whichever concrete
+ * implementation the document resolved to.
  */
-public interface ClusterTarget {
+public interface ClusterTarget extends AutoCloseable {
 
   List<String> controlPlaneBaseUrls();
 
@@ -64,7 +68,7 @@ public interface ClusterTarget {
   boolean andvariServing(int index);
 
   /** The live worker process currently hosting one instance, if this target can see it at all. */
-  Optional<ProcessHandle> workerFor(String deploymentName, int instanceIndex);
+  Optional<WorkerHandle> workerFor(String deploymentName, int instanceIndex);
 
   /**
    * The network-fault injector over this target's topology, present only when the target has
@@ -72,4 +76,7 @@ public interface ClusterTarget {
    * can never offer this, however capable it is otherwise.
    */
   Optional<NetworkFaultInjector> faults();
+
+  @Override
+  void close();
 }

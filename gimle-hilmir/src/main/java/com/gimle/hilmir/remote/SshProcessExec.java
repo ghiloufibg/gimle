@@ -29,15 +29,20 @@ import java.util.concurrent.TimeUnit;
  * security feature: without them, a target whose key auth isn't fully set up falls back to an
  * interactive password prompt with no controlling TTY to answer it, silently stalling that
  * machine's dispatch thread forever instead of failing fast.
+ *
+ * <p>Public rather than package-private: {@code gimle-ragnarok}'s own SSH-backed {@code
+ * ClusterTarget} constructs this directly to run arbitrary process-control commands (kill/restart)
+ * over the identical hardened transport, rather than reimplementing host-key pinning/quoting/
+ * timeouts a second time.
  */
-final class SshProcessExec implements RemoteExec {
+public final class SshProcessExec implements RemoteExec {
 
   private static final Duration FINGERPRINT_TIMEOUT = Duration.ofSeconds(10);
 
   private final List<String> commonFlags;
   private final Path knownHostsFile;
 
-  SshProcessExec(final Path knownHostsFile) {
+  public SshProcessExec(final Path knownHostsFile) {
     this.knownHostsFile = knownHostsFile;
     this.commonFlags =
         List.of(

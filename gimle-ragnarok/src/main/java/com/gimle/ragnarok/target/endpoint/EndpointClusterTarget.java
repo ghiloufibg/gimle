@@ -5,6 +5,7 @@ import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.ControlPlaneClient;
 import com.gimle.ragnarok.target.GimleProcess;
 import com.gimle.ragnarok.target.NetworkFaultInjector;
+import com.gimle.ragnarok.target.WorkerHandle;
 import com.gimle.testkit.heimdall.Heimdall;
 import com.gimle.testkit.heimdall.HeimdallScope;
 import java.io.IOException;
@@ -28,7 +29,7 @@ import java.util.OptionalInt;
  * #storeLeaderId()}, {@link #storeMemberIds()}) still work for real, since they only need the
  * store's own client port, not process control over it.
  */
-public final class EndpointClusterTarget implements ClusterTarget, AutoCloseable {
+public final class EndpointClusterTarget implements ClusterTarget {
 
   private final List<String> controlPlaneBaseUrls;
   private final HttpClient httpClient;
@@ -182,7 +183,7 @@ public final class EndpointClusterTarget implements ClusterTarget, AutoCloseable
   }
 
   @Override
-  public Optional<ProcessHandle> workerFor(final String deploymentName, final int instanceIndex) {
+  public Optional<WorkerHandle> workerFor(final String deploymentName, final int instanceIndex) {
     return Optional.empty();
   }
 

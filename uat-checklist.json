@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 634,
+    "totalRequirements": 635,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 511,
+    "notCoveredByAutomatedTest": 512,
     "releaseReadinessPercent": 19.4
   },
   "items": [
@@ -6976,6 +6976,17 @@
       "category": "Distribution",
       "feature": "Standalone Ragnarok distribution archive",
       "step": "Manually verify: Standalone Ragnarok distribution archive. Packaging/distribution concern, not a platform behavior; verified manually (extracted archive's bin/ragnarok --help and preflight run correctly), not by any Holmgang scenario.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-635",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "SSH-backed managed-inventory ClusterTarget for real process control",
+      "step": "Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

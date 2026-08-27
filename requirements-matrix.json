@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 634,
+  "requirementCount": 635,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12495,6 +12495,31 @@
       "gherkinSteps": [],
       "statusSummary": "Complete",
       "testCoverageLevel": "Manual smoke"
+    },
+    {
+      "id": "GIMLE-635",
+      "module": "gimle-ragnarok",
+      "feature": "SSH-backed managed-inventory ClusterTarget for real process control",
+      "category": "Chaos Engineering",
+      "userStory": "As an operator running Fenrir/Surtr against a real external cluster I did not boot with Holmgang, I want the bounce/kill fault kinds (store, control plane, Fafnir, Muninn, Andvari bounce; worker kill) to actually fire and recover over SSH, not always record SKIPPED, so a live-fire chaos run against a real deployment is possible from a plain target.yaml.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshInventoryClusterTarget.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshManagedProcess.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshWorkerHandle.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpec.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpecParser.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/WorkerHandle.java`",
+        "`gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/remote/SshProcessExec.java`"
+      ],
+      "testCoverageDetail": "`SshManagedProcessTest`, `SshWorkerHandleTest` (real local process kill/restart/pid/onExit over a fake SSH transport), `InventorySpecParserTest` (machines/roles/agents parsing and validation); end-to-end against a real sshd container via `gimle-holmgang`'s `RagnarokInventoryChaosIT` (`-Pvalidation`, opt-in), which boots a real single-node store/Fafnir/control-plane trio over SSH and drives a `CONTROL_PLANE_BOUNCE` fault through the `ragnarok chaos` CLI, asserting the ledger records RECOVERED rather than SKIPPED. `STORE_BOUNCE`/`LEADER_BOUNCE` and `WORKER_KILL`'s own end-to-end deploy-and-kill path are not exercised by that IT (the former needs a 3-node store to clear Fenrir's own quorum floor, the latter a deployed module instance) -- both are covered only at the unit level.",
+      "gherkinSteps": [
+        "Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial (unit + one real-SSH IT; not every bounce kind exercised end to end)"
     }
   ]
 }

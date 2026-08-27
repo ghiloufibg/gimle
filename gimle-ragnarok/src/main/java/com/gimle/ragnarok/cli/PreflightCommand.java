@@ -1,6 +1,6 @@
 package com.gimle.ragnarok.cli;
 
-import com.gimle.ragnarok.target.endpoint.EndpointClusterTarget;
+import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.endpoint.TargetSpec;
 import com.gimle.ragnarok.target.endpoint.TargetSpecParser;
 import java.io.PrintStream;
@@ -21,7 +21,7 @@ public final class PreflightCommand {
   public static int run(final List<String> args, final PrintStream out) {
     final TargetSpec spec = TargetSpecParser.resolve(CliArgs.requireFlag(args, "--target"));
     boolean ok = true;
-    try (EndpointClusterTarget target = spec.open()) {
+    try (ClusterTarget target = spec.open()) {
       ok &= reportStore(spec, target, out);
       ok &= reportControlPlanes(spec, target, out);
       ok &= reportEndpoints("muninn", spec.muninnBaseUrls(), target::muninnServing, out);
@@ -32,7 +32,7 @@ public final class PreflightCommand {
   }
 
   private static boolean reportStore(
-      final TargetSpec spec, final EndpointClusterTarget target, final PrintStream out) {
+      final TargetSpec spec, final ClusterTarget target, final PrintStream out) {
     if (spec.storeClientEndpoints().isEmpty()) {
       out.println("store: not configured, skipped");
       return true;
@@ -48,7 +48,7 @@ public final class PreflightCommand {
   }
 
   private static boolean reportControlPlanes(
-      final TargetSpec spec, final EndpointClusterTarget target, final PrintStream out) {
+      final TargetSpec spec, final ClusterTarget target, final PrintStream out) {
     boolean ok = true;
     for (int i = 0; i < target.controlPlaneCount(); i++) {
       final boolean serving = target.api(i).isServing();

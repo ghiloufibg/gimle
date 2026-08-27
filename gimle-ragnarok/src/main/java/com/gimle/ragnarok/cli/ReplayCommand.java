@@ -6,7 +6,7 @@ import com.gimle.ragnarok.fenrir.ChaosLedger;
 import com.gimle.ragnarok.fenrir.ChaosPlanParser;
 import com.gimle.ragnarok.fenrir.Fenrir;
 import com.gimle.ragnarok.fenrir.FenrirPlan;
-import com.gimle.ragnarok.target.endpoint.EndpointClusterTarget;
+import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.endpoint.TargetSpec;
 import com.gimle.ragnarok.target.endpoint.TargetSpecParser;
 import java.io.IOException;
@@ -38,7 +38,7 @@ public final class ReplayCommand {
     final TargetSpec spec = TargetSpecParser.resolve(CliArgs.requireFlag(args, "--target"));
     final FenrirPlan plan = planFrom(reportFile);
     ChaosCommand.requireConfirmed(plan, args);
-    try (EndpointClusterTarget target = spec.open()) {
+    try (ClusterTarget target = spec.open()) {
       final ChaosLedger ledger = Fenrir.unleash(target, plan);
       out.print(ledger.render());
       CliArgs.optionalFlag(args, "--report")

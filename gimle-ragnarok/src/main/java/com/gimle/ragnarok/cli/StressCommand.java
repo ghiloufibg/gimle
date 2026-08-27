@@ -8,7 +8,7 @@ import com.gimle.ragnarok.surtr.SurtrRunResult;
 import com.gimle.ragnarok.surtr.SurtrRunner;
 import com.gimle.ragnarok.surtr.SurtrWorkload;
 import com.gimle.ragnarok.surtr.SurtrWorkloadParser;
-import com.gimle.ragnarok.target.endpoint.EndpointClusterTarget;
+import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.endpoint.TargetSpec;
 import com.gimle.ragnarok.target.endpoint.TargetSpecParser;
 import java.io.PrintStream;
@@ -37,7 +37,7 @@ public final class StressCommand {
         SurtrWorkloadParser.resolve(
             CliArgs.optionalFlag(args, "--workload").orElse(DEFAULT_WORKLOAD));
     final ModuleJarSource moduleJarSource = resolveModuleJarSource(args);
-    try (EndpointClusterTarget target = spec.open()) {
+    try (ClusterTarget target = spec.open()) {
       final SurtrRunResult result = new SurtrRunner(target, workload, moduleJarSource).run();
       out.print(SurtrReport.render(result));
       CliArgs.optionalFlag(args, "--report")

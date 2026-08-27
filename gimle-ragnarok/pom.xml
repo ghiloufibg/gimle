@@ -51,6 +51,14 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-module</artifactId>
     </dependency>
+    <!-- RemoteExec/SshProcessExec (the SSH transport hilmir's own remote-dispatch verbs already
+         hardened) and the Machine/SshSettings/ResolvedSshTarget topology types, reused as-is by
+         the managed-inventory ClusterTarget rather than reimplementing SSH transport a second
+         time. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-hilmir</artifactId>
+    </dependency>
     <!-- provided, not runtime: gimle-ragnarok's build embeds this module's own built jar as a
          classpath resource (see the maven-dependency-plugin execution below) rather than shipping
          it as a sibling lib jar, so it must never appear on gimle-ragnarok's own runtime/transitive

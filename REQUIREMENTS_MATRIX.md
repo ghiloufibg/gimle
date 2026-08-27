@@ -644,6 +644,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-632 | Bundled pause-image reference module for stress testing | Load Testing | Complete | Unit + real cluster (RagnarokCliIT) |
 | GIMLE-633 | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Chaos Engineering | Complete | Real cluster (RagnarokCliIT) |
 | GIMLE-634 | Standalone Ragnarok distribution archive | Distribution | Complete | Manual smoke |
+| GIMLE-635 | SSH-backed managed-inventory ClusterTarget for real process control | Chaos Engineering | Complete | Partial (unit + one real-SSH IT; not every bounce kind exercised end to end) |
 
 ## Detailed Requirements
 
@@ -9256,6 +9257,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a real cluster and a plaintext target.yaml, When `ragnarok preflight` runs, Then it reports every configured endpoint's own reachability and exits non-zero if any is down.
   Given a chaos plan naming only network faults, When `ragnarok chaos` runs without --confirm-destructive, Then it is accepted and runs.
   Given a chaos plan naming a destructive fault kind, When `ragnarok chaos` runs without --confirm-destructive, Then it is refused with an error naming the missing flag.
+  ```
+
+#### GIMLE-635 — SSH-backed managed-inventory ClusterTarget for real process control
+
+- **Category**: Chaos Engineering
+- **User story**: As an operator running Fenrir/Surtr against a real external cluster I did not boot with Holmgang, I want the bounce/kill fault kinds (store, control plane, Fafnir, Muninn, Andvari bounce; worker kill) to actually fire and recover over SSH, not always record SKIPPED, so a live-fire chaos run against a real deployment is possible from a plain target.yaml.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshInventoryClusterTarget.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshManagedProcess.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshWorkerHandle.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/InventorySpecParser.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/WorkerHandle.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/remote/SshProcessExec.java`
+- **Test coverage**: `SshManagedProcessTest`, `SshWorkerHandleTest` (real local process kill/restart/pid/onExit over a fake SSH transport), `InventorySpecParserTest` (machines/roles/agents parsing and validation); end-to-end against a real sshd container via `gimle-holmgang`'s `RagnarokInventoryChaosIT` (`-Pvalidation`, opt-in), which boots a real single-node store/Fafnir/control-plane trio over SSH and drives a `CONTROL_PLANE_BOUNCE` fault through the `ragnarok chaos` CLI, asserting the ledger records RECOVERED rather than SKIPPED. `STORE_BOUNCE`/`LEADER_BOUNCE` and `WORKER_KILL`'s own end-to-end deploy-and-kill path are not exercised by that IT (the former needs a 3-node store to clear Fenrir's own quorum floor, the latter a deployed module instance) -- both are covered only at the unit level.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED.
   ```
 
 ### gimle-dist

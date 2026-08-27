@@ -37,6 +37,7 @@ import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.ControlPlaneClient;
 import com.gimle.ragnarok.target.GimleProcess;
 import com.gimle.ragnarok.target.NetworkFaultInjector;
+import com.gimle.ragnarok.target.WorkerHandle;
 import com.gimle.testkit.PortLease;
 import com.gimle.testkit.heimdall.Heimdall;
 import com.gimle.testkit.heimdall.HeimdallScope;
@@ -1499,8 +1500,10 @@ public final class GimleCluster implements AutoCloseable {
     }
 
     @Override
-    public Optional<ProcessHandle> workerFor(final String deploymentName, final int instanceIndex) {
-      return GimleCluster.this.workerFor(deploymentName, instanceIndex);
+    public Optional<WorkerHandle> workerFor(final String deploymentName, final int instanceIndex) {
+      return GimleCluster.this
+          .workerFor(deploymentName, instanceIndex)
+          .map(LocalWorkerHandle::new);
     }
 
     @Override
@@ -1510,6 +1513,35 @@ public final class GimleCluster implements AutoCloseable {
       } catch (final HolmgangException e) {
         return Optional.empty();
       }
+    }
+
+    @Override
+    public void close() {
+      // The harness's own real cleanup stays on GimleCluster.close() -- this view has nothing of
+      // its own to release.
+    }
+  }
+
+  /**
+   * Adapts a real, in-JVM {@link ProcessHandle} to {@link WorkerHandle} -- the harness always has
+   * one, unlike an SSH-backed target, which has no {@code ProcessHandle} of any kind for a process
+   * on a machine it isn't running on.
+   */
+  private record LocalWorkerHandle(ProcessHandle handle) implements WorkerHandle {
+
+    @Override
+    public long pid() {
+      return handle.pid();
+    }
+
+    @Override
+    public boolean isAlive() {
+      return handle.isAlive();
+    }
+
+    @Override
+    public void kill() {
+      handle.destroyForcibly();
     }
   }
 }

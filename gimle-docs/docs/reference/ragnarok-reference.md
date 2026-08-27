@@ -5,15 +5,22 @@ sidebar_position: 6
 # `gimle-ragnarok` reference
 
 `ragnarok` runs Fenrir (chaos) and Surtr (stress/load) against a real, already-running Gimlé
-cluster — no boot-time cluster interposition, no process control, config-file-driven, and no test
-code to write or compile. It reaches its target purely over the network: HTTP for the control
-plane, a direct `StoreClient` RPC for the store's own read-only status. Because of that, only
-network faults (`LINK_CUT`, `STORE_PARTITION`) can ever actually fire through it — every other
-Fenrir fault kind (worker/store/leader/control-plane/Fafnir/Muninn/Andvari bounce, all of which
-need process control this tool doesn't have) always records `SKIPPED`, never throws. Fenrir and
-Surtr are the identical library code `gimle-holmgang`'s own test harness uses internally, behind a
-`ClusterTarget` seam — `ragnarok` is simply a second, real-cluster-only implementation of that seam
-(`EndpointClusterTarget`), wired to a small CLI instead of a Cucumber suite.
+cluster — config-file-driven, no test code to write or compile. Fenrir and Surtr are the identical
+library code `gimle-holmgang`'s own test harness uses internally, behind a `ClusterTarget` seam —
+`ragnarok` provides two real-cluster implementations of that seam, wired to a small CLI instead of a
+Cucumber suite:
+
+- **`EndpointClusterTarget`** (the default, no `inventory:` block in the target document) reaches a
+  cluster purely over the network: HTTP for the control plane, a direct `StoreClient` RPC for the
+  store's own read-only status. No boot-time interposition, no process control. Only network faults
+  (`LINK_CUT`, `STORE_PARTITION`) can ever fire through it — every other Fenrir fault kind
+  (worker/store/leader/control-plane/Fafnir/Muninn/Andvari bounce, all of which need process
+  control this target doesn't have) always records `SKIPPED`, never throws.
+- **`SshInventoryClusterTarget`** (opt in via the target document's `inventory:` block) additionally
+  controls the machines/processes a cluster runs on over SSH — real `kill -9`/respawn against each
+  machine's own store/control-plane/Fafnir/Muninn/Andvari process and, given a matching `agents:`
+  entry, a real worker's OS pid resolved from its node agent's own platform log. Every bounce/kill
+  fault kind actually fires and recovers through this target, not just the two network-only ones.
 
 ```text
 ragnarok preflight --target <target.yaml>
@@ -41,6 +48,26 @@ tls:                    # required when transport: mtls
   keyFile: /etc/ragnarok/operator.key
   caFile: /etc/ragnarok/ca.crt
 workDir: /var/lib/ragnarok/work   # optional, default a temp directory
+
+inventory:                        # optional -- adds real SSH process control (see below)
+  machines:
+    - name: node-1
+      host: 10.0.1.10
+      ssh: {user: gimle, identityFile: /home/op/.ssh/id_ed25519}
+  store:
+    - machine: node-1
+      id: store-0
+      pidFile: /opt/gimle/data/store-0.pid
+      logFile: /opt/gimle/data/store-0.log
+      command: [java, -cp, /opt/gimle/lib/*, com.gimle.mimir.StoreMain, "7100", "7101"]
+  controlPlane: []   # same shape, for control-plane replicas
+  fafnir: []          # same shape, for Fafnir replicas
+  muninn: []           # same shape, for Muninn replicas
+  andvari: []          # same shape, for Andvari replicas
+  agents:
+    - machine: node-1
+      nodeId: node-abc
+      logRoot: /opt/gimle/data/agent-node-abc-logs   # hilmir's own -Dgimle.log.root convention
 ```
 
 `storeClientEndpoints` is optional — an empty list just means the store-health checks (`preflight`'s
@@ -48,6 +75,22 @@ leader/member report, and any future gate that reads them) degrade to "unknown" 
 outright. `transport`/`tls` follow the identical `plaintext`/`mtls` + `certFile`/`keyFile`/`caFile`
 shape `gimle-hilmir`'s own topology documents use, deliberately, so an operator who already knows one
 recognizes the other immediately.
+
+### The `inventory:` block
+
+Adding an `inventory:` block switches the target from `EndpointClusterTarget` to
+`SshInventoryClusterTarget` — no separate `kind:` field, the block's presence is the whole
+discriminator. `machines` declares every host `ragnarok` may SSH into (reusing `gimle-hilmir`'s own
+`Machine`/`ssh:` shape); each of `store`/`controlPlane`/`fafnir`/`muninn`/`andvari` is a list of
+managed roles, one per replica, in the same index order `--target`'s own `storeClientEndpoints`/etc.
+already imply — `pidFile`/`logFile`/`command` describe exactly how to launch and track that one
+process over SSH, deliberately independent of any `hilmir up` run: a bounce is `kill -9 $(cat
+pidFile)` followed by re-running `command` in the background and recording the new pid, so a role's
+`command` needs its own explicit `-cp` (an inventory document is not a `hilmir` topology and doesn't
+inherit one). `agents` maps a Gimlé node id to the machine hosting it and that node agent's own
+`-Dgimle.log.root` directory, letting `WORKER_KILL` resolve a worker's real OS pid from the agent's
+own `"spawned worker ... as pid ..."` platform-log line — no worker-kill victim can be resolved for
+a node with no matching `agents` entry.
 
 ## `preflight`
 
@@ -79,10 +122,13 @@ pools:
 `kind` is one of the nine `FaultKind` values. A plan whose pools name anything beyond a pure network
 fault (`LINK_CUT`/`STORE_PARTITION`) — that is, anything that kills or bounces a real process — is
 refused unless `--confirm-destructive` is passed; the refusal names exactly which pools triggered it.
-This checks the plan's own declared pools, not what the target can currently fire: today
-`EndpointClusterTarget` has no process control at all, so none of those kinds can actually execute —
-the gate exists for whatever `ClusterTarget` a future process-control-capable adapter provides too,
-not just this one.
+This checks the plan's own declared pools, not what the target can currently fire: an
+`EndpointClusterTarget` (no `inventory:` block) has no process control at all, so every one of those
+kinds always records `SKIPPED` against it regardless of the gate; against an
+`SshInventoryClusterTarget` (`inventory:` present) they actually fire and are expected to recover.
+`STORE_BOUNCE`/`LEADER_BOUNCE` additionally require enough live store replicas to clear Fenrir's own
+quorum floor (`live > total/2 + 1`) — a single-replica store can never clear it and always skips both,
+independent of process-control capability.
 
 `chaos` prints the resulting chaos ledger (seed, executed/recovered/skipped counts, one line per
 strike) and exits non-zero unless every fault that fired recovered. `--report <dir>` writes a

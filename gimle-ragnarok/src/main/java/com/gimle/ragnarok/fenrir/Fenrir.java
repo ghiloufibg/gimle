@@ -6,6 +6,7 @@ import com.gimle.ragnarok.fenrir.ChaosLedger.Outcome;
 import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.GimleProcess;
 import com.gimle.ragnarok.target.NetworkFaultInjector;
+import com.gimle.ragnarok.target.WorkerHandle;
 import com.gimle.testkit.heimdall.HeimdallCondition;
 import com.gimle.testkit.heimdall.HeimdallConditionError;
 import java.time.Duration;
@@ -105,7 +106,7 @@ public final class Fenrir {
     final WorkerRef victim = workers.get(victimRng.nextInt(workers.size()));
     final long oldPid = victim.handle().pid();
     final String label = victim.deployment() + "#" + victim.index() + " (pid " + oldPid + ")";
-    victim.handle().destroyForcibly();
+    victim.handle().kill();
     return gated(
         index,
         pool,
@@ -458,7 +459,7 @@ public final class Fenrir {
   }
 
   /** A worker currently hosting one instance of an eligible deployment. */
-  private record WorkerRef(String deployment, int index, ProcessHandle handle) {}
+  private record WorkerRef(String deployment, int index, WorkerHandle handle) {}
 
   private List<WorkerRef> liveWorkers() {
     final List<WorkerRef> workers = new ArrayList<>();

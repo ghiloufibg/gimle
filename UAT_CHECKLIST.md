@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 634
+- **Total requirements**: 635
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 511
+- **Not covered by automated test**: 512
 - **Release-readiness (automated coverage)**: 19.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -39,7 +39,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-examples | 4 | 3 | 1 | 75.0% |
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
-| gimle-ragnarok | 5 | 1 | 4 | 20.0% |
+| gimle-ragnarok | 6 | 1 | 5 | 16.7% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 3 | 0 | 3 | 0.0% |
 
@@ -1745,6 +1745,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-533 | Fenrir randomized chaos-fault soak executor | Given a FenrirPlan with a soak duration and strike interval, When Fenrir.unleash(cluster, plan) runs, Then it repeatedly draws a fault kind/victim, applies it, and awaits recovery through Heimdall, recording each strike into a ChaosLedger. | Yes |
 | [ ] | GIMLE-631 | Chaos-plan and target YAML configuration for Fenrir/Surtr | Given a chaos-plan YAML naming a seed, soak window, and a mix of fault pools, When it is parsed, Then it builds the identical FenrirPlan a Java caller would have built by hand. Given a target YAML naming control-plane base URLs, store client endpoints, and a plaintext or mTLS transport, When it is opened, Then it produces a live EndpointClusterTarget reaching that cluster. | No |
 | [ ] | GIMLE-633 | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Given a real cluster and a plaintext target.yaml, When `ragnarok preflight` runs, Then it reports every configured endpoint's own reachability and exits non-zero if any is down. Given a chaos plan naming only network faults, When `ragnarok chaos` runs without --confirm-destructive, Then it is accepted and runs. Given a chaos plan naming a destructive fault kind, When `ragnarok chaos` runs without --confirm-destructive, Then it is refused with an error naming the missing flag. | No |
+| [ ] | GIMLE-635 | SSH-backed managed-inventory ClusterTarget for real process control | Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED. | No |
 
 #### Load Testing
 

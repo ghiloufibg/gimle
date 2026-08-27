@@ -8,7 +8,7 @@ import com.gimle.ragnarok.fenrir.FaultKind;
 import com.gimle.ragnarok.fenrir.Fenrir;
 import com.gimle.ragnarok.fenrir.FenrirPlan;
 import com.gimle.ragnarok.fenrir.Pool;
-import com.gimle.ragnarok.target.endpoint.EndpointClusterTarget;
+import com.gimle.ragnarok.target.ClusterTarget;
 import com.gimle.ragnarok.target.endpoint.TargetSpec;
 import com.gimle.ragnarok.target.endpoint.TargetSpecParser;
 import java.io.IOException;
@@ -28,11 +28,11 @@ import java.util.Set;
  *
  * <p>The safety gate: a plan whose pools include anything beyond a pure network fault (killing or
  * bouncing a real process) is refused unless {@code --confirm-destructive} is passed. This checks
- * the plan's own declared pools, not what the target can currently fire -- {@link
- * EndpointClusterTarget} today has no process control at all (every fault beyond {@link
- * FaultKind#LINK_CUT}/{@link FaultKind#STORE_PARTITION} always records {@code SKIPPED}), but the
- * gate is meant to hold for whatever {@link com.gimle.ragnarok.target.ClusterTarget} a future,
- * process-control-capable adapter provides too.
+ * the plan's own declared pools, not what the target can currently fire -- {@link ClusterTarget}
+ * today has no process control at all (every fault beyond {@link FaultKind#LINK_CUT}/{@link
+ * FaultKind#STORE_PARTITION} always records {@code SKIPPED}), but the gate is meant to hold for
+ * whatever {@link com.gimle.ragnarok.target.ClusterTarget} a future, process-control-capable
+ * adapter provides too.
  */
 public final class ChaosCommand {
 
@@ -52,7 +52,7 @@ public final class ChaosCommand {
     FenrirPlan plan = ChaosPlanParser.resolve(CliArgs.requireFlag(args, "--plan"));
     plan = withSeedOverride(plan, args);
     requireConfirmed(plan, args);
-    try (EndpointClusterTarget target = spec.open()) {
+    try (ClusterTarget target = spec.open()) {
       final ChaosLedger ledger = Fenrir.unleash(target, plan);
       out.print(ledger.render());
       final FenrirPlan finalPlan = plan;
