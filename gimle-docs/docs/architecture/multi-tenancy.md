@@ -32,6 +32,21 @@ quota even briefly, not just at steady state. `QuotaReconciler`'s own continuous
 sums plain `replicas` — a transient surge overshoot it would otherwise flag is expected to self-heal
 within one reconcile tick as the rollout completes, not something worth a standing violation for.
 
+## Plaintext transport is explicitly single-tenant
+
+Plaintext (the default transport, see [Transport security](./transport-security.md)) gives every
+caller the identical unauthenticated identity — there is no peer identity for RBAC to check, so
+there is no way, not even after the fact, to distinguish a legitimate co-tenant from an uninvited
+caller reaching into someone else's tenant. Rather than quietly allowing shared multi-tenant use
+under those conditions, `POST`/`PUT /tenants/{id}` refuses to create a second real tenant while
+running in plaintext: the reserved `gimle-system` tenant (above) doesn't count toward the limit —
+it's seeded automatically regardless of transport — but the first operator-created tenant claims
+the one slot plaintext allows, and every subsequent *new* tenant id is rejected with `403` until
+the cluster moves to mTLS. An update to an already-existing tenant (adjusting its own quota, for
+example) is always permitted regardless of transport — the guard only ever blocks the creation of a
+genuinely new tenant identity. Real multi-tenancy requires mTLS, where a real peer identity exists
+for RBAC to actually check.
+
 ## Enforcement: checked at admission, and continuously
 
 Checked twice, the same "reject early, reject again where it actually matters" shape the scheduler

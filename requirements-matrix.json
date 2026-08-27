@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 641,
+  "requirementCount": 642,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12644,6 +12644,25 @@
       "testCoverageDetail": "`SchedulerTest` (taint_excludes_a_node_tainted_for_a_different_tenant, taint_permits_a_node_tainted_for_the_same_tenant, taint_fails_outright_when_every_capable_node_is_tainted_for_a_different_tenant, taint_failure_names_the_specific_blocking_node_and_tenant, taint_failure_names_every_blocking_node_when_more_than_one_conflicts, taint_is_enforced_at_tier1_too_unlike_the_co_residency_check_it_replaced, an_untenanted_deployment_never_tolerates_a_taint, an_untainted_node_admits_any_tenant, eligible_nodes_applies_node_taints, sticky_placement_still_enforces_node_taints_on_the_sticky_node), `ApiServerTest#taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list`, `#untaint_endpoint_clears_the_reservation_for_that_tenant`, `#taint_endpoint_rejects_a_request_with_no_tenant_id`, `RaftCodecTest#round_trips_a_state_snapshot`",
       "gherkinSteps": [
         "Given an untainted node open to any tenant; When an operator taints it for tenant-a; Then a tenant-b replica is excluded from it and a tenant-a replica is still admitted; untainting clears the reservation."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-642",
+      "module": "gimle-controlplane",
+      "feature": "Plaintext Transport Is Explicitly Single-Tenant",
+      "category": "Governance",
+      "userStory": "As an operator running plaintext (the default transport, no peer identity to check), I want the platform to refuse creating a second real tenant, so plaintext is never quietly used for shared multi-tenancy with no way to tell callers apart after the fact.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`ApiServer#rejectSecondTenantUnderPlaintext`",
+        "`ApiServer#handleTenant` (PUT branch)"
+      ],
+      "testCoverageDetail": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.",
+      "gherkinSteps": [
+        "Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

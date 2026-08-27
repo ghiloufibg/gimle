@@ -3638,7 +3638,8 @@ public final class ApiServer implements AutoCloseable {
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
           if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.WRITE, Optional.of(id))
-              && !rejectIfReservedSystemTenant(exchange, Optional.of(id))) {
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(id))
+              && !rejectSecondTenantUnderPlaintext(exchange, id)) {
             handlePutTenant(exchange, id);
           }
         }
@@ -6569,6 +6570,36 @@ public final class ApiServer implements AutoCloseable {
 
   private static boolean isReservedSystemTenant(Optional<String> tenantId) {
     return tenantId.filter(Tenant.RESERVED_SYSTEM_TENANT_ID::equals).isPresent();
+  }
+
+  /**
+   * Plaintext transport gives every caller the identical unauthenticated identity (see {@link
+   * #isOperatorCaller}'s own javadoc) -- there is no way, not even after the fact, to distinguish a
+   * legitimate co-tenant from an uninvited caller reaching into someone else's tenant. Rather than
+   * quietly allowing shared multi-tenant use with no way to tell callers apart, plaintext mode is
+   * treated as explicitly single-tenant: creating a second real tenant is refused outright, the
+   * same "reject, don't silently allow" posture every other hard policy in this class already
+   * takes. The reserved {@link Tenant#RESERVED_SYSTEM_TENANT_ID} doesn't count toward the limit --
+   * it's seeded automatically on every replica regardless of transport, not an operator's own
+   * tenant. A no-op for an update to an already-existing tenant (this id itself) and for every mTLS
+   * caller, where a real peer identity exists for RBAC to actually check.
+   */
+  private boolean rejectSecondTenantUnderPlaintext(HttpExchange exchange, String id) {
+    if (exchange instanceof HttpsExchange || storeClient.getTenant(id).isPresent()) {
+      return false;
+    }
+    boolean anotherRealTenantExists =
+        storeClient.listTenants().stream()
+            .anyMatch(tenant -> !tenant.id().equals(Tenant.RESERVED_SYSTEM_TENANT_ID));
+    if (!anotherRealTenantExists) {
+      return false;
+    }
+    respondQuietly(
+        exchange,
+        403,
+        "plaintext mode has no caller identity to distinguish tenants -- only one real tenant may"
+            + " exist at a time; use mTLS for real multi-tenancy");
+    return true;
   }
 
   /**

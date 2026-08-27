@@ -656,6 +656,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Modified | Not Covered | — |
 | GIMLE-640 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | New | Not Covered | — |
 | GIMLE-641 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | New | Not Covered | — |
+| GIMLE-642 | Plaintext Transport Is Explicitly Single-Tenant | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3772,6 +3773,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SchedulerTest` (10 taint-focused methods), `ApiServerTest#taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list`, `#untaint_endpoint_clears_the_reservation_for_that_tenant`, `#taint_endpoint_rejects_a_request_with_no_tenant_id`, `RaftCodecTest#round_trips_a_state_snapshot`
 - **Source location(s)**: `StateStore#putNodeTaint`/`#getNodeTaints`, `StateMutation.PutNodeTaint`, `Scheduler#filterByTaint`, `NodeCandidate#taints`, `ApiServer#handleTaint`, `GimleCli`/`NodesCommand` `taint`/`untaint` verbs
 
+#### GIMLE-642 — Plaintext Transport Is Explicitly Single-Tenant
+
+- **Category**: Governance
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No dedicated Holmgang Cucumber scenario exercises the plaintext single-tenant refusal itself against a real running cluster yet -- coverage today is ApiServerTest (HTTP endpoint, unit-level) plus the indirect proof that quota-and-admission.feature/limitrange.feature had to move off plaintext to keep creating a second tenant.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`
+- **Source location(s)**: `ApiServer#rejectSecondTenantUnderPlaintext`, `ApiServer#handleTenant` (PUT branch)
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -6796,7 +6806,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**518 of 641 requirements are Not Covered.**
+**519 of 642 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6953,6 +6963,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-204 | gimle-fabric | Anti-Entropy Full-State Sync | Gossip Membership | `GossipMemberTest#anti_entropy_sync_delivers_a_change_piggyback_alone_cannot_carry` |
 | GIMLE-205 | gimle-fabric | Dead-Member Reaping | Gossip Membership | `GossipMemberTest#a_long_dead_member_is_eventually_forgotten_not_kept_forever` |
 | GIMLE-206 | gimle-fabric | Gossip over Mutual DTLS with Deterministic Initiator Selection | Gossip Membership | `GossipMemberDtlsTest#two_nodes_discover_each_other_over_mutual_dtls`, `#a_killed_member_still_converges_to_dead_over_dtls`, `#members_trusting_different_cas_never_become_mutually_aware`, `#a_member_reaches_a_new_peer_over_dtls_after_reloading_rotated_material` |
+| GIMLE-642 | gimle-controlplane | Plaintext Transport Is Explicitly Single-Tenant | Governance | `ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted` |
 | GIMLE-090 | gimle-worker | Readiness-driven service registry availability (without restart) | Health / Fabric | `WorkerRuntimeTest#a_readiness_failure_marks_the_service_unready_without_stopping_the_module`, `#a_module_becomes_lookupable_again_when_its_readiness_probe_recovers` |
 | GIMLE-088 | gimle-worker | Liveness/readiness probe loop with timeout and initial-delay | Health / Self-Healing | `ProbeLoopTest#a_passing_check_reports_true_repeatedly`, `#a_failing_check_reports_false`, `#a_check_that_throws_is_reported_as_a_failure_not_propagated`, `#a_check_that_hangs_past_its_timeout_is_reported_as_a_failure`, `#no_tick_fires_before_the_initial_delay_elapses`, `#after_the_initial_delay_ticks_settle_onto_the_ordinary_interval`, `#stop_halts_further_invocations_of_that_key`, `#two_keys_are_scheduled_independently`, `#the_production_constructor_still_schedules_on_a_real_ticker` |
 | GIMLE-121 | gimle-agent | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Health / Self-Healing | NONE recorded in the baseline |

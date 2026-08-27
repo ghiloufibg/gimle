@@ -651,6 +651,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-639 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | State Store | Complete | Yes |
 | GIMLE-640 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Observability | Complete | Yes |
 | GIMLE-641 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | Scheduler | Complete | Yes |
+| GIMLE-642 | Plaintext Transport Is Explicitly Single-Tenant | Governance | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5111,6 +5112,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given an untainted node open to any tenant; When an operator taints it for tenant-a; Then a tenant-b replica is excluded from it and a tenant-a replica is still admitted; untainting clears the reservation.
+  ```
+
+#### GIMLE-642 — Plaintext Transport Is Explicitly Single-Tenant
+
+- **Category**: Governance
+- **User story**: As an operator running plaintext (the default transport, no peer identity to check), I want the platform to refuse creating a second real tenant, so plaintext is never quietly used for shared multi-tenancy with no way to tell callers apart after the fact.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `ApiServer#rejectSecondTenantUnderPlaintext`, `ApiServer#handleTenant` (PUT branch)
+- **Test coverage**: `ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted.
   ```
 
 ### gimle-fafnir

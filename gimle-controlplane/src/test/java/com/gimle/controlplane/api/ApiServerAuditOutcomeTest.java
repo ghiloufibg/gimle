@@ -109,13 +109,17 @@ class ApiServerAuditOutcomeTest {
   @Test
   void a_deployment_writes_audit_outcome_matches_the_real_admission_result_not_just_rbac()
       throws Exception {
+    // Same tenant id throughout, quota raised between the two deployments below -- plaintext mode
+    // permits only one real tenant at a time, and this test's actual point (REJECTED vs. APPLIED
+    // audit outcome) doesn't need a second tenant identity, only a second quota.
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/audit-outcome-tenant"))
+            .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 1)))
+            .build());
+
     // Rejected: authorized (plaintext mode always allows), then rejected by the tenant-quota
     // plugin -- the audit trail must say REJECTED, not default to APPLIED just because RBAC said
     // yes.
-    send(
-        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/tight"))
-            .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 1)))
-            .build());
     Path overQuotaJar = buildFixtureJar("com.gimle.fixture.auditoutcome.over");
     HttpResponse<String> rejectedPut =
         send(
@@ -126,17 +130,18 @@ class ApiServerAuditOutcomeTest {
                             "over-quota",
                             overQuotaJar.toAbsolutePath().toString(),
                             "com.gimle.fixture.auditoutcome.over",
-                            "tight")))
+                            "audit-outcome-tenant")))
                 .build());
     assertEquals(409, rejectedPut.statusCode());
-    List<AuditEvent> rejectedEvents = deploymentWriteAuditEventsFor("tight");
+    List<AuditEvent> rejectedEvents = deploymentWriteAuditEventsFor("audit-outcome-tenant");
     assertEquals(1, rejectedEvents.size());
     assertTrue(rejectedEvents.get(0).allowed(), "RBAC did allow the attempt");
     assertEquals(AuditOutcome.REJECTED, rejectedEvents.get(0).outcome());
 
-    // Accepted: authorized and admitted -- the audit trail must say APPLIED.
+    // Accepted: same tenant, quota raised, authorized and admitted -- the audit trail must say
+    // APPLIED.
     send(
-        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/roomy"))
+        HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/audit-outcome-tenant"))
             .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
             .build());
     Path withinQuotaJar = buildFixtureJar("com.gimle.fixture.auditoutcome.within");
@@ -149,10 +154,13 @@ class ApiServerAuditOutcomeTest {
                             "within-quota",
                             withinQuotaJar.toAbsolutePath().toString(),
                             "com.gimle.fixture.auditoutcome.within",
-                            "roomy")))
+                            "audit-outcome-tenant")))
                 .build());
     assertEquals(200, acceptedPut.statusCode());
-    List<AuditEvent> acceptedEvents = deploymentWriteAuditEventsFor("roomy");
+    List<AuditEvent> acceptedEvents =
+        deploymentWriteAuditEventsFor("audit-outcome-tenant").stream()
+            .filter(e -> e.outcome() == AuditOutcome.APPLIED)
+            .toList();
     assertEquals(1, acceptedEvents.size());
     assertEquals(AuditOutcome.APPLIED, acceptedEvents.get(0).outcome());
   }

@@ -1559,6 +1559,63 @@ class ApiServerTest {
     }
   }
 
+  /**
+   * Plaintext gives every caller the identical unauthenticated identity, so there's no way to tell
+   * a legitimate co-tenant from an uninvited caller reaching into someone else's tenant -- creating
+   * a second real tenant is refused outright rather than quietly allowed. The reserved {@code
+   * gimle-system} tenant, already seeded by this class's own {@code @BeforeEach}, doesn't count
+   * toward the limit: "acme" is the first <i>real</i> tenant and succeeds despite gimle-system
+   * already existing.
+   */
+  @Test
+  void creating_a_second_real_tenant_under_plaintext_is_refused() throws Exception {
+    HttpResponse<String> first =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(200, first.statusCode());
+
+    HttpResponse<String> second =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/other"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(403, second.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/other")).GET().build());
+    assertEquals(404, get.statusCode());
+  }
+
+  /**
+   * The plaintext single-tenant guard only fires for a genuinely new tenant id -- a second PUT
+   * against the same, already-existing tenant is an update, not a second tenant, and stays
+   * permitted (every other test in this class that adjusts a tenant's quota relies on exactly
+   * this).
+   */
+  @Test
+  void updating_an_already_existing_tenant_under_plaintext_is_still_permitted() throws Exception {
+    HttpResponse<String> first =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(200, first.statusCode());
+
+    HttpResponse<String> update =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(2_000_000_000L, 8000, 20)))
+                .build());
+    assertEquals(200, update.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme")).GET().build());
+    Map<String, Object> quota = Json.asObject(Json.asObject(Json.parse(get.body())).get("quota"));
+    assertEquals(20L, quota.get("maxInstances"));
+  }
+
   // ---- tenant quota admission ----
 
   /** {@code TestModuleBuilder.minimalDescriptor} fixes the request at 16Mi memory / 10m cpu. */

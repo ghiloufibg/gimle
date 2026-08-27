@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 641
+- **Total requirements**: 642
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 518
+- **Not covered by automated test**: 519
 - **Release-readiness (automated coverage)**: 19.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 57 | 35 | 22 | 61.4% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 77 | 14 | 63 | 18.2% |
+| gimle-controlplane | 78 | 14 | 64 | 17.9% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -904,6 +904,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-581 | ConfigMap store and API with optimistic-concurrency writes | Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote. | No |
+
+#### Governance
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-642 | Plaintext Transport Is Explicitly Single-Tenant | Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted. | No |
 
 #### Internal-Infra
 

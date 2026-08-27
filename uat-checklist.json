@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 641,
+    "totalRequirements": 642,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 518,
+    "notCoveredByAutomatedTest": 519,
     "releaseReadinessPercent": 19.2
   },
   "items": [
@@ -7053,6 +7053,17 @@
       "category": "Scheduler",
       "feature": "Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation)",
       "step": "Given an untainted node open to any tenant; When an operator taints it for tenant-a; Then a tenant-b replica is excluded from it and a tenant-a replica is still admitted; untainting clears the reservation.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-642",
+      "module": "gimle-controlplane",
+      "category": "Governance",
+      "feature": "Plaintext Transport Is Explicitly Single-Tenant",
+      "step": "Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
