@@ -647,6 +647,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | CLI UX | Complete | Yes |
 | GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Complete | Yes |
 | GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | CLI UX | Complete | Yes |
+| GIMLE-638 | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | Documentation / Examples | Complete | No |
 
 ## Detailed Requirements
 
@@ -8624,6 +8625,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given the orders-platform example's networkpolicy.yaml header comment, When an operator copies its documented gimle set networkpolicy command verbatim, Then the policy is created successfully with an empty (deny-all) caller allow-list, matching the raw curl example beside it.
   Given the same documentation, When an operator reads the README's "Restricting cross-tenant access" section, Then it explains that omitting --allowed-caller-tenant is not equivalent to --deny-all-callers before they attempt either command.
+  ```
+
+#### GIMLE-638 — node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault
+
+- **Category**: Documentation / Examples
+- **User story**: As a first-time reader following node-local-cache's README exactly (deploy local-flag-cache-daemonset, wait for ACTIVE, then deploy flag-consumer-deployment), I want flag-consumer's log to not show an unexplained WARN on its very first call, so I don't mistake a routine, self-healing membership-propagation race for something broken.
+- **Status**: Fixed: FlagConsumerHooks#callOnce logged every FeatureFlagCache lookup/call failure at WARN unconditionally, including the expected race where this consumer's own node hasn't yet caught its membership view up to local-flag-cache's export -- a separate event from that DaemonSet instance reaching ACTIVE, confirmed manually: both flag-consumer replicas logged exactly one such WARN on their first call even though local-flag-cache-daemonset was already fully ACTIVE, self-healing on the very next call five seconds later with no lasting effect. The class already tracks whether any call has ever succeeded (the same static everSucceeded flag FlagConsumerReadinessProbe reads); callOnce now logs at INFO with an explanatory message when a failure happens before that flag is ever set, and only escalates to WARN for a failure after a previous success -- the case that actually is a regression. The README's own "what to watch for" section now names this expected first-call INFO line explicitly, the same honest-disclosure posture it already takes for the different-replica-id WARN case.
+- **Confidence**: High
+- **Source location(s)**: `gimle-examples/node-local-cache/flag-consumer/src/main/java/com/example/nodelocalcache/consumer/FlagConsumerHooks.java`, `gimle-examples/node-local-cache/README.md`
+- **Test coverage**: No automated test suite exists for this tree (it is not part of the root reactor, consistent with every other gimle-examples module -- see the README's own "Building" section); verified by building the module (`mvn package` from `gimle-examples/node-local-cache/`) and by reading the changed control flow against the existing everSucceeded flag FlagConsumerReadinessProbe already relies on for the identical distinction.
+- **Gherkin scenario**:
+  ```gherkin
+  Given local-flag-cache-daemonset is already fully ACTIVE, When flag-consumer-deployment is deployed and its first FeatureFlagCache call races ahead of this node's own membership-propagation catch-up, Then the failure is logged at INFO with an explanation, not WARN.
+  Given flag-consumer has already logged one successful FeatureFlagCache call, When a later call fails, Then that failure is logged at WARN, since a failure after a previous success is a genuine regression.
   ```
 
 ### gimle-smoke-tests

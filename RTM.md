@@ -652,6 +652,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | New | Not Covered | — |
 | GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | New | Not Covered | — |
 | GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | New | Not Covered | — |
+| GIMLE-638 | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -6142,6 +6143,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation.
 - **Source location(s)**: `gimle-examples/orders-platform/web-ui/networkpolicy.yaml`, `gimle-examples/orders-platform/README.md`
 
+#### GIMLE-638 — node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault
+
+- **Category**: Documentation / Examples
+- **Status**: New  _(a real log-severity/UX fix, not a functional bug -- the underlying self-healing behavior (retry succeeds on the very next call) was already correct; only the alarming, unexplained WARN on an expected first-call race changed)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario deploys node-local-cache's example pair at all (it isn't part of the root reactor and has no test suite of its own, the same as every other gimle-examples module); this is a log-severity change with no state-machine behavior for a Holmgang scenario to assert.
+- **Other test coverage (non-Holmgang, informational only)**: Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module.
+- **Source location(s)**: `gimle-examples/node-local-cache/flag-consumer/src/main/java/com/example/nodelocalcache/consumer/FlagConsumerHooks.java`, `gimle-examples/node-local-cache/README.md`
+
 ### gimle-smoke-tests
 
 #### GIMLE-507 — Real multi-process cluster fixture (store/control-plane/agent/Fafnir/Muninn)
@@ -6756,7 +6766,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**514 of 637 requirements are Not Covered.**
+**515 of 638 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6887,6 +6897,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
 | GIMLE-632 | gimle-console | Toast notifications render app-wide (write failures, and every other toast call site) | Console | No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged |
 | GIMLE-636 | gimle-examples | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation. |
+| GIMLE-638 | gimle-examples | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | Documentation / Examples | Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module. |
 | GIMLE-125 | gimle-agent | SWIM gossip membership integration with service catalog relay | Fabric | NONE recorded in the baseline |
 | GIMLE-131 | gimle-agent | Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation | Fabric / Config | `AgentRelayControlPlaneReadTest#a_non_whitelisted_path_is_rejected_locally_and_never_reaches_the_control_plane`, `#a_path_traversal_attempt_disguised_as_a_single_segment_is_rejected`, `#a_whitelisted_path_triggers_a_real_call_and_relays_the_response_back`; end-to-end via `RelayControlPlaneEndToEndTest#a_hosted_modules_relay_call_round_trips_through_a_real_worker_process` |
 | GIMLE-095 | gimle-worker | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Fabric / Internal-Infra | `ControlPlaneRelayTest#a_matching_response_completes_the_waiting_caller_and_leaves_no_pending_entry`, `#no_response_times_out_and_still_leaves_no_pending_entry`, `#a_late_response_after_the_caller_already_gave_up_is_dropped_without_error` |

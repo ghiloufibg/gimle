@@ -91,8 +91,23 @@ public final class FlagConsumerHooks implements ModuleLifecycleHooks {
     } catch (RuntimeException e) {
       // No member currently exports FeatureFlagCache (a fresh cluster boot race), or the resolved
       // endpoint failed (redeployed/restarted since) -- both expected, transient conditions that
-      // clear up on their own once retried against a fresh lookup next cycle.
-      log.warn("call to FeatureFlagCache failed: {}", e.getMessage());
+      // clear up on their own once retried against a fresh lookup next cycle. On this instance's
+      // very first call, the boot race is the likely, expected cause -- local-flag-cache reaching
+      // ACTIVE and this consumer's own membership view of that export catching up are two
+      // separate events, and there's no guarantee the second has happened by the time this
+      // consumer's own first call fires. Logging that at WARN reads as something broken to a
+      // first-time reader when it's actually routine, so it's INFO until a call has ever
+      // succeeded; a failure *after* a previous success is a real regression worth WARN.
+      if (everSucceeded.get()) {
+        log.warn("call to FeatureFlagCache failed: {}", e.getMessage());
+      } else {
+        log.info(
+            "no FeatureFlagCache reachable yet on this consumer's first call -- expected right"
+                + " after startup, before this node's membership view of local-flag-cache's own"
+                + " export has caught up; retrying in {}: {}",
+            CALL_INTERVAL,
+            e.getMessage());
+      }
     }
   }
 

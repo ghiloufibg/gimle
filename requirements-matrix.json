@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 637,
+  "requirementCount": 638,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12557,6 +12557,26 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-638",
+      "module": "gimle-examples",
+      "feature": "node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault",
+      "category": "Documentation / Examples",
+      "userStory": "As a first-time reader following node-local-cache's README exactly (deploy local-flag-cache-daemonset, wait for ACTIVE, then deploy flag-consumer-deployment), I want flag-consumer's log to not show an unexplained WARN on its very first call, so I don't mistake a routine, self-healing membership-propagation race for something broken.",
+      "statusDetail": "Fixed: FlagConsumerHooks#callOnce logged every FeatureFlagCache lookup/call failure at WARN unconditionally, including the expected race where this consumer's own node hasn't yet caught its membership view up to local-flag-cache's export -- a separate event from that DaemonSet instance reaching ACTIVE, confirmed manually: both flag-consumer replicas logged exactly one such WARN on their first call even though local-flag-cache-daemonset was already fully ACTIVE, self-healing on the very next call five seconds later with no lasting effect. The class already tracks whether any call has ever succeeded (the same static everSucceeded flag FlagConsumerReadinessProbe reads); callOnce now logs at INFO with an explanatory message when a failure happens before that flag is ever set, and only escalates to WARN for a failure after a previous success -- the case that actually is a regression. The README's own \"what to watch for\" section now names this expected first-call INFO line explicitly, the same honest-disclosure posture it already takes for the different-replica-id WARN case.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-examples/node-local-cache/flag-consumer/src/main/java/com/example/nodelocalcache/consumer/FlagConsumerHooks.java`",
+        "`gimle-examples/node-local-cache/README.md`"
+      ],
+      "testCoverageDetail": "No automated test suite exists for this tree (it is not part of the root reactor, consistent with every other gimle-examples module -- see the README's own \"Building\" section); verified by building the module (`mvn package` from `gimle-examples/node-local-cache/`) and by reading the changed control flow against the existing everSucceeded flag FlagConsumerReadinessProbe already relies on for the identical distinction.",
+      "gherkinSteps": [
+        "Given local-flag-cache-daemonset is already fully ACTIVE, When flag-consumer-deployment is deployed and its first FeatureFlagCache call races ahead of this node's own membership-propagation catch-up, Then the failure is logged at INFO with an explanation, not WARN.",
+        "Given flag-consumer has already logged one successful FeatureFlagCache call, When a later call fails, Then that failure is logged at WARN, since a failure after a previous success is a genuine regression."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "No"
     }
   ]
 }

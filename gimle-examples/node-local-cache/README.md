@@ -66,6 +66,16 @@ per consumer instance for as long as it runs. On a multi-node cluster, different
 replicas should show *different* stable replica ids from each other — proof each one settled on
 its own node's cache, not that they all happened to converge on one.
 
+Expect an `INFO no FeatureFlagCache reachable yet on this consumer's first call` line right after
+`flag-consumer` itself reaches `ACTIVE`, even though `local-flag-cache-daemonset` was already fully
+`ACTIVE` before it was deployed. That's not a race in the deploy ordering above — it's this
+consumer's own node still catching its local membership view up to `local-flag-cache`'s export,
+which is a separate event from that instance reaching `ACTIVE`. It resolves itself on the very next
+call, five seconds later, with no operator action needed; only a failed call *after* one has already
+succeeded is logged at `WARN`, since that would be a genuine regression rather than routine startup.
+
+
+
 ## Building
 
 This tree is not part of the root reactor, so build it explicitly, from this directory:

@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 637,
+  "requirementCount": 638,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11024,6 +11024,22 @@
         "`gimle-cli/src/main/java/com/gimle/cli/DaemonSetsCommand.java`"
       ],
       "otherTestCoverage": "`GimleCliTest` (get_statefulsets_renders_clean_table_columns_instead_of_raw_json_per_cell, get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell)"
+    },
+    {
+      "id": "GIMLE-638",
+      "module": "gimle-examples",
+      "feature": "node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault",
+      "category": "Documentation / Examples",
+      "status": "New",
+      "statusNote": "a real log-severity/UX fix, not a functional bug -- the underlying self-healing behavior (retry succeeds on the very next call) was already correct; only the alarming, unexplained WARN on an expected first-call race changed",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario deploys node-local-cache's example pair at all (it isn't part of the root reactor and has no test suite of its own, the same as every other gimle-examples module); this is a log-severity change with no state-machine behavior for a Holmgang scenario to assert.",
+      "sourceLocations": [
+        "`gimle-examples/node-local-cache/flag-consumer/src/main/java/com/example/nodelocalcache/consumer/FlagConsumerHooks.java`",
+        "`gimle-examples/node-local-cache/README.md`"
+      ],
+      "otherTestCoverage": "Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module."
     }
   ]
 }
