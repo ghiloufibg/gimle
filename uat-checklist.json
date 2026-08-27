@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 630,
+    "totalRequirements": 631,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 507,
+    "notCoveredByAutomatedTest": 508,
     "releaseReadinessPercent": 19.5
   },
   "items": [
@@ -6932,6 +6932,17 @@
       "category": "Storage",
       "feature": "Multi-volume modules: named volumes and dataDirectory(name)",
       "step": "Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path. Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-631",
+      "module": "gimle-controlplane",
+      "category": "Self-Healing",
+      "feature": "StatefulSet/DaemonSet machine-level self-healing on node death",
+      "step": "Given a StatefulSet index assigned to a node that has gone dark past nodeDarkTimeout + placementGracePeriod, When the reconciler ticks, Then that index's assignment is released while its sticky node binding survives, and the next tick re-places it on the same node once its heartbeat is fresh again. Given a StatefulSet index assigned to a node merely dark within the grace period, When the reconciler ticks, Then the assignment is left untouched -- a transient partition never relocates sticky data. Given a DaemonSet assignment evicted because its node fell out of eligibility, When the eviction is logged, Then the log line names the specific reason (heartbeat loss, cordon, or a placement-requirement mismatch), not just that an eviction happened.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

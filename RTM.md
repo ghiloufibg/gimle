@@ -645,6 +645,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | New | Not Covered | — |
 | GIMLE-629 | Vessel persistent volumes and secret-backed file mounts | New | Not Covered | — |
 | GIMLE-630 | Multi-volume modules: named volumes and dataDirectory(name) | New | Not Covered | — |
+| GIMLE-631 | StatefulSet/DaemonSet machine-level self-healing on node death | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3716,6 +3717,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `ServiceSpecTest`, `ApiServerServicesTest` (round trip, mixed-shape rejection), `SkaldServerTest` (CNAME and SRV external answers)
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`
 
+#### GIMLE-631 — StatefulSet/DaemonSet machine-level self-healing on node death
+
+- **Category**: Self-Healing
+- **Status**: New  _(a real bug fix (StatefulSetReconciler previously never evicted a dead node's assignment at all), not merely newly documented)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario kills a StatefulSet's or DaemonSet's own node and asserts eviction/re-placement -- chaos-soak.feature's Fenrir palette covers worker-kill/store-bounce/leader-bounce/control-plane-bounce/link-cut, not a targeted node kill against these two workload kinds specifically. To close: add a scenario killing a StatefulSet-hosting node and asserting the index is released then re-placed once the node (or a substitute) is eligible again, plus the equivalent for DaemonSet.
+- **Other test coverage (non-Holmgang, informational only)**: `StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -6686,7 +6696,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**507 of 630 requirements are Not Covered.**
+**508 of 631 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7099,6 +7109,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-615 | gimle-core | Per-tenant built-in role templates (tenant-view/edit/admin) | Security / RBAC | `BuiltinRolesTest` (template shapes, tenant scoping), `AuthorizerTest` (binding resolution), `ApiServerAuthzTest` (template binding through the real HTTP layer) |
 | GIMLE-625 | gimle-controlplane | Workload identity: store-backed per-deployment tokens (ServiceAccount analogue) | Security / RBAC | `ApiServerAuthzTest` (mint authorization, deny-by-default principal, RBAC-unlocked read), agent relay tests (untenanted whitelist unchanged) |
 | GIMLE-122 | gimle-agent | Vessel crash respawn resets probe initial-delay clock | Self-Healing | NONE recorded in the baseline |
+| GIMLE-631 | gimle-controlplane | StatefulSet/DaemonSet machine-level self-healing on node death | Self-Healing | `StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest` |
 | GIMLE-613 | gimle-skald | DNS-over-TCP fallback with UDP truncation | Service Discovery / DNS | `SkaldServerTest` (TCP round-trip, sequential queries per connection, TCP NXDOMAIN), `DnsCodecTest` (TC flag) |
 | GIMLE-620 | gimle-skald | SRV records and headless A answers | Service Discovery / DNS | `SkaldServerTest` (headless A, SRV per endpoint, dashed endpoint names) |
 | GIMLE-181 | gimle-fabric | Same-Worker Direct Invocation Tier | Service Fabric | `FabricServiceRegistryTest#same_worker_tier_wins_over_same_machine_and_remote` |

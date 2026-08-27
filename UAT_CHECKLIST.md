@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 630
+- **Total requirements**: 631
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 507
+- **Not covered by automated test**: 508
 - **Release-readiness (automated coverage)**: 19.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 54 | 35 | 19 | 64.8% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 75 | 14 | 61 | 18.7% |
+| gimle-controlplane | 76 | 14 | 62 | 18.4% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -1054,6 +1054,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-614 | Self-subject access review endpoint (/authz/can-i) | Given an authenticated principal, When it GETs /authz/can-i?resource=DEPLOYMENT&verb=WRITE&tenant=acme, Then the response reports whether the identical Authorizer walk would allow it. Given no authenticated principal over TLS, When /authz/can-i is queried, Then the response is 401. Given `gimle can-i write deployments --tenant acme` against a plaintext server, When it runs, Then it prints yes and exits 0. | No |
 | [ ] | GIMLE-625 | Workload identity: store-backed per-deployment tokens (ServiceAccount analogue) | Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>. Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources. | No |
+
+#### Self-Healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-631 | StatefulSet/DaemonSet machine-level self-healing on node death | Given a StatefulSet index assigned to a node that has gone dark past nodeDarkTimeout + placementGracePeriod, When the reconciler ticks, Then that index's assignment is released while its sticky node binding survives, and the next tick re-places it on the same node once its heartbeat is fresh again. Given a StatefulSet index assigned to a node merely dark within the grace period, When the reconciler ticks, Then the assignment is left untouched -- a transient partition never relocates sticky data. Given a DaemonSet assignment evicted because its node fell out of eligibility, When the eviction is logged, Then the log line names the specific reason (heartbeat loss, cordon, or a placement-requirement mismatch), not just that an eviction happened. | No |
 
 #### Storage / Operations
 

@@ -219,6 +219,13 @@ public final class DaemonSetReconciler {
       if (isMerelyDarkWithinGracePeriod(assignment.nodeId(), now)) {
         continue;
       }
+      log.warn(
+          "daemonset {} node {} is no longer eligible ({}); releasing its assignment -- this"
+              + " daemonset is now short a replica versus its own eligible-node count until a"
+              + " replacement node becomes eligible",
+          spec.name(),
+          assignment.nodeId(),
+          ineligibilityReason(assignment.nodeId(), now));
       evictions.add(new StateMutation.RemoveDaemonSetAssignment(spec.name(), assignment.nodeId()));
     }
     // Flushed before handleRollingUpdate runs -- its own assignment scans must see these.
@@ -401,6 +408,26 @@ public final class DaemonSetReconciler {
    * recovered from yet) that this reconciler doesn't try to distinguish from genuine loss --
    * matching the immediate-removal behavior every non-darkness ineligibility reason already gets.
    */
+  /**
+   * A human-legible reason a node just fell out of eligibility, for the eviction log line above --
+   * the fastest-to-check, most-specific cause first. Heartbeat state is checked ahead of {@link
+   * StoreReader#isNodeCordoned}: an operator who cordoned a node already knows why; an operator
+   * whose node went dark does not, and that's exactly the diagnostic gap this exists to close.
+   */
+  private String ineligibilityReason(String nodeId, Instant now) {
+    Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(nodeId);
+    if (heartbeat.isEmpty()) {
+      return "no heartbeat on record";
+    }
+    if (hasGoneDark(heartbeat.get(), now)) {
+      return "no longer confirmed by a heartbeat";
+    }
+    if (store.isNodeCordoned(nodeId)) {
+      return "node is cordoned";
+    }
+    return "node no longer matches this daemonset's placement requirements";
+  }
+
   private boolean isMerelyDarkWithinGracePeriod(String nodeId, Instant now) {
     return store
         .getNodeHeartbeat(nodeId)

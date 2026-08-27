@@ -231,6 +231,7 @@ public final class ControlPlaneMain {
             scheduler,
             storeClient,
             NODE_DARK_TIMEOUT,
+            NODE_DARK_TIMEOUT,
             Clock.systemUTC(),
             artifactResolver);
 

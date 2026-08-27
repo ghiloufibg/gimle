@@ -12,6 +12,7 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.ObservedHeartbeat;
@@ -19,6 +20,7 @@ import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -353,5 +355,94 @@ class StatefulSetReconcilerTest {
     new StatefulSetReconciler(store, scheduler).reconcileOnce();
 
     assertTrue(indexOf(store.listStatefulSetAssignmentsFor("orders"), 5).isEmpty());
+  }
+
+  @Test
+  void a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated(TestClock clock) {
+    // ADD-5: isReady alone never checked the assigned node's own heartbeat freshness, only whether
+    // the *last* heartbeat that node ever sent happened to report this index ready -- which stays
+    // true forever once a node goes dark. Mirrors DaemonSetReconcilerTest's identically-named
+    // test: within the grace window a merely-dark node's assignment survives untouched (sticky
+    // placement -- see class javadoc).
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    Duration placementGracePeriod = Duration.ofSeconds(30);
+    StatefulSetReconciler reconciler =
+        new StatefulSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            nodeDarkTimeout,
+            placementGracePeriod,
+            clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment placed =
+        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+    reportReady(store, placed);
+    reconciler.reconcileOnce(); // clears any in-flight rolling-update bookkeeping first
+
+    // node-a stops heartbeating: past nodeDarkTimeout, but still well within the combined grace
+    // window -- the assignment must survive untouched.
+    clock.advance(nodeDarkTimeout.plus(Duration.ofSeconds(1)));
+    reconciler.reconcileOnce();
+
+    List<StatefulSetAssignment> stillWithinGrace = store.listStatefulSetAssignmentsFor("orders");
+    assertEquals(
+        1,
+        stillWithinGrace.size(),
+        "a merely-dark node must keep its assignment during the placement grace period");
+    assertEquals("node-a", stillWithinGrace.get(0).nodeId());
+  }
+
+  @Test
+  void a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node(
+      TestClock clock) {
+    // ADD-5's actual failure mode: session-store's own StatefulSet instance stayed reported
+    // ACTIVE/alive/ready for a full 4.5-minute observation window after its node was killed
+    // outright, with zero eviction attempt. Once genuinely gone (past the combined grace window),
+    // the assignment is released -- but the sticky binding survives, so once the node's heartbeat
+    // is fresh again the very same index lands back on the very same node, never a different one.
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    Duration placementGracePeriod = Duration.ofSeconds(30);
+    StatefulSetReconciler reconciler =
+        new StatefulSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            nodeDarkTimeout,
+            placementGracePeriod,
+            clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment placed =
+        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+    reportReady(store, placed);
+    reconciler.reconcileOnce();
+
+    clock.advance(nodeDarkTimeout.plus(placementGracePeriod).plus(Duration.ofSeconds(1)));
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        store.listStatefulSetAssignmentsFor("orders").isEmpty(),
+        "a genuinely-gone node's assignment must be released");
+    assertTrue(
+        store.getStatefulSetIndexNode("orders", 0).isPresent(),
+        "the sticky node binding must survive the release");
+
+    // node-a comes back (a real recovery, not just a fresh heartbeat on a different machine).
+    registerNode(store, "node-a");
+    reconciler.reconcileOnce();
+
+    StatefulSetAssignment replaced =
+        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+    assertEquals("node-a", replaced.nodeId(), "the sticky index must land back on the same node");
   }
 }

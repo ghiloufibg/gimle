@@ -65,6 +65,22 @@ import org.slf4j.LoggerFactory;
  * teardown. {@link StateStore#removeStatefulSetIndexNode} (permanent) is called only here and on
  * spec deletion below -- never by an ordinary rolling-update or scale-up-triggered removal, which
  * must preserve the sticky binding so the index can find its way back to the same node.
+ *
+ * <p><b>Node-death eviction</b>: unlike {@link DeploymentReconciler}/{@link ReplicaCountReconciler}
+ * (dedicated eviction pass) and {@link DaemonSetReconciler} (eligibility exclusion plus its own
+ * eviction pass), the {@code OrderedReady} scan's own {@link #isReady} check never inspected the
+ * assigned node's own heartbeat freshness -- only whether the *last* heartbeat that node ever sent
+ * happened to report this index ready, which stays true forever once a node goes dark and simply
+ * stops heartbeating. {@link #nodeIsGenuinelyGone}, checked once per scanned index alongside {@link
+ * #isReady}, closes that gap the same stateless way {@link DaemonSetReconciler#hasGoneDark}/{@code
+ * isMerelyDarkWithinGracePeriod} already do -- measured directly off {@link
+ * ObservedHeartbeat#receivedAt()} against {@code nodeDarkTimeout + placementGracePeriod}, no
+ * persisted per-index timer needed. Only the {@link StatefulSetAssignment} is removed, never the
+ * sticky {@link StateStore#getStatefulSetIndexNode} binding -- the very same "wait a beat, one
+ * destructive step per tick" posture scale-down already takes, so the next tick's scan sees this
+ * index as missing and lets {@link #placeIndex} either land it back on the same node once it
+ * recovers, or leave it unplaced-and-retrying exactly as this class's own sticky-placement javadoc
+ * already documents, never silently relocated to a different node.
  */
 public final class StatefulSetReconciler {
 
@@ -78,6 +94,7 @@ public final class StatefulSetReconciler {
   private final Scheduler scheduler;
   private final MutationSink mutations;
   private final Duration nodeDarkTimeout;
+  private final Duration placementGracePeriod;
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
 
@@ -87,7 +104,13 @@ public final class StatefulSetReconciler {
   }
 
   public StatefulSetReconciler(StoreReader store, Scheduler scheduler, MutationSink mutations) {
-    this(store, scheduler, mutations, DEFAULT_NODE_DARK_TIMEOUT, Clock.systemUTC());
+    this(
+        store,
+        scheduler,
+        mutations,
+        DEFAULT_NODE_DARK_TIMEOUT,
+        DEFAULT_NODE_DARK_TIMEOUT,
+        Clock.systemUTC());
   }
 
   /** Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. */
@@ -96,8 +119,16 @@ public final class StatefulSetReconciler {
       Scheduler scheduler,
       MutationSink mutations,
       Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
       Clock clock) {
-    this(store, scheduler, mutations, nodeDarkTimeout, clock, ArtifactResolver.localOnly());
+    this(
+        store,
+        scheduler,
+        mutations,
+        nodeDarkTimeout,
+        placementGracePeriod,
+        clock,
+        ArtifactResolver.localOnly());
   }
 
   public StatefulSetReconciler(
@@ -105,12 +136,14 @@ public final class StatefulSetReconciler {
       Scheduler scheduler,
       MutationSink mutations,
       Duration nodeDarkTimeout,
+      Duration placementGracePeriod,
       Clock clock,
       ArtifactResolver artifactResolver) {
     this.store = store;
     this.scheduler = scheduler;
     this.mutations = mutations;
     this.nodeDarkTimeout = nodeDarkTimeout;
+    this.placementGracePeriod = placementGracePeriod;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
   }
@@ -190,6 +223,7 @@ public final class StatefulSetReconciler {
     // the first one that isn't both present and ready. Placing that one missing index (if any) and
     // returning is what keeps index i+1 from ever being attempted before index i is ready --
     // no separate "am I mid-rollout" bookkeeping needed beyond this scan itself.
+    Instant now = clock.instant();
     for (int index = 0; index < spec.replicas(); index++) {
       int currentIndex = index;
       Optional<StatefulSetAssignment> assignment =
@@ -197,6 +231,16 @@ public final class StatefulSetReconciler {
       if (assignment.isEmpty()) {
         placeIndex(spec, descriptor, index);
         return;
+      }
+      if (nodeIsGenuinelyGone(assignment.get().nodeId(), now)) {
+        log.warn(
+            "statefulset {} index {} on node {} is no longer confirmed by a heartbeat; releasing"
+                + " its assignment for re-placement (its sticky node binding is preserved)",
+            spec.name(),
+            index,
+            assignment.get().nodeId());
+        mutations.propose(new StateMutation.RemoveStatefulSetAssignment(spec.name(), index));
+        return; // one destructive step per tick -- see class javadoc.
       }
       if (!isReady(assignment.get())) {
         return;
@@ -395,5 +439,25 @@ public final class StatefulSetReconciler {
 
   private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {
     return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
+  }
+
+  /**
+   * True once {@code nodeId} is genuinely gone, not merely transiently dark -- either it has never
+   * heartbeated at all (the same "nothing plausible left to wait for" reasoning {@link
+   * DaemonSetReconciler#isMerelyDarkWithinGracePeriod}'s own javadoc gives for treating a missing
+   * heartbeat as immediate), or its last heartbeat is older than {@code nodeDarkTimeout +
+   * placementGracePeriod}. Measured directly off the heartbeat's own {@code receivedAt()} rather
+   * than a persisted per-index timer -- the same stateless approach {@link
+   * DaemonSetReconciler#hasGoneDark} already takes, since "how long has this been true" is already
+   * exactly what the heartbeat's own timestamp answers.
+   */
+  private boolean nodeIsGenuinelyGone(String nodeId, Instant now) {
+    Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(nodeId);
+    if (heartbeat.isEmpty()) {
+      return true;
+    }
+    return Duration.between(heartbeat.get().receivedAt(), now)
+            .compareTo(nodeDarkTimeout.plus(placementGracePeriod))
+        > 0;
   }
 }

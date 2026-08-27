@@ -640,6 +640,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Networking / Services | Complete | Yes |
 | GIMLE-629 | Vessel persistent volumes and secret-backed file mounts | Storage / Vessels | Complete | Partial |
 | GIMLE-630 | Multi-volume modules: named volumes and dataDirectory(name) | Storage | Complete | Yes |
+| GIMLE-631 | StatefulSet/DaemonSet machine-level self-healing on node death | Self-Healing | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5028,6 +5029,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId.
   Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish.
+  ```
+
+#### GIMLE-631 — StatefulSet/DaemonSet machine-level self-healing on node death
+
+- **Category**: Self-Healing
+- **User story**: As a platform operator, I want a StatefulSet or DaemonSet instance whose node has genuinely died -- not merely gone briefly dark -- to be recognized and its assignment released for re-placement, the same machine-level self-healing tier a Deployment instance already gets, instead of the control plane reporting a dead instance as indefinitely healthy.
+- **Status**: Fixed (previously a real gap, not merely under-tested): StatefulSetReconciler's OrderedReady scan checked isReady against the assigned node's last-ever heartbeat with no freshness check at all, so a StatefulSet instance stayed reported ACTIVE/alive/ready indefinitely after its node died outright, with zero eviction attempt -- confirmed against a real killed node in a QA pass (session-store's instance unchanged across a 4.5-minute observation window). DaemonSetReconciler already evicted a genuinely-gone node's assignment correctly but with no log line, so the instance simply vanished from the list with no diagnostic explaining why. nodeIsGenuinelyGone now gates StatefulSetReconciler's own eviction the same stateless way DaemonSetReconciler's hasGoneDark/isMerelyDarkWithinGracePeriod already do -- releasing only the StatefulSetAssignment, never the sticky node binding, so a recovered node gets its index back rather than a different one -- and DaemonSetReconciler's own eviction now logs the specific reason (heartbeat loss, cordon, or an eligibility mismatch).
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`
+- **Test coverage**: `StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated already covered the eviction itself; the added log line is a diagnostic-only change with no new assertable state)
+- **Gherkin scenario**:
+  ```gherkin
+  Given a StatefulSet index assigned to a node that has gone dark past nodeDarkTimeout + placementGracePeriod, When the reconciler ticks, Then that index's assignment is released while its sticky node binding survives, and the next tick re-places it on the same node once its heartbeat is fresh again.
+  Given a StatefulSet index assigned to a node merely dark within the grace period, When the reconciler ticks, Then the assignment is left untouched -- a transient partition never relocates sticky data.
+  Given a DaemonSet assignment evicted because its node fell out of eligibility, When the eviction is logged, Then the log line names the specific reason (heartbeat loss, cordon, or a placement-requirement mismatch), not just that an eviction happened.
   ```
 
 ### gimle-fafnir
