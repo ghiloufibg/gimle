@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 632
+- **Total requirements**: 634
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 509
-- **Release-readiness (automated coverage)**: 19.5%
+- **Not covered by automated test**: 511
+- **Release-readiness (automated coverage)**: 19.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 46 | 6 | 40 | 13.0% |
-| gimle-mimir | 54 | 35 | 19 | 64.8% |
+| gimle-mimir | 56 | 35 | 21 | 62.5% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
 | gimle-controlplane | 76 | 14 | 62 | 18.4% |
 | gimle-fafnir | 25 | 11 | 14 | 44.0% |
@@ -699,6 +699,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-589 | Deployment `secretMapRefs` field with admission-time collision rejection | Given a SecretMap `db-creds` declares key `password` and the tenant also has a flat secret named `password`, When a Deployment is submitted with `secretMapRefs: [db-creds]`, Then admission rejects it rather than silently picking a winner at instance-start time. | No |
+
+#### Security / RBAC
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-633 | Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding | Given a gimle:nodes principal whose node currently has an active assignment for tenant acme (of any workload kind -- Deployment, Job, DaemonSet, or StatefulSet), When it reads CONFIG or CONFIGMAP scoped to acme, Then it is granted with no RoleBinding needing to exist. Given the same principal, When it reads CONFIG scoped to a tenant it has no assignment for, Then it is denied. Given the same principal, When it attempts to WRITE or DELETE config even for a tenant it is assigned to, Then it is denied -- the grant is read-only. | No |
+| [ ] | GIMLE-634 | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | Given a gimle:controlplane principal (the control plane's own minted leaf), When it reads any artifact coordinate, Then it is granted with no RoleBinding needing to exist, unscoped by tenant or moduleId. Given the same principal, When it attempts to push or delete an artifact, Then it is denied -- the grant is read-only. Given a fresh mTLS cluster with a coordinate-only DaemonSet manifest applied, When the control plane's own scheduler resolves the artifact to compute eligible nodes, Then the pull succeeds and placement proceeds, with no operator-authored RoleBinding needed. | No |
 
 #### State Store
 

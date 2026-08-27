@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.authz.BuiltinRoles;
+import com.gimle.core.authz.Principal;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,6 +14,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -57,6 +60,25 @@ class PkiBootstrapMainTest {
     assertTrue(dnsNames.contains("h1"));
     assertTrue(dnsNames.contains("localhost"));
     assertFalse(dnsNames.contains("h2"), "h1's own leaf must not carry h2 in its SAN list");
+  }
+
+  /**
+   * ADD-10: without an {@code O=} of its own, the control plane's own scheduling-time artifact pull
+   * had no group any {@code Authorizer} grant could ever match, so a fresh mTLS cluster's own
+   * control plane could never pull an artifact it didn't already have cached.
+   */
+  @Test
+  void the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not()
+      throws Exception {
+    PkiBootstrapMain.main(new String[] {outputDir.toString(), "test-ca", "h1"});
+
+    X509Certificate controlPlane = readCertificate(outputDir.resolve("controlplane-h1.crt"));
+    Principal principal = Subjects.principalFrom(controlPlane);
+    assertEquals("h1", principal.name());
+    assertEquals(Set.of(BuiltinRoles.GROUP_CONTROLPLANE), principal.groups());
+
+    X509Certificate fafnir = readCertificate(outputDir.resolve("fafnir-h1.crt"));
+    assertEquals(Set.of(), Subjects.principalFrom(fafnir).groups());
   }
 
   @Test

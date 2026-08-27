@@ -10945,6 +10945,38 @@
         "`gimle-console/src/components/ui/sonner.tsx`"
       ],
       "otherTestCoverage": "No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged"
+    },
+    {
+      "id": "GIMLE-633",
+      "module": "gimle-mimir",
+      "feature": "Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding",
+      "category": "Security / RBAC",
+      "status": "New",
+      "statusNote": "a real bug fix (two independent gaps: /config/* had no node self-service grant at all, and isTenantAssignedToNode was Deployment-only), confirmed against a real mTLS cluster",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario runs a real mTLS cluster and asserts a Job/DaemonSet/StatefulSet-hosted tenant module actually receives its config/secrets at startup; the existing mTLS coverage (bootstrap.feature and similar) doesn't reach this specific delivery path. To close: extend a Holmgang scenario to deploy a config-requiring module as a DaemonSet under real mTLS and assert it reaches ACTIVE.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`"
+      ],
+      "otherTestCoverage": "`AuthorizerTest` (a_node_may_read_config_and_configmap_for_a_tenant_it_is_assigned_to, a_node_may_not_read_config_for_a_tenant_it_is_not_assigned_to, a_node_may_never_write_or_delete_config_even_for_a_tenant_it_is_assigned_to, a_node_with_an_active_job_run_for_the_tenant_is_assigned, a_node_with_an_active_daemonset_assignment_for_the_tenant_is_assigned, a_node_with_an_active_statefulset_assignment_for_the_tenant_is_assigned)"
+    },
+    {
+      "id": "GIMLE-634",
+      "module": "gimle-mimir",
+      "feature": "The control plane's own leaf certificate may read the artifact registry with no default RoleBinding",
+      "category": "Security / RBAC",
+      "status": "New",
+      "statusNote": "a real bug fix -- the control plane's own leaf carried no O= at all, so no role could ever have matched it, confirmed against a real mTLS cluster where coordinate-only DaemonSet placement stalled indefinitely",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario runs a real mTLS cluster and asserts a coordinate-only DaemonSet actually schedules -- registry-deploy.feature exercises coordinate-only deploy under plaintext only. To close: extend that scenario (or add a sibling) under a real mTLS topology and assert the DaemonSet reaches ACTIVE with no manual RoleBinding.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`",
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
+        "`gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`"
+      ],
+      "otherTestCoverage": "`AuthorizerTest` (a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all, a_controlplane_principal_may_never_write_or_delete_an_artifact, a_controlplane_principal_is_denied_every_non_artifact_resource); `PkiBootstrapMainTest#the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not`; `AndvariServerTlsTest#a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete`"
     }
   ]
 }

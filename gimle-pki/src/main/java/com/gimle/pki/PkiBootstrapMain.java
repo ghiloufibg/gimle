@@ -67,11 +67,17 @@ public final class PkiBootstrapMain {
     // specifically. Filenames disambiguate by hostname (<role>-<hostname>.crt/.key) since a
     // multi-machine topology mints more than one leaf per role.
     for (String hostname : hostnames) {
+      // O=gimle:controlplane (unlike Fafnir/Muninn/Andvari below, which get no O= of their own):
+      // the control plane's own scheduling-time artifact pull authenticates as this leaf when it
+      // calls Andvari directly, and needs BuiltinRoles.GROUP_CONTROLPLANE's implicit ARTIFACT:read
+      // grant (see Authorizer's own javadoc) -- without it, a fresh mTLS cluster's own control
+      // plane could never pull an artifact it didn't already have cached, with no default
+      // RoleBinding to close the gap.
       issueLeaf(
           outputDir,
           ca,
           "controlplane-" + hostname,
-          "CN=" + hostname,
+          "O=" + BuiltinRoles.GROUP_CONTROLPLANE + ",CN=" + hostname,
           List.of(hostname, "localhost"));
       // Fafnir gets its own distinct identity from cluster-bootstrap time, a deliberate improvement
       // over gimle-mimir's own current stand-in (which still borrows the control plane's leaf in

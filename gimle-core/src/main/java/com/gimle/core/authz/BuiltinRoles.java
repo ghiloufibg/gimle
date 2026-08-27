@@ -30,6 +30,19 @@ public final class BuiltinRoles {
   public static final String GROUP_NODES = "gimle:nodes";
 
   /**
+   * Stamped into the control plane's own leaf certificate's {@code O=} by {@code PkiBootstrapMain}
+   * -- the identity {@code DaemonSetReconciler}'s own scheduling-time artifact pull authenticates
+   * as when it calls Andvari directly, distinct from every {@code CsrPurpose}-issued certificate
+   * above (this leaf is minted once at cluster bootstrap, never requested through {@code
+   * /bootstrap/csr}). See {@code gimle-mimir}'s own {@code Authorizer} for the implicit {@link
+   * ResourceKind#ARTIFACT} read grant this group needs no stored {@link RoleBinding} to receive: a
+   * fresh mTLS cluster minted this certificate with no {@code O=} at all until this fix, so no role
+   * could ever have matched it, and every DaemonSet requiring a registry pull to schedule stalled
+   * indefinitely on a 403 with no default RoleBinding to close the gap.
+   */
+  public static final String GROUP_CONTROLPLANE = "gimle:controlplane";
+
+  /**
    * Prefix of the tenant-membership group a {@code CsrPurpose.TENANT_CLIENT} certificate carries in
    * its {@code O=}: {@code gimle:tenant:acme} asserts "this caller belongs to tenant {@code acme}".
    * Like {@link #GROUP_OPERATORS}/{@link #GROUP_NODES} it is stamped server-side at issuance, never

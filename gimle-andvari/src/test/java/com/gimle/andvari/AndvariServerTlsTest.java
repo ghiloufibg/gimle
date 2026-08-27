@@ -133,6 +133,33 @@ class AndvariServerTlsTest {
             .statusCode());
   }
 
+  /**
+   * ADD-10: the control plane's own leaf certificate carried no {@code O=} at all before this fix,
+   * so its scheduling-time artifact pull -- unlike a node's, unscoped by assignment, since
+   * scheduling needs to resolve whatever coordinate any tenant's manifest references -- fell
+   * through to the ordinary RBAC walk with nothing there to ever match, blocking coordinate-only
+   * placement indefinitely on a fresh mTLS cluster.
+   */
+  @Test
+  @Timeout(10)
+  void a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete()
+      throws Exception {
+    HttpClient operator =
+        tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_OPERATORS, "admin-operator");
+    assertEquals(200, send(operator, push("com.example.app", "1.0.0")).statusCode());
+
+    HttpClient controlPlane =
+        tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_CONTROLPLANE, "controlplane-1");
+
+    // No assignment or RoleBinding needed at all -- unlike gimle:nodes, unscoped by coordinate.
+    assertEquals(200, send(controlPlane, pull("com.example.app", "1.0.0")).statusCode());
+    assertEquals(403, send(controlPlane, push("com.example.app", "2.0.0")).statusCode());
+    assertEquals(
+        403,
+        send(controlPlane, HttpRequest.newBuilder(uri("com.example.app", "1.0.0")).DELETE().build())
+            .statusCode());
+  }
+
   @Test
   @Timeout(10)
   void a_module_scoped_permission_grants_access_to_only_that_module() throws Exception {

@@ -12,11 +12,18 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
+import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.StatefulSetAssignment;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -304,6 +311,187 @@ class AuthorizerTest {
     Authorizer authorizer = new Authorizer(store);
 
     assertFalse(authorizer.isTenantAssignedToNode("node-1", "acme"));
+  }
+
+  /**
+   * ADD-11: {@code isTenantAssignedToNode} originally only ever consulted {@code listAssignments()}
+   * (Deployment-only), so a node hosting any tenanted Job/DaemonSet/StatefulSet instance -- e.g.
+   * {@code gimle-gateway}'s own DaemonSet -- could never read that tenant's config/secrets through
+   * this check, no matter how long the assignment had existed. Each workload kind gets its own
+   * test, mirroring {@link #a_node_with_an_active_assignment_for_the_tenant_is_assigned} exactly
+   * for the one kind that already worked.
+   */
+  @Test
+  void a_node_with_an_active_job_run_for_the_tenant_is_assigned() {
+    StateStore store = new StateStore();
+    ModuleId moduleId = new ModuleId("com.gimle.example.batch", Version.parse("1.0.0"));
+    store.putJobSpec(
+        new JobSpec(
+            "batch-acme",
+            moduleId,
+            "/var/gimle/artifacts/batch-1.0.0.jar",
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            0,
+            Optional.of("acme"),
+            Optional.empty()));
+    store.putJobRun(
+        new JobRun(
+            "batch-acme",
+            0,
+            "node-1",
+            moduleId,
+            "/var/gimle/artifacts/batch-1.0.0.jar",
+            Instant.now()));
+    Authorizer authorizer = new Authorizer(store);
+
+    assertTrue(authorizer.isTenantAssignedToNode("node-1", "acme"));
+  }
+
+  @Test
+  void a_node_with_an_active_daemonset_assignment_for_the_tenant_is_assigned() {
+    StateStore store = new StateStore();
+    ModuleId moduleId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
+    store.putDaemonSetSpec(
+        new DaemonSetSpec(
+            "gimle-gateway",
+            moduleId,
+            "/var/gimle/artifacts/gateway-1.0.0.jar",
+            PlacementConstraints.NONE,
+            Optional.of("acme"),
+            Optional.empty()));
+    store.putDaemonSetAssignment(
+        new DaemonSetAssignment(
+            "gimle-gateway", "node-1", moduleId, "/var/gimle/artifacts/gateway-1.0.0.jar"));
+    Authorizer authorizer = new Authorizer(store);
+
+    assertTrue(authorizer.isTenantAssignedToNode("node-1", "acme"));
+  }
+
+  @Test
+  void a_node_with_an_active_statefulset_assignment_for_the_tenant_is_assigned() {
+    StateStore store = new StateStore();
+    ModuleId moduleId = new ModuleId("com.gimle.example.sessions", Version.parse("1.0.0"));
+    store.putStatefulSetSpec(
+        new StatefulSetSpec(
+            "sessions",
+            moduleId,
+            "/var/gimle/artifacts/sessions-1.0.0.jar",
+            1,
+            PlacementConstraints.NONE,
+            Optional.of("acme"),
+            Optional.empty()));
+    store.putStatefulSetAssignment(
+        new StatefulSetAssignment(
+            "sessions", 0, "node-1", moduleId, "/var/gimle/artifacts/sessions-1.0.0.jar"));
+    Authorizer authorizer = new Authorizer(store);
+
+    assertTrue(authorizer.isTenantAssignedToNode("node-1", "acme"));
+  }
+
+  /**
+   * ADD-11: gimle-controlplane's own {@code /config/*}/{@code /configmaps/*} routed every {@code
+   * gimle:nodes} read through the ordinary RoleBinding walk with nothing there to ever match --
+   * unlike Fafnir's {@code /secrets/*}/{@code /secretmaps/*}, which already granted this. A fresh
+   * mTLS cluster shipped no default RoleBinding for {@code gimle:nodes}, so no hosted module could
+   * ever receive its own config, for any tenant, until an operator discovered and closed the gap
+   * themselves.
+   */
+  @Test
+  void a_node_may_read_config_and_configmap_for_a_tenant_it_is_assigned_to() {
+    StateStore store = new StateStore();
+    assignDeploymentToNode(store, "node-1", "acme");
+    Authorizer authorizer = new Authorizer(store);
+    Principal node = new Principal("node-1", Set.of(BuiltinRoles.GROUP_NODES));
+
+    assertTrue(
+        authorizer.authorize(
+            node, ResourceKind.CONFIG, Verb.READ, Optional.of("acme"), Optional.empty()));
+    assertTrue(
+        authorizer.authorize(
+            node, ResourceKind.CONFIGMAP, Verb.READ, Optional.of("acme"), Optional.empty()));
+  }
+
+  @Test
+  void a_node_may_not_read_config_for_a_tenant_it_is_not_assigned_to() {
+    StateStore store = new StateStore();
+    assignDeploymentToNode(store, "node-1", "acme");
+    Authorizer authorizer = new Authorizer(store);
+    Principal node = new Principal("node-1", Set.of(BuiltinRoles.GROUP_NODES));
+
+    assertFalse(
+        authorizer.authorize(
+            node, ResourceKind.CONFIG, Verb.READ, Optional.of("other-tenant"), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            node, ResourceKind.CONFIG, Verb.READ, Optional.empty(), Optional.empty()));
+  }
+
+  @Test
+  void a_node_may_never_write_or_delete_config_even_for_a_tenant_it_is_assigned_to() {
+    StateStore store = new StateStore();
+    assignDeploymentToNode(store, "node-1", "acme");
+    Authorizer authorizer = new Authorizer(store);
+    Principal node = new Principal("node-1", Set.of(BuiltinRoles.GROUP_NODES));
+
+    assertFalse(
+        authorizer.authorize(
+            node, ResourceKind.CONFIG, Verb.WRITE, Optional.of("acme"), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            node, ResourceKind.CONFIG, Verb.DELETE, Optional.of("acme"), Optional.empty()));
+  }
+
+  /**
+   * ADD-10: the control plane's own leaf certificate carried no {@code O=} at all before this fix,
+   * so its scheduling-time artifact pull always fell through to the ordinary RoleBinding walk --
+   * with nothing there to ever match on a fresh cluster, a repeating 403 blocked coordinate-only
+   * DaemonSet placement indefinitely.
+   */
+  @Test
+  void a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all() {
+    Authorizer authorizer = authorizer("controlplane-artifact-read");
+    Principal controlPlane =
+        new Principal("controlplane-1", Set.of(BuiltinRoles.GROUP_CONTROLPLANE));
+
+    assertTrue(
+        authorizer.authorize(
+            controlPlane, ResourceKind.ARTIFACT, Verb.READ, Optional.empty(), Optional.empty()));
+    assertTrue(
+        authorizer.authorize(
+            controlPlane,
+            ResourceKind.ARTIFACT,
+            Verb.READ,
+            Optional.of("any-tenant"),
+            Optional.empty()));
+  }
+
+  @Test
+  void a_controlplane_principal_may_never_write_or_delete_an_artifact() {
+    Authorizer authorizer = authorizer("controlplane-artifact-write-denied");
+    Principal controlPlane =
+        new Principal("controlplane-1", Set.of(BuiltinRoles.GROUP_CONTROLPLANE));
+
+    assertFalse(
+        authorizer.authorize(
+            controlPlane, ResourceKind.ARTIFACT, Verb.WRITE, Optional.empty(), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            controlPlane, ResourceKind.ARTIFACT, Verb.DELETE, Optional.empty(), Optional.empty()));
+  }
+
+  @Test
+  void a_controlplane_principal_is_denied_every_non_artifact_resource() {
+    Authorizer authorizer = authorizer("controlplane-scope-limit");
+    Principal controlPlane =
+        new Principal("controlplane-1", Set.of(BuiltinRoles.GROUP_CONTROLPLANE));
+
+    assertFalse(
+        authorizer.authorize(
+            controlPlane, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty(), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            controlPlane, ResourceKind.SECRET, Verb.READ, Optional.empty(), Optional.empty()));
   }
 
   /**

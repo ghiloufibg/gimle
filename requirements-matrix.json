@@ -12451,6 +12451,48 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-633",
+      "module": "gimle-mimir",
+      "feature": "Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding",
+      "category": "Security / RBAC",
+      "userStory": "As a hosted module needing config or secrets to start, I want the node agent supervising me to be able to fetch my tenant's plain config the same way it already can fetch my tenant's secrets, so I actually start under real mTLS instead of failing onStart forever with no operator-authored RoleBinding to close the gap.",
+      "statusDetail": "Fixed, two independent gaps found against a real mTLS cluster: (1) gimle-controlplane's own /config/*/{configmaps/*} routed every gimle:nodes read through the ordinary RoleBinding walk with no implicit grant at all (unlike Fafnir's /secrets/*//secretmaps/*, which already had one) -- Authorizer#isNodeTenantScopedConfigRead now grants CONFIG/CONFIGMAP:read the identical way FafnirServer's own decideAllowed already grants SECRET/SECRETMAP:read, gated on Authorizer#isTenantAssignedToNode. (2) isTenantAssignedToNode itself only ever consulted Deployment assignments, so a node hosting any tenanted Job/DaemonSet/StatefulSet instance (e.g. gimle-gateway's own DaemonSet) could never read that tenant's config or secrets through this check regardless of gap (1) -- now walks all four workload kinds' own assignment/run lists. Together these close the finding a real end-to-end QA pass hit: a freshly bootstrapped mTLS cluster could not run a single realistic config-dependent workload, for any tenant, out of the box.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`"
+      ],
+      "testCoverageDetail": "`AuthorizerTest` (a_node_may_read_config_and_configmap_for_a_tenant_it_is_assigned_to, a_node_may_not_read_config_for_a_tenant_it_is_not_assigned_to, a_node_may_never_write_or_delete_config_even_for_a_tenant_it_is_assigned_to, a_node_with_an_active_job_run_for_the_tenant_is_assigned, a_node_with_an_active_daemonset_assignment_for_the_tenant_is_assigned, a_node_with_an_active_statefulset_assignment_for_the_tenant_is_assigned)",
+      "gherkinSteps": [
+        "Given a gimle:nodes principal whose node currently has an active assignment for tenant acme (of any workload kind -- Deployment, Job, DaemonSet, or StatefulSet), When it reads CONFIG or CONFIGMAP scoped to acme, Then it is granted with no RoleBinding needing to exist.",
+        "Given the same principal, When it reads CONFIG scoped to a tenant it has no assignment for, Then it is denied.",
+        "Given the same principal, When it attempts to WRITE or DELETE config even for a tenant it is assigned to, Then it is denied -- the grant is read-only."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-634",
+      "module": "gimle-mimir",
+      "feature": "The control plane's own leaf certificate may read the artifact registry with no default RoleBinding",
+      "category": "Security / RBAC",
+      "userStory": "As a platform operator, I want the control plane's own scheduling-time artifact pull (e.g. resolving a coordinate-only DaemonSet's artifact before it can even compute eligible nodes) to work out of the box under real mTLS, so a coordinate-only deploy doesn't stall indefinitely on a repeating 403 with no default RoleBinding to close the gap.",
+      "statusDetail": "Fixed: the control plane's own leaf certificate, minted by PkiBootstrapMain, carried a bare CN=<hostname> with no O= at all -- not a member of gimle:operators, gimle:nodes, or any tenant group, so no RoleBinding could ever have matched it, confirmed against a real mTLS cluster where hilmir enable gateway's own coordinate-only DaemonSet placement stalled indefinitely (DaemonSetReconciler repeating \"references an unreadable artifact\" every 2s). PkiBootstrapMain now stamps O=gimle:controlplane onto that one leaf (Fafnir/Muninn/Andvari's own leaves are deliberately untouched -- they have no analogous need); Authorizer#isControlPlaneArtifactRead grants that group unconditional (unscoped by tenant or moduleId) ARTIFACT:read, matching the unconditional-but-verb-limited shape gimle:nodes already gets for Service/NetworkPolicy, since scheduling needs to resolve whatever coordinate any tenant's manifest references. Write/delete stay denied -- the control plane never pushes or deletes an artifact itself.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`",
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
+        "`gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`"
+      ],
+      "testCoverageDetail": "`AuthorizerTest` (a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all, a_controlplane_principal_may_never_write_or_delete_an_artifact, a_controlplane_principal_is_denied_every_non_artifact_resource); `PkiBootstrapMainTest#the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not`; `AndvariServerTlsTest#a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete` (real mTLS end to end, no Andvari-side code change needed -- it already routes non-node reads through Authorizer#authorize)",
+      "gherkinSteps": [
+        "Given a gimle:controlplane principal (the control plane's own minted leaf), When it reads any artifact coordinate, Then it is granted with no RoleBinding needing to exist, unscoped by tenant or moduleId.",
+        "Given the same principal, When it attempts to push or delete an artifact, Then it is denied -- the grant is read-only.",
+        "Given a fresh mTLS cluster with a coordinate-only DaemonSet manifest applied, When the control plane's own scheduler resolves the artifact to compute eligible nodes, Then the pull succeeds and placement proceeds, with no operator-authored RoleBinding needed."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
     }
   ]
 }

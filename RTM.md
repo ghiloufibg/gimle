@@ -647,6 +647,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-630 | Multi-volume modules: named volumes and dataDirectory(name) | New | Not Covered | — |
 | GIMLE-631 | StatefulSet/DaemonSet machine-level self-healing on node death | New | Not Covered | — |
 | GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | New | Not Covered | — |
+| GIMLE-633 | Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding | New | Not Covered | — |
+| GIMLE-634 | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2707,6 +2709,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
   - _Why this counts_: Pushes a real module jar to a real Andvari replica through the control plane's proxy, submits an apiVersion: v1 coordinate-only deployment for it, and asserts it is accepted and reaches ACTIVE on a real worker JVM -- the whole registry-only path a v1 manifest is forced onto, working.
 - **Other test coverage (non-Holmgang, informational only)**: `ManifestParserTest` (per-kind v1 rejection, alpha warning, coordinate-only), `ApiServerTest` (X-Gimle-Warning header, v1 400), `DeploymentsCommandTest` (stderr-only warning, v1 apply failure through the real CLI)
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java`
+
+#### GIMLE-633 — Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding
+
+- **Category**: Security / RBAC
+- **Status**: New  _(a real bug fix (two independent gaps: /config/* had no node self-service grant at all, and isTenantAssignedToNode was Deployment-only), confirmed against a real mTLS cluster)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario runs a real mTLS cluster and asserts a Job/DaemonSet/StatefulSet-hosted tenant module actually receives its config/secrets at startup; the existing mTLS coverage (bootstrap.feature and similar) doesn't reach this specific delivery path. To close: extend a Holmgang scenario to deploy a config-requiring module as a DaemonSet under real mTLS and assert it reaches ACTIVE.
+- **Other test coverage (non-Holmgang, informational only)**: `AuthorizerTest` (a_node_may_read_config_and_configmap_for_a_tenant_it_is_assigned_to, a_node_may_not_read_config_for_a_tenant_it_is_not_assigned_to, a_node_may_never_write_or_delete_config_even_for_a_tenant_it_is_assigned_to, a_node_with_an_active_job_run_for_the_tenant_is_assigned, a_node_with_an_active_daemonset_assignment_for_the_tenant_is_assigned, a_node_with_an_active_statefulset_assignment_for_the_tenant_is_assigned)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`
+
+#### GIMLE-634 — The control plane's own leaf certificate may read the artifact registry with no default RoleBinding
+
+- **Category**: Security / RBAC
+- **Status**: New  _(a real bug fix -- the control plane's own leaf carried no O= at all, so no role could ever have matched it, confirmed against a real mTLS cluster where coordinate-only DaemonSet placement stalled indefinitely)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario runs a real mTLS cluster and asserts a coordinate-only DaemonSet actually schedules -- registry-deploy.feature exercises coordinate-only deploy under plaintext only. To close: extend that scenario (or add a sibling) under a real mTLS topology and assert the DaemonSet reaches ACTIVE with no manual RoleBinding.
+- **Other test coverage (non-Holmgang, informational only)**: `AuthorizerTest` (a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all, a_controlplane_principal_may_never_write_or_delete_an_artifact, a_controlplane_principal_is_denied_every_non_artifact_resource); `PkiBootstrapMainTest#the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not`; `AndvariServerTlsTest#a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete`
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`
 
 ### gimle-fabric
 
@@ -6706,7 +6726,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**509 of 632 requirements are Not Covered.**
+**511 of 634 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7119,6 +7139,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-614 | gimle-controlplane | Self-subject access review endpoint (/authz/can-i) | Security / RBAC | `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything) |
 | GIMLE-615 | gimle-core | Per-tenant built-in role templates (tenant-view/edit/admin) | Security / RBAC | `BuiltinRolesTest` (template shapes, tenant scoping), `AuthorizerTest` (binding resolution), `ApiServerAuthzTest` (template binding through the real HTTP layer) |
 | GIMLE-625 | gimle-controlplane | Workload identity: store-backed per-deployment tokens (ServiceAccount analogue) | Security / RBAC | `ApiServerAuthzTest` (mint authorization, deny-by-default principal, RBAC-unlocked read), agent relay tests (untenanted whitelist unchanged) |
+| GIMLE-633 | gimle-mimir | Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding | Security / RBAC | `AuthorizerTest` (a_node_may_read_config_and_configmap_for_a_tenant_it_is_assigned_to, a_node_may_not_read_config_for_a_tenant_it_is_not_assigned_to, a_node_may_never_write_or_delete_config_even_for_a_tenant_it_is_assigned_to, a_node_with_an_active_job_run_for_the_tenant_is_assigned, a_node_with_an_active_daemonset_assignment_for_the_tenant_is_assigned, a_node_with_an_active_statefulset_assignment_for_the_tenant_is_assigned) |
+| GIMLE-634 | gimle-mimir | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | Security / RBAC | `AuthorizerTest` (a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all, a_controlplane_principal_may_never_write_or_delete_an_artifact, a_controlplane_principal_is_denied_every_non_artifact_resource); `PkiBootstrapMainTest#the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not`; `AndvariServerTlsTest#a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete` |
 | GIMLE-122 | gimle-agent | Vessel crash respawn resets probe initial-delay clock | Self-Healing | NONE recorded in the baseline |
 | GIMLE-631 | gimle-controlplane | StatefulSet/DaemonSet machine-level self-healing on node death | Self-Healing | `StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest` |
 | GIMLE-613 | gimle-skald | DNS-over-TCP fallback with UDP truncation | Service Discovery / DNS | `SkaldServerTest` (TCP round-trip, sequential queries per connection, TCP NXDOMAIN), `DnsCodecTest` (TC flag) |

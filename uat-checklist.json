@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 632,
+    "totalRequirements": 634,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 509,
-    "releaseReadinessPercent": 19.5
+    "notCoveredByAutomatedTest": 511,
+    "releaseReadinessPercent": 19.4
   },
   "items": [
     {
@@ -6954,6 +6954,28 @@
       "category": "Console",
       "feature": "Toast notifications render app-wide (write failures, and every other toast call site)",
       "step": "Given a read-only account's New Deployment submit is refused with 403, When the control plane's response comes back, Then a visible error toast appears -- the page's own text is no longer byte-for-byte identical before and after the submit.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-633",
+      "module": "gimle-mimir",
+      "category": "Security / RBAC",
+      "feature": "Node agents may read their currently-assigned tenants' config/configmap with no default RoleBinding",
+      "step": "Given a gimle:nodes principal whose node currently has an active assignment for tenant acme (of any workload kind -- Deployment, Job, DaemonSet, or StatefulSet), When it reads CONFIG or CONFIGMAP scoped to acme, Then it is granted with no RoleBinding needing to exist. Given the same principal, When it reads CONFIG scoped to a tenant it has no assignment for, Then it is denied. Given the same principal, When it attempts to WRITE or DELETE config even for a tenant it is assigned to, Then it is denied -- the grant is read-only.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-634",
+      "module": "gimle-mimir",
+      "category": "Security / RBAC",
+      "feature": "The control plane's own leaf certificate may read the artifact registry with no default RoleBinding",
+      "step": "Given a gimle:controlplane principal (the control plane's own minted leaf), When it reads any artifact coordinate, Then it is granted with no RoleBinding needing to exist, unscoped by tenant or moduleId. Given the same principal, When it attempts to push or delete an artifact, Then it is denied -- the grant is read-only. Given a fresh mTLS cluster with a coordinate-only DaemonSet manifest applied, When the control plane's own scheduler resolves the artifact to compute eligible nodes, Then the pull succeeds and placement proceeds, with no operator-authored RoleBinding needed.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

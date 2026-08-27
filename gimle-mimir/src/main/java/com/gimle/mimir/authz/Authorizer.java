@@ -52,6 +52,12 @@ public final class Authorizer {
     if (isNodeSelfService(principal, resource, verb, targetId)) {
       return true;
     }
+    if (isNodeTenantScopedConfigRead(principal, resource, verb, tenant)) {
+      return true;
+    }
+    if (isControlPlaneArtifactRead(principal, resource, verb)) {
+      return true;
+    }
     // group:gimle:operators is bound to the built-in cluster-admin role implicitly -- not a stored
     // RoleBinding, a constant check here, matching BuiltinRoles' own javadoc.
     if (principal.groups().contains(BuiltinRoles.GROUP_OPERATORS)) {
@@ -153,9 +159,10 @@ public final class Authorizer {
    * need, and both relays are deliberately unfiltered by design (see {@code NetworkPolicyRelay}'s
    * own javadoc), so scoping this to only-currently-assigned tenants would just break on the next
    * reassignment. Write/delete on either stays denied -- a node never declares a Service or
-   * NetworkPolicy itself. Not granted for any other resource: a node has no access to deployments,
-   * tenants, config, or any other node's endpoints, under this design a real tightening versus the
-   * pre-RBAC baseline where any valid certificate could hit every route.
+   * NetworkPolicy itself. Not granted for any other resource here: a node has no unscoped access to
+   * deployments, tenants, or any other node's endpoints -- CONFIG/CONFIGMAP get their own
+   * tenant-scoped grant, {@link #isNodeTenantScopedConfigRead}, since unlike Service/NetworkPolicy
+   * a node has no legitimate reason to read a tenant's config it currently has no assignment for.
    */
   private static boolean isNodeSelfService(
       Principal principal, ResourceKind resource, Verb verb, Optional<String> targetId) {
@@ -172,6 +179,51 @@ public final class Authorizer {
   }
 
   /**
+   * A {@code gimle:nodes} principal may {@link Verb#READ} a tenant's {@link ResourceKind#CONFIG}/
+   * {@link ResourceKind#CONFIGMAP} the same way {@code gimle-fafnir}'s own {@code FafnirServer}'s
+   * {@code decideAllowed} already lets it read that tenant's {@code SECRET}/{@code SECRETMAP} --
+   * only if {@link #isTenantAssignedToNode} says this node currently has an active instance
+   * assignment for {@code tenant}. Without this, a hosted module needing config or secrets could
+   * never start under real mTLS: {@code gimle-controlplane}'s own {@code /config/*}/{@code
+   * /configmaps/*} routed every {@code gimle:nodes} read through the ordinary {@link RoleBinding}
+   * walk with nothing there to ever match, unlike Fafnir's surfaces, which already had this grant
+   * -- confirmed against a real mTLS cluster, where no hosted module for any tenant could ever
+   * receive its own config.
+   */
+  private boolean isNodeTenantScopedConfigRead(
+      Principal principal, ResourceKind resource, Verb verb, Optional<String> tenant) {
+    if (!principal.groups().contains(BuiltinRoles.GROUP_NODES) || verb != Verb.READ) {
+      return false;
+    }
+    if (resource != ResourceKind.CONFIG && resource != ResourceKind.CONFIGMAP) {
+      return false;
+    }
+    return tenant.isPresent() && isTenantAssignedToNode(principal.name(), tenant.get());
+  }
+
+  /**
+   * The control plane's own leaf certificate ({@code group:gimle:controlplane}, stamped by {@code
+   * PkiBootstrapMain}) may always {@link Verb#READ} the artifact registry, unscoped by tenant or
+   * moduleId -- the same unconditional-but-verb-limited shape {@code gimle:nodes} already gets for
+   * Service/NetworkPolicy above, not a per-tenant self-service check the way config/secret reads
+   * are: {@code DaemonSetReconciler}'s own scheduling-time artifact pull needs to resolve whatever
+   * coordinate any tenant's manifest references, before it can even compute eligible nodes, so
+   * scoping this to "only tenants this process currently has an assignment for" (a notion that
+   * doesn't even apply to the control plane itself) would just break scheduling for the next tenant
+   * to onboard. Write/delete stay denied -- the control plane never pushes or deletes an artifact
+   * itself, only ever reads one to schedule against it. Without this, a fresh mTLS cluster's own
+   * control plane could never pull an artifact it didn't already have cached, and a DaemonSet
+   * needing a registry pull to schedule (e.g. a coordinate-only deploy) stalled indefinitely on a
+   * repeating 403 with no default RoleBinding to close the gap.
+   */
+  private static boolean isControlPlaneArtifactRead(
+      Principal principal, ResourceKind resource, Verb verb) {
+    return principal.groups().contains(BuiltinRoles.GROUP_CONTROLPLANE)
+        && resource == ResourceKind.ARTIFACT
+        && verb == Verb.READ;
+  }
+
+  /**
    * Node-authorization mode, mirroring Kubernetes' own Node authorization + NodeRestriction: a
    * {@code gimle:nodes} principal (a node agent's own certificate identity, {@code CN=nodeId}) may
    * read a tenant's data only if that node currently has at least one active instance assignment
@@ -184,18 +236,54 @@ public final class Authorizer {
    *
    * <p>There is no direct "assignments for this node" query on {@link StoreReader} -- {@code
    * listAssignmentsFor(String deploymentName)} is deployment-scoped, not node-scoped. So this walks
-   * every assignment via {@link StoreReader#listAssignments()}, filters to this node, and joins
-   * each surviving assignment's {@code deploymentName} back to its {@code DeploymentSpec} to read
-   * that deployment's own {@code tenantId}.
+   * every assignment across every workload kind ({@link StoreReader#listAssignments()} for
+   * Deployment, {@link StoreReader#listJobRuns()} for Job, {@link
+   * StoreReader#listDaemonSetAssignments()}, {@link StoreReader#listStatefulSetAssignments()}),
+   * filters each to this node, and joins each surviving assignment's own workload name back to its
+   * spec to read that workload's own {@code tenantId} -- checking only Deployment originally left a
+   * node hosting any tenanted Job/DaemonSet/StatefulSet instance (e.g. {@code gimle-gateway}'s own
+   * DaemonSet) permanently unable to read that tenant's data through this check, no matter how long
+   * the assignment had existed.
    *
    * <p>Honest limitation, stated rather than hidden: this is tenant-scoped, not per-resource-scoped
    * -- a node with any assignment for a tenant can see every resource that tenant owns under this
    * check, not just the ones its own deployed modules actually declared a dependency on.
    */
   public boolean isTenantAssignedToNode(String nodeId, String tenantId) {
+    return deploymentTenantAssignedToNode(nodeId, tenantId)
+        || jobTenantAssignedToNode(nodeId, tenantId)
+        || daemonSetTenantAssignedToNode(nodeId, tenantId)
+        || statefulSetTenantAssignedToNode(nodeId, tenantId);
+  }
+
+  private boolean deploymentTenantAssignedToNode(String nodeId, String tenantId) {
     return store.listAssignments().stream()
         .filter(a -> a.nodeId().equals(nodeId))
         .map(a -> store.getDeployment(a.deploymentName()))
+        .flatMap(Optional::stream)
+        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
+  }
+
+  private boolean jobTenantAssignedToNode(String nodeId, String tenantId) {
+    return store.listJobRuns().stream()
+        .filter(run -> run.nodeId().equals(nodeId))
+        .map(run -> store.getJobSpec(run.jobName()))
+        .flatMap(Optional::stream)
+        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
+  }
+
+  private boolean daemonSetTenantAssignedToNode(String nodeId, String tenantId) {
+    return store.listDaemonSetAssignments().stream()
+        .filter(a -> a.nodeId().equals(nodeId))
+        .map(a -> store.getDaemonSetSpec(a.daemonSetName()))
+        .flatMap(Optional::stream)
+        .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
+  }
+
+  private boolean statefulSetTenantAssignedToNode(String nodeId, String tenantId) {
+    return store.listStatefulSetAssignments().stream()
+        .filter(a -> a.nodeId().equals(nodeId))
+        .map(a -> store.getStatefulSetSpec(a.statefulSetName()))
         .flatMap(Optional::stream)
         .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
   }
