@@ -5009,7 +5009,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Status**: Complete
 - **Confidence**: High
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadTokenRecord.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`
-- **Test coverage**: `ApiServerAuthzTest` (a_workload_token_carries_deny_by_default_rbac_identity), `AgentRelayControlPlaneReadTest`/`RelayControlPlaneEndToEndTest` (untenanted whitelist path unchanged)
+- **Test coverage**: `ApiServerAuthzTest` (a_workload_token_carries_deny_by_default_rbac_identity; a_workload_token_can_be_minted_for_a_tenanted_daemonset_not_only_a_deployment covers minting resolving a tenanted workload's kind across Deployment/Job/DaemonSet/StatefulSet, not only Deployment -- minting against storeClient.getDeployment alone previously 404'd every tenanted non-Deployment workload's own mint attempt, permanently blocking its relayControlPlaneRead calls, e.g. gimle-gateway's own DaemonSet-hosted SERVICE route resolution), `AgentRelayControlPlaneReadTest`/`RelayControlPlaneEndToEndTest` (untenanted whitelist path unchanged)
 - **Gherkin scenario**:
   ```gherkin
   Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>.

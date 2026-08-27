@@ -12296,7 +12296,7 @@
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadTokenRecord.java`",
         "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
       ],
-      "testCoverageDetail": "`ApiServerAuthzTest` (a_workload_token_carries_deny_by_default_rbac_identity), `AgentRelayControlPlaneReadTest`/`RelayControlPlaneEndToEndTest` (untenanted whitelist path unchanged)",
+      "testCoverageDetail": "`ApiServerAuthzTest` (a_workload_token_carries_deny_by_default_rbac_identity; a_workload_token_can_be_minted_for_a_tenanted_daemonset_not_only_a_deployment covers minting resolving a tenanted workload's kind across Deployment/Job/DaemonSet/StatefulSet, not only Deployment -- minting against storeClient.getDeployment alone previously 404'd every tenanted non-Deployment workload's own mint attempt, permanently blocking its relayControlPlaneRead calls, e.g. gimle-gateway's own DaemonSet-hosted SERVICE route resolution), `AgentRelayControlPlaneReadTest`/`RelayControlPlaneEndToEndTest` (untenanted whitelist path unchanged)",
       "gherkinSteps": [
         "Given a tenanted deployment assigned to a node, When that node's agent mints a workload token, Then a foreign node's mint is refused and the token resolves principal svc:<tenant>:<deployment>.",
         "Given an unbound workload principal, When it reads a resource, Then it is denied until an operator binds it a role, after which it reads exactly its own tenant's resources."

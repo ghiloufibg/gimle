@@ -22,6 +22,7 @@ import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.InstanceAssignment;
@@ -1610,6 +1611,46 @@ class ApiServerAuthzTest {
       HttpResponse<String> read =
           bearerGet(tokenOnly, baseUrl, "/deployments/orders-service", token);
       assertEquals(200, read.statusCode());
+    }
+  }
+
+  /**
+   * ADD-7: minting used to resolve {@code deploymentName} against {@code storeClient.getDeployment}
+   * alone, so a tenanted DaemonSet (or Job/StatefulSet) instance's own mint attempt always 404'd --
+   * permanently blocking every {@code relayControlPlaneRead} call a non-Deployment workload ever
+   * made (e.g. {@code gimle-gateway}'s own DaemonSet-hosted {@code SERVICE} route resolution).
+   * Plaintext mode is enough to exercise the fix -- the workload-kind lookup itself, not the mTLS
+   * authorization branch {@link #a_workload_token_carries_deny_by_default_rbac_identity} already
+   * covers.
+   */
+  @Test
+  void a_workload_token_can_be_minted_for_a_tenanted_daemonset_not_only_a_deployment()
+      throws Exception {
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 10_000, 100)));
+    store.putDaemonSetSpec(
+        new DaemonSetSpec(
+            "gimle-gateway",
+            new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
+            "/tmp/gateway.jar",
+            PlacementConstraints.NONE,
+            Optional.of("acme"),
+            Optional.empty()));
+
+    try (InProcessStore ignored = inProcessStore;
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "http://localhost:" + server.port();
+      HttpClient client = HttpClient.newHttpClient();
+
+      HttpResponse<String> minted =
+          mint(client, baseUrl, "{\"deploymentName\": \"gimle-gateway\", \"nodeId\": \"node-a\"}");
+
+      assertEquals(200, minted.statusCode());
+      assertNotNull(Json.asObject(Json.parse(minted.body())).get("token"));
     }
   }
 

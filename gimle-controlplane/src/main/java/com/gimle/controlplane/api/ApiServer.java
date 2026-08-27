@@ -5047,15 +5047,23 @@ public final class ApiServer implements AutoCloseable {
   private static final Duration WORKLOAD_TOKEN_TTL = Duration.ofHours(1);
 
   /**
-   * Mints a workload-identity token for one deployment's instances on one node -- the
-   * ServiceAccount analogue's issuance path. The caller is the node's own agent: under mTLS a
-   * {@code gimle:nodes} principal may mint only for its own {@code nodeId} and only for a
-   * deployment the store currently assigns to that node (the same assignment-scoped least-privilege
-   * check Fafnir's node secret fetch already applies); an operator may mint for any node. The token
-   * itself is {@code key ":" random}; only its SHA-256 is replicated (see {@link
-   * WorkloadTokenRecord}), keyed {@code deploymentName#nodeId} so a re-mint replaces exactly this
-   * node's token. Untenanted deployments are refused: a workload identity exists to carry
-   * tenant-scoped RBAC, and an untenanted workload has no tenant to scope to.
+   * Mints a workload-identity token for one workload's instances on one node -- the ServiceAccount
+   * analogue's issuance path. The caller is the node's own agent: under mTLS a {@code gimle:nodes}
+   * principal may mint only for its own {@code nodeId} and only for a workload the store currently
+   * assigns to that node (the same assignment-scoped least-privilege check Fafnir's node secret
+   * fetch already applies); an operator may mint for any node. The token itself is {@code key ":"
+   * random}; only its SHA-256 is replicated (see {@link WorkloadTokenRecord}), keyed {@code
+   * deploymentName#nodeId} so a re-mint replaces exactly this node's token. Untenanted workloads
+   * are refused: a workload identity exists to carry tenant-scoped RBAC, and an untenanted workload
+   * has no tenant to scope to.
+   *
+   * <p>{@code deploymentName} names any workload kind, not only a {@code Deployment} -- the field
+   * is called that generically across {@link com.gimle.core.protocol.AssignedInstance} regardless
+   * of what actually owns the instance (see that record's own javadoc). Resolved against each
+   * kind's own spec store in turn, the same workload-kind-agnostic lookup {@link #handleEndpoints}
+   * already establishes -- minting unconditionally against {@code storeClient.getDeployment} alone
+   * 404'd every Job/DaemonSet/StatefulSet instance's own mint attempt, permanently blocking any
+   * tenanted non-Deployment workload's {@code relayControlPlaneRead} calls.
    */
   private void handleWorkloadTokenMint(HttpExchange exchange) {
     try {
@@ -5073,16 +5081,16 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "deploymentName and nodeId are required");
         return;
       }
-      Optional<DeploymentSpec> deployment = storeClient.getDeployment(deploymentName);
-      if (deployment.isEmpty()) {
-        respond(exchange, 404, "unknown deployment: " + deploymentName);
+      Optional<Optional<String>> workloadTenantId = workloadTenantId(deploymentName);
+      if (workloadTenantId.isEmpty()) {
+        respond(exchange, 404, "unknown workload: " + deploymentName);
         return;
       }
-      if (deployment.get().tenantId().isEmpty()) {
+      if (workloadTenantId.get().isEmpty()) {
         respond(
             exchange,
             400,
-            "deployment " + deploymentName + " is untenanted; no workload identity to mint");
+            "workload " + deploymentName + " is untenanted; no workload identity to mint");
         return;
       }
       if (exchange instanceof HttpsExchange) {
@@ -5112,7 +5120,7 @@ public final class ApiServer implements AutoCloseable {
               new WorkloadTokenRecord(
                   key,
                   sha256Hex(token),
-                  deployment.get().tenantId(),
+                  workloadTenantId.get(),
                   deploymentName,
                   expiresAtEpochMilli),
               System.currentTimeMillis()));
@@ -5123,6 +5131,33 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * {@code name}'s tenant, resolved against each workload kind's own spec store in turn -- {@link
+   * Optional#empty()} at the outer level means no workload named {@code name} exists in any of
+   * them; a present-but-empty inner {@link Optional} means it exists and is untenanted. The same
+   * kind-by-kind fallback {@link #handleEndpoints} already uses, since {@code deploymentName} names
+   * whichever workload kind actually owns the instance, not only a {@code Deployment}.
+   */
+  private Optional<Optional<String>> workloadTenantId(String name) {
+    Optional<DeploymentSpec> deployment = storeClient.getDeployment(name);
+    if (deployment.isPresent()) {
+      return Optional.of(deployment.get().tenantId());
+    }
+    Optional<JobSpec> job = storeClient.getJobSpec(name);
+    if (job.isPresent()) {
+      return Optional.of(job.get().tenantId());
+    }
+    Optional<DaemonSetSpec> daemonSet = storeClient.getDaemonSetSpec(name);
+    if (daemonSet.isPresent()) {
+      return Optional.of(daemonSet.get().tenantId());
+    }
+    Optional<StatefulSetSpec> statefulSet = storeClient.getStatefulSetSpec(name);
+    if (statefulSet.isPresent()) {
+      return Optional.of(statefulSet.get().tenantId());
+    }
+    return Optional.empty();
   }
 
   /**
