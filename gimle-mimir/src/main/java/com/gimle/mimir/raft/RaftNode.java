@@ -182,12 +182,13 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * like {@link #lastApplied} itself -- populated only while this node believes itself leader (a
    * follower never has anyone waiting on {@link #awaitAppliedThrowing} for these indices, so
    * recording them there would only leak) and consumed exactly once, by the one {@link #propose}
-   * call that appended this exact index, immediately after {@link #awaitAppliedThrowing} returns.
-   * A {@link MembershipChange} entry never populates this map; {@link #awaitAppliedThrowing}
-   * defaults to {@link MutationOutcome#accepted()} for an index with no entry, which every caller
-   * except {@link #propose} itself (addServer/removeServer) simply discards.
+   * call that appended this exact index, immediately after {@link #awaitAppliedThrowing} returns. A
+   * {@link MembershipChange} entry never populates this map; {@link #awaitAppliedThrowing} defaults
+   * to {@link MutationOutcome#accepted()} for an index with no entry, which every caller except
+   * {@link #propose} itself (addServer/removeServer) simply discards.
    */
   private final Map<Long, MutationOutcome> pendingOutcomes = new HashMap<>();
+
   private final Map<String, Long> nextIndex = new HashMap<>();
   private final Map<String, Long> matchIndex = new HashMap<>();
   private final Map<String, Semaphore> peerWake = new ConcurrentHashMap<>();
@@ -766,9 +767,9 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * Blocks until {@code index} is applied, then returns whatever {@link MutationOutcome} {@link
    * #applyCommittedLocked} recorded for it -- {@link MutationOutcome#accepted()} for a {@link
    * MembershipChange} entry or any index with no recorded outcome, which every caller except {@link
-   * #propose} itself (addServer/removeServer, proposing no {@link StateMutation}) discards
-   * unread. Read-and-remove happens here, still under {@link #lock}, in the same atomic step as the
-   * loop condition becoming false -- no window exists for a second caller to observe or clear this
+   * #propose} itself (addServer/removeServer, proposing no {@link StateMutation}) discards unread.
+   * Read-and-remove happens here, still under {@link #lock}, in the same atomic step as the loop
+   * condition becoming false -- no window exists for a second caller to observe or clear this
    * index's entry first.
    */
   private MutationOutcome awaitAppliedThrowing(long index) {

@@ -193,8 +193,7 @@ public final class StateStore implements StoreReader {
   }
 
   /**
-   * See {@link StoreReader#getDeploymentGeneration}'s own javadoc for the CAS contract this
-   * backs.
+   * See {@link StoreReader#getDeploymentGeneration}'s own javadoc for the CAS contract this backs.
    */
   @Override
   public long getDeploymentGeneration(String name) {

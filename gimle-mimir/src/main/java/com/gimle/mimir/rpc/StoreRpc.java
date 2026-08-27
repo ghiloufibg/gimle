@@ -237,11 +237,10 @@ public sealed interface StoreRpc {
 
   /**
    * The compare-and-set precondition read for {@code ApiServer}'s deployment apply/delete/rollback
-   * handlers -- see {@link StateMutation.PutDeployment}/{@link
-   * StateMutation.RemoveDeployment}'s own javadoc. Any-node-servable like every other plain read
-   * here: a stale answer only ever causes a spurious, safe rejection at the actual CAS check inside
-   * {@code applyTo} (evaluated against the true replicated state, not this read), never an
-   * incorrect write.
+   * handlers -- see {@link StateMutation.PutDeployment}/{@link StateMutation.RemoveDeployment}'s
+   * own javadoc. Any-node-servable like every other plain read here: a stale answer only ever
+   * causes a spurious, safe rejection at the actual CAS check inside {@code applyTo} (evaluated
+   * against the true replicated state, not this read), never an incorrect write.
    */
   record GetDeploymentGeneration(String name) implements Request {}
 

@@ -82,7 +82,11 @@ public sealed interface StateMutation extends RaftLogPayload {
       long current = store.getDeploymentGeneration(name);
       if (current != expectedGeneration) {
         return MutationOutcome.rejected(
-            "deployment '" + name + "' is at generation " + current + ", expected "
+            "deployment '"
+                + name
+                + "' is at generation "
+                + current
+                + ", expected "
                 + expectedGeneration);
       }
       store.removeDeployment(name);
