@@ -5,6 +5,8 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.ragnarok.RagnarokException;
 import com.gimle.ragnarok.target.ClusterTarget;
+import com.gimle.ragnarok.target.adminapi.AdminApiClusterTarget;
+import com.gimle.ragnarok.target.adminapi.AdminApiSpec;
 import com.gimle.ragnarok.target.inventory.InventorySpec;
 import com.gimle.ragnarok.target.inventory.SshInventoryClusterTarget;
 import java.net.InetSocketAddress;
@@ -23,7 +25,10 @@ import java.util.Optional;
  * #open()} is the one place that turns this declarative spec into a live target, the same split
  * {@link com.gimle.holmgang.cluster.GimleCluster}'s own {@code buildOperatorClient()} already draws
  * between "what to connect to" and "the client that connects". The presence of {@link #inventory}
- * is the only discriminator between the two target kinds -- no separate {@code kind:} field.
+ * is the only discriminator between the two target kinds -- no separate {@code kind:} field. {@link
+ * #adminApi} is a third, mutually exclusive kind: {@link #inventory} wins if both are somehow
+ * present -- v1 keeps the three target kinds exclusive; combining SSH process control with SSH-free
+ * worker-kill in one document is a plausible future enhancement, not built here.
  */
 public record TargetSpec(
     List<String> controlPlaneBaseUrls,
@@ -33,6 +38,7 @@ public record TargetSpec(
     TransportProtocol transport,
     Optional<TlsSettings> tls,
     Optional<InventorySpec> inventory,
+    Optional<AdminApiSpec> adminApi,
     Path workDir) {
 
   public TargetSpec {
@@ -49,7 +55,10 @@ public record TargetSpec(
     }
   }
 
-  /** Builds the {@link HttpClient} and constructs the live target -- endpoint-only or inventory. */
+  /**
+   * Builds the {@link HttpClient} and constructs the live target -- endpoint-only, inventory, or
+   * adminApi.
+   */
   public ClusterTarget open() {
     final HttpClient httpClient =
         transport == TransportProtocol.TLS
@@ -68,6 +77,16 @@ public record TargetSpec(
           andvariBaseUrls,
           workDir,
           inventory.get());
+    }
+    if (adminApi.isPresent()) {
+      return new AdminApiClusterTarget(
+          controlPlaneBaseUrls,
+          httpClient,
+          storeEndpoints,
+          muninnBaseUrls,
+          andvariBaseUrls,
+          workDir,
+          adminApi.get());
     }
     return new EndpointClusterTarget(
         controlPlaneBaseUrls, httpClient, storeEndpoints, muninnBaseUrls, andvariBaseUrls, workDir);

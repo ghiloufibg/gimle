@@ -68,6 +68,15 @@
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
     </dependency>
+    <!-- AgentAdminServer's own StoreClient + Authorizer, matching Fafnir/Andvari/Muninn's exact
+         defense-in-depth pattern: never trust the mTLS-authenticated caller alone, always re-run
+         an independent RBAC check against gimle-mimir's own state. Opt-in, only constructed when
+         -Dgimle.agent.storeEndpoints is configured, so an agent whose operator never uses the
+         Admin Fault API never opens this connection at all. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-mimir</artifactId>
+    </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
       <artifactId>gimle-worker</artifactId>

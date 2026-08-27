@@ -646,6 +646,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-634 | Standalone Ragnarok distribution archive | Distribution | Complete | Manual smoke |
 | GIMLE-635 | SSH-backed managed-inventory ClusterTarget for real process control | Chaos Engineering | Complete | Partial (unit + one real-SSH IT; not every bounce kind exercised end to end) |
 | GIMLE-636 | Real iptables host-firewall network faults over SSH | Chaos Engineering | Complete | Partial (unit + one real-SSH mechanism IT; not exercised through a full ragnarok chaos run against a live multi-store cluster) |
+| GIMLE-637 | Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface | Chaos Engineering | Complete | Partial (unit-level real-mechanism coverage in gimle-agent/gimle-ragnarok; not exercised through a full ragnarok chaos run against a live multi-node GimleCluster -- deliberately scoped down, see gapNote in rtm.json) |
 
 ## Detailed Requirements
 
@@ -9284,6 +9285,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule.
+  ```
+
+#### GIMLE-637 — Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface
+
+- **Category**: Chaos Engineering
+- **User story**: As an operator who does not want to grant SSH access to any cluster machine, I want ragnarok chaos to trigger WORKER_KILL against a real worker process through an authenticated HTTP call to its node agent instead, so the platform's own supervisor can prove out its crash-detection-and-respawn path without handing out shell access at all.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentAdminServer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/adminapi/AdminApiClusterTarget.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/adminapi/AdminApiWorkerHandle.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/adminapi/AdminApiSpec.java`, `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/endpoint/TargetSpec.java`
+- **Test coverage**: `AgentAdminServerTest` (real InProcessStore-backed StoreClient, a real WorkerProcessSupervisor supervising a genuine OS subprocess, a real HTTP round trip driving a genuine kill and the supervisor's own genuine respawn; pid-match/pid-mismatch/unsupervised-instance cases) -- the mTLS RBAC decision matrix itself is not re-tested here, being structurally identical to Fafnir's/Andvari's own already-covered authorizeSecrets/authorizeArtifacts (see the test's own javadoc); `AdminApiWorkerHandleTest` (real local HttpServer standing in for a node agent, proving the client-side wire protocol end to end); `AdminApiSpecParserTest` (adminApi: YAML parsing/validation).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node agent with gimle.agent.storeEndpoints configured, When an authorized operator POSTs the currently-supervised pid to that worker's /admin/faults/workers/{deployment}/{index}/kill endpoint, Then the underlying OS process is force-killed and the agent's own WorkerProcessSupervisor respawns it under a new pid with no further action from the caller.
   ```
 
 ### gimle-dist

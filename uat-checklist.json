@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 636,
+    "totalRequirements": 637,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 513,
+    "notCoveredByAutomatedTest": 514,
     "releaseReadinessPercent": 19.3
   },
   "items": [
@@ -6998,6 +6998,17 @@
       "category": "Chaos Engineering",
       "feature": "Real iptables host-firewall network faults over SSH",
       "step": "Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-637",
+      "module": "gimle-ragnarok",
+      "category": "Chaos Engineering",
+      "feature": "Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface",
+      "step": "Given a node agent with gimle.agent.storeEndpoints configured, When an authorized operator POSTs the currently-supervised pid to that worker's /admin/faults/workers/{deployment}/{index}/kill endpoint, Then the underlying OS process is force-killed and the agent's own WorkerProcessSupervisor respawns it under a new pid with no further action from the caller.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

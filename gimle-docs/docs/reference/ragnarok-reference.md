@@ -109,6 +109,48 @@ refused up front, before the soak starts, naming exactly which store roles are m
 store can never clear it, so `STORE_PARTITION` needs at least three store replicas to ever actually
 fire, independent of whether `raftPort` is configured.
 
+### The `adminApi:` block (`WORKER_KILL` without SSH)
+
+A third, mutually exclusive target kind — `AdminApiClusterTarget` — reaches every node's own Admin
+Fault API directly over HTTP/mTLS instead of SSH, for an operator who wants to run `WORKER_KILL`
+without handing out shell access to any machine at all:
+
+```yaml
+adminApi:
+  nodes:
+    - nodeId: node-abc
+      endpoint: https://10.0.1.10:9500
+    - nodeId: node-def
+      endpoint: https://10.0.1.11:9500
+```
+
+`inventory:` wins if both blocks are somehow present in the same document — the three target kinds
+(`EndpointClusterTarget`, `SshInventoryClusterTarget`, `AdminApiClusterTarget`) stay mutually
+exclusive in v1. Every other `ClusterTarget` method (`api()`, `storeLeaderId()`, `preflight`'s own
+reachability checks, ...) behaves exactly like the plain `EndpointClusterTarget` case — `adminApi:`
+only changes what `workerFor()` can do, so only `WORKER_KILL` is ever anything but `SKIPPED`
+through this target; `LINK_CUT`/`STORE_PARTITION` stay unavailable exactly like the default
+`EndpointClusterTarget` case (no boot-time network interposition here either), and every other
+bounce kind (store/control-plane/Fafnir/Muninn/Andvari) still needs `inventory:`'s own SSH process
+control.
+
+The node side is a node agent's own Admin Fault API, opt-in and off by default — an agent that
+never sets `-Dgimle.agent.storeEndpoints` (one or more comma-separated `gimle-mimir` store
+`host:port` entries, the agent's own independent RBAC re-check target, matching Fafnir/Andvari's
+defense-in-depth pattern rather than trusting a forwarded claim) opens no admin port at all.
+`-Dgimle.agent.adminApiPort` pins the listener to a known port (default: ephemeral, logged at
+startup) — set it explicitly when the target document's `adminApi:` block needs a fixed address to
+declare, as above. Authorization is peer-certificate-only (no forwarded-header tier, no session
+cookie — `ragnarok` dials the agent directly, so there's no proxy hop to trust a forwarded claim
+from) against `ResourceKind.FAULT`, a cluster-admin-only permission by default (not granted to any
+tenant role template — an operator delegating it creates an explicit `Role`/`RoleBinding`). A kill
+force-kills the worker's OS process directly, leaving the platform's own supervisor
+(`WorkerProcessSupervisor`'s crash-detection-and-respawn) to bring it back — the identical contract
+`SshWorkerHandle.kill()` already has over SSH, and the only fault kind this surface covers at all:
+every other bounce kind needs a restart driven by *this tool*, not the platform's own supervisor,
+so it would need an admin listener on five other unrelated process kinds to cover — a materially
+larger, separately-scoped lift, not built here.
+
 ## `preflight`
 
 A plain readiness report: the store's own leader/member visibility (if `storeClientEndpoints` is

@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 636
+- **Total requirements**: 637
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 513
+- **Not covered by automated test**: 514
 - **Release-readiness (automated coverage)**: 19.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -39,7 +39,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-examples | 4 | 3 | 1 | 75.0% |
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
-| gimle-ragnarok | 7 | 1 | 6 | 14.3% |
+| gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 3 | 0 | 3 | 0.0% |
 
@@ -1747,6 +1747,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-633 | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Given a real cluster and a plaintext target.yaml, When `ragnarok preflight` runs, Then it reports every configured endpoint's own reachability and exits non-zero if any is down. Given a chaos plan naming only network faults, When `ragnarok chaos` runs without --confirm-destructive, Then it is accepted and runs. Given a chaos plan naming a destructive fault kind, When `ragnarok chaos` runs without --confirm-destructive, Then it is refused with an error naming the missing flag. | No |
 | [ ] | GIMLE-635 | SSH-backed managed-inventory ClusterTarget for real process control | Given a target.yaml with a machines/store/fafnir/controlPlane inventory block, When ragnarok chaos runs a CONTROL_PLANE_BOUNCE plan against it, Then the real remote process is killed and restarted over SSH and the ledger records RECOVERED. | No |
 | [ ] | GIMLE-636 | Real iptables host-firewall network faults over SSH | Given an inventory:-backed target document with a controlPlane role and storeClientEndpoints declared, When cutControlPlaneFromStores is called, Then a real REJECT iptables rule is installed on the control-plane machine for every store endpoint, and heal() removes exactly that rule. | No |
+| [ ] | GIMLE-637 | Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface | Given a node agent with gimle.agent.storeEndpoints configured, When an authorized operator POSTs the currently-supervised pid to that worker's /admin/faults/workers/{deployment}/{index}/kill endpoint, Then the underlying OS process is force-killed and the agent's own WorkerProcessSupervisor respawns it under a new pid with no further action from the caller. | No |
 
 #### Load Testing
 

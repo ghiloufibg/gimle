@@ -651,6 +651,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-634 | Standalone Ragnarok distribution archive | New | Not Covered | — |
 | GIMLE-635 | SSH-backed managed-inventory ClusterTarget for real process control | New | Not Covered | — |
 | GIMLE-636 | Real iptables host-firewall network faults over SSH | New | Not Covered | — |
+| GIMLE-637 | Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -6650,6 +6651,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: SshNetworkFaultInjectorTest, SshInventoryClusterTargetTest (unit); RagnarokFirewallFaultIT (-Pvalidation, real sshd container, plain JUnit)
 - **Source location(s)**: `gimle-ragnarok/src/main/java/com/gimle/ragnarok/target/inventory/SshNetworkFaultInjector.java`
 
+#### GIMLE-637 — Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface
+
+- **Category**: Chaos Engineering
+- **Status**: New  _(newly added as part of the Ragnarök Phase 4 (S12) Admin Fault API)_
+- **Coverage**: Not Covered
+- **Gap note**: Deliberately not exercised end to end through a GimleCluster-backed Holmgang IT: the store/control-plane client port a spawned agent's own -Dgimle.agent.storeEndpoints would need is only known inside GimleCluster.boot(), strictly after ClusterSpec's own jvmFlags are already fixed at topology-build time -- wiring it through would need a real GimleCluster/ClusterTopology enhancement (lazy, post-port-allocation per-role flags), not a test-only workaround, and is a separately-scoped harness change disproportionate to the marginal coverage gained over AgentAdminServerTest's already-genuine real-process-kill-and-respawn proof. No Holmgang Cucumber .feature scenario exists for this feature.
+- **Other test coverage (non-Holmgang, informational only)**: AgentAdminServerTest (real WorkerProcessSupervisor + real InProcessStore, unit); AdminApiWorkerHandleTest, AdminApiSpecParserTest (unit)
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentAdminServer.java`
+
 ### gimle-dist
 
 #### GIMLE-560 — Standalone CLI distribution archive
@@ -6748,7 +6758,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**513 of 636 requirements are Not Covered.**
+**514 of 637 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6837,6 +6847,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-633 | gimle-ragnarok | ragnarok CLI: preflight/chaos/stress/replay/report verbs | Chaos Engineering | `RagnarokCliIT` (real cluster: preflight, stress, chaos, --confirm-destructive refusal) |
 | GIMLE-635 | gimle-ragnarok | SSH-backed managed-inventory ClusterTarget for real process control | Chaos Engineering | SshManagedProcessTest, SshWorkerHandleTest, InventorySpecParserTest (unit); RagnarokInventoryChaosIT (-Pvalidation, real sshd container, plain JUnit) |
 | GIMLE-636 | gimle-ragnarok | Real iptables host-firewall network faults over SSH | Chaos Engineering | SshNetworkFaultInjectorTest, SshInventoryClusterTargetTest (unit); RagnarokFirewallFaultIT (-Pvalidation, real sshd container, plain JUnit) |
+| GIMLE-637 | gimle-ragnarok | Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface | Chaos Engineering | AgentAdminServerTest (real WorkerProcessSupervisor + real InProcessStore, unit); AdminApiWorkerHandleTest, AdminApiSpecParserTest (unit) |
 | GIMLE-186 | gimle-fabric | Per-Endpoint Circuit Breaker | Circuit Breaking | `CircuitBreakerTest#opens_once_error_rate_crosses_threshold_over_the_window`, `#half_opens_after_cooldown_and_allows_exactly_one_trial`, `#half_open_success_closes_the_breaker`, `#half_open_failure_reopens_the_breaker`, `FabricServiceRegistryTest#a_failing_endpoints_breaker_opens_and_is_excluded` |
 | GIMLE-187 | gimle-fabric | Circuit Breaker Exponential Cooldown Backoff | Circuit Breaking | `CircuitBreakerTest#repeated_reopens_double_the_effective_cooldown`, `#the_doubling_backoff_stops_at_its_documented_ceiling`, `#a_successful_half_open_trial_resets_the_backoff_to_the_base_cooldown` |
 | GIMLE-188 | gimle-fabric | Panic-Mode Ejection Floor | Circuit Breaking | `FabricServiceRegistryTest#all_endpoints_failing_still_yields_a_candidate_once_the_panic_threshold_is_crossed`, `#no_known_exporter_anywhere_throws_gimle_cluster_exception` |

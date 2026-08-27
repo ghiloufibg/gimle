@@ -4,6 +4,8 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.ragnarok.RagnarokException;
 import com.gimle.ragnarok.config.YamlParsing;
+import com.gimle.ragnarok.target.adminapi.AdminApiSpec;
+import com.gimle.ragnarok.target.adminapi.AdminApiSpecParser;
 import com.gimle.ragnarok.target.inventory.InventorySpec;
 import com.gimle.ragnarok.target.inventory.InventorySpecParser;
 import java.io.IOException;
@@ -57,6 +59,7 @@ public final class TargetSpecParser {
     final TransportProtocol transport = parseTransport(root);
     final Optional<TlsSettings> tls = parseTls(root);
     final Optional<InventorySpec> inventory = parseInventory(root);
+    final Optional<AdminApiSpec> adminApi = parseAdminApi(root);
     final Path workDir =
         YamlParsing.optionalString(root, "workDir")
             .map(Path::of)
@@ -69,6 +72,7 @@ public final class TargetSpecParser {
         transport,
         tls,
         inventory,
+        adminApi,
         workDir);
   }
 
@@ -110,6 +114,17 @@ public final class TargetSpecParser {
       throw new RagnarokException("'inventory' must be a mapping");
     }
     return Optional.of(InventorySpecParser.parse(inventory));
+  }
+
+  private static Optional<AdminApiSpec> parseAdminApi(final Map<?, ?> root) {
+    final Object value = root.get("adminApi");
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof Map<?, ?> adminApi)) {
+      throw new RagnarokException("'adminApi' must be a mapping");
+    }
+    return Optional.of(AdminApiSpecParser.parse(adminApi));
   }
 
   private static Path defaultWorkDir() {
