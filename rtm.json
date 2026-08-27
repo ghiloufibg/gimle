@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 636,
+  "requirementCount": 637,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11008,6 +11008,22 @@
         "`gimle-examples/orders-platform/README.md`"
       ],
       "otherTestCoverage": "Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation."
+    },
+    {
+      "id": "GIMLE-637",
+      "module": "gimle-cli",
+      "feature": "gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "a real bug fix -- StatefulSetsCommand/DaemonSetsCommand never flattened their own nested status shape before handing rows to the generic table renderer, unlike DeploymentsCommand, confirmed against a manual user-perspective pass",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario asserts CLI table-output formatting for any workload kind (Holmgang drives the HTTP API and other tooling, not gimle-cli's own -o table rendering) -- GimleCliTest's real-cluster coverage is the right level for this, the same posture DeploymentsCommandTest's own health-column regression coverage already takes.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/StatefulSetsCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/DaemonSetsCommand.java`"
+      ],
+      "otherTestCoverage": "`GimleCliTest` (get_statefulsets_renders_clean_table_columns_instead_of_raw_json_per_cell, get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell)"
     }
   ]
 }

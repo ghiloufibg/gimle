@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 636,
+    "totalRequirements": 637,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 513,
+    "notCoveredByAutomatedTest": 514,
     "releaseReadinessPercent": 19.3
   },
   "items": [
@@ -6998,6 +6998,17 @@
       "category": "Documentation",
       "feature": "orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly",
       "step": "Given the orders-platform example's networkpolicy.yaml header comment, When an operator copies its documented gimle set networkpolicy command verbatim, Then the policy is created successfully with an empty (deny-all) caller allow-list, matching the raw curl example beside it. Given the same documentation, When an operator reads the README's \"Restricting cross-tenant access\" section, Then it explains that omitting --allowed-caller-tenant is not equivalent to --deny-all-callers before they attempt either command.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-637",
+      "module": "gimle-cli",
+      "category": "CLI UX",
+      "feature": "gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell",
+      "step": "Given a StatefulSet with 3 desired replicas and none yet placed, When \"gimle get statefulsets\" runs with the default table output, Then the row shows replicas \"0/3\" and health \"UNPLACED(3)\" rather than a raw JSON blob for the spec/instances/unplacedCount fields. Given an applied DaemonSet, When \"gimle get daemonsets\" or \"gimle get daemonset <name>\" runs with the default table output, Then the row shows the module coordinate and a health column with no raw JSON braces or brackets in any cell. Given the same resources, When \"-o json\" is passed instead, Then the full nested spec/instances shape -- including each instance's own nodeId -- is returned unchanged, exactly as before this fix.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

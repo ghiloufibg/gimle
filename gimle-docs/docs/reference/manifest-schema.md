@@ -509,7 +509,9 @@ disruption:                    # optional -- see the Deployment manifest's own d
 A daemonset's `instances[]` (one entry per node currently running it, each carrying that node's own
 health observation) is read-only, computed state — never part of the manifest you submit, the same
 way a deployment's own `instances[]` never is. `gimle get daemonsets <name>` (or the console's
-DaemonSets screen) is how you read it back.
+DaemonSets screen) is how you read it back — the CLI's default table output rolls it up into an
+`instances` count and a `health` column the same way `gimle get deployments` does; pass `-o json`
+for each instance's own `nodeId` and health observation individually.
 
 **What this does not provide, plainly stated**: no kernel-level per-node resource enforcement beyond
 whatever `ResourceLimiter` already provides for any other workload kind (see [Tiered
@@ -562,7 +564,10 @@ the identity sense, not the storage sense, is a legitimate, supported shape.
 A statefulset's `instances[]` (one entry per currently-placed index, each explicitly carrying that
 index's assigned `nodeId` — the sticky-placement contract made visible, not just implemented
 silently) is read-only, computed state — never part of the manifest you submit. `gimle get
-statefulsets <name>` (or the console's StatefulSets screen) is how you read it back.
+statefulsets <name>` (or the console's StatefulSets screen) is how you read it back — the CLI's
+default table output rolls it up into a placed-vs-desired `replicas` count and a `health` column
+the same way `gimle get deployments` does; pass `-o json` for each index's own sticky `nodeId`
+individually.
 
 Volumes have their own operator surface: `gimle volume list` (backed by `GET /volumes`, aggregated
 across every node's agent) inventories each volume with its node, current on-disk usage, and

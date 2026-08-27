@@ -646,6 +646,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-634 | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | Security / RBAC | Complete | Yes |
 | GIMLE-635 | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | CLI UX | Complete | Yes |
 | GIMLE-636 | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Complete | Yes |
+| GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | CLI UX | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6918,6 +6919,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given no LimitRange for tenant "acme" exists, When "gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m", Then PUT /limitranges/acme creates it and "gimle get limitrange acme" returns minRequest {memory: "64Mi", cpu: "50m"}.
+  ```
+
+#### GIMLE-637 — gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell
+
+- **Category**: CLI UX
+- **User story**: As an operator running gimle get statefulsets or gimle get daemonsets with the default -o table output, I want the same clean, summarized columns gimle get deployments already renders, so I don't have to read a raw JSON blob per cell to see a resource's module, tenant, replica count, or health.
+- **Status**: Fixed: StatefulSetsCommand/DaemonSetsCommand#get passed each status object's raw {spec, instances, unplacedCount} shape straight to OutputFormat.printList/printObject, whose generic table renderer has no summarization of its own -- a nested Map/List value renders as its own compact JSON per cell (by design, see OutputFormat's own javadoc, which never anticipated a shape this deeply nested). DeploymentsCommand already solved this with its own humanize/humanizeAll pair, flattening spec/instances into name/module/artifactPath/tenantId/replicas/health columns before handing rows to OutputFormat; StatefulSetsCommand and DaemonSetsCommand now do the same, adapted to what each kind's status actually carries -- StatefulSet keeps the placed-vs-desired replicas column (no quota/limit-range fields, since a StatefulSet's own PUT handler never checks those); DaemonSet drops the replicas column entirely (no desired-count field exists for a topology-derived one-per-node kind) in favor of a plain instances count. Both -o json paths are untouched, still returning the full nested shape -- including each instance's own nodeId -- at full fidelity; only the default table view changed.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/StatefulSetsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/DaemonSetsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/DeploymentsCommand.java`
+- **Test coverage**: `GimleCliTest` (get_statefulsets_renders_clean_table_columns_instead_of_raw_json_per_cell, get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell) -- both assert the default table output for the bare list and the by-name form carries no stray `{`/`[` from a raw nested value, that the humanized columns (module coordinate, replicas or instances count, health rollup) are present, and that `-o json` still returns the raw `spec`/`instances` shape unchanged.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a StatefulSet with 3 desired replicas and none yet placed, When "gimle get statefulsets" runs with the default table output, Then the row shows replicas "0/3" and health "UNPLACED(3)" rather than a raw JSON blob for the spec/instances/unplacedCount fields.
+  Given an applied DaemonSet, When "gimle get daemonsets" or "gimle get daemonset <name>" runs with the default table output, Then the row shows the module coordinate and a health column with no raw JSON braces or brackets in any cell.
+  Given the same resources, When "-o json" is passed instead, Then the full nested spec/instances shape -- including each instance's own nodeId -- is returned unchanged, exactly as before this fix.
   ```
 
 ### gimle-hilmir

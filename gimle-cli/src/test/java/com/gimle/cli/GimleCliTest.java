@@ -983,6 +983,44 @@ class GimleCliTest {
     assertTrue(stderr().contains("not found"));
   }
 
+  /**
+   * Regression coverage for the bug a manual user-perspective pass surfaced: {@code get
+   * daemonsets}' default table output used to dump each row's raw {@code spec}/{@code instances}
+   * JSON per cell instead of clean columns, unlike {@code get deployments}. Both the bare list and
+   * {@code get daemonset <name>} forms must render the same clean {@code name/module/artifactPath
+   * /tenantId/instances/health} shape {@code DeploymentsCommand#humanize} already establishes for
+   * Deployments -- no stray {@code {}}/{@code []} from a raw nested value leaking into a cell.
+   */
+  @Test
+  void get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell() throws Exception {
+    Path manifest = writeDaemonSetManifest("clean-columns-daemonset");
+    run("apply", "-f", manifest.toString());
+
+    outBuffer.reset();
+    assertEquals(0, run("get", "daemonsets"));
+    String listOut = stdout();
+    assertTrue(listOut.contains("name"), listOut);
+    assertTrue(listOut.contains("module"), listOut);
+    assertTrue(listOut.contains("health"), listOut);
+    assertTrue(listOut.contains("com.gimle.example.node-exporter@1.0.0"), listOut);
+    assertTrue(listOut.contains("HEALTHY"), listOut);
+    assertFalse(listOut.contains("{"), listOut);
+    assertFalse(listOut.contains("["), listOut);
+
+    outBuffer.reset();
+    assertEquals(0, run("get", "daemonset", "clean-columns-daemonset"));
+    String objectOut = stdout();
+    assertTrue(objectOut.contains("clean-columns-daemonset"), objectOut);
+    assertFalse(objectOut.contains("{"), objectOut);
+    assertFalse(objectOut.contains("["), objectOut);
+
+    // -o json keeps the raw nested shape at full fidelity -- this fix is table-output-only.
+    outBuffer.reset();
+    assertEquals(0, run("get", "daemonset", "clean-columns-daemonset", "-o", "json"));
+    assertTrue(stdout().contains("\"spec\""), stdout());
+    assertTrue(stdout().contains("\"instances\""), stdout());
+  }
+
   @Test
   void apply_then_get_statefulsets_round_trips() throws Exception {
     Path manifest = writeStatefulSetManifest("orders-statefulset", 3);
@@ -1005,6 +1043,44 @@ class GimleCliTest {
     int getAfterDeleteExit = run("get", "statefulset", "short-lived-statefulset");
     assertEquals(1, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
+  }
+
+  /**
+   * Regression coverage for the same raw-JSON-per-cell bug {@code
+   * get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell} covers, for
+   * StatefulSet's own {@code spec}/{@code instances}/{@code unplacedCount} shape -- including its
+   * {@code replicas} column showing the placed-vs-desired count {@code DeploymentsCommand#humanize}
+   * already establishes, and {@code UNPLACED(N)} in the health column when nothing has been placed.
+   */
+  @Test
+  void get_statefulsets_renders_clean_table_columns_instead_of_raw_json_per_cell()
+      throws Exception {
+    Path manifest = writeStatefulSetManifest("clean-columns-statefulset", 3);
+    run("apply", "-f", manifest.toString());
+
+    outBuffer.reset();
+    assertEquals(0, run("get", "statefulsets"));
+    String listOut = stdout();
+    assertTrue(listOut.contains("name"), listOut);
+    assertTrue(listOut.contains("replicas"), listOut);
+    assertTrue(listOut.contains("com.gimle.example.orders@1.0.0"), listOut);
+    assertTrue(listOut.contains("0/3"), listOut);
+    assertTrue(listOut.contains("UNPLACED(3)"), listOut);
+    assertFalse(listOut.contains("{"), listOut);
+    assertFalse(listOut.contains("["), listOut);
+
+    outBuffer.reset();
+    assertEquals(0, run("get", "statefulset", "clean-columns-statefulset"));
+    String objectOut = stdout();
+    assertTrue(objectOut.contains("clean-columns-statefulset"), objectOut);
+    assertFalse(objectOut.contains("{"), objectOut);
+    assertFalse(objectOut.contains("["), objectOut);
+
+    // -o json keeps the raw nested shape at full fidelity -- this fix is table-output-only.
+    outBuffer.reset();
+    assertEquals(0, run("get", "statefulset", "clean-columns-statefulset", "-o", "json"));
+    assertTrue(stdout().contains("\"spec\""), stdout());
+    assertTrue(stdout().contains("\"instances\""), stdout());
   }
 
   // ---- Service / NetworkPolicy -- previously entirely uncovered by this class ----

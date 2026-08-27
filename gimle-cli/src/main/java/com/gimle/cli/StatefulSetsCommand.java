@@ -4,6 +4,7 @@ import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,11 +14,10 @@ import java.util.Set;
  * {@code get statefulsets [name]}, {@code apply -f <file.yaml>}, {@code delete statefulset <name>}
  * -- mirrors {@link DeploymentsCommand} exactly, including having no dedicated {@code scale} verb:
  * like a Deployment, {@code replicas} is changed by resubmitting the manifest via {@code apply},
- * not a separate command. {@code get statefulsets <name>}'s table output surfaces each index's
- * assigned {@code nodeId} without any StatefulSet-specific rendering code -- {@code
- * OutputFormat.printObject} already renders {@code instances[].nodeId} generically, the same way it
- * already does for {@code get daemonsets <name>}, which is what makes the sticky-placement contract
- * visible to an operator here, not a separate feature to build.
+ * not a separate command, and including the same table-vs-json split: {@code -o table} (the
+ * default) flattens each status's nested {@code spec}/{@code instances} into clean summary columns
+ * ({@link #humanize}), while {@code -o json} keeps the raw shape -- including each index's assigned
+ * {@code nodeId}, the sticky-placement contract's own visibility -- at full fidelity.
  */
 public final class StatefulSetsCommand {
 
@@ -33,11 +33,16 @@ public final class StatefulSetsCommand {
 
   public void get(List<String> args) {
     if (args.isEmpty()) {
-      OutputFormat.printList(output, client.getList("/statefulsets"), out);
+      List<Map<String, Object>> statefulSets = client.getList("/statefulsets");
+      List<Map<String, Object>> rows =
+          output == OutputFormat.Kind.TABLE ? humanizeAll(statefulSets) : statefulSets;
+      OutputFormat.printList(output, rows, out);
       return;
     }
     String name = args.get(0);
-    OutputFormat.printObject(output, client.getObject("/statefulsets/" + name), out);
+    Map<String, Object> statefulSet = client.getObject("/statefulsets/" + name);
+    OutputFormat.printObject(
+        output, output == OutputFormat.Kind.TABLE ? humanize(statefulSet) : statefulSet, out);
   }
 
   public void apply(List<String> args, PrintStream err) {
@@ -98,5 +103,82 @@ public final class StatefulSetsCommand {
     body.put("kind", "statefulset");
     body.put("id", name);
     return body;
+  }
+
+  private static List<Map<String, Object>> humanizeAll(List<Map<String, Object>> statefulSets) {
+    List<Map<String, Object>> rows = new ArrayList<>();
+    for (Map<String, Object> statefulSet : statefulSets) {
+      rows.add(humanize(statefulSet));
+    }
+    return rows;
+  }
+
+  /**
+   * Flattens one statefulset status's nested {@code spec}/{@code instances} fields into
+   * table-column-friendly derived fields, mirroring {@code DeploymentsCommand#humanize} -- module
+   * coordinate, placed-vs-desired replica count, and a rollup health status. Unlike a Deployment's
+   * status, a StatefulSet's never carries {@code quotaViolating}/{@code limitRangeViolating} (see
+   * {@code ApiServer#handlePutStatefulSet}'s own "No tenant-quota check here" comment), so this
+   * health rollup only ever reports unplaced/unhealthy, never quota or limit-range issues.
+   */
+  private static Map<String, Object> humanize(Map<String, Object> status) {
+    Map<?, ?> spec = status.get("spec") instanceof Map<?, ?> m ? m : Map.of();
+    Map<String, Object> row = new LinkedHashMap<>();
+    row.put("name", spec.get("name"));
+    row.put("module", moduleCoordinate(spec.get("moduleId")));
+    row.put("artifactPath", orDash(spec.get("artifactPath")));
+    row.put("tenantId", orDash(spec.get("tenantId")));
+    int desiredReplicas = intValue(spec.get("replicas"));
+    int placedInstances =
+        status.get("instances") instanceof List<?> instances ? instances.size() : 0;
+    row.put("replicas", placedInstances + "/" + desiredReplicas);
+    row.put("health", healthOf(intValue(status.get("unplacedCount")), status.get("instances")));
+    return row;
+  }
+
+  private static String moduleCoordinate(Object rawModuleId) {
+    if (rawModuleId instanceof Map<?, ?> moduleId) {
+      return moduleId.get("name") + "@" + moduleId.get("version");
+    }
+    return "-";
+  }
+
+  private static String healthOf(int unplacedCount, Object instances) {
+    List<String> issues = new ArrayList<>();
+    if (unplacedCount > 0) {
+      issues.add("UNPLACED(" + unplacedCount + ")");
+    }
+    int unhealthyCount = unhealthyInstanceCount(instances);
+    if (unhealthyCount > 0) {
+      issues.add("UNHEALTHY(" + unhealthyCount + ")");
+    }
+    return issues.isEmpty() ? "HEALTHY" : String.join(",", issues);
+  }
+
+  /** Same definition {@code DeploymentsCommand#unhealthyInstanceCount} uses -- see its javadoc. */
+  private static int unhealthyInstanceCount(Object instances) {
+    if (!(instances instanceof List<?> list)) {
+      return 0;
+    }
+    int count = 0;
+    for (Object entry : list) {
+      if (!(entry instanceof Map<?, ?> instance)) {
+        continue;
+      }
+      if (instance.get("observation") instanceof Map<?, ?> observation
+          && (Boolean.FALSE.equals(observation.get("alive"))
+              || "FAILED".equals(observation.get("lifecycleState")))) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private static int intValue(Object value) {
+    return value instanceof Number n ? n.intValue() : 0;
+  }
+
+  private static Object orDash(Object value) {
+    return value == null ? "-" : value;
   }
 }

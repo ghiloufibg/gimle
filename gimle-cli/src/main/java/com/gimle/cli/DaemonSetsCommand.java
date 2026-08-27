@@ -4,6 +4,7 @@ import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -11,11 +12,16 @@ import java.util.Set;
 
 /**
  * {@code get daemonsets [name]}, {@code apply -f <file.yaml>}, {@code delete daemonset <name>} --
- * mirrors {@link DeploymentsCommand}/{@link JobsCommand} exactly. Deliberately no {@code
- * scale}-equivalent verb: a DaemonSet's replica count isn't operator-settable the way a
+ * mirrors {@link DeploymentsCommand}/{@link JobsCommand} exactly, including the same table-vs-json
+ * split: {@code -o table} (the default) flattens each status's nested {@code spec}/{@code
+ * instances} into clean summary columns ({@link #humanize}), while {@code -o json} keeps the raw
+ * shape -- including each instance's assigned {@code nodeId} -- at full fidelity. Deliberately no
+ * {@code scale}-equivalent verb: a DaemonSet's replica count isn't operator-settable the way a
  * Deployment's is, it's topology-derived (one per eligible node) -- there is nothing here for a
- * scale verb to set. {@code apply} itself is dispatched here by {@link GimleCli} once it has peeked
- * at the manifest's own {@code kind:} field, the same way every other kind's is.
+ * scale verb to set, and no "desired" count for the table's own replica column to compare against
+ * either, unlike a Deployment's or StatefulSet's. {@code apply} itself is dispatched here by {@link
+ * GimleCli} once it has peeked at the manifest's own {@code kind:} field, the same way every other
+ * kind's is.
  */
 public final class DaemonSetsCommand {
 
@@ -31,11 +37,16 @@ public final class DaemonSetsCommand {
 
   public void get(List<String> args) {
     if (args.isEmpty()) {
-      OutputFormat.printList(output, client.getList("/daemonsets"), out);
+      List<Map<String, Object>> daemonSets = client.getList("/daemonsets");
+      List<Map<String, Object>> rows =
+          output == OutputFormat.Kind.TABLE ? humanizeAll(daemonSets) : daemonSets;
+      OutputFormat.printList(output, rows, out);
       return;
     }
     String name = args.get(0);
-    OutputFormat.printObject(output, client.getObject("/daemonsets/" + name), out);
+    Map<String, Object> daemonSet = client.getObject("/daemonsets/" + name);
+    OutputFormat.printObject(
+        output, output == OutputFormat.Kind.TABLE ? humanize(daemonSet) : daemonSet, out);
   }
 
   public void apply(List<String> args, PrintStream err) {
@@ -96,5 +107,69 @@ public final class DaemonSetsCommand {
     body.put("kind", "daemonset");
     body.put("id", name);
     return body;
+  }
+
+  private static List<Map<String, Object>> humanizeAll(List<Map<String, Object>> daemonSets) {
+    List<Map<String, Object>> rows = new ArrayList<>();
+    for (Map<String, Object> daemonSet : daemonSets) {
+      rows.add(humanize(daemonSet));
+    }
+    return rows;
+  }
+
+  /**
+   * Flattens one daemonset status's nested {@code spec}/{@code instances} fields into
+   * table-column-friendly derived fields, mirroring {@code DeploymentsCommand#humanize} -- module
+   * coordinate and a rollup health status. No "placed/desired" replicas column: a DaemonSet's
+   * status carries no target count to compare {@code instances.size()} against (see the class
+   * javadoc), so {@code instances} is just the current count.
+   */
+  private static Map<String, Object> humanize(Map<String, Object> status) {
+    Map<?, ?> spec = status.get("spec") instanceof Map<?, ?> m ? m : Map.of();
+    Map<String, Object> row = new LinkedHashMap<>();
+    row.put("name", spec.get("name"));
+    row.put("module", moduleCoordinate(spec.get("moduleId")));
+    row.put("artifactPath", orDash(spec.get("artifactPath")));
+    row.put("tenantId", orDash(spec.get("tenantId")));
+    Object rawInstances = status.get("instances");
+    int placedInstances = rawInstances instanceof List<?> instances ? instances.size() : 0;
+    row.put("instances", placedInstances);
+    row.put("health", healthOf(rawInstances));
+    return row;
+  }
+
+  private static String moduleCoordinate(Object rawModuleId) {
+    if (rawModuleId instanceof Map<?, ?> moduleId) {
+      return moduleId.get("name") + "@" + moduleId.get("version");
+    }
+    return "-";
+  }
+
+  private static String healthOf(Object instances) {
+    int unhealthyCount = unhealthyInstanceCount(instances);
+    return unhealthyCount > 0 ? "UNHEALTHY(" + unhealthyCount + ")" : "HEALTHY";
+  }
+
+  /** Same definition {@code DeploymentsCommand#unhealthyInstanceCount} uses -- see its javadoc. */
+  private static int unhealthyInstanceCount(Object instances) {
+    if (!(instances instanceof List<?> list)) {
+      return 0;
+    }
+    int count = 0;
+    for (Object entry : list) {
+      if (!(entry instanceof Map<?, ?> instance)) {
+        continue;
+      }
+      if (instance.get("observation") instanceof Map<?, ?> observation
+          && (Boolean.FALSE.equals(observation.get("alive"))
+              || "FAILED".equals(observation.get("lifecycleState")))) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private static Object orDash(Object value) {
+    return value == null ? "-" : value;
   }
 }

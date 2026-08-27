@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 636
+- **Total requirements**: 637
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 513
+- **Not covered by automated test**: 514
 - **Release-readiness (automated coverage)**: 19.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -27,7 +27,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 27 | 0 | 27 | 0.0% |
+| gimle-cli | 28 | 0 | 28 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 32 | 0 | 32 | 0.0% |
@@ -1393,6 +1393,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-385 | RBAC role binding management | Given "gimle set rolebinding b1 --subject user:alice --role cluster-admin", Then PUT /rolebindings/b1; "gimle get rolebindings" lists "user:alice". | No |
 | [ ] | GIMLE-386 | Operator account management | Given "gimle set account admin --password s3cret-password", Then PUT /accounts/admin sent; JSON output includes "username" but never "passwordHash" or the raw password. | No |
 | [ ] | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | Given "gimle cert request --purpose operator --out-cert op.crt --out-key op.key" against a trust-only connection, Then a keypair/CSR is generated locally, private key written immediately, and CSR POSTed unauthenticated to /bootstrap/csr; a due-for-renewal cred triggers a warning on any other command. | No |
+
+#### CLI UX
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | Given a StatefulSet with 3 desired replicas and none yet placed, When "gimle get statefulsets" runs with the default table output, Then the row shows replicas "0/3" and health "UNPLACED(3)" rather than a raw JSON blob for the spec/instances/unplacedCount fields. Given an applied DaemonSet, When "gimle get daemonsets" or "gimle get daemonset <name>" runs with the default table output, Then the row shows the module coordinate and a health column with no raw JSON braces or brackets in any cell. Given the same resources, When "-o json" is passed instead, Then the full nested spec/instances shape -- including each instance's own nodeId -- is returned unchanged, exactly as before this fix. | No |
 
 #### Internal-Infra
 
