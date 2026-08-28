@@ -31,11 +31,11 @@ actually teaches, not by a feature-parity checklist.
 
 Multi-cluster federation (including federating audit trails or observability data specifically —
 each cluster's audit trail and Muninn's shipped logs/metrics/traces stay in that cluster's own
-store, matching every other piece of cluster state today), ingress/external load balancing,
-DNS-based service discovery, and client SDKs beyond Java are all real gaps versus a production
-cluster — left off the priority list because they teach less about cluster *mechanics* per unit of
-effort than the items above, for a project whose goal is understanding how clusters are built, not
-building an ecosystem around one. (Secret master-key rotation itself is not on this list — Fafnir's
+store, matching every other piece of cluster state today), ingress/external load balancing, and
+client SDKs beyond Java are all real gaps versus a production cluster — left off the priority list
+because they teach less about cluster *mechanics* per unit of effort than the items above, for a
+project whose goal is understanding how clusters are built, not building an ecosystem around one.
+(Secret master-key rotation itself is not on this list — Fafnir's
 `POST /secrets/rotate-key` already does it; see [Multi-tenancy §
 Secrets](../architecture/multi-tenancy.md#secrets).)
 
