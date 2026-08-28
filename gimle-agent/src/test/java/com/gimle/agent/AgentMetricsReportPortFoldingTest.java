@@ -89,8 +89,7 @@ class AgentMetricsReportPortFoldingTest {
       assertEquals(Map.of("HTTP_PORT", 8080), instance.ports);
 
       Map<String, Object> observation = AgentMain.observationJson(instance);
-      @SuppressWarnings("unchecked")
-      Map<String, Integer> observedPorts = (Map<String, Integer>) observation.get("ports");
+      Map<?, ?> observedPorts = (Map<?, ?>) observation.get("ports");
       assertEquals(1, observedPorts.size(), "solePort() only resolves an unambiguous single port");
       assertTrue(observedPorts.containsKey("HTTP_PORT"));
       assertEquals(8080, observedPorts.get("HTTP_PORT"));

@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import jdk.jfr.FlightRecorder;
 import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedClass;
@@ -130,15 +131,9 @@ final class OldObjectSampleCorrelator implements AutoCloseable {
   }
 
   private static String describeChain(List<RecordedObject> chain) {
-    StringBuilder text = new StringBuilder();
-    for (RecordedObject link : chain) {
-      if (text.length() > 0) {
-        text.append(" <- ");
-      }
-      String className = extractClassName(link);
-      text.append(className != null ? className : "<unknown>");
-    }
-    return text.toString();
+    return chain.stream()
+        .map(link -> Optional.ofNullable(extractClassName(link)).orElse("<unknown>"))
+        .collect(Collectors.joining(" <- "));
   }
 
   private static String packageOf(RecordedObject object) {

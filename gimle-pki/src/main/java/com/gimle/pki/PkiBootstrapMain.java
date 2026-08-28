@@ -41,7 +41,6 @@ public final class PkiBootstrapMain {
   private static final Logger log = LoggerFactory.getLogger(PkiBootstrapMain.class);
   private static final Duration CA_VALIDITY = Duration.ofDays(3650);
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
-  private static final int KEY_SIZE_BITS = 2048;
   private static final SecureRandom RANDOM = new SecureRandom();
 
   private PkiBootstrapMain() {}
@@ -177,7 +176,7 @@ public final class PkiBootstrapMain {
   private static KeyPair generateKeyPair() {
     try {
       KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-      generator.initialize(KEY_SIZE_BITS);
+      generator.initialize(CertificateAuthority.KEY_SIZE_BITS);
       return generator.generateKeyPair();
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("RSA key pair generation unavailable", e);

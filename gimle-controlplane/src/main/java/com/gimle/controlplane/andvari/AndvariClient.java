@@ -4,8 +4,6 @@ import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.tls.SslContexts;
-import com.gimle.core.tls.TlsSettings;
-import com.gimle.core.tls.TransportProtocol;
 import com.gimle.module.artifact.ArtifactPullCache;
 import com.gimle.module.artifact.ResolvedArtifact;
 import java.io.IOException;
@@ -66,7 +64,7 @@ public final class AndvariClient implements AutoCloseable {
    * comma-separated {@code host:port} entries.
    */
   public AndvariClient(String andvariEndpoints) {
-    this(parseEndpoints(andvariEndpoints), defaultSslContext());
+    this(parseEndpoints(andvariEndpoints), SslContexts.forMutualTlsFromConfig());
   }
 
   AndvariClient(List<String> andvariEndpoints, Optional<SSLContext> sslContext) {
@@ -93,13 +91,6 @@ public final class AndvariClient implements AutoCloseable {
       }
     }
     return endpoints;
-  }
-
-  private static Optional<SSLContext> defaultSslContext() {
-    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return Optional.empty();
-    }
-    return Optional.of(SslContexts.forMutualTls(TlsSettings.fromConfig()));
   }
 
   /**

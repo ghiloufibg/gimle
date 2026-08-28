@@ -69,7 +69,7 @@ final class MavenCoordinates {
     String artifactId = segments.get(n - 2);
     List<String> groupSegments = segments.subList(0, n - 2);
     String groupId = String.join(".", groupSegments);
-    String moduleId = groupSegments.isEmpty() ? artifactId : groupId + "." + artifactId;
+    String moduleId = joinModuleId(groupSegments, artifactId);
     return new MetadataFile(moduleId, groupId, artifactId, fileName);
   }
 

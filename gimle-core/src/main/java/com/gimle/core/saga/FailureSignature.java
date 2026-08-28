@@ -1,8 +1,7 @@
 package com.gimle.core.saga;
 
+import com.gimle.core.hash.Sha256;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
@@ -33,7 +32,7 @@ public final class FailureSignature {
     String frame = topFrame == null ? "" : topFrame;
     String input = exceptionType + "\n" + normalizedMessage + "\n" + frame;
     return HexFormat.of()
-        .formatHex(sha256(input.getBytes(StandardCharsets.UTF_8)))
+        .formatHex(Sha256.sha256Digest().digest(input.getBytes(StandardCharsets.UTF_8)))
         .substring(0, SIGNATURE_HEX_LENGTH);
   }
 
@@ -45,14 +44,5 @@ public final class FailureSignature {
         .replaceAll("[0-9]+", "#")
         .replaceAll("\\s+", " ")
         .trim();
-  }
-
-  private static byte[] sha256(byte[] input) {
-    try {
-      return MessageDigest.getInstance("SHA-256").digest(input);
-    } catch (NoSuchAlgorithmException e) {
-      // Every JDK ships SHA-256; reaching here means a broken runtime, not a caller error.
-      throw new IllegalStateException("SHA-256 unavailable", e);
-    }
   }
 }

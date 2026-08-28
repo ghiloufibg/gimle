@@ -18,6 +18,7 @@ import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.net.ssl.SSLContext;
@@ -68,6 +69,7 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   private static final long MAX_REQUEST_BODY_BYTES = 50L * 1024 * 1024;
 
   private HttpServer server;
+  private ExecutorService executor;
 
   @Override
   public void onInstall(ModuleContext ctx) {}
@@ -92,7 +94,8 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
       // One virtual thread per request: an inbound gateway request blocks synchronously on a real
       // fabric round trip (possibly cross-machine), so a fixed-size platform-thread pool would
       // itself become the bottleneck this gateway exists not to be.
-      server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+      executor = Executors.newVirtualThreadPerTaskExecutor();
+      server.setExecutor(executor);
       server.start();
       ready.set(true);
       log.info(
@@ -150,7 +153,13 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   public void onStop(ModuleContext ctx) {
     ready.set(false);
     if (server != null) {
+      // HttpServer#stop never shuts down a caller-supplied executor -- it assumes the executor may
+      // be shared -- so this virtual-thread-per-task executor, created solely for this server
+      // instance, must be shut down explicitly or it leaks on every start/stop cycle.
       server.stop(0);
+    }
+    if (executor != null) {
+      executor.shutdownNow();
     }
   }
 

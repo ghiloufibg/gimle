@@ -126,6 +126,21 @@ public final class AgentMain {
   private static final Duration TICK_INTERVAL = Duration.ofSeconds(5);
   private static final AtomicLong CORRELATION_COUNTER = new AtomicLong();
 
+  /** Request timeout for every outbound HTTP call this agent makes to the control plane. */
+  private static final Duration HTTP_REQUEST_TIMEOUT = Duration.ofSeconds(10);
+
+  /** Connect timeout for every {@link HttpClient} this agent builds. */
+  private static final Duration HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+  /**
+   * The restart-backoff policy shared by every vessel and worker process this agent supervises: 1s
+   * initial delay, doubling, capped at 30s, up to 5 attempts per 10-minute window.
+   */
+  private static RestartTracker defaultRestartTracker() {
+    return new RestartTracker(
+        Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10));
+  }
+
   /**
    * How long {@link #stopInstance} waits for a worker to confirm {@code UNINSTALLED} after {@code
    * StopModule} before giving up and force-killing it anyway -- see that method's own javadoc for
@@ -614,7 +629,7 @@ public final class AgentMain {
 
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/register"))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -650,10 +665,10 @@ public final class AgentMain {
 
   private static HttpClient buildHttpClient() {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+      return HttpClient.newBuilder().connectTimeout(HTTP_CONNECT_TIMEOUT).build();
     }
     return HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(5))
+        .connectTimeout(HTTP_CONNECT_TIMEOUT)
         .sslContext(SslContexts.forMutualTls(TlsSettings.fromConfig()))
         .build();
   }
@@ -691,14 +706,14 @@ public final class AgentMain {
 
     SSLContext trustOnly = SslContexts.forServerTrustOnly(caFile);
     HttpClient bootstrapClient =
-        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).sslContext(trustOnly).build();
+        HttpClient.newBuilder().connectTimeout(HTTP_CONNECT_TIMEOUT).sslContext(trustOnly).build();
     Map<String, Object> body =
         csrSubmissionToJson(
             new CsrSubmission(
                 CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr), Optional.of(bootstrapToken)));
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
@@ -763,7 +778,7 @@ public final class AgentMain {
           csrSubmissionToJson(new CsrSubmission(CsrPurpose.NODE_CLIENT, Pem.encodeCsr(csr)));
       HttpRequest request =
           HttpRequest.newBuilder(baseUrl.resolve("/bootstrap/csr"))
-              .timeout(Duration.ofSeconds(10))
+              .timeout(HTTP_REQUEST_TIMEOUT)
               .header("Content-Type", "application/json")
               .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
               .build();
@@ -878,7 +893,7 @@ public final class AgentMain {
 
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/heartbeat"))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
             .build();
     httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -903,7 +918,7 @@ public final class AgentMain {
     try {
       HttpRequest request =
           HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/events"))
-              .timeout(Duration.ofSeconds(10))
+              .timeout(HTTP_REQUEST_TIMEOUT)
               .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
               .build();
       httpClient.send(request, HttpResponse.BodyHandlers.discarding());
@@ -1023,7 +1038,7 @@ public final class AgentMain {
       HttpClient httpClient, URI baseUrl, String nodeId) throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/nodes/" + nodeId + "/assignments"))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .GET()
             .build();
     HttpResponse<String> response =
@@ -1151,7 +1166,7 @@ public final class AgentMain {
       throws IOException, InterruptedException {
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/config/" + tenantId))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .GET()
             .build();
     HttpResponse<String> response =
@@ -1189,7 +1204,7 @@ public final class AgentMain {
     String namesParam = URLEncoder.encode(String.join(",", names), StandardCharsets.UTF_8);
     HttpRequest request =
         HttpRequest.newBuilder(baseUrl.resolve("/configmaps/" + tenantId + "?names=" + namesParam))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .GET()
             .build();
     HttpResponse<String> response =
@@ -1224,7 +1239,7 @@ public final class AgentMain {
       throws IOException, InterruptedException {
     HttpRequest listRequest =
         HttpRequest.newBuilder(fafnirBaseUrl.resolve("/secrets/" + tenantId))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .GET()
             .build();
     HttpResponse<String> listResponse =
@@ -1245,7 +1260,7 @@ public final class AgentMain {
       String key = (String) map.get("key");
       HttpRequest valueRequest =
           HttpRequest.newBuilder(fafnirBaseUrl.resolve("/secrets/" + tenantId + "/" + key))
-              .timeout(Duration.ofSeconds(10))
+              .timeout(HTTP_REQUEST_TIMEOUT)
               .GET()
               .build();
       HttpResponse<String> valueResponse =
@@ -1282,7 +1297,7 @@ public final class AgentMain {
     HttpRequest request =
         HttpRequest.newBuilder(
                 fafnirBaseUrl.resolve("/secretmaps/" + tenantId + "?names=" + namesParam))
-            .timeout(Duration.ofSeconds(10))
+            .timeout(HTTP_REQUEST_TIMEOUT)
             .GET()
             .build();
     HttpResponse<String> response =
@@ -1646,9 +1661,7 @@ public final class AgentMain {
         vesselRoot
             .resolve("instances")
             .resolve(assigned.deploymentName() + "-" + assigned.instanceIndex() + ".log");
-    RestartTracker restartTracker =
-        new RestartTracker(
-            Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10));
+    RestartTracker restartTracker = defaultRestartTracker();
 
     VesselProcessSupervisor supervisor =
         new VesselProcessSupervisor(
@@ -2194,9 +2207,7 @@ public final class AgentMain {
                 assigned,
                 sleipnirCache.cacheFor(commandTail));
 
-    RestartTracker restartTracker =
-        new RestartTracker(
-            Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10));
+    RestartTracker restartTracker = defaultRestartTracker();
     Path systemLogFile = logRoot.resolve("workers").resolve(key + "-system.log");
     WorkerProcessSupervisor supervisor =
         new WorkerProcessSupervisor(
@@ -2934,7 +2945,7 @@ public final class AgentMain {
     try {
       HttpRequest.Builder builder =
           HttpRequest.newBuilder(baseUrl.resolve(request.path()))
-              .timeout(Duration.ofSeconds(10))
+              .timeout(HTTP_REQUEST_TIMEOUT)
               .GET();
       workloadToken.ifPresent(token -> builder.header("Authorization", "Bearer " + token));
       HttpResponse<String> response =
@@ -2992,7 +3003,7 @@ public final class AgentMain {
     try {
       HttpRequest request =
           HttpRequest.newBuilder(baseUrl.resolve("/workload-tokens"))
-              .timeout(Duration.ofSeconds(10))
+              .timeout(HTTP_REQUEST_TIMEOUT)
               .POST(HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
               .build();
       HttpResponse<String> response =

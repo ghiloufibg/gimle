@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,7 @@ public final class SagaServer implements AutoCloseable {
 
   private final SagaStore store;
   private final HttpServer server;
+  private final ExecutorService executor;
   private final int flakeBudgetAllowance;
 
   public SagaServer(SagaStore store, InetAddress address, int port) throws IOException {
@@ -65,7 +67,8 @@ public final class SagaServer implements AutoCloseable {
     server.createContext("/api/flaky", this::handleFlaky);
     server.createContext("/api/tests/", this::handleTestHistory);
     server.createContext("/api/shutdown", this::handleShutdown);
-    server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+    this.executor = Executors.newVirtualThreadPerTaskExecutor();
+    server.setExecutor(executor);
   }
 
   /**
@@ -87,7 +90,12 @@ public final class SagaServer implements AutoCloseable {
 
   @Override
   public void close() {
+    // HttpServer#stop never shuts down a caller-supplied executor -- it assumes the executor may
+    // be shared -- so this virtual-thread-per-task executor, created solely for this server
+    // instance, must be shut down explicitly or it leaks on every close, which matters here since
+    // this class is routinely used via try-with-resources.
     server.stop(0);
+    executor.shutdownNow();
   }
 
   // ---- POST /api/ingest ----

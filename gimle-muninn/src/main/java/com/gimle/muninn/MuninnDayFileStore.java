@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -158,6 +159,21 @@ final class MuninnDayFileStore {
     for (Path file : dayFiles) {
       appendLinesFrom(file, all);
     }
+    // A line that parsed as JSON but carries no valid "timestamp" (a hand-edited file, future
+    // format drift) is dropped here rather than left in -- every timestampOf() call below,
+    // including the sort comparator, assumes a valid timestamp on every remaining line, so
+    // filtering here is what keeps one bad line from crashing this whole read instead of just
+    // being skipped, the same posture appendLinesFrom already takes for unparseable JSON.
+    all.removeIf(
+        line -> {
+          if (tryParseTimestamp(line).isPresent()) {
+            return false;
+          }
+          log.warn(
+              "skipping line with missing/unparseable timestamp in muninn day file read: {}",
+              truncateForLogging(String.valueOf(line)));
+          return true;
+        });
     // Day files are read in filename (i.e. date) order, but a shipper's own batches can arrive
     // out of order within one day (retry after a partial failure, several shippers racing) -- a
     // final stable sort by timestamp is what actually guarantees oldest-first, the same reasoning
@@ -218,6 +234,17 @@ final class MuninnDayFileStore {
 
   private static Instant timestampOf(Map<String, Object> line) {
     return Instant.parse((String) line.get("timestamp"));
+  }
+
+  private static Optional<Instant> tryParseTimestamp(Map<String, Object> line) {
+    if (!(line.get("timestamp") instanceof String text)) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(Instant.parse(text));
+    } catch (DateTimeParseException e) {
+      return Optional.empty();
+    }
   }
 
   private static Instant parseCursor(String cursor) {

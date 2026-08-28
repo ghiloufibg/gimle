@@ -14,6 +14,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.Optional;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
@@ -46,6 +47,19 @@ public final class SslContexts {
 
   public static SSLContext forMutualTls(TlsSettings settings) {
     return build(TLS_PROTOCOL, settings);
+  }
+
+  /**
+   * {@link #forMutualTls} gated on the single cluster-wide {@link TransportProtocol#fromConfig()}
+   * switch: empty (plaintext) when {@code gimle.transport.protocol} isn't {@code tls}, otherwise
+   * built from {@link TlsSettings#fromConfig()} -- the same "https with full mTLS, or plain http"
+   * decision every internal-process client (Fafnir, Muninn, Andvari) makes identically.
+   */
+  public static Optional<SSLContext> forMutualTlsFromConfig() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return Optional.empty();
+    }
+    return Optional.of(forMutualTls(TlsSettings.fromConfig()));
   }
 
   /** Same certificate material and mTLS posture as {@link #forMutualTls}, for gossip's DTLS. */

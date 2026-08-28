@@ -142,7 +142,11 @@ public final class SshProcessExec implements RemoteExec {
       final Process process = processBuilder.start();
       final String output =
           new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-      process.waitFor(FINGERPRINT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+      if (!process.waitFor(FINGERPRINT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+        process.destroyForcibly();
+        throw new HilmirException(
+            "ssh-keygen -lf timed out after " + FINGERPRINT_TIMEOUT + " computing a fingerprint");
+      }
       final String[] parts = output.trim().split("\\s+");
       return parts.length >= 2 ? parts[1] : "";
     } catch (final IOException e) {
@@ -311,7 +315,10 @@ public final class SshProcessExec implements RemoteExec {
       final Process process = processBuilder.start();
       final String output =
           new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-      process.waitFor(FINGERPRINT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+      if (!process.waitFor(FINGERPRINT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+        process.destroyForcibly();
+        throw new HilmirException(description + " timed out after " + FINGERPRINT_TIMEOUT);
+      }
       return output;
     } catch (final IOException e) {
       throw new HilmirException(description + " could not start", e);

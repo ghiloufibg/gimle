@@ -49,7 +49,6 @@ import org.slf4j.LoggerFactory;
 final class AndvariPeerSync implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(AndvariPeerSync.class);
-  private static final String SHA256_HEADER = "X-Gimle-Artifact-Sha256";
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
   private static final Duration TRANSFER_TIMEOUT = Duration.ofMinutes(2);
 
