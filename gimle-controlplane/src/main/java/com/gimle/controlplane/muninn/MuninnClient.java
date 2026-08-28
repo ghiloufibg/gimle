@@ -1,7 +1,6 @@
 package com.gimle.controlplane.muninn;
 
 import com.gimle.core.tls.SslContexts;
-import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import java.io.IOException;
 import java.net.URI;
@@ -40,11 +39,11 @@ public final class MuninnClient implements AutoCloseable {
   private final AtomicInteger readCursor = new AtomicInteger();
 
   public MuninnClient(String muninnAddress) {
-    this(List.of(muninnAddress), defaultSslContext());
+    this(List.of(muninnAddress), SslContexts.forMutualTlsFromConfig());
   }
 
   public MuninnClient(List<String> muninnAddresses) {
-    this(muninnAddresses, defaultSslContext());
+    this(muninnAddresses, SslContexts.forMutualTlsFromConfig());
   }
 
   MuninnClient(List<String> muninnAddresses, Optional<SSLContext> sslContext) {
@@ -60,13 +59,6 @@ public final class MuninnClient implements AutoCloseable {
     HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT);
     sslContext.ifPresent(builder::sslContext);
     this.httpClient = builder.build();
-  }
-
-  private static Optional<SSLContext> defaultSslContext() {
-    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return Optional.empty();
-    }
-    return Optional.of(SslContexts.forMutualTls(TlsSettings.fromConfig()));
   }
 
   /**

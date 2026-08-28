@@ -15,8 +15,10 @@ import java.util.jar.JarFile;
 /**
  * Orchestrates one artifact's full analysis: classify packaging, and for a plain jar, read its
  * structure, its optional {@code gimle-module.yaml}, and scan every top-level class entry's own
- * bytecode for hazards -- the single entry point {@code doctor} and {@code init} both call so a jar
- * is only ever opened and walked once.
+ * bytecode for hazards -- the single entry point {@code doctor} and {@code init} both call. {@link
+ * JarStructureInspector#inspect} needs its own full-entries walk to build a {@link JarStructure} up
+ * front, but the descriptor read and the hazard scan share one {@link JarFile} open rather than
+ * each opening the jar again.
  */
 public final class ArtifactScanner {
 
@@ -40,17 +42,23 @@ public final class ArtifactScanner {
     }
 
     JarStructure structure = JarStructureInspector.inspect(jarPath);
-    DescriptorSnapshot descriptor =
-        structure.hasGimleDescriptor() ? readDescriptor(jarPath) : DescriptorSnapshot.ABSENT;
-    Map<String, ClassHazards> hazards = scanHazards(jarPath, structure);
+    DescriptorSnapshot descriptor;
+    Map<String, ClassHazards> hazards;
+    try (JarFile jar = new JarFile(jarPath.toFile())) {
+      descriptor =
+          structure.hasGimleDescriptor() ? readDescriptor(jar, jarPath) : DescriptorSnapshot.ABSENT;
+      hazards = scanHazards(jar, jarPath, structure);
+    } catch (IOException e) {
+      throw new GimleManifestException("failed to open jar: " + jarPath, e);
+    }
     Set<String> packages = derivePackages(structure);
 
     return new ArtifactScan(
         jarPath, packaging, java.util.Optional.of(structure), descriptor, hazards, packages);
   }
 
-  private static DescriptorSnapshot readDescriptor(Path jarPath) {
-    try (JarFile jar = new JarFile(jarPath.toFile())) {
+  private static DescriptorSnapshot readDescriptor(JarFile jar, Path jarPath) {
+    try {
       JarEntry entry = jar.getJarEntry(DESCRIPTOR_ENTRY);
       try (InputStream in = jar.getInputStream(entry)) {
         return DescriptorReader.read(in);
@@ -60,9 +68,10 @@ public final class ArtifactScanner {
     }
   }
 
-  private static Map<String, ClassHazards> scanHazards(Path jarPath, JarStructure structure) {
+  private static Map<String, ClassHazards> scanHazards(
+      JarFile jar, Path jarPath, JarStructure structure) {
     Map<String, ClassHazards> result = new LinkedHashMap<>();
-    try (JarFile jar = new JarFile(jarPath.toFile())) {
+    try {
       for (String className : structure.topLevelClassEntries()) {
         String entryName = className.replace('.', '/') + ".class";
         JarEntry entry = jar.getJarEntry(entryName);

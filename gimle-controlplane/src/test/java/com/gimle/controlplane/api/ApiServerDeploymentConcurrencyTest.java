@@ -252,9 +252,8 @@ class ApiServerDeploymentConcurrencyTest {
 
   private static void assertReplicas(HttpResponse<String> finalState, int expected, String why) {
     assertEquals(200, finalState.statusCode(), why + " -- the deployment must exist");
-    @SuppressWarnings("unchecked")
     Map<String, Object> spec =
-        (Map<String, Object>) ((Map<String, Object>) Json.parse(finalState.body())).get("spec");
+        Json.asObject(Json.asObject(Json.parse(finalState.body())).get("spec"));
     // The only legitimate "present" outcome in every branch above is exactly apply's own submitted
     // content -- never the pre-race 3 replicas and never some other value neither request wrote.
     assertEquals(expected, ((Number) spec.get("replicas")).intValue(), why);
@@ -324,9 +323,8 @@ class ApiServerDeploymentConcurrencyTest {
           200,
           finalState.statusCode(),
           "the create must always have taken effect, whatever the delete's own outcome was");
-      @SuppressWarnings("unchecked")
       Map<String, Object> spec =
-          (Map<String, Object>) ((Map<String, Object>) Json.parse(finalState.body())).get("spec");
+          Json.asObject(Json.asObject(Json.parse(finalState.body())).get("spec"));
       assertEquals(5, ((Number) spec.get("replicas")).intValue());
     } finally {
       pool.shutdownNow();

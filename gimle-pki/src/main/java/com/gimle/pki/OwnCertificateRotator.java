@@ -45,7 +45,6 @@ import org.slf4j.LoggerFactory;
 public final class OwnCertificateRotator {
 
   private static final Logger log = LoggerFactory.getLogger(OwnCertificateRotator.class);
-  private static final int KEY_SIZE_BITS = 2048;
 
   private OwnCertificateRotator() {}
 
@@ -147,7 +146,7 @@ public final class OwnCertificateRotator {
   private static KeyPair generateRsaKeyPair() {
     try {
       KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
-      generator.initialize(KEY_SIZE_BITS);
+      generator.initialize(CertificateAuthority.KEY_SIZE_BITS);
       return generator.generateKeyPair();
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException("RSA key pair generation is unavailable", e);

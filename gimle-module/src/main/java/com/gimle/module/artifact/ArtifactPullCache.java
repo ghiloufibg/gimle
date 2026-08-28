@@ -57,6 +57,7 @@ public final class ArtifactPullCache {
   private static final String KIND_HEADER = "X-Gimle-Artifact-Kind";
   private static final String JAR_FILE = "artifact.jar";
   private static final String BUNDLE_DIR = "bundle";
+  private static final Duration DOWNLOAD_TIMEOUT = Duration.ofSeconds(30);
 
   private final Path cacheRoot;
 
@@ -141,7 +142,7 @@ public final class ArtifactPullCache {
     try {
       HttpResponse<InputStream> response =
           httpClient.send(
-              HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30)).GET().build(),
+              HttpRequest.newBuilder(uri).timeout(DOWNLOAD_TIMEOUT).GET().build(),
               HttpResponse.BodyHandlers.ofInputStream());
       if (response.statusCode() == 404) {
         throw new GimleManifestException(

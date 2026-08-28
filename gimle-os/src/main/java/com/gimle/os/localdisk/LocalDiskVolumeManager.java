@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 public final class LocalDiskVolumeManager implements VolumeManager {
 
   private static final Logger log = LoggerFactory.getLogger(LocalDiskVolumeManager.class);
+  private static final String VOLUMES_DIR = "volumes";
 
   private final Path dataRoot;
 
@@ -60,7 +61,7 @@ public final class LocalDiskVolumeManager implements VolumeManager {
 
   private Path instancePath(String statefulSetName, int instanceIndex) {
     return dataRoot
-        .resolve("volumes")
+        .resolve(VOLUMES_DIR)
         .resolve(statefulSetName)
         .resolve(String.valueOf(instanceIndex));
   }
@@ -102,7 +103,7 @@ public final class LocalDiskVolumeManager implements VolumeManager {
    */
   @Override
   public List<AllocatedVolume> listAllocated() {
-    Path volumesRoot = dataRoot.resolve("volumes");
+    Path volumesRoot = dataRoot.resolve(VOLUMES_DIR);
     if (!Files.isDirectory(volumesRoot)) {
       return List.of();
     }

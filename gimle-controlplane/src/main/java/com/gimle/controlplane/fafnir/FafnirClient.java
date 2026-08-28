@@ -3,7 +3,6 @@ package com.gimle.controlplane.fafnir;
 import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
-import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import java.io.IOException;
 import java.net.URI;
@@ -41,7 +40,7 @@ public final class FafnirClient implements AutoCloseable {
    * switch every other Gimlé transport already reads (see {@link TransportProtocol}'s own javadoc).
    */
   public FafnirClient(String fafnirAddress) {
-    this(fafnirAddress, defaultSslContext());
+    this(fafnirAddress, SslContexts.forMutualTlsFromConfig());
   }
 
   FafnirClient(String fafnirAddress, Optional<SSLContext> sslContext) {
@@ -50,13 +49,6 @@ public final class FafnirClient implements AutoCloseable {
     HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT);
     sslContext.ifPresent(builder::sslContext);
     this.httpClient = builder.build();
-  }
-
-  private static Optional<SSLContext> defaultSslContext() {
-    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return Optional.empty();
-    }
-    return Optional.of(SslContexts.forMutualTls(TlsSettings.fromConfig()));
   }
 
   public byte[] encrypt(byte[] plaintext) {

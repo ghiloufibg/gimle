@@ -864,8 +864,8 @@ public final class FafnirServer implements AutoCloseable {
    * failure (unknown/retired sealing key id, a label bound to a different tenant/name/key, a
    * corrupt blob) becomes that key's own {@link SecretMapStore.SecretMapKeyResult#failed} entry
    * *without* ever calling {@link SecretMapStore#setMany} for it -- only successfully-recovered
-   * plaintexts reach that existing, unchanged write path, which is what gives seal-commit Phase 2's
-   * group-versioning for free.
+   * plaintexts reach that existing, unchanged write path, which is what gives the seal-commit
+   * protocol's group-versioning for free.
    */
   private void handleSealSecretMap(HttpExchange exchange, String tenantId, String name)
       throws IOException {

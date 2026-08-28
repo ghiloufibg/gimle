@@ -47,7 +47,9 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 public final class CertificateAuthority {
 
   private static final String SIGNATURE_ALGORITHM = "SHA256withRSA";
-  private static final int KEY_SIZE_BITS = 2048;
+
+  /** Shared RSA key size for every keypair this module generates. */
+  static final int KEY_SIZE_BITS = 2048;
 
   private final X509Certificate certificate;
   private final PrivateKey privateKey;
