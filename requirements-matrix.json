@@ -12687,6 +12687,26 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-644",
+      "module": "gimle-fafnir",
+      "feature": "Explicit SecretMap Replace Verb",
+      "category": "Security",
+      "userStory": "As an operator, I want an explicit full-replace verb for a SecretMap distinct from the always-merging set, so I can express 'this is now the complete key set' without deleting keys by hand first.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`SecretMapStore#replaceAll`",
+        "`FafnirServer#handleReplaceSecretMap` (`POST /secretmaps/{tenantId}/{name}/replace`)",
+        "`SecretMapCommand#replace` (`gimle secretmap replace`)"
+      ],
+      "testCoverageDetail": "`SecretMapStoreTest#replace_all_removes_every_live_key_not_named_in_the_new_values`/`#replace_all_with_an_empty_map_clears_every_live_key`/`#replace_all_stamps_one_group_version_recording_the_final_state`/`#replace_all_reports_an_outcome_for_every_written_or_removed_key`; `FafnirServerSecretMapTest#replace_removes_every_key_not_named_in_the_new_data`/`#replace_with_no_data_at_all_clears_the_secret_map`/`#put_still_merges_and_leaves_other_keys_untouched`; `ApiServerSecretMapTest#replace_removes_keys_not_named_through_the_proxy_to_a_real_fafnir`; `ApiServerSecretMapAuthzTest#a_caller_with_no_secretmap_grant_may_not_replace_one_either`.",
+      "gherkinSteps": [
+        "Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
     }
   ]
 }

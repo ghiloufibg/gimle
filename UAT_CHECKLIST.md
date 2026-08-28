@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 643
+- **Total requirements**: 644
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 520
+- **Not covered by automated test**: 521
 - **Release-readiness (automated coverage)**: 19.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -22,7 +22,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-mimir | 58 | 35 | 23 | 60.3% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
 | gimle-controlplane | 78 | 14 | 64 | 17.9% |
-| gimle-fafnir | 25 | 11 | 14 | 44.0% |
+| gimle-fafnir | 26 | 11 | 15 | 42.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
@@ -1164,6 +1164,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-280 | Key-ring fingerprinting for cross-replica drift detection | Given two replicas hold identical key material in different map order; When fingerprint() is computed; Then both produce the identical SHA-256 hex digest. | No |
 | [ ] | GIMLE-283 | Optimistic-write versioned put with narrow-lease serialization | Given two writers race to PUT the same key; When both complete; Then exactly one version number is claimed by each, serialized via a narrow lease around the final @meta-advance step. | No |
+
+#### Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-644 | Explicit SecretMap Replace Verb | Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely. | No |
 
 ### gimle-andvari
 

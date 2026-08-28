@@ -11131,6 +11131,23 @@
         "`ManifestFields#parseTenantId`",
         "`ApiServer#seedDefaultTenantIfAbsent`"
       ]
+    },
+    {
+      "id": "GIMLE-644",
+      "module": "gimle-fafnir",
+      "feature": "Explicit SecretMap Replace Verb",
+      "category": "Security",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario yet exercises the replace verb against a real running cluster -- coverage today is unit/route-level (SecretMapStore, FafnirServer, and the control-plane proxy) only.",
+      "otherTestCoverage": "`SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC)",
+      "sourceLocations": [
+        "`SecretMapStore#replaceAll`",
+        "`FafnirServer#handleReplaceSecretMap`",
+        "`SecretMapCommand#replace`"
+      ]
     }
   ]
 }

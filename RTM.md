@@ -658,6 +658,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-641 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | New | Not Covered | — |
 | GIMLE-642 | Plaintext Transport Is Explicitly Single-Tenant | New | Not Covered | — |
 | GIMLE-643 | Implicit Default Tenant for Untenanted Workloads | New | Not Covered | — |
+| GIMLE-644 | Explicit SecretMap Replace Verb | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4045,6 +4046,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FafnirServerSealTest` covers the full exit criterion end to end: seal, commit, apply, wrong-tenant/name rejection, and retirement stopping trust.
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleSealPublicKey`, `handleSealRotateKey`, `handleSealRetireKey`, `handleRetireSecretsKey`, `handleSealSecretMap`)
 
+#### GIMLE-644 — Explicit SecretMap Replace Verb
+
+- **Category**: Security
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario yet exercises the replace verb against a real running cluster -- coverage today is unit/route-level (SecretMapStore, FafnirServer, and the control-plane proxy) only.
+- **Other test coverage (non-Holmgang, informational only)**: `SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC)
+- **Source location(s)**: `SecretMapStore#replaceAll`, `FafnirServer#handleReplaceSecretMap`, `SecretMapCommand#replace`
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -6816,7 +6826,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**520 of 643 requirements are Not Covered.**
+**521 of 644 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7232,6 +7242,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-280 | gimle-fafnir | Key-ring fingerprinting for cross-replica drift detection | Secrets Management / Internal-Infra | `KeyRingTest` — `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager` |
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |
 | GIMLE-017 | gimle-core | Session-signing key file load-or-create with owner-only permissions | Security | `SessionKeyFileManagerTest` (generates_on_first_run_reuses_on_later, rejects corrupted/empty key file) |
+| GIMLE-644 | gimle-fafnir | Explicit SecretMap Replace Verb | Security | `SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC) |
 | GIMLE-627 | gimle-agent | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Security / Networking | `BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization) |
 | GIMLE-624 | gimle-controlplane | Certificate revocation denylist | Security / PKI | `ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip) |
 | GIMLE-614 | gimle-controlplane | Self-subject access review endpoint (/authz/can-i) | Security / RBAC | `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything) |

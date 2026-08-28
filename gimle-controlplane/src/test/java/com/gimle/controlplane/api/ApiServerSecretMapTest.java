@@ -164,6 +164,30 @@ class ApiServerSecretMapTest {
 
   @Test
   @Timeout(10)
+  void replace_removes_keys_not_named_through_the_proxy_to_a_real_fafnir() throws Exception {
+    put(
+        "/secretmaps/acme/db-creds",
+        Json.write(Map.of("data", Map.of("username", encode("admin"), "password", encode("x")))));
+
+    HttpResponse<String> replaceResponse =
+        post(
+            "/secretmaps/acme/db-creds/replace",
+            Json.write(Map.of("data", Map.of("username", encode("root")))));
+    assertEquals(200, replaceResponse.statusCode());
+
+    Map<String, Object> body = Json.asObject(Json.parse(get("/secretmaps/acme/db-creds").body()));
+    List<Object> keys = Json.asArray(body.get("keys"));
+    Map<String, Object> live =
+        keys.stream()
+            .map(Json::asObject)
+            .filter(k -> !(Boolean) k.get("deleted"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("username", live.get("key"));
+  }
+
+  @Test
+  @Timeout(10)
   void a_flat_secrets_write_against_a_reserved_secretmap_key_is_rejected_through_the_proxy_too()
       throws Exception {
     HttpResponse<String> response =

@@ -81,6 +81,8 @@ import java.util.Map;
  *   gimle secretmap get &lt;tenantId&gt; &lt;name&gt;
  *   gimle secretmap set &lt;tenantId&gt; &lt;name&gt; [--from-literal key=value ...] [--from-file
  *                                          path|key=path ...]
+ *   gimle secretmap replace &lt;tenantId&gt; &lt;name&gt; [--from-literal key=value ...] [--from-file
+ *                                              path|key=path ...]
  *   gimle secretmap delete &lt;tenantId&gt; &lt;name&gt; [--destroy]
  *   gimle secretmap versions &lt;tenantId&gt; &lt;name&gt;
  *   gimle secretmap rollback &lt;tenantId&gt; &lt;name&gt; &lt;groupVersion&gt;
@@ -798,6 +800,7 @@ public final class GimleCli {
           secretmap list <tenantId>
           secretmap get <tenantId> <name>
           secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
+          secretmap replace <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
           secretmap delete <tenantId> <name> [--destroy]
           secretmap versions <tenantId> <name>
           secretmap rollback <tenantId> <name> <groupVersion>

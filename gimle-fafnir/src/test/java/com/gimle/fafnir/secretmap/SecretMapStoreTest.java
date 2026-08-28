@@ -182,6 +182,62 @@ class SecretMapStoreTest {
   }
 
   @Test
+  void replace_all_removes_every_live_key_not_named_in_the_new_values() {
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+
+    secretMaps.replaceAll("acme", "db-creds", values("username", "root"));
+
+    List<SecretMetadata> live =
+        secretMaps.getMetadata("acme", "db-creds").stream()
+            .filter(m -> !m.deleted())
+            .collect(Collectors.toList());
+    assertEquals(List.of("username"), live.stream().map(SecretMetadata::key).toList());
+    assertEquals(
+        "root",
+        new String(
+            secretMaps.getValues("acme", List.of("db-creds")).get("db-creds").get("username"),
+            StandardCharsets.UTF_8));
+  }
+
+  @Test
+  void replace_all_with_an_empty_map_clears_every_live_key() {
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+
+    secretMaps.replaceAll("acme", "db-creds", Map.of());
+
+    assertTrue(
+        secretMaps.getMetadata("acme", "db-creds").stream().allMatch(SecretMetadata::deleted));
+  }
+
+  @Test
+  void replace_all_stamps_one_group_version_recording_the_final_state() {
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+
+    secretMaps.replaceAll("acme", "db-creds", values("username", "root"));
+
+    List<SecretMapStore.SecretMapGroupVersion> versions =
+        secretMaps.listGroupVersions("acme", "db-creds");
+    assertEquals(2, versions.size());
+    SecretMapStore.SecretMapGroupVersion latest = versions.get(1);
+    assertEquals(Set.of("username", "password"), latest.keys().keySet());
+    assertFalse(latest.keys().get("username").deleted());
+    assertTrue(latest.keys().get("password").deleted());
+  }
+
+  @Test
+  void replace_all_reports_an_outcome_for_every_written_or_removed_key() {
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+
+    List<SecretMapStore.SecretMapKeyResult> results =
+        secretMaps.replaceAll("acme", "db-creds", values("username", "root"));
+
+    assertTrue(results.stream().noneMatch(r -> r.error().isPresent()));
+    assertEquals(
+        Set.of("username", "password"),
+        results.stream().map(r -> r.key()).collect(Collectors.toSet()));
+  }
+
+  @Test
   void delete_all_stamps_a_group_version_recording_every_key_as_deleted() {
     secretMaps.setMany("acme", "db-creds", values("username", "admin"));
 

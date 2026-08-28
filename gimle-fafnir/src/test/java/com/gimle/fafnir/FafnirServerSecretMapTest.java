@@ -105,6 +105,55 @@ class FafnirServerSecretMapTest {
 
   @Test
   @Timeout(10)
+  void replace_removes_every_key_not_named_in_the_new_data() throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("username", "admin", "password", "hunter2"));
+
+    HttpResponse<String> response =
+        send(
+            "POST",
+            "/secretmaps/acme/db-creds/replace",
+            Json.write(Map.of("data", Map.of("username", encode("root")))));
+
+    assertEquals(200, response.statusCode());
+    HttpResponse<String> metaResponse = send("GET", "/secretmaps/acme/db-creds", null);
+    List<Object> keys = Json.asArray(Json.asObject(Json.parse(metaResponse.body())).get("keys"));
+    Map<String, Object> live =
+        keys.stream()
+            .map(Json::asObject)
+            .filter(k -> !(Boolean) k.get("deleted"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("username", live.get("key"));
+  }
+
+  @Test
+  @Timeout(10)
+  void replace_with_no_data_at_all_clears_the_secret_map() throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("username", "admin"));
+
+    HttpResponse<String> response =
+        send("POST", "/secretmaps/acme/db-creds/replace", Json.write(Map.of()));
+
+    assertEquals(200, response.statusCode());
+    HttpResponse<String> metaResponse = send("GET", "/secretmaps/acme/db-creds", null);
+    List<Object> keys = Json.asArray(Json.asObject(Json.parse(metaResponse.body())).get("keys"));
+    assertTrue(keys.stream().allMatch(raw -> (Boolean) Json.asObject(raw).get("deleted")));
+  }
+
+  @Test
+  @Timeout(10)
+  void put_still_merges_and_leaves_other_keys_untouched() throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("username", "admin", "password", "hunter2"));
+
+    putSecretMap("acme", "db-creds", Map.of("username", "root"));
+
+    HttpResponse<String> metaResponse = send("GET", "/secretmaps/acme/db-creds", null);
+    List<Object> keys = Json.asArray(Json.asObject(Json.parse(metaResponse.body())).get("keys"));
+    assertEquals(2, keys.size());
+  }
+
+  @Test
+  @Timeout(10)
   void get_metadata_lists_every_member_key_without_ever_returning_a_value() throws Exception {
     putSecretMap("acme", "db-creds", Map.of("username", "admin"));
 

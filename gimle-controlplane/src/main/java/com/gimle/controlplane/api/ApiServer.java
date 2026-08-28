@@ -1109,7 +1109,11 @@ public final class ApiServer implements AutoCloseable {
    * missing coordinate already is: an artifact tagged for one tenant should never silently end up
    * backing another tenant's workload. Either side being untenanted skips the check entirely --
    * this is purely additive over every existing untenanted deployment/artifact combination, which
-   * never had a tenant to compare in the first place.
+   * never had a tenant to compare in the first place. {@code deployingTenantId} is checked via
+   * {@link Tenant#isEnforceable}, not a plain {@code isPresent()}: a workload that omitted {@code
+   * tenantId} in its manifest resolves to {@link Tenant#DEFAULT_TENANT_ID} at parse time, and this
+   * check's whole point -- catching an artifact tagged for a real tenant silently backing a
+   * different real tenant's workload -- doesn't apply to a workload that never named one.
    */
   private AdmissionArtifact admissionArtifact(
       String artifactPath,
@@ -1154,7 +1158,7 @@ public final class ApiServer implements AutoCloseable {
       }
       case AndvariClient.HeadOutcome.Found found -> {
         if (found.tenantId().isPresent()
-            && deployingTenantId.isPresent()
+            && Tenant.isEnforceable(deployingTenantId)
             && !found.tenantId().get().equals(deployingTenantId.get())) {
           yield AdmissionArtifact.rejection(
               "artifact "
@@ -4658,8 +4662,9 @@ public final class ApiServer implements AutoCloseable {
                 forwardHeaders.put(
                     "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
               });
-      // POST is only ever the /rollback action route (see FafnirServer#handleSecretMaps), whose
-      // body -- a JSON {"groupVersion": N} -- must be forwarded on exactly like PUT's already is.
+      // POST is always one of the /rollback, /seal, or /replace action sub-routes (see
+      // FafnirServer#handleSecretMaps), whose JSON body must be forwarded on exactly like PUT's
+      // already is.
       byte[] body =
           "PUT".equals(exchange.getRequestMethod()) || "POST".equals(exchange.getRequestMethod())
               ? readBody(exchange).getBytes(StandardCharsets.UTF_8)

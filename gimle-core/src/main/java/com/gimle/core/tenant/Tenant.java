@@ -29,13 +29,15 @@ public record Tenant(String id, ResourceQuota quota) {
   public static final String DEFAULT_TENANT_ID = "default";
 
   /**
-   * True only for a tenant an operator actually created and can be held accountable to a quota for
-   * -- {@link #DEFAULT_TENANT_ID} counts the same as {@code Optional.empty()} here, matching real
-   * Kubernetes: the {@code default} namespace carries no {@code ResourceQuota} object unless an
-   * admin explicitly creates one, so nothing is enforced against it by default either. Used by
-   * every admission plugin/reconciler that sums or caps resource usage per tenant ({@code
+   * True only for a tenant an operator actually created and can be held accountable to something as
+   * a real tenant -- {@link #DEFAULT_TENANT_ID} counts the same as {@code Optional.empty()} here,
+   * matching real Kubernetes: the {@code default} namespace carries no {@code ResourceQuota} object
+   * unless an admin explicitly creates one, so nothing is enforced against it by default either.
+   * Used by every admission plugin/reconciler that sums or caps resource usage per tenant ({@code
    * TenantQuotaPlugin}, {@code LimitRangePlugin}, {@code PolicyConfigPlugin}, {@code
-   * QuotaReconciler}, {@code LimitRangeReconciler}) -- deliberately <em>not</em> used by the config
+   * QuotaReconciler}, {@code LimitRangeReconciler}), and by {@code ApiServer#admissionArtifact}'s
+   * registry-coordinate ownership check (a workload that never declared a real tenant has nothing
+   * for a tenant-mismatch check to protect) -- deliberately <em>not</em> used by the config
    * addressability path ({@code Authorizer#isNodeTenantScopedConfigRead}) or the scheduler's own
    * node-taint check, both of which are meant to treat {@code default} as a real, ordinary tenant
    * now that it exists.

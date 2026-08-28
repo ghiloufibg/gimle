@@ -181,6 +181,57 @@ public final class SecretMapStore {
   }
 
   /**
+   * Full replace: like {@link #setMany}, but every currently-live member key not named in {@code
+   * values} is soft-deleted too, so the resulting key set is exactly {@code values}' key set -- the
+   * {@code secretmap replace} counterpart to {@link #setMany}'s merge-only {@code secretmap set}.
+   * Held under the same single write lease as {@link #setMany}, and each touched key still gets its
+   * own independent {@link SecretMapKeyResult}: a key that fails to write, or a stale member that
+   * fails to delete, is reported failed rather than aborting the keys already touched. Passing an
+   * empty {@code values} clears the SecretMap entirely, the same way {@code ConfigMapStore#put}
+   * with an empty data map overwrites to empty. One group version is stamped at the end reflecting
+   * the final state, exactly as {@link #setMany} does -- skipped only if nothing actually changed
+   * (an empty {@code values} against an already-empty SecretMap).
+   */
+  public List<SecretMapKeyResult> replaceAll(
+      String tenantId, String name, Map<String, byte[]> values) {
+    return withWriteLease(
+        tenantId,
+        name,
+        () -> {
+          List<SecretMapKeyResult> results = new ArrayList<>();
+          for (Map.Entry<String, byte[]> entry : values.entrySet()) {
+            try {
+              int version =
+                  secretStore.put(
+                      tenantId, SecretMapCodec.rawKey(name, entry.getKey()), entry.getValue());
+              results.add(SecretMapKeyResult.ok(entry.getKey(), version));
+            } catch (RuntimeException e) {
+              results.add(
+                  SecretMapKeyResult.failed(entry.getKey(), String.valueOf(e.getMessage())));
+            }
+          }
+          for (SecretMetadata meta : getMetadataLinearizable(tenantId, name)) {
+            if (meta.deleted() || values.containsKey(meta.key())) {
+              continue;
+            }
+            String rawKey = SecretMapCodec.rawKey(name, meta.key());
+            try {
+              if (!secretStore.softDelete(tenantId, rawKey)) {
+                throw new IllegalStateException("key no longer exists to remove");
+              }
+              results.add(SecretMapKeyResult.ok(meta.key(), meta.latestVersion()));
+            } catch (RuntimeException e) {
+              results.add(SecretMapKeyResult.failed(meta.key(), String.valueOf(e.getMessage())));
+            }
+          }
+          if (results.stream().anyMatch(r -> r.version().isPresent())) {
+            stampGroupVersion(tenantId, name, OptionalInt.empty());
+          }
+          return results;
+        });
+  }
+
+  /**
    * Deletes every key under {@code name} -- soft by default, hard when {@code destroy}. Returns
    * {@code false} if the name is unknown (no keys deleted). Lease-guarded the same as {@link
    * #setMany}. A soft delete is group-version-stamped like any other mutation to the group's

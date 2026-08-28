@@ -331,6 +331,23 @@ gimle:flaky-tests` runs it on its own, one module at a time.
   the GOV-8 fix in flight; flagging per this file's own process rather than treating a two-run
   reproduction as confirmed sandbox-only without saying so.
 
+## 2026-08-28 `gimle-controlplane` single-module test, SEC-7 branch
+
+- **`ApiServerDeploymentConcurrencyTest#a_racing_delete_of_a_never_existing_name_never_blocks_a_concurrent_create`**
+  failed both surefire rerun attempts in a single-module `-pl gimle-controlplane test` run
+  (`expected: <200> but was: <404>`), alongside the same store-infrastructure signatures as the
+  2026-08-25/2026-08-26 entries above (`no reachable store leader`, a garbled HTTP status line, a
+  TLS-alert-read-as-length "wire frame length" error) scattered across unrelated classes in the
+  same run. The change under review (the `secretmap replace` verb, plus narrowing an
+  Andvari-coordinate-ownership admission check to `Tenant#isEnforceable`) touches neither
+  deployment create/delete nor this test's own concurrency harness. Re-run twice in isolation
+  (alone, and paired with `ApiServerAuditOutcomeTest`, whose own single flake in the full run never
+  recurred either) — both times clean. `ApiServerDeploymentConcurrencyTest` is the same class the
+  2026-08-26 entry above already names as flaky under contention (there, specific repetitions in a
+  full-reactor run; here, the same class's own surefire-forked parallelism within one module), so
+  this reads as the same standing pattern recurring on a different repetition rather than a new
+  cause -- not re-diagnosed further here.
+
 ## 2026-08-25 full-reactor verify, bundle-artifact branch
 
 - **`ApiServerDeploymentRollbackTest` / `ApiServerStatefulSetDaemonSetRollbackTest` /
