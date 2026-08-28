@@ -24,6 +24,7 @@ interface RawDeploymentInstance {
     queueDepth: number;
     cpuMillicoresUsed: number;
     memoryBytesUsed: number;
+    workerId?: string;
   };
 }
 interface RawDeployment {
@@ -51,6 +52,7 @@ const UNOBSERVED: DeploymentInstance["observation"] = {
   queueDepth: 0,
   cpuMillicoresUsed: 0,
   memoryBytesUsed: 0,
+  workerId: null,
 };
 
 function mapDeployment(raw: RawDeployment): Deployment {
@@ -59,7 +61,12 @@ function mapDeployment(raw: RawDeployment): Deployment {
     instances: raw.instances.map((i) => ({
       instanceIndex: i.instanceIndex,
       nodeId: i.nodeId,
-      observation: (i.observation ?? UNOBSERVED) as DeploymentInstance["observation"],
+      observation: i.observation
+        ? ({
+            ...i.observation,
+            workerId: i.observation.workerId ?? null,
+          } as DeploymentInstance["observation"])
+        : UNOBSERVED,
     })),
     unplacedCount: raw.unplacedCount,
     quotaViolating: raw.quotaViolating,

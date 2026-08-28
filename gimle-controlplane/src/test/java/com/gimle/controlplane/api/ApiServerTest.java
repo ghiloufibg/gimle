@@ -1141,6 +1141,72 @@ class ApiServerTest {
   }
 
   @Test
+  void taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list()
+      throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+
+    HttpResponse<String> taint =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/taint"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"tenantId\":\"tenant-a\"}"))
+                .build());
+
+    assertEquals(200, taint.statusCode());
+    assertEquals(Set.of("tenant-a"), store.getNodeTaints("node-a"));
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes")).GET().build());
+    List<Map<String, Object>> body = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(List.of("tenant-a"), body.get(0).get("taints"));
+  }
+
+  @Test
+  void untaint_endpoint_clears_the_reservation_for_that_tenant() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/taint"))
+            .POST(HttpRequest.BodyPublishers.ofString("{\"tenantId\":\"tenant-a\"}"))
+            .build());
+
+    HttpResponse<String> untaint =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/untaint"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"tenantId\":\"tenant-a\"}"))
+                .build());
+
+    assertEquals(200, untaint.statusCode());
+    assertEquals(Set.of(), store.getNodeTaints("node-a"));
+  }
+
+  @Test
+  void taint_endpoint_rejects_a_request_with_no_tenant_id() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+
+    HttpResponse<String> taint =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/taint"))
+                .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                .build());
+
+    assertEquals(400, taint.statusCode());
+  }
+
+  @Test
   void register_and_heartbeat_are_reflected_in_the_store() throws Exception {
     HttpResponse<String> register =
         send(
@@ -1491,6 +1557,63 @@ class ApiServerTest {
       assertEquals(456L, quota.get("maxCpuMillicores"));
       assertEquals(7L, quota.get("maxInstances"));
     }
+  }
+
+  /**
+   * Plaintext gives every caller the identical unauthenticated identity, so there's no way to tell
+   * a legitimate co-tenant from an uninvited caller reaching into someone else's tenant -- creating
+   * a second real tenant is refused outright rather than quietly allowed. The reserved {@code
+   * gimle-system} tenant, already seeded by this class's own {@code @BeforeEach}, doesn't count
+   * toward the limit: "acme" is the first <i>real</i> tenant and succeeds despite gimle-system
+   * already existing.
+   */
+  @Test
+  void creating_a_second_real_tenant_under_plaintext_is_refused() throws Exception {
+    HttpResponse<String> first =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(200, first.statusCode());
+
+    HttpResponse<String> second =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/other"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(403, second.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/other")).GET().build());
+    assertEquals(404, get.statusCode());
+  }
+
+  /**
+   * The plaintext single-tenant guard only fires for a genuinely new tenant id -- a second PUT
+   * against the same, already-existing tenant is an update, not a second tenant, and stays
+   * permitted (every other test in this class that adjusts a tenant's quota relies on exactly
+   * this).
+   */
+  @Test
+  void updating_an_already_existing_tenant_under_plaintext_is_still_permitted() throws Exception {
+    HttpResponse<String> first =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(200, first.statusCode());
+
+    HttpResponse<String> update =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(2_000_000_000L, 8000, 20)))
+                .build());
+    assertEquals(200, update.statusCode());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme")).GET().build());
+    Map<String, Object> quota = Json.asObject(Json.asObject(Json.parse(get.body())).get("quota"));
+    assertEquals(20L, quota.get("maxInstances"));
   }
 
   // ---- tenant quota admission ----

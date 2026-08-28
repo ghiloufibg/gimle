@@ -153,9 +153,9 @@ class StoreCodecTest {
   static Stream<StoreRpc> variants() {
     return Stream.of(
         // leader-only writes
-        new StoreRpc.Propose(new StateMutation.PutDeployment(deploymentSpec())),
+        new StoreRpc.Propose(new StateMutation.PutDeployment(deploymentSpec(), 0)),
         new StoreRpc.Propose(
-            new StateMutation.PutDeployment(deploymentSpecWithoutArtifactSha256())),
+            new StateMutation.PutDeployment(deploymentSpecWithoutArtifactSha256(), 0)),
         new StoreRpc.PutHeartbeat(nodeHeartbeat()),
         new StoreRpc.AcquireOrRenewLease("reconciler-leader", "node-a:8080", 15_000L),
         new StoreRpc.ReleaseLease("reconciler-leader", "node-a:8080"),
@@ -165,6 +165,7 @@ class StoreCodecTest {
         new StoreRpc.ListAccounts(),
         new StoreRpc.GetTenant("tenant-1"),
         new StoreRpc.GetDeployment("greeter"),
+        new StoreRpc.GetDeploymentGeneration("greeter"),
         new StoreRpc.ListDeployments(),
         new StoreRpc.ListAssignmentsFor("greeter"),
         new StoreRpc.IsQuotaViolating("greeter"),
@@ -195,6 +196,9 @@ class StoreCodecTest {
         new StoreRpc.Ok(),
         new StoreRpc.NotLeader("node-2:8081"),
         new StoreRpc.NotLeader(""),
+        new StoreRpc.MutationRejected("deployment 'greeter' is at generation 3, expected 2"),
+        new StoreRpc.GenerationResult(0L),
+        new StoreRpc.GenerationResult(7L),
         new StoreRpc.LeaseResult(true, "node-a:8080", 1_700_000_000_000L),
         new StoreRpc.BoolResult(true),
         new StoreRpc.IntResult(true, 3),
@@ -269,7 +273,7 @@ class StoreCodecTest {
                     OptionalDouble.of(1.5))),
             Optional.empty(),
             Optional.empty());
-    StoreRpc.Propose original = new StoreRpc.Propose(new StateMutation.PutDeployment(spec));
+    StoreRpc.Propose original = new StoreRpc.Propose(new StateMutation.PutDeployment(spec, 0));
 
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     StoreCodec.write(buffer, original);

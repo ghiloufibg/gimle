@@ -2,6 +2,7 @@ package com.gimle.core.protocol;
 
 import com.gimle.core.module.ModuleId;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * One node's current view of one deployment instance it's supervising: which module it's running,
@@ -29,6 +30,15 @@ import java.util.Map;
  * persistent volume -- 0 for the overwhelming majority of instances, which hold no volume. A soft
  * observation for operators and quota visibility, sampled on a coarse interval (not per heartbeat),
  * never an enforced ceiling.
+ *
+ * <p>{@code workerId} is the raw id ({@code "worker-" + pid}) the worker JVM hosting this instance
+ * reported in its own {@code Hello} handshake with the agent -- {@link Optional#empty()} until that
+ * handshake completes (a plain Vessel instance never sends one either, since it's an OS process,
+ * not a worker JVM). Combined with the assignment's own {@code nodeId} (tracked alongside this
+ * observation, not duplicated into it) as {@code nodeId:workerId}, this is the same processId shape
+ * a worker's own shipped metrics/traces use -- what closes the gap where an operator had no way to
+ * discover which worker to pick in the console's Metrics/Traces process picker for a given
+ * instance.
  */
 public record InstanceObservation(
     String deploymentName,
@@ -43,7 +53,8 @@ public record InstanceObservation(
     long memoryBytesUsed,
     double errorRatePerSecond,
     Map<String, Integer> ports,
-    long volumeUsageBytes) {
+    long volumeUsageBytes,
+    Optional<String> workerId) {
 
   public InstanceObservation {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -65,7 +76,42 @@ public record InstanceObservation(
       throw new IllegalArgumentException(
           "volumeUsageBytes must not be negative: " + volumeUsageBytes);
     }
+    if (workerId == null) {
+      throw new IllegalArgumentException("workerId must not be null; use Optional.empty()");
+    }
     ports = Map.copyOf(ports);
+  }
+
+  /** Back-compat: defaults {@code workerId} to {@link Optional#empty()}. */
+  public InstanceObservation(
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId,
+      String lifecycleState,
+      boolean alive,
+      boolean ready,
+      double requestRatePerSecond,
+      int queueDepth,
+      long cpuMillicoresUsed,
+      long memoryBytesUsed,
+      double errorRatePerSecond,
+      Map<String, Integer> ports,
+      long volumeUsageBytes) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        lifecycleState,
+        alive,
+        ready,
+        requestRatePerSecond,
+        queueDepth,
+        cpuMillicoresUsed,
+        memoryBytesUsed,
+        errorRatePerSecond,
+        ports,
+        volumeUsageBytes,
+        Optional.empty());
   }
 
   /** Back-compat: defaults {@code volumeUsageBytes} to 0. */

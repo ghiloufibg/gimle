@@ -12,6 +12,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -41,7 +42,7 @@ class JobManifestParserTest {
     assertEquals(6, spec.backoffLimit());
     assertEquals(PlacementConstraints.NONE, spec.placement());
     assertTrue(spec.activeDeadline().isEmpty());
-    assertTrue(spec.tenantId().isEmpty());
+    assertEquals(Optional.of("default"), spec.tenantId());
     assertTrue(spec.artifactSha256().isEmpty());
   }
 

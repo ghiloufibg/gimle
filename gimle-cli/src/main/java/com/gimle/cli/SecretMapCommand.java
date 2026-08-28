@@ -27,6 +27,10 @@ import java.util.Set;
  * com.gimle.fafnir.secretmap.SecretMapStore}), so there is no single "current SecretMap version" to
  * read first. A multi-key {@code set} reports one outcome per key rather than succeeding or failing
  * as a whole -- one key's write failing never silently drops or rolls back the keys that succeeded.
+ * {@code set} always merges: every existing key not named survives untouched. {@code replace
+ * <tenantId> <name> [--from-literal k=v ...] [--from-file path|key=path ...]} is the explicit
+ * full-replace counterpart -- every key not named is removed, so the resulting key set is exactly
+ * what was given, including an empty set (which clears the SecretMap entirely).
  *
  * <p>Values cross the wire as base64, the same {@link SecretCommand} convention: {@code set} takes
  * plaintext, {@code get} prints plaintext, this class is the one place the encoding is visible.
@@ -65,6 +69,7 @@ public final class SecretMapCommand {
       case "list" -> list(rest);
       case "get" -> get(rest);
       case "set" -> set(rest);
+      case "replace" -> replace(rest);
       case "delete" -> delete(rest);
       case "versions" -> versions(rest);
       case "rollback" -> rollback(rest);
@@ -92,16 +97,17 @@ public final class SecretMapCommand {
   }
 
   private void set(List<String> args) {
+    String usage =
+        "secretmap set requires <tenantId> <name> [--from-literal k=v ...] [--from-file"
+            + " path|key=path ...]";
     if (args.size() < 2) {
-      throw new CliException(
-          "secretmap set requires <tenantId> <name> [--from-literal k=v ...] [--from-file"
-              + " path|key=path ...]");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
     Flags flags =
         Flags.parse(
-            args.subList(2, args.size()), Set.of(), Set.of("--from-literal", "--from-file"));
+            args.subList(2, args.size()), Set.of(), Set.of("--from-literal", "--from-file"), usage);
     Map<String, String> data = new LinkedHashMap<>();
     for (String literal : flags.getAll("--from-literal")) {
       int eq = literal.indexOf('=');
@@ -129,13 +135,56 @@ public final class SecretMapCommand {
     OutputFormat.printList(output, Json.asObjectList(responseBody.get("results")), out);
   }
 
-  private void delete(List<String> args) {
+  /**
+   * Full replace: unlike {@link #set}, an empty {@code data} set is valid here -- it clears the
+   * SecretMap entirely, since the whole point of this verb is that the resulting key set is exactly
+   * what's given, not "at least one key merged in."
+   */
+  private void replace(List<String> args) {
+    String usage =
+        "secretmap replace requires <tenantId> <name> [--from-literal k=v ...] [--from-file"
+            + " path|key=path ...]";
     if (args.size() < 2) {
-      throw new CliException("secretmap delete requires <tenantId> <name>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of("--destroy"));
+    Flags flags =
+        Flags.parse(
+            args.subList(2, args.size()), Set.of(), Set.of("--from-literal", "--from-file"), usage);
+    Map<String, String> data = new LinkedHashMap<>();
+    for (String literal : flags.getAll("--from-literal")) {
+      int eq = literal.indexOf('=');
+      if (eq < 0) {
+        throw new CliException("--from-literal must be key=value, got: " + literal);
+      }
+      data.put(literal.substring(0, eq), literal.substring(eq + 1));
+    }
+    for (String fromFile : flags.getAll("--from-file")) {
+      addFromFile(data, fromFile);
+    }
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    Map<String, String> encoded = new LinkedHashMap<>();
+    for (Map.Entry<String, String> entry : data.entrySet()) {
+      encoded.put(entry.getKey(), encode(entry.getValue()));
+    }
+    body.put("data", encoded);
+    String response =
+        client.expectSuccess(
+            client.post("/secretmaps/" + tenantId + "/" + name + "/replace", Json.write(body)));
+    Map<String, Object> responseBody = Json.asObject(Json.parse(response));
+    OutputFormat.printList(output, Json.asObjectList(responseBody.get("results")), out);
+  }
+
+  private void delete(List<String> args) {
+    String usage = "secretmap delete requires <tenantId> <name> [--destroy]";
+    if (args.size() < 2) {
+      throw new CliException(usage);
+    }
+    String tenantId = args.get(0);
+    String name = args.get(1);
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of("--destroy"), usage);
     boolean destroy = flags.isSet("--destroy");
     String path = "/secretmaps/" + tenantId + "/" + name + (destroy ? "?destroy=true" : "");
 
@@ -182,15 +231,17 @@ public final class SecretMapCommand {
   }
 
   private void seal(List<String> args) {
+    String usage = "secretmap seal requires <tenantId> <name> --from-sealed key=path";
     if (args.size() < 2) {
-      throw new CliException("secretmap seal requires <tenantId> <name> --from-sealed key=path");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), Set.of("--from-sealed"));
+    Flags flags =
+        Flags.parse(args.subList(2, args.size()), Set.of(), Set.of("--from-sealed"), usage);
     List<String> fromSealed = flags.getAll("--from-sealed");
     if (fromSealed.isEmpty()) {
-      throw new CliException("secretmap seal requires at least one --from-sealed key=path");
+      throw new CliException(usage);
     }
 
     Map<String, Object> sealed = new LinkedHashMap<>();
@@ -276,6 +327,7 @@ public final class SecretMapCommand {
           list <tenantId>
           get <tenantId> <name>
           set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
+          replace <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
           delete <tenantId> <name> [--destroy]
           versions <tenantId> <name>
           rollback <tenantId> <name> <groupVersion>

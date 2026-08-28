@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 645,
+  "requirementCount": 653,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11153,6 +11153,145 @@
         "`gimle-agent/src/main/java/com/gimle/agent/AgentAdminServer.java`"
       ],
       "otherTestCoverage": "AgentAdminServerTest (real WorkerProcessSupervisor + real InProcessStore, unit); AdminApiWorkerHandleTest, AdminApiSpecParserTest (unit)"
+    },
+    {
+      "id": "GIMLE-646",
+      "module": "gimle-mimir",
+      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race",
+      "category": "State Store",
+      "status": "Modified",
+      "statusNote": "closes the remaining half of a previously-fixed finding (the first remediation pass only made the delete response honest; the underlying write-ordering race stayed open until this generation guard) -- corrected after real compile/test verification (blocked in the prior session by a sandbox-wide Maven/TLS misconfiguration, since fixed) proved the originally-claimed exactly-one-winner guarantee false for a versionless apply; the achievable guarantee (no lost update, no torn state) is what's actually implemented and tested now",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by a real 15x/5x-repeated concurrency test (ApiServerDeploymentConcurrencyTest) against a real in-process ApiServer/StoreClient/StateStore, but no Holmgang Cucumber .feature scenario exercises a racing apply/delete end to end against a real multi-node cluster yet.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/MutationOutcome.java`, `StateMutation.java`, `RaftNode.java`, `RaftCodec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StateSnapshot.java`, `StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+      ],
+      "otherTestCoverage": "ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name."
+    },
+    {
+      "id": "GIMLE-647",
+      "module": "gimle-console",
+      "feature": "Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "closes the console-side discoverability gap the web-console design doc's own Metrics/Traces section documented (\"no worker-discovery API exists either, so the operator supplies the id from elsewhere\")",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Covered by real Java unit tests (AgentMainTest, DomainCodecTest) and gimle-console Vitest repository tests, but no Holmgang Cucumber .feature scenario exercises the console UI's worker-id deep link against a real running cluster yet -- gimle-smoke-tests' GreeterClusterTopologyIT also runs the console's Playwright suite but does not yet assert this specific link.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-console/src/types/index.ts`, `components/process-picker.tsx`, `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`",
+        "`gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`"
+      ],
+      "otherTestCoverage": "AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged)."
+    },
+    {
+      "id": "GIMLE-648",
+      "module": "gimle-controlplane",
+      "feature": "Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation)",
+      "category": "Scheduler",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises operator taint/untaint against a real running cluster yet -- coverage today is SchedulerTest (unit), ApiServerTest (HTTP endpoint), and RaftCodecTest (wire round-trip) only.",
+      "otherTestCoverage": "`SchedulerTest` (10 taint-focused methods), `ApiServerTest#taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list`, `#untaint_endpoint_clears_the_reservation_for_that_tenant`, `#taint_endpoint_rejects_a_request_with_no_tenant_id`, `RaftCodecTest#round_trips_a_state_snapshot`",
+      "sourceLocations": [
+        "`StateStore#putNodeTaint`/`#getNodeTaints`",
+        "`StateMutation.PutNodeTaint`",
+        "`Scheduler#filterByTaint`",
+        "`NodeCandidate#taints`",
+        "`ApiServer#handleTaint`",
+        "`GimleCli`/`NodesCommand` `taint`/`untaint` verbs"
+      ]
+    },
+    {
+      "id": "GIMLE-649",
+      "module": "gimle-controlplane",
+      "feature": "Plaintext Transport Is Explicitly Single-Tenant",
+      "category": "Governance",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No dedicated Holmgang Cucumber scenario exercises the plaintext single-tenant refusal itself against a real running cluster yet -- coverage today is ApiServerTest (HTTP endpoint, unit-level) plus the indirect proof that quota-and-admission.feature/limitrange.feature had to move off plaintext to keep creating a second tenant.",
+      "otherTestCoverage": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`",
+      "sourceLocations": [
+        "`ApiServer#rejectSecondTenantUnderPlaintext`",
+        "`ApiServer#handleTenant` (PUT branch)"
+      ]
+    },
+    {
+      "id": "GIMLE-650",
+      "module": "gimle-mimir",
+      "feature": "Implicit Default Tenant for Untenanted Workloads",
+      "category": "Multi-tenancy",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario yet exercises submitting an untenanted deployment and reading its config/secrets back at /config/default/... against a real running cluster -- coverage today is unit-level (manifest parser tests) and gimle-controlplane's admission/reconciler suite only.",
+      "otherTestCoverage": "`DeploymentManifestParserTest`, `DaemonSetManifestParserTest`, `StatefulSetManifestParserTest`, `JobManifestParserTest`, `CronJobManifestParserTest` (tenantId defaulting); full `gimle-controlplane` admission/reconciler/ApiServerTest suite",
+      "sourceLocations": [
+        "`Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`",
+        "`ManifestFields#parseTenantId`",
+        "`ApiServer#seedDefaultTenantIfAbsent`"
+      ]
+    },
+    {
+      "id": "GIMLE-651",
+      "module": "gimle-fafnir",
+      "feature": "Explicit SecretMap Replace Verb",
+      "category": "Security",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario yet exercises the replace verb against a real running cluster -- coverage today is unit/route-level (SecretMapStore, FafnirServer, and the control-plane proxy) only.",
+      "otherTestCoverage": "`SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC)",
+      "sourceLocations": [
+        "`SecretMapStore#replaceAll`",
+        "`FafnirServer#handleReplaceSecretMap`",
+        "`SecretMapCommand#replace`"
+      ]
+    },
+    {
+      "id": "GIMLE-652",
+      "module": "gimle-mimir",
+      "feature": "Deleting a Workload Clears Its Revision History",
+      "category": "Application Platform",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario yet exercises delete-then-recreate-under-the-same-name against a real running cluster -- coverage today is unit/route-level (StateStore, ApiServer rollback tests) only.",
+      "otherTestCoverage": "`StateStoreTest` (revision-history clearing on delete, for all three workload kinds), `ApiServerDeploymentRollbackTest`/`ApiServerStatefulSetDaemonSetRollbackTest` (delete-then-recreate revision reset)",
+      "sourceLocations": [
+        "`StateStore#removeDeployment`/`#removeDaemonSetSpec`/`#removeStatefulSetSpec`"
+      ]
+    },
+    {
+      "id": "GIMLE-653",
+      "module": "gimle-cli",
+      "feature": "CLI Flag Errors Always Show Usage",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario exercises CLI error-message shape -- this is a CLI-internal usability property, covered at the gimle-cli unit level and by a real end-user distribution pass, not a cluster-behavior scenario Holmgang's own scope covers.",
+      "otherTestCoverage": "`FlagsTest` (unit-level); a real end-user pass against the built `gimle-cli` distribution archive",
+      "sourceLocations": [
+        "`Flags#parse`",
+        "every `Flags.parse` call site across `gimle-cli`"
+      ]
     }
   ]
 }

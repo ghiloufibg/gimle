@@ -78,11 +78,12 @@ public final class DaemonSetsCommand {
    * DeploymentsCommand#rollback}.
    */
   public void rollback(List<String> args) {
+    String usage = "daemonset rollback requires <name> [--to-revision N]";
     if (args.isEmpty()) {
-      throw new CliException("daemonset rollback requires <name> [--to-revision N]");
+      throw new CliException(usage);
     }
     String name = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
     Map<String, Object> body = new LinkedHashMap<>();
     String toRevision = flags.getOrDefault("--to-revision", null);
     if (toRevision != null) {

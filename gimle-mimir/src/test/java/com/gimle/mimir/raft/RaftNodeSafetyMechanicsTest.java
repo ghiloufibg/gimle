@@ -251,6 +251,7 @@ class RaftNodeSafetyMechanicsTest {
     return RaftCodec.encodeSnapshot(
         new StateSnapshot(
             List.of(),
+            Map.of(),
             List.of(),
             List.of(),
             List.of(),
@@ -285,7 +286,8 @@ class RaftNodeSafetyMechanicsTest {
             List.of(),
             Map.of(),
             Set.of(),
-            List.of()));
+            List.of(),
+            Map.of()));
   }
 
   @Test

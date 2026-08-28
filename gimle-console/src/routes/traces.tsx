@@ -1,5 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { z } from "zod";
 
 import { PageContainer, PageHeader, Panel, StatTile } from "@/components/page-shell";
 import { ProcessPicker, defaultProcessTarget } from "@/components/process-picker";
@@ -7,7 +8,19 @@ import { cn } from "@/lib/utils";
 import { useTracesStore } from "@/stores/useTracesStore";
 import type { ProcessTarget, TraceSpanLine } from "@/types";
 
+// See routes/metrics.tsx's own identical schema for why this exists: a deep link into a specific
+// process' trace history (e.g. an instance's own "view worker traces" link), falling back to the
+// default target for a bare /traces navigation with no query string.
+export const processTargetSearchSchema = z.object({
+  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER"]),
+  processId: z.string(),
+});
+export const processTargetSearchSchemaWithFallback = processTargetSearchSchema.catch(() =>
+  defaultProcessTarget(),
+);
+
 export const Route = createFileRoute("/traces")({
+  validateSearch: (search) => processTargetSearchSchemaWithFallback.parse(search),
   head: () => ({
     meta: [
       { title: "Traces — Gimlé Console" },
@@ -218,7 +231,20 @@ function TraceTable({ target }: { target: ProcessTarget }) {
 }
 
 function Traces() {
-  const [target, setTarget] = useState<ProcessTarget>(defaultProcessTarget);
+  const search = Route.useSearch();
+  const navigate = useNavigate();
+  const [target, setTarget] = useState<ProcessTarget>(search);
+  // See routes/metrics.tsx's own identical effect: a useState initializer only runs once, so a
+  // second navigation to /traces with a different search string (e.g. another "view worker
+  // traces" link while this route is already mounted) needs this to actually take effect.
+  useEffect(() => {
+    setTarget(search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.processKind, search.processId]);
+  function updateTarget(t: ProcessTarget) {
+    setTarget(t);
+    navigate({ to: ".", search: t, replace: true });
+  }
 
   return (
     <PageContainer>
@@ -226,7 +252,7 @@ function Traces() {
         title="Trace History"
         eyebrow="Gimlé // Traces"
         subtitle="Flat span records per process. Timestamps are span end times — no duration is reported yet."
-        actions={<ProcessPicker value={target} onChange={setTarget} />}
+        actions={<ProcessPicker value={target} onChange={updateTarget} />}
       />
       <TraceTable key={`${target.processKind}:${target.processId}`} target={target} />
     </PageContainer>

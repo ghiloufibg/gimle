@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 645,
+    "totalRequirements": 653,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 522,
-    "releaseReadinessPercent": 19.1
+    "notCoveredByAutomatedTest": 530,
+    "releaseReadinessPercent": 18.8
   },
   "items": [
     {
@@ -7097,6 +7097,94 @@
       "category": "Chaos Engineering",
       "feature": "Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface",
       "step": "Given a node agent with gimle.agent.storeEndpoints configured, When an authorized operator POSTs the currently-supervised pid to that worker's /admin/faults/workers/{deployment}/{index}/kill endpoint, Then the underlying OS process is force-killed and the agent's own WorkerProcessSupervisor respawns it under a new pid with no further action from the caller.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-646",
+      "module": "gimle-mimir",
+      "category": "State Store",
+      "feature": "Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race",
+      "step": "Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-647",
+      "module": "gimle-console",
+      "category": "Observability",
+      "feature": "Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker",
+      "step": "Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API. Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value. Given an instance detail page shows a real workerId, When the operator clicks \"Worker metrics\" or \"Worker traces\", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-648",
+      "module": "gimle-controlplane",
+      "category": "Scheduler",
+      "feature": "Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation)",
+      "step": "Given an untainted node open to any tenant; When an operator taints it for tenant-a; Then a tenant-b replica is excluded from it and a tenant-a replica is still admitted; untainting clears the reservation.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-649",
+      "module": "gimle-controlplane",
+      "category": "Governance",
+      "feature": "Plaintext Transport Is Explicitly Single-Tenant",
+      "step": "Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-650",
+      "module": "gimle-mimir",
+      "category": "Multi-tenancy",
+      "feature": "Implicit Default Tenant for Untenanted Workloads",
+      "step": "Given a deployment manifest with no tenantId submitted; When it is admitted; Then its tenantId resolves to \"default\", a real seeded tenant, and its config/secrets become addressable at /config/default/... without being subject to quota/limitrange/policy enforcement unless an operator explicitly configures those for \"default\".",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-651",
+      "module": "gimle-fafnir",
+      "category": "Security",
+      "feature": "Explicit SecretMap Replace Verb",
+      "step": "Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-652",
+      "module": "gimle-mimir",
+      "category": "Application Platform",
+      "feature": "Deleting a Workload Clears Its Revision History",
+      "step": "Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-653",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "CLI Flag Errors Always Show Usage",
+      "step": "Given a command like \"secret set default my-secret hunter2\" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

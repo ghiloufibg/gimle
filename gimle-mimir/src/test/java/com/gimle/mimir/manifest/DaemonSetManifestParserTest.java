@@ -12,6 +12,7 @@ import com.gimle.core.module.Version;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -39,7 +40,7 @@ class DaemonSetManifestParserTest {
         new ModuleId("com.gimle.example.node-exporter", Version.parse("1.0.0")), spec.moduleId());
     assertEquals("/var/gimle/artifacts/node-exporter-1.0.0.jar", spec.artifactPath());
     assertEquals(PlacementConstraints.NONE, spec.placement());
-    assertTrue(spec.tenantId().isEmpty());
+    assertEquals(Optional.of("default"), spec.tenantId());
     assertTrue(spec.artifactSha256().isEmpty());
   }
 

@@ -82,26 +82,25 @@ public final class QuotaReconciler {
   }
 
   private void accumulateUsage(Map<String, TenantUsage.Usage> usageByTenant, DeploymentSpec spec) {
-    spec.tenantId()
-        .ifPresent(
-            tenantId -> {
-              TenantUsage.Usage contribution =
-                  TenantUsage.contributionOf(store, artifactResolver, spec);
-              usageByTenant.merge(
-                  tenantId,
-                  contribution,
-                  (a, b) ->
-                      new TenantUsage.Usage(
-                          a.memoryBytes() + b.memoryBytes(),
-                          a.cpuMillicores() + b.cpuMillicores(),
-                          a.instances() + b.instances()));
-            });
+    if (!Tenant.isEnforceable(spec.tenantId())) {
+      return;
+    }
+    String tenantId = spec.tenantId().get();
+    TenantUsage.Usage contribution = TenantUsage.contributionOf(store, artifactResolver, spec);
+    usageByTenant.merge(
+        tenantId,
+        contribution,
+        (a, b) ->
+            new TenantUsage.Usage(
+                a.memoryBytes() + b.memoryBytes(),
+                a.cpuMillicores() + b.cpuMillicores(),
+                a.instances() + b.instances()));
   }
 
   private void reconcileQuotaViolation(
       DeploymentSpec spec, Map<String, TenantUsage.Usage> usageByTenant) {
     boolean violating = false;
-    if (spec.tenantId().isPresent()) {
+    if (Tenant.isEnforceable(spec.tenantId())) {
       String tenantId = spec.tenantId().get();
       Tenant tenant = store.getTenant(tenantId).orElse(null);
       // A null tenant (an unregistered tenantId) is a manifest-validity concern, not this

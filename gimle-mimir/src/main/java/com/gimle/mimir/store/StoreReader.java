@@ -42,6 +42,15 @@ public interface StoreReader {
 
   Optional<DeploymentSpec> getDeployment(String name);
 
+  /**
+   * The compare-and-set precondition value for {@code ApiServer}'s deployment apply/delete/rollback
+   * handlers -- see {@code StateMutation.PutDeployment}/{@code RemoveDeployment}'s own javadoc. 0
+   * for a deployment that has never existed or was fully removed; every successful {@code
+   * putDeployment} bumps it, every {@code removeDeployment} resets it, so a fresh {@code apply}
+   * under the same name starts a new generation lineage rather than continuing the old one.
+   */
+  long getDeploymentGeneration(String name);
+
   List<DeploymentSpec> listDeployments();
 
   Optional<ServiceSpec> getService(String name);
@@ -57,6 +66,11 @@ public interface StoreReader {
   boolean isQuotaViolating(String deploymentName);
 
   boolean isNodeCordoned(String nodeId);
+
+  /**
+   * Empty means the node is open to any tenant -- see {@code StateStore#putNodeTaint}'s javadoc.
+   */
+  Set<String> getNodeTaints(String nodeId);
 
   boolean isCertificateRevoked(String serialNumber);
 

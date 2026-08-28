@@ -17,6 +17,13 @@ function splitWorkerProcessId(processId: string): [string, string] {
   return colon < 0 ? [processId, ""] : [processId.slice(0, colon), processId.slice(colon + 1)];
 }
 
+/** The inverse of {@link splitWorkerProcessId} -- what a caller who already knows an instance's
+ * own nodeId/workerId (e.g. the instance detail page) builds to link straight into this picker's
+ * WORKER target, rather than making the operator retype what the platform already reported. */
+export function joinWorkerProcessId(nodeId: string, workerId: string): string {
+  return `${nodeId}:${workerId}`;
+}
+
 /**
  * There is no discovery API for which processIds exist -- every non-AGENT processId is a
  * self-reported {@code host:port} string chosen at that process's own startup (e.g. {@code

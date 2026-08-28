@@ -8,13 +8,9 @@ import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
-import com.gimle.mimir.manifest.DaemonSetSpec;
-import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
-import com.gimle.mimir.store.DaemonSetAssignment;
-import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
@@ -24,10 +20,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -373,46 +367,14 @@ public final class StatefulSetReconciler {
 
   /**
    * Mirrors {@link DeploymentReconciler#buildCandidates} exactly, built from {@link
-   * StatefulSetAssignment}s. Folds in {@link InstanceAssignment} and {@link DaemonSetAssignment}
-   * tenant occupancy too, the same one-directional fold {@code DaemonSetReconciler.buildCandidates}
-   * already documents for Deployment -- {@code DeploymentReconciler} is deliberately left
-   * untouched, so this is not symmetric.
+   * StatefulSetAssignment}s.
    */
   private List<NodeCandidate> buildCandidates(String statefulSetName) {
     Set<String> nodesAlreadyRunningThisStatefulSet = new HashSet<>();
-    Map<String, Set<String>> tenantsByNode = new HashMap<>();
     for (StatefulSetAssignment assignment : store.listStatefulSetAssignments()) {
       if (assignment.statefulSetName().equals(statefulSetName)) {
         nodesAlreadyRunningThisStatefulSet.add(assignment.nodeId());
       }
-      store
-          .getStatefulSetSpec(assignment.statefulSetName())
-          .flatMap(StatefulSetSpec::tenantId)
-          .ifPresent(
-              tenantId ->
-                  tenantsByNode
-                      .computeIfAbsent(assignment.nodeId(), key -> new HashSet<>())
-                      .add(tenantId));
-    }
-    for (InstanceAssignment assignment : store.listAssignments()) {
-      store
-          .getDeployment(assignment.deploymentName())
-          .flatMap(DeploymentSpec::tenantId)
-          .ifPresent(
-              tenantId ->
-                  tenantsByNode
-                      .computeIfAbsent(assignment.nodeId(), key -> new HashSet<>())
-                      .add(tenantId));
-    }
-    for (DaemonSetAssignment assignment : store.listDaemonSetAssignments()) {
-      store
-          .getDaemonSetSpec(assignment.daemonSetName())
-          .flatMap(DaemonSetSpec::tenantId)
-          .ifPresent(
-              tenantId ->
-                  tenantsByNode
-                      .computeIfAbsent(assignment.nodeId(), key -> new HashSet<>())
-                      .add(tenantId));
     }
 
     Instant now = clock.instant();
@@ -431,7 +393,7 @@ public final class StatefulSetReconciler {
               registration.capabilities(),
               heartbeat.get().heartbeat().capacity(),
               nodesAlreadyRunningThisStatefulSet.contains(registration.nodeId()),
-              tenantsByNode.getOrDefault(registration.nodeId(), Set.of()),
+              store.getNodeTaints(registration.nodeId()),
               store.isNodeCordoned(registration.nodeId())));
     }
     return candidates;

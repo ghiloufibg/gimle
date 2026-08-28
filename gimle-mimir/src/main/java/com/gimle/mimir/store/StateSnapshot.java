@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
  */
 public record StateSnapshot(
     List<DeploymentSpec> deployments,
+    Map<String, Long> deploymentGenerations,
     List<InstanceAssignment> assignments,
     List<JobSpec> jobSpecs,
     List<JobRun> jobRuns,
@@ -64,10 +65,12 @@ public record StateSnapshot(
     List<LimitRangeSpec> limitRanges,
     Map<String, String> limitRangeViolations,
     Set<String> revokedCertificateSerials,
-    List<WorkloadTokenRecord> workloadTokens) {
+    List<WorkloadTokenRecord> workloadTokens,
+    Map<String, Set<String>> nodeTaints) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
+    deploymentGenerations = Map.copyOf(deploymentGenerations);
     assignments = List.copyOf(assignments);
     jobSpecs = List.copyOf(jobSpecs);
     jobRuns = List.copyOf(jobRuns);
@@ -117,5 +120,10 @@ public record StateSnapshot(
     limitRangeViolations = Map.copyOf(limitRangeViolations);
     revokedCertificateSerials = Set.copyOf(revokedCertificateSerials);
     workloadTokens = List.copyOf(workloadTokens);
+    // Deep-copied for the same reason rollingDaemonSetNodes/rollingIndices are above.
+    nodeTaints =
+        nodeTaints.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
   }
 }

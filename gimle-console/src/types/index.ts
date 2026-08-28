@@ -25,6 +25,12 @@ export interface InstanceObservation {
   queueDepth: number;
   cpuMillicoresUsed: number;
   memoryBytesUsed: number;
+  // The raw id ("worker-1234") the worker JVM hosting this instance reported in its own Hello
+  // handshake with the agent -- null until that handshake completes, and always null for a plain
+  // Vessel instance. Combined with the instance's own nodeId (tracked alongside this observation,
+  // not duplicated into it) as `${nodeId}:${workerId}`, this is the exact processId shape
+  // components/process-picker.tsx already expects for a WORKER process target.
+  workerId: string | null;
 }
 
 export interface DeploymentInstance {
@@ -364,6 +370,7 @@ export interface ModuleInstance {
   queueDepth: number;
   cpuMillicoresUsed: number;
   memoryBytesUsed: number;
+  workerId: string | null;
 }
 
 export type LogLevel = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR";

@@ -88,8 +88,8 @@ class RaftCodecTest {
             2L,
             4L,
             List.of(
-                logEntry(3L, new StateMutation.PutDeployment(deploymentSpec())),
-                logEntry(4L, new StateMutation.RemoveDeployment("greeter")),
+                logEntry(3L, new StateMutation.PutDeployment(deploymentSpec(), 0)),
+                logEntry(4L, new StateMutation.RemoveDeployment("greeter", 1)),
                 logEntry(
                     5L,
                     new StateMutation.PutTenant(
@@ -259,7 +259,7 @@ class RaftCodecTest {
                     OptionalDouble.of(1.5))),
             Optional.empty(),
             Optional.empty());
-    LogEntry original = logEntry(1L, new StateMutation.PutDeployment(spec));
+    LogEntry original = logEntry(1L, new StateMutation.PutDeployment(spec, 0));
 
     byte[] bytes = RaftCodec.encodeLogEntry(original);
     LogEntry decoded = RaftCodec.decodeLogEntry(bytes);
@@ -272,6 +272,7 @@ class RaftCodecTest {
     StateSnapshot snapshot =
         new StateSnapshot(
             List.of(deploymentSpec()),
+            Map.of("greeter", 3L),
             List.of(
                 new InstanceAssignment(
                     "greeter", 0, "node-1", MODULE_ID, "/artifacts/greeter.jar")),
@@ -340,7 +341,8 @@ class RaftCodecTest {
             Set.of("0a1b2c"),
             List.of(
                 new WorkloadTokenRecord(
-                    "orders#node-1", "ab12cd", Optional.of("tenant-1"), "orders", 9_999L)));
+                    "orders#node-1", "ab12cd", Optional.of("tenant-1"), "orders", 9_999L)),
+            Map.of("node-1", Set.of("tenant-1", "tenant-2")));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -375,6 +377,7 @@ class RaftCodecTest {
     assertEquals(snapshot.revokedCertificateSerials(), decoded.revokedCertificateSerials());
     assertEquals(snapshot.workloadTokens(), decoded.workloadTokens());
     assertEquals(snapshot.jobRunSummaries(), decoded.jobRunSummaries());
+    assertEquals(snapshot.nodeTaints(), decoded.nodeTaints());
   }
 
   @Test
@@ -382,7 +385,7 @@ class RaftCodecTest {
     StateMutation.Batch batch =
         new StateMutation.Batch(
             List.of(
-                new StateMutation.RemoveDeployment("orders-service"),
+                new StateMutation.RemoveDeployment("orders-service", 0),
                 new StateMutation.RemoveAssignment("orders-service", 0),
                 new StateMutation.AddRollingIndex("orders-service", 1)));
     LogEntry entry = logEntry(1L, batch);

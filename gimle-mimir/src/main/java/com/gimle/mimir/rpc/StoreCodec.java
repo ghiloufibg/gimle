@@ -60,6 +60,7 @@ public final class StoreCodec {
   private static final byte TAG_GET_TENANT = 5;
   private static final byte TAG_GET_DEPLOYMENT = 6;
   private static final byte TAG_LIST_DEPLOYMENTS = 7;
+  private static final byte TAG_GET_DEPLOYMENT_GENERATION = 118;
   private static final byte TAG_LIST_ASSIGNMENTS_FOR = 8;
   private static final byte TAG_IS_QUOTA_VIOLATING = 9;
   private static final byte TAG_LIST_ASSIGNMENTS = 10;
@@ -106,10 +107,12 @@ public final class StoreCodec {
   // ---- responses ----
   private static final byte TAG_OK = 23;
   private static final byte TAG_NOT_LEADER = 24;
+  private static final byte TAG_MUTATION_REJECTED = 119;
   private static final byte TAG_LEASE_RESULT = 25;
   private static final byte TAG_BOOL_RESULT = 26;
   private static final byte TAG_INT_RESULT = 27;
   private static final byte TAG_DEPLOYMENT_RESULT = 28;
+  private static final byte TAG_GENERATION_RESULT = 120;
   private static final byte TAG_TENANT_RESULT = 29;
   private static final byte TAG_ROLE_RESULT = 30;
   private static final byte TAG_ROLE_BINDING_RESULT = 31;
@@ -172,6 +175,7 @@ public final class StoreCodec {
   private static final byte TAG_GET_WORKLOAD_TOKEN = 114;
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
   private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
+  private static final byte TAG_GET_NODE_TAINTS = 121;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -236,6 +240,10 @@ public final class StoreCodec {
           out.writeByte(TAG_GET_DEPLOYMENT);
           out.writeUTF(v.name());
         }
+        case StoreRpc.GetDeploymentGeneration v -> {
+          out.writeByte(TAG_GET_DEPLOYMENT_GENERATION);
+          out.writeUTF(v.name());
+        }
         case StoreRpc.ListDeployments v -> out.writeByte(TAG_LIST_DEPLOYMENTS);
         case StoreRpc.GetService v -> {
           out.writeByte(TAG_GET_SERVICE);
@@ -267,6 +275,10 @@ public final class StoreCodec {
         case StoreRpc.GetLimitRangeViolationReason v -> {
           out.writeByte(TAG_GET_LIMIT_RANGE_VIOLATION_REASON);
           out.writeUTF(v.deploymentName());
+        }
+        case StoreRpc.GetNodeTaints v -> {
+          out.writeByte(TAG_GET_NODE_TAINTS);
+          out.writeUTF(v.nodeId());
         }
         case StoreRpc.IsNodeCordoned v -> {
           out.writeByte(TAG_IS_NODE_CORDONED);
@@ -435,6 +447,10 @@ public final class StoreCodec {
           out.writeByte(TAG_NOT_LEADER);
           out.writeUTF(v.leaderClientAddress());
         }
+        case StoreRpc.MutationRejected v -> {
+          out.writeByte(TAG_MUTATION_REJECTED);
+          out.writeUTF(v.reason());
+        }
         case StoreRpc.LeaseResult v -> {
           out.writeByte(TAG_LEASE_RESULT);
           out.writeBoolean(v.granted());
@@ -456,6 +472,10 @@ public final class StoreCodec {
           if (v.present()) {
             DomainCodec.writeDeploymentSpec(out, v.value());
           }
+        }
+        case StoreRpc.GenerationResult v -> {
+          out.writeByte(TAG_GENERATION_RESULT);
+          out.writeLong(v.value());
         }
         case StoreRpc.ServiceResult v -> {
           out.writeByte(TAG_SERVICE_RESULT);
@@ -800,6 +820,7 @@ public final class StoreCodec {
         case TAG_LIST_ACCOUNTS -> new StoreRpc.ListAccounts();
         case TAG_GET_TENANT -> new StoreRpc.GetTenant(in.readUTF());
         case TAG_GET_DEPLOYMENT -> new StoreRpc.GetDeployment(in.readUTF());
+        case TAG_GET_DEPLOYMENT_GENERATION -> new StoreRpc.GetDeploymentGeneration(in.readUTF());
         case TAG_LIST_DEPLOYMENTS -> new StoreRpc.ListDeployments();
         case TAG_GET_SERVICE -> new StoreRpc.GetService(in.readUTF());
         case TAG_LIST_SERVICES -> new StoreRpc.ListServices();
@@ -813,6 +834,7 @@ public final class StoreCodec {
         case TAG_GET_LIMIT_RANGE_VIOLATION_REASON ->
             new StoreRpc.GetLimitRangeViolationReason(in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
+        case TAG_GET_NODE_TAINTS -> new StoreRpc.GetNodeTaints(in.readUTF());
         case TAG_IS_CERTIFICATE_REVOKED -> new StoreRpc.IsCertificateRevoked(in.readUTF());
         case TAG_LIST_REVOKED_CERTIFICATE_SERIALS -> new StoreRpc.ListRevokedCertificateSerials();
         case TAG_GET_WORKLOAD_TOKEN -> new StoreRpc.GetWorkloadToken(in.readUTF());
@@ -878,6 +900,7 @@ public final class StoreCodec {
         case TAG_STATUS -> new StoreRpc.Status();
         case TAG_OK -> new StoreRpc.Ok();
         case TAG_NOT_LEADER -> new StoreRpc.NotLeader(in.readUTF());
+        case TAG_MUTATION_REJECTED -> new StoreRpc.MutationRejected(in.readUTF());
         case TAG_LEASE_RESULT ->
             new StoreRpc.LeaseResult(in.readBoolean(), in.readUTF(), in.readLong());
         case TAG_BOOL_RESULT -> new StoreRpc.BoolResult(in.readBoolean());
@@ -887,6 +910,7 @@ public final class StoreCodec {
           yield new StoreRpc.DeploymentResult(
               present, present ? DomainCodec.readDeploymentSpec(in) : null);
         }
+        case TAG_GENERATION_RESULT -> new StoreRpc.GenerationResult(in.readLong());
         case TAG_SERVICE_RESULT -> {
           boolean present = in.readBoolean();
           yield new StoreRpc.ServiceResult(

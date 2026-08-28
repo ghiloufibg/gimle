@@ -127,6 +127,31 @@ class ApiServerSecretMapAuthzTest {
     }
   }
 
+  @Test
+  @Timeout(10)
+  void a_caller_with_no_secretmap_grant_may_not_replace_one_either() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient noPermissionClient = mutualTlsClient(ca, "CN=no-permission-caller");
+
+      HttpResponse<String> replaceResponse =
+          noPermissionClient.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/secretmaps/acme/db-creds/replace"))
+                  .POST(HttpRequest.BodyPublishers.ofString(putBody()))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(403, replaceResponse.statusCode());
+    }
+  }
+
   private static String putBody() {
     String value = Base64.getEncoder().encodeToString("admin".getBytes(StandardCharsets.UTF_8));
     return Json.write(Map.of("data", Map.of("username", value)));

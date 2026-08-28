@@ -28,13 +28,14 @@ public final class ConfigCommand {
   }
 
   public void set(List<String> args) {
+    String usage = "set config requires <tenantId> <key> <value> [--encrypted]";
     if (args.size() < 3) {
-      throw new CliException("set config requires <tenantId> <key> <value>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String key = args.get(1);
     String value = args.get(2);
-    Flags flags = Flags.parse(args.subList(3, args.size()), Set.of("--encrypted"));
+    Flags flags = Flags.parse(args.subList(3, args.size()), Set.of("--encrypted"), usage);
     boolean encrypted = flags.isSet("--encrypted");
 
     Map<String, Object> body = new LinkedHashMap<>();

@@ -40,6 +40,8 @@ import java.util.Map;
  *   gimle get node-assignments &lt;nodeId&gt;
  *   gimle cordon &lt;nodeId&gt;
  *   gimle uncordon &lt;nodeId&gt;
+ *   gimle taint &lt;nodeId&gt; &lt;tenantId&gt;
+ *   gimle untaint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--limit N]
  *   gimle get services [name]
  *   gimle set service &lt;name&gt; (--deployment &lt;name&gt; [--deployment ...] | --external-name &lt;host&gt;) --port N [--target-port N] [--session-affinity]
@@ -79,6 +81,8 @@ import java.util.Map;
  *   gimle secretmap get &lt;tenantId&gt; &lt;name&gt;
  *   gimle secretmap set &lt;tenantId&gt; &lt;name&gt; [--from-literal key=value ...] [--from-file
  *                                          path|key=path ...]
+ *   gimle secretmap replace &lt;tenantId&gt; &lt;name&gt; [--from-literal key=value ...] [--from-file
+ *                                              path|key=path ...]
  *   gimle secretmap delete &lt;tenantId&gt; &lt;name&gt; [--destroy]
  *   gimle secretmap versions &lt;tenantId&gt; &lt;name&gt;
  *   gimle secretmap rollback &lt;tenantId&gt; &lt;name&gt; &lt;groupVersion&gt;
@@ -208,6 +212,8 @@ public final class GimleCli {
       case "cordon" -> new NodesCommand(client, output, out).cordon(requireOne(rest, "cordon"));
       case "uncordon" ->
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
+      case "taint" -> handleTaint(rest, client, output, out, true);
+      case "untaint" -> handleTaint(rest, client, output, out, false);
       case "events" -> handleEvents(rest, client, output, out);
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
       case "configmap", "configmaps" -> new ConfigMapCommand(client, output, out).run(rest);
@@ -279,6 +285,24 @@ public final class GimleCli {
     }
     new EventsCommand(client, output, out)
         .run(args.get(0), args.get(1), args.subList(2, args.size()));
+  }
+
+  private static void handleTaint(
+      List<String> args,
+      ControlPlaneClient client,
+      OutputFormat.Kind output,
+      PrintStream out,
+      boolean tainted) {
+    if (args.size() < 2) {
+      throw new CliException(
+          "usage: gimle " + (tainted ? "taint" : "untaint") + " <nodeId> <tenantId>");
+    }
+    NodesCommand command = new NodesCommand(client, output, out);
+    if (tainted) {
+      command.taint(args.get(0), args.get(1));
+    } else {
+      command.untaint(args.get(0), args.get(1));
+    }
   }
 
   /**
@@ -502,6 +526,8 @@ public final class GimleCli {
       case "events" -> EVENTS_USAGE;
       case "cordon" -> "usage: gimle cordon <nodeId>";
       case "uncordon" -> "usage: gimle uncordon <nodeId>";
+      case "taint" -> "usage: gimle taint <nodeId> <tenantId>";
+      case "untaint" -> "usage: gimle untaint <nodeId> <tenantId>";
       case "cert" -> CertCommand.usage();
       default -> usage();
     };
@@ -733,6 +759,8 @@ public final class GimleCli {
           get node-assignments <nodeId>
           cordon <nodeId>
           uncordon <nodeId>
+          taint <nodeId> <tenantId>
+          untaint <nodeId> <tenantId>
           volume list
           volume destroy <statefulSet> <instanceIndex> --node <nodeId>
           events <deploymentName> <instanceIndex> [--limit N]
@@ -772,6 +800,7 @@ public final class GimleCli {
           secretmap list <tenantId>
           secretmap get <tenantId> <name>
           secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
+          secretmap replace <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
           secretmap delete <tenantId> <name> [--destroy]
           secretmap versions <tenantId> <name>
           secretmap rollback <tenantId> <name> <groupVersion>

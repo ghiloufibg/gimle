@@ -655,6 +655,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-643 | SSH-backed managed-inventory ClusterTarget for real process control | Chaos Engineering | Complete | Partial (unit + one real-SSH IT; not every bounce kind exercised end to end) |
 | GIMLE-644 | Real iptables host-firewall network faults over SSH | Chaos Engineering | Complete | Partial (unit + one real-SSH mechanism IT; not exercised through a full ragnarok chaos run against a live multi-store cluster) |
 | GIMLE-645 | Admin Fault API -- SSH-free WORKER_KILL via a node agent's own authenticated HTTP surface | Chaos Engineering | Complete | Partial (unit-level real-mechanism coverage in gimle-agent/gimle-ragnarok; not exercised through a full ragnarok chaos run against a live multi-node GimleCluster -- deliberately scoped down, see gapNote in rtm.json) |
+| GIMLE-646 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | State Store | Complete | Yes |
+| GIMLE-647 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Observability | Complete | Yes |
+| GIMLE-648 | Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation) | Scheduler | Complete | Yes |
+| GIMLE-649 | Plaintext Transport Is Explicitly Single-Tenant | Governance | Complete | Yes |
+| GIMLE-650 | Implicit Default Tenant for Untenanted Workloads | Multi-tenancy | Complete | Yes |
+| GIMLE-651 | Explicit SecretMap Replace Verb | Security | Complete | Yes |
+| GIMLE-652 | Deleting a Workload Clears Its Revision History | Application Platform | Complete | Yes |
+| GIMLE-653 | CLI Flag Errors Always Show Usage | CLI | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3652,6 +3660,46 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a fresh mTLS cluster with a coordinate-only DaemonSet manifest applied, When the control plane's own scheduler resolves the artifact to compute eligible nodes, Then the pull succeeds and placement proceeds, with no operator-authored RoleBinding needed.
   ```
 
+#### GIMLE-646 — Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race
+
+- **Category**: State Store
+- **User story**: As an operator firing a scale-up apply and a delete against the same deployment concurrently, I want the two writes to always resolve to a single coherent, real total order -- never a torn state, never a response that lies about what actually stuck -- even though a fully unversioned apply (a desired-state manifest, not a client-supplied patch) can legitimately recreate a deployment a faster concurrent delete already removed, the same way kubectl apply without a resourceVersion does.
+- **Status**: Complete, corrected after real compile/test verification proved the first pass's own stated guarantee false. StateMutation.PutDeployment/RemoveDeployment carry an expectedGeneration precondition, checked inside applyTo against StateStore#getDeploymentGeneration -- computed identically on every node from the same prior state, so a mismatch is a real, cluster-wide fact about what committed in between, not a leader-side guess. StateMutation#applyTo returns a MutationOutcome (Accepted/Rejected(reason)) instead of void; RaftNode#propose/MutationSink#propose/StoreClient#propose all return it, threaded across the control-plane/store process boundary via StoreRpc.MutationRejected. Running this for real (blocked in the prior session by a sandbox-wide Maven/TLS misconfiguration, since fixed) surfaced two further bugs the design alone hadn't caught: (1) handlePutDeployment/handleRollbackDeployment re-read the generation right before proposing, after admission-chain work and an extra AppendControllerRevision round trip -- long enough for a racing delete to fully complete first, so the late read silently adopted the post-delete state as its own precondition instead of detecting the race; fixed by reading the generation as the very first store interaction in each handler. (2) An in-process per-name lock was then tried around each handler's whole read-then-propose section to force a single winner every round, and reverted after proving counterproductive: serializing the two handlers just guarantees whichever runs second always re-reads an already-consistent world and therefore always succeeds too, turning every race into a guaranteed double-success. The actual, achievable guarantee -- and the one now implemented and tested -- is no lost update: a losing write is always refused with a genuine 409 against the state the winner committed, and a final state that reflects both writes succeeding is always the coherent result of a real total order (delete finishing first, apply legitimately recreating fresh), never a torn mix of the two. deploymentGenerations is snapshotted/restored alongside deployments so a replica recovering from a snapshot agrees with the rest of the cluster's CAS decisions. Replaces the original remediation pass's delete-side-only fix (a post-hoc re-read after an unconditional RemoveDeployment); a still-earlier attempt reused an existing distributed-lease primitive for mutual exclusion and was reverted after it measurably degraded a different subsystem's reliability -- the generation guard replaces both of those rather than layering onto either.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/MutationOutcome.java`, `StateMutation.java` (`PutDeployment`/`RemoveDeployment`/`Batch`), `RaftNode.java` (`pendingOutcomes`, `applyCommittedLocked`, `awaitAppliedThrowing`, `propose`), `RaftCodec.java` (mutation and snapshot wire format), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`deploymentGenerations`, `getDeploymentGeneration`), `StateSnapshot.java`, `StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java` (`GetDeploymentGeneration`, `GenerationResult`, `MutationRejected`), `StoreNode.java`, `StoreClient.java`, `StoreCodec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutDeployment`, `handleDeleteDeployment`, `handleRollbackDeployment`, `proposePutDeploymentOrConflict`, generation reads moved ahead of all admission-chain work)
+- **Test coverage**: ApiServerDeploymentConcurrencyTest (rewritten twice: once for the original design, once more after real test runs proved the exactly-one-winner invariant unachievable for a versionless apply): a 15x-repeated real racing apply/delete against an already-existing deployment now asserts the achievable guarantee directly -- at least one side always wins, a losing side is always a genuine 409, and whichever combination of outcomes occurs, the final state is always one of the two coherent total-order results, never a torn mix; a second, 5x-repeated test proves a delete racing a brand-new name's own first create never blocks the create.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both.
+  Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create.
+  ```
+
+#### GIMLE-650 — Implicit Default Tenant for Untenanted Workloads
+
+- **Category**: Multi-tenancy
+- **User story**: As an operator, I want a deployment submitted with no tenantId to still have an addressable config/secret bucket, instead of 'no tenant' being a valid-but-broken state.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `Tenant#DEFAULT_TENANT_ID`/`Tenant#isEnforceable`, `ManifestFields#parseTenantId`, `ApiServer#seedDefaultTenantIfAbsent`, `TenantQuotaPlugin`/`LimitRangePlugin`/`PolicyConfigPlugin`/`QuotaReconciler`/`LimitRangeReconciler` (isEnforceable exemption)
+- **Test coverage**: `DeploymentManifestParserTest#parses_a_minimal_manifest_with_no_placement_section`/`#an_explicit_tenant_id_is_kept_as_is`/`#blank_tenant_id_throws`, and the equivalent tenantId assertions in `DaemonSetManifestParserTest`/`StatefulSetManifestParserTest`/`JobManifestParserTest`/`CronJobManifestParserTest`; full `gimle-controlplane` suite (admission plugins, reconcilers, `ApiServerTest`) re-verified green against the new default-tenant seeding.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment manifest with no tenantId submitted; When it is admitted; Then its tenantId resolves to "default", a real seeded tenant, and its config/secrets become addressable at /config/default/... without being subject to quota/limitrange/policy enforcement unless an operator explicitly configures those for "default".
+  ```
+
+#### GIMLE-652 — Deleting a Workload Clears Its Revision History
+
+- **Category**: Application Platform
+- **User story**: As an operator, I want deleting a Deployment/StatefulSet/DaemonSet to clear its ControllerRevision history, so recreating a workload under the same name is always a clean, fresh start instead of inheriting an unrelated prior incarnation's revisions.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `StateStore#removeDeployment`/`#removeDaemonSetSpec`/`#removeStatefulSetSpec` (controllerRevisions.remove)
+- **Test coverage**: `StateStoreTest#removing_a_deployment_clears_its_controller_revision_history`/`#recreating_a_deployment_under_the_same_name_after_delete_starts_revision_history_fresh`/`#removing_a_daemonset_clears_its_controller_revision_history`/`#removing_a_statefulset_clears_its_controller_revision_history`; `ApiServerDeploymentRollbackTest#deleting_then_recreating_a_deployment_starts_revision_history_fresh`; `ApiServerStatefulSetDaemonSetRollbackTest#deleting_then_recreating_a_statefulset_starts_revision_history_fresh`/`#deleting_then_recreating_a_daemonset_starts_revision_history_fresh`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404.
+  ```
+
 ### gimle-fabric
 
 #### GIMLE-181 — Same-Worker Direct Invocation Tier
@@ -5090,6 +5138,32 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a DaemonSet assignment evicted because its node fell out of eligibility, When the eviction is logged, Then the log line names the specific reason (heartbeat loss, cordon, or a placement-requirement mismatch), not just that an eviction happened.
   ```
 
+#### GIMLE-648 — Node Taints / Tenant Tolerations (Kubernetes-Pattern Scheduler Reservation)
+
+- **Category**: Scheduler
+- **User story**: As an operator, I want to reserve a node for one tenant so no other tenant's replica can land there, without that guarantee degrading as more tenants join the cluster.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `StateStore#putNodeTaint`/`#getNodeTaints`, `StateMutation.PutNodeTaint`, `Scheduler#filterByTaint`, `NodeCandidate#taints`, `ApiServer#handleTaint`, `GimleCli`/`NodesCommand` `taint`/`untaint` verbs
+- **Test coverage**: `SchedulerTest` (taint_excludes_a_node_tainted_for_a_different_tenant, taint_permits_a_node_tainted_for_the_same_tenant, taint_fails_outright_when_every_capable_node_is_tainted_for_a_different_tenant, taint_failure_names_the_specific_blocking_node_and_tenant, taint_failure_names_every_blocking_node_when_more_than_one_conflicts, taint_is_enforced_at_tier1_too_unlike_the_co_residency_check_it_replaced, an_untenanted_deployment_never_tolerates_a_taint, an_untainted_node_admits_any_tenant, eligible_nodes_applies_node_taints, sticky_placement_still_enforces_node_taints_on_the_sticky_node), `ApiServerTest#taint_endpoint_reserves_the_node_for_a_tenant_and_is_reflected_in_the_nodes_list`, `#untaint_endpoint_clears_the_reservation_for_that_tenant`, `#taint_endpoint_rejects_a_request_with_no_tenant_id`, `RaftCodecTest#round_trips_a_state_snapshot`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an untainted node open to any tenant; When an operator taints it for tenant-a; Then a tenant-b replica is excluded from it and a tenant-a replica is still admitted; untainting clears the reservation.
+  ```
+
+#### GIMLE-649 — Plaintext Transport Is Explicitly Single-Tenant
+
+- **Category**: Governance
+- **User story**: As an operator running plaintext (the default transport, no peer identity to check), I want the platform to refuse creating a second real tenant, so plaintext is never quietly used for shared multi-tenancy with no way to tell callers apart after the fact.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `ApiServer#rejectSecondTenantUnderPlaintext`, `ApiServer#handleTenant` (PUT branch)
+- **Test coverage**: `ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted.
+  ```
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -5415,6 +5489,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a value has been sealed against Fafnir's current public sealing key for tenant `acme`/name `db-creds`/key `password`, When it is committed via `POST /secretmaps/acme/db-creds/seal` under the correct tenant and name, Then `GET /secretmaps/acme/db-creds` shows `password` at a new version holding the recovered plaintext.
+  ```
+
+#### GIMLE-651 — Explicit SecretMap Replace Verb
+
+- **Category**: Security
+- **User story**: As an operator, I want an explicit full-replace verb for a SecretMap distinct from the always-merging set, so I can express 'this is now the complete key set' without deleting keys by hand first.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `SecretMapStore#replaceAll`, `FafnirServer#handleReplaceSecretMap` (`POST /secretmaps/{tenantId}/{name}/replace`), `SecretMapCommand#replace` (`gimle secretmap replace`)
+- **Test coverage**: `SecretMapStoreTest#replace_all_removes_every_live_key_not_named_in_the_new_values`/`#replace_all_with_an_empty_map_clears_every_live_key`/`#replace_all_stamps_one_group_version_recording_the_final_state`/`#replace_all_reports_an_outcome_for_every_written_or_removed_key`; `FafnirServerSecretMapTest#replace_removes_every_key_not_named_in_the_new_data`/`#replace_with_no_data_at_all_clears_the_secret_map`/`#put_still_merges_and_leaves_other_keys_untouched`; `ApiServerSecretMapTest#replace_removes_keys_not_named_through_the_proxy_to_a_real_fafnir`; `ApiServerSecretMapAuthzTest#a_caller_with_no_secretmap_grant_may_not_replace_one_either`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely.
   ```
 
 ### gimle-andvari
@@ -6944,6 +7031,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the same resources, When "-o json" is passed instead, Then the full nested spec/instances shape -- including each instance's own nodeId -- is returned unchanged, exactly as before this fix.
   ```
 
+#### GIMLE-653 — CLI Flag Errors Always Show Usage
+
+- **Category**: CLI
+- **User story**: As an operator, I want a malformed CLI command to tell me the correct syntax no matter which part of the command I got wrong, so a stray argument is as easy to fix as a missing one.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `Flags#parse` (usage parameter threaded through both overloads), every `Flags.parse` call site across `gimle-cli` (21 command classes, 31 call sites)
+- **Test coverage**: `FlagsTest#a_stray_non_flag_token_reports_the_callers_own_usage_string`/`#a_flag_missing_its_value_also_reports_the_callers_own_usage_string`/`#a_valued_flag_and_a_boolean_flag_both_parse`/`#a_repeatable_flag_accumulates_every_occurrence`/`#an_unset_boolean_flag_is_not_reported_as_set`; full `gimle-cli` suite re-verified green, plus a real end-user pass against the built `gimle-cli` distribution archive confirming the fix.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a command like "secret set default my-secret hunter2" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does.
+  ```
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -8008,6 +8108,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a read-only account's New Deployment submit is refused with 403, When the control plane's response comes back, Then a visible error toast appears -- the page's own text is no longer byte-for-byte identical before and after the submit.
+  ```
+
+#### GIMLE-647 — Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker
+
+- **Category**: Observability
+- **User story**: As an operator looking at a deployment or instance in the console, I want to see which worker JVM it's actually running in and jump straight to that worker's Metrics/Traces history, instead of having to already know its workerId from a log line or the CLI before I can even open the process picker.
+- **Status**: Complete. InstanceObservation (gimle-core) gained an Optional<String> workerId component -- the raw id ("worker-" + pid) a worker JVM reports in its own Hello handshake with the agent, empty until that handshake completes and always empty for a plain Vessel instance -- appended last per this record's own established back-compat-overload convention, threaded through DomainCodec's wire format (gimle-mimir), AgentMain#observationJson (reads SupervisedInstance#fabricWorkerId, omitted entirely rather than sent null until known), and ApiServer#observationFromJson/observationToJson (gimle-controlplane, present-only-when-set on the wire, matching ports/volumeUsageBytes's own convention). The console's InstanceObservation/ModuleInstance types gained a workerId: string | null field threaded through every HTTP repository that maps a raw instance observation (deployments/daemonsets/statefulsets) and both instances repositories (Http/Mock), plus the mock fixture generator. Instances/Deployments screens gained a Worker column alongside Node; the instance detail page gained a Worker stat cell and "Worker metrics"/"Worker traces" buttons that deep-link into /metrics and /traces with the WORKER process pre-selected as `{nodeId}:{workerId}` (a new joinWorkerProcessId helper, the inverse of process-picker.tsx's existing splitWorkerProcessId). Both history routes gained a Zod validateSearch schema (mirroring routes/logs.tsx's own searchSchemaWithFallback) so a deep link -- or a browser back/forward, or another such link while the route is already mounted -- actually pre-fills the picker instead of silently falling back to the CONTROLPLANE default; the free-text workerId field in the picker itself remains the only path in for a worker with no instance currently in view, since no API enumerates every workerId a node hosts.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`/`readInstanceObservation`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationFromJson`, `observationToJson`), `gimle-console/src/types/index.ts` (`InstanceObservation`, `ModuleInstance`), `components/process-picker.tsx` (`joinWorkerProcessId`), `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`, `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`
+- **Test coverage**: AgentMainTest: observation_json_omits_worker_id_until_the_workers_hello_arrives, observation_json_reports_the_workers_self_reported_id_once_its_hello_arrives. DomainCodecTest: an_instance_observation_with_a_worker_id_round_trips, an_instance_observation_with_no_worker_id_round_trips_as_empty. gimle-console Vitest: HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository each gained a workerId-defaults-to-null assertion on their existing missing-observation test, plus HttpDeploymentsRepository gained explicit present/absent workerId mapping tests.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API.
+  Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value.
+  Given an instance detail page shows a real workerId, When the operator clicks "Worker metrics" or "Worker traces", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing.
   ```
 
 ### gimle-fafnir-console

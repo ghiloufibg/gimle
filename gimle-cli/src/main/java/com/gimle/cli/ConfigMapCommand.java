@@ -77,16 +77,17 @@ public final class ConfigMapCommand {
   }
 
   private void set(List<String> args) {
+    String usage =
+        "configmap set requires <tenantId> <name> [--from-literal k=v ...] [--from-file"
+            + " path|key=path ...]";
     if (args.size() < 2) {
-      throw new CliException(
-          "configmap set requires <tenantId> <name> [--from-literal k=v ...] [--from-file"
-              + " path|key=path ...]");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String name = args.get(1);
     Flags flags =
         Flags.parse(
-            args.subList(2, args.size()), Set.of(), Set.of("--from-literal", "--from-file"));
+            args.subList(2, args.size()), Set.of(), Set.of("--from-literal", "--from-file"), usage);
     Map<String, String> data = new LinkedHashMap<>();
     for (String literal : flags.getAll("--from-literal")) {
       int eq = literal.indexOf('=');

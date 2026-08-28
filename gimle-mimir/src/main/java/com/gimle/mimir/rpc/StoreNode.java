@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.raft.MutationOutcome;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.store.ControllerRevision;
@@ -68,6 +69,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListAccounts r -> new StoreRpc.AccountListResult(store.listAccounts());
       case StoreRpc.GetTenant r -> tenantResult(store.getTenant(r.id()));
       case StoreRpc.GetDeployment r -> deploymentResult(store.getDeployment(r.name()));
+      case StoreRpc.GetDeploymentGeneration r ->
+          new StoreRpc.GenerationResult(store.getDeploymentGeneration(r.name()));
       case StoreRpc.ListDeployments r -> new StoreRpc.DeploymentListResult(store.listDeployments());
       case StoreRpc.GetService r -> serviceResult(store.getService(r.name()));
       case StoreRpc.ListServices r -> new StoreRpc.ServiceListResult(store.listServices());
@@ -85,6 +88,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.GetLimitRangeViolationReason r ->
           stringResult(store.limitRangeViolationReason(r.deploymentName()));
       case StoreRpc.IsNodeCordoned r -> new StoreRpc.BoolResult(store.isNodeCordoned(r.nodeId()));
+      case StoreRpc.GetNodeTaints r ->
+          new StoreRpc.StringSetResult(List.copyOf(store.getNodeTaints(r.nodeId())));
       case StoreRpc.IsCertificateRevoked r ->
           new StoreRpc.BoolResult(store.isCertificateRevoked(r.serialNumber()));
       case StoreRpc.ListRevokedCertificateSerials r ->
@@ -180,7 +185,14 @@ public final class StoreNode implements StoreRpcHandler {
 
   private StoreRpc.Response handlePropose(StoreRpc.Propose request) {
     try {
-      raftNode.propose(request.mutation());
+      MutationOutcome outcome = raftNode.propose(request.mutation());
+      if (outcome instanceof MutationOutcome.Rejected rejected) {
+        // Deliberately not notLeaderResponse(): retrying this exact mutation against the correct
+        // leader would reject identically (the precondition it evaluated didn't hold, computed
+        // deterministically from the same replicated state every node has) -- unlike a genuine
+        // not-leader redirect, which retrying elsewhere actually resolves.
+        return new StoreRpc.MutationRejected(rejected.reason());
+      }
       return new StoreRpc.Ok();
     } catch (GimleRaftException e) {
       return notLeaderResponse();

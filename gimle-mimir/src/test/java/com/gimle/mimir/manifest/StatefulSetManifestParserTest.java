@@ -41,7 +41,7 @@ class StatefulSetManifestParserTest {
     assertEquals("/var/gimle/artifacts/orders-1.0.0.jar", spec.artifactPath());
     assertEquals(3, spec.replicas());
     assertEquals(PlacementConstraints.NONE, spec.placement());
-    assertTrue(spec.tenantId().isEmpty());
+    assertEquals(Optional.of("default"), spec.tenantId());
     assertTrue(spec.artifactSha256().isEmpty());
   }
 

@@ -58,10 +58,10 @@ public final class VolumesCommand {
     if (!index.chars().allMatch(Character::isDigit)) {
       throw new CliException("instance index must be a number: " + index);
     }
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage());
     String nodeId = flags.getOrDefault("--node", null);
     if (nodeId == null || nodeId.isBlank()) {
-      throw new CliException("--node <nodeId> is required for volume destroy");
+      throw new CliException("--node <nodeId> is required for volume destroy\n\n" + usage());
     }
     ApiResponse response = client.delete("/volumes/" + nodeId + "/" + statefulSet + "/" + index);
     client.expectSuccess(response);

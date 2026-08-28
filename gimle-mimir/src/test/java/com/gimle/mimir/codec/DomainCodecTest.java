@@ -252,6 +252,55 @@ class DomainCodecTest {
   }
 
   @Test
+  void an_instance_observation_with_a_worker_id_round_trips() throws Exception {
+    InstanceObservation observation =
+        new InstanceObservation(
+            "billing-api",
+            0,
+            new ModuleId("com.acme.billing-api", Version.parse("2.3.1")),
+            "ACTIVE",
+            true,
+            true,
+            0.0,
+            0,
+            0L,
+            0L,
+            0.0,
+            Map.of(),
+            0L,
+            Optional.of("worker-4821"));
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
+    InstanceObservation roundTripped =
+        DomainCodec.readInstanceObservation(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(observation, roundTripped);
+    assertEquals(Optional.of("worker-4821"), roundTripped.workerId());
+  }
+
+  @Test
+  void an_instance_observation_with_no_worker_id_round_trips_as_empty() throws Exception {
+    InstanceObservation observation =
+        new InstanceObservation(
+            "greeter",
+            0,
+            new ModuleId("com.acme.greeter", Version.parse("1.0.0")),
+            "ACTIVE",
+            true,
+            true);
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
+    InstanceObservation roundTripped =
+        DomainCodec.readInstanceObservation(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(Optional.empty(), roundTripped.workerId());
+  }
+
+  @Test
   void an_instance_observation_with_no_ports_round_trips_as_empty() throws Exception {
     InstanceObservation observation =
         new InstanceObservation(

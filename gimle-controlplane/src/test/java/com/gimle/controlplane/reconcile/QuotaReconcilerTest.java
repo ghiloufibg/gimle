@@ -139,7 +139,7 @@ class QuotaReconcilerTest {
     MutationSink countingSink =
         mutation -> {
           proposals.incrementAndGet();
-          mutation.applyTo(store);
+          return mutation.applyTo(store);
         };
     QuotaReconciler reconciler = new QuotaReconciler(store, countingSink);
 
@@ -160,7 +160,7 @@ class QuotaReconcilerTest {
     MutationSink countingSink =
         mutation -> {
           proposals.incrementAndGet();
-          mutation.applyTo(store);
+          return mutation.applyTo(store);
         };
     QuotaReconciler reconciler = new QuotaReconciler(store, countingSink);
 

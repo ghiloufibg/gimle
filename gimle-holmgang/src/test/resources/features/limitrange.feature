@@ -8,14 +8,14 @@ Feature: Tenant LimitRanges
   ever evicting the running instance.
 
   Scenario: An over-range deployment is rejected at admission
-    Given a running cluster from topology "minimal"
+    Given a running cluster from topology "minimal-mtls"
     And a tenant "limitrange-tenant" with quota 1000000000 bytes memory, 4000 millicores and 10 instances
     And a limitrange for tenant "limitrange-tenant" with max request memory "1Mi" and cpu "1m"
     When deploying module "greeter-provider" version "1.0.0" with 1 replica as "rejected-greeter" for tenant "limitrange-tenant" is attempted
     Then the submission is rejected with status 409
 
   Scenario: A retroactively tightened LimitRange is flagged but never evicts
-    Given a running cluster from topology "minimal"
+    Given a running cluster from topology "minimal-mtls"
     And a tenant "limitrange-tenant-2" with quota 1000000000 bytes memory, 4000 millicores and 10 instances
     And a limitrange for tenant "limitrange-tenant-2" with max request memory "1000Mi" and cpu "4000m"
     And module "greeter-provider" version "1.0.0" deployed with 1 replica as "limitrange-greeter" for tenant "limitrange-tenant-2"

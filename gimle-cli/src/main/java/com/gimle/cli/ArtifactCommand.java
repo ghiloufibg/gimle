@@ -60,7 +60,7 @@ public final class ArtifactCommand {
       throw new CliException("artifact push requires the path to a module jar");
     }
     Path jar = Path.of(args.get(0));
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of("--vessel"));
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of("--vessel"), usage());
     Optional<String> tenantId = Optional.ofNullable(flags.getOrDefault("--tenant", null));
 
     String moduleId;
@@ -124,7 +124,7 @@ public final class ArtifactCommand {
     }
     String moduleId = args.get(0);
     String version = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage());
     Path target = Path.of(flags.getOrDefault("--to", moduleId + "-" + version + ".jar"));
 
     Optional<String> sha256 = client.downloadFile("/artifacts/" + moduleId + "/" + version, target);

@@ -129,6 +129,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_WORKLOAD_TOKEN = 58;
   private static final byte MUT_REMOVE_WORKLOAD_TOKEN = 59;
   private static final byte MUT_PUT_JOB_RUN_SUMMARY = 60;
+  private static final byte MUT_PUT_NODE_TAINT = 61;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -386,10 +387,12 @@ public final class RaftCodec {
       case StateMutation.PutDeployment m -> {
         out.writeByte(MUT_PUT_DEPLOYMENT);
         DomainCodec.writeDeploymentSpec(out, m.spec());
+        out.writeLong(m.expectedGeneration());
       }
       case StateMutation.RemoveDeployment m -> {
         out.writeByte(MUT_REMOVE_DEPLOYMENT);
         out.writeUTF(m.name());
+        out.writeLong(m.expectedGeneration());
       }
       case StateMutation.PutService m -> {
         out.writeByte(MUT_PUT_SERVICE);
@@ -530,6 +533,12 @@ public final class RaftCodec {
         out.writeUTF(m.nodeId());
         out.writeBoolean(m.cordoned());
       }
+      case StateMutation.PutNodeTaint m -> {
+        out.writeByte(MUT_PUT_NODE_TAINT);
+        out.writeUTF(m.nodeId());
+        out.writeUTF(m.tenantId());
+        out.writeBoolean(m.tainted());
+      }
       case StateMutation.PutCertificateRevocation m -> {
         out.writeByte(MUT_PUT_CERTIFICATE_REVOCATION);
         out.writeUTF(m.serialNumber());
@@ -661,9 +670,14 @@ public final class RaftCodec {
   private static StateMutation readStateMutation(DataInputStream in) throws IOException {
     byte tag = in.readByte();
     return switch (tag) {
-      case MUT_PUT_DEPLOYMENT ->
-          new StateMutation.PutDeployment(DomainCodec.readDeploymentSpec(in));
-      case MUT_REMOVE_DEPLOYMENT -> new StateMutation.RemoveDeployment(in.readUTF());
+      case MUT_PUT_DEPLOYMENT -> {
+        DeploymentSpec spec = DomainCodec.readDeploymentSpec(in);
+        yield new StateMutation.PutDeployment(spec, in.readLong());
+      }
+      case MUT_REMOVE_DEPLOYMENT -> {
+        String name = in.readUTF();
+        yield new StateMutation.RemoveDeployment(name, in.readLong());
+      }
       case MUT_PUT_SERVICE -> new StateMutation.PutService(DomainCodec.readServiceSpec(in));
       case MUT_REMOVE_SERVICE -> new StateMutation.RemoveService(in.readUTF());
       case MUT_PUT_NETWORK_POLICY ->
@@ -717,6 +731,8 @@ public final class RaftCodec {
       case MUT_REMOVE_RECONCILER_INSTANCE_STATE ->
           new StateMutation.RemoveReconcilerInstanceState(in.readUTF(), in.readInt());
       case MUT_PUT_NODE_CORDON -> new StateMutation.PutNodeCordon(in.readUTF(), in.readBoolean());
+      case MUT_PUT_NODE_TAINT ->
+          new StateMutation.PutNodeTaint(in.readUTF(), in.readUTF(), in.readBoolean());
       case MUT_PUT_CERTIFICATE_REVOCATION ->
           new StateMutation.PutCertificateRevocation(in.readUTF(), in.readBoolean());
       case MUT_PUT_WORKLOAD_TOKEN ->
@@ -780,6 +796,11 @@ public final class RaftCodec {
       out.writeInt(snapshot.deployments().size());
       for (DeploymentSpec spec : snapshot.deployments()) {
         DomainCodec.writeDeploymentSpec(out, spec);
+      }
+      out.writeInt(snapshot.deploymentGenerations().size());
+      for (Map.Entry<String, Long> e : snapshot.deploymentGenerations().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeLong(e.getValue());
       }
       out.writeInt(snapshot.assignments().size());
       for (InstanceAssignment assignment : snapshot.assignments()) {
@@ -946,6 +967,14 @@ public final class RaftCodec {
       for (WorkloadTokenRecord record : snapshot.workloadTokens()) {
         DomainCodec.writeWorkloadTokenRecord(out, record);
       }
+      out.writeInt(snapshot.nodeTaints().size());
+      for (Map.Entry<String, Set<String>> e : snapshot.nodeTaints().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeInt(e.getValue().size());
+        for (String tenantId : e.getValue()) {
+          out.writeUTF(tenantId);
+        }
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -959,6 +988,11 @@ public final class RaftCodec {
       int deploymentCount = in.readInt();
       for (int i = 0; i < deploymentCount; i++) {
         deployments.add(DomainCodec.readDeploymentSpec(in));
+      }
+      Map<String, Long> deploymentGenerations = new LinkedHashMap<>();
+      int deploymentGenerationCount = in.readInt();
+      for (int i = 0; i < deploymentGenerationCount; i++) {
+        deploymentGenerations.put(in.readUTF(), in.readLong());
       }
       List<InstanceAssignment> assignments = new ArrayList<>();
       int assignmentCount = in.readInt();
@@ -1159,8 +1193,20 @@ public final class RaftCodec {
       for (int i = 0; i < workloadTokenCount; i++) {
         workloadTokens.add(DomainCodec.readWorkloadTokenRecord(in));
       }
+      Map<String, Set<String>> nodeTaints = new LinkedHashMap<>();
+      int nodeTaintCount = in.readInt();
+      for (int i = 0; i < nodeTaintCount; i++) {
+        String nodeId = in.readUTF();
+        int taintedTenantCount = in.readInt();
+        Set<String> tenantIds = new LinkedHashSet<>();
+        for (int j = 0; j < taintedTenantCount; j++) {
+          tenantIds.add(in.readUTF());
+        }
+        nodeTaints.put(nodeId, tenantIds);
+      }
       return new StateSnapshot(
           deployments,
+          deploymentGenerations,
           assignments,
           jobSpecs,
           jobRuns,
@@ -1195,7 +1241,8 @@ public final class RaftCodec {
           limitRanges,
           limitRangeViolations,
           revokedCertificateSerials,
-          workloadTokens);
+          workloadTokens,
+          nodeTaints);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

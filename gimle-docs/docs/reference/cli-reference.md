@@ -40,6 +40,8 @@ gimle get nodes
 gimle get node-assignments <nodeId>
 gimle cordon <nodeId>
 gimle uncordon <nodeId>
+gimle taint <nodeId> <tenantId>
+gimle untaint <nodeId> <tenantId>
 gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
 gimle events <deploymentName> <instanceIndex> [--limit N]
@@ -79,6 +81,7 @@ gimle configmap delete <tenantId> <name>
 gimle secretmap list <tenantId>
 gimle secretmap get <tenantId> <name>
 gimle secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
+gimle secretmap replace <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
 gimle secretmap delete <tenantId> <name> [--destroy]
 gimle secretmap versions <tenantId> <name>
 gimle secretmap rollback <tenantId> <name> <groupVersion>
@@ -165,7 +168,17 @@ as one unit. `--from-literal`/`--from-file` behave exactly like `configmap set`'
 soft-deletes every key under the name by default, `--destroy` hard-deletes them all irreversibly,
 the same distinction `secret delete` already makes per key.
 
-Every write to a SecretMap — `set`, `delete`, `delete <key>` — also stamps a **group version**:
+Unlike `configmap`, `set` here always writes a **partial merge**: only the key(s) given are
+touched, every other existing member key survives untouched — the same `kubectl apply` vs.
+`kubectl replace` split, made explicit as two distinct verbs instead of one call whose behavior
+depends on a flag. `replace <tenantId> <name> [--from-literal key=value ...] [--from-file
+path|key=path ...]` is the full-replace counterpart: every key not named in the call is removed,
+so the resulting key set is exactly what was given — including the empty set (no
+`--from-literal`/`--from-file` at all), which clears the SecretMap entirely. Each touched key,
+written or removed, still reports its own outcome the same way `set` does.
+
+Every write to a SecretMap — `set`, `replace`, `delete`, `delete <key>` — also stamps a **group
+version**:
 a snapshot of every member key's own version and deleted state at that moment, layered on top of
 the per-key ledger above. `versions` lists a SecretMap's full group-version history, oldest first;
 `rollback <groupVersion>` restores every key that group version recorded — a live key's content as
@@ -293,6 +306,10 @@ gimle get node-assignments node-1 --server 127.0.0.1:8080
 # Exclude a node from future placement without evicting what's already running there
 gimle cordon node-1 --server 127.0.0.1:8080
 gimle uncordon node-1 --server 127.0.0.1:8080
+
+# Reserve a node for one tenant -- every other tenant's replica is excluded from it
+gimle taint node-1 tenant-a --server 127.0.0.1:8080
+gimle untaint node-1 tenant-a --server 127.0.0.1:8080
 
 # An instance's own lifecycle timeline (installed, resolved, started, active, ...) -- --limit caps
 # a crash-looping instance's otherwise-hundreds-of-lines timeline to the most recent entries

@@ -41,6 +41,7 @@ public final class StateStore implements StoreReader {
 
   private final Clock clock;
   private final Map<String, DeploymentSpec> deployments = new ConcurrentHashMap<>();
+  private final Map<String, Long> deploymentGenerations = new ConcurrentHashMap<>();
   private final Map<String, ServiceSpec> services = new ConcurrentHashMap<>();
   private final Map<String, NetworkPolicySpec> networkPolicies = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
@@ -101,6 +102,7 @@ public final class StateStore implements StoreReader {
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
   private final Map<String, Boolean> nodeCordons = new ConcurrentHashMap<>();
+  private final Map<String, Set<String>> nodeTaints = new ConcurrentHashMap<>();
   private final Map<String, Boolean> revokedCertificateSerials = new ConcurrentHashMap<>();
   private final Map<String, WorkloadTokenRecord> workloadTokens = new ConcurrentHashMap<>();
   private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
@@ -184,21 +186,43 @@ public final class StateStore implements StoreReader {
 
   public void putDeployment(DeploymentSpec spec) {
     deployments.put(spec.name(), spec);
+    deploymentGenerations.merge(spec.name(), 1L, Long::sum);
   }
 
   public Optional<DeploymentSpec> getDeployment(String name) {
     return Optional.ofNullable(deployments.get(name));
   }
 
+  /**
+   * See {@link StoreReader#getDeploymentGeneration}'s own javadoc for the CAS contract this backs.
+   */
+  @Override
+  public long getDeploymentGeneration(String name) {
+    return deploymentGenerations.getOrDefault(name, 0L);
+  }
+
   public List<DeploymentSpec> listDeployments() {
     return List.copyOf(deployments.values());
   }
 
+  /**
+   * Also clears this name's {@link ControllerRevision} history -- without this, a deleted
+   * Deployment's revisions stay keyed under {@link ControllerRevision#revisionKey}, orphaned
+   * indefinitely, and a later {@code apply} that recreates the same name would inherit them as if
+   * the new Deployment were a continuation of the old one: {@code nextRevisionFor} would keep
+   * incrementing from the old revision number instead of starting fresh, and a caller could roll
+   * back to a revision from an entirely different, already-deleted Deployment that merely happened
+   * to share this name. Since {@link StateMutation} is applied in strict Raft log order with no
+   * concurrent writers, clearing here is enough on its own to make a delete-then-recreate a clean
+   * break -- no separate identity token is needed to protect against a race that can't happen.
+   */
   public void removeDeployment(String name) {
     deployments.remove(name);
+    deploymentGenerations.remove(name);
     clearAllRollingIndices(name);
     clearAllSurgeIndices(name);
     effectiveReplicas.remove(name);
+    controllerRevisions.remove(ControllerRevision.revisionKey("Deployment", name));
   }
 
   // ---- services ----
@@ -381,11 +405,14 @@ public final class StateStore implements StoreReader {
    * DaemonSet has no rollout left to track. Does not remove any {@link DaemonSetAssignment} still
    * on disk for it; {@code DaemonSetReconciler}'s own orphaned-assignment sweep is responsible for
    * those, the same "spec gone -> reconciler tears assignments down" ordering {@link
-   * #removeDeployment} already relies on for {@link InstanceAssignment}.
+   * #removeDeployment} already relies on for {@link InstanceAssignment}. Also clears this name's
+   * {@link ControllerRevision} history, for the same delete-then-recreate reason {@link
+   * #removeDeployment}'s own javadoc gives.
    */
   public void removeDaemonSetSpec(String name) {
     daemonSetSpecs.remove(name);
     clearAllRollingDaemonSetNodes(name);
+    controllerRevisions.remove(ControllerRevision.revisionKey("DaemonSet", name));
   }
 
   // ---- daemonset assignments ----
@@ -465,11 +492,14 @@ public final class StateStore implements StoreReader {
    * #removeStatefulSetIndexNode} only when the reconciler actually tears an index down for good
    * (this method removing the spec doesn't itself remove any {@link StatefulSetAssignment}; {@code
    * StatefulSetReconciler}'s own orphaned-assignment sweep does that, the same "spec gone ->
-   * reconciler tears assignments down" ordering {@link #removeDeployment} already relies on).
+   * reconciler tears assignments down" ordering {@link #removeDeployment} already relies on). Also
+   * clears this name's {@link ControllerRevision} history, for the same delete-then-recreate reason
+   * {@link #removeDeployment}'s own javadoc gives.
    */
   public void removeStatefulSetSpec(String name) {
     statefulSetSpecs.remove(name);
     clearRollingStatefulSetIndex(name);
+    controllerRevisions.remove(ControllerRevision.revisionKey("StatefulSet", name));
   }
 
   // ---- statefulset assignments ----
@@ -777,6 +807,37 @@ public final class StateStore implements StoreReader {
 
   public boolean isNodeCordoned(String nodeId) {
     return nodeCordons.getOrDefault(nodeId, Boolean.FALSE);
+  }
+
+  // ---- node taint bookkeeping ----
+
+  /**
+   * Operator-set "this node is reserved for these tenants only" flag, read by {@code Scheduler}'s
+   * taint filter stage -- an empty set (the default, for every node no operator has ever tainted)
+   * means the node is open to any tenant, matching a fresh Kubernetes cluster's own default of no
+   * built-in tenant isolation. A non-empty set excludes every candidate whose own {@code tenantId}
+   * isn't a member of it, replacing the old blanket "no other tenant may already be present"
+   * co-residency filter with a real, deliberately-declared boundary that doesn't degrade as the
+   * number of distinct tenants on a node grows. Same present-means-added shape as {@link
+   * #putNodeCordon}, except keyed by (nodeId, tenantId) pair rather than a single boolean, since
+   * one node may be dedicated to more than one tenant.
+   */
+  public void putNodeTaint(String nodeId, String tenantId, boolean tainted) {
+    if (!tainted) {
+      Set<String> existing = nodeTaints.get(nodeId);
+      if (existing != null) {
+        existing.remove(tenantId);
+        if (existing.isEmpty()) {
+          nodeTaints.remove(nodeId);
+        }
+      }
+      return;
+    }
+    nodeTaints.computeIfAbsent(nodeId, key -> ConcurrentHashMap.newKeySet()).add(tenantId);
+  }
+
+  public Set<String> getNodeTaints(String nodeId) {
+    return Set.copyOf(nodeTaints.getOrDefault(nodeId, Set.of()));
   }
 
   // ---- certificate revocation bookkeeping ----
@@ -1102,6 +1163,7 @@ public final class StateStore implements StoreReader {
   public StateSnapshot snapshot() {
     return new StateSnapshot(
         List.copyOf(deployments.values()),
+        Map.copyOf(deploymentGenerations),
         List.copyOf(assignments.values()),
         List.copyOf(jobSpecs.values()),
         List.copyOf(jobRuns.values()),
@@ -1144,7 +1206,14 @@ public final class StateStore implements StoreReader {
         List.copyOf(limitRanges.values()),
         Map.copyOf(limitRangeViolations),
         Set.copyOf(revokedCertificateSerials.keySet()),
-        List.copyOf(workloadTokens.values()));
+        List.copyOf(workloadTokens.values()),
+        nodeTaintsSnapshot());
+  }
+
+  /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
+  private Map<String, Set<String>> nodeTaintsSnapshot() {
+    return nodeTaints.entrySet().stream()
+        .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
   }
 
   /** Oldest-first, matching {@link #auditEvents}' own internal order -- see {@link #snapshot()}. */
@@ -1199,6 +1268,11 @@ public final class StateStore implements StoreReader {
     List.copyOf(tenants.keySet()).forEach(this::removeTenant);
     List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
     List.copyOf(nodeCordons.keySet()).forEach(nodeId -> putNodeCordon(nodeId, false));
+    List.copyOf(nodeTaints.entrySet())
+        .forEach(
+            e ->
+                List.copyOf(e.getValue())
+                    .forEach(tenantId -> putNodeTaint(e.getKey(), tenantId, false)));
     List.copyOf(revokedCertificateSerials.keySet())
         .forEach(serial -> putCertificateRevocation(serial, false));
     List.copyOf(workloadTokens.keySet()).forEach(this::removeWorkloadToken);
@@ -1213,6 +1287,12 @@ public final class StateStore implements StoreReader {
     clearAllControllerRevisions();
 
     snapshot.deployments().forEach(this::putDeployment);
+    // putDeployment above increments each name's generation from this replay's own arbitrary
+    // starting point (0), not the true accumulated value every other replica that replayed the
+    // full log instead of a snapshot already holds -- stomp with the snapshot's own recorded
+    // values so a restored replica's CAS decisions agree with the rest of the cluster.
+    deploymentGenerations.clear();
+    deploymentGenerations.putAll(snapshot.deploymentGenerations());
     snapshot.assignments().forEach(this::putAssignment);
     snapshot.jobSpecs().forEach(this::putJobSpec);
     snapshot.jobRuns().forEach(this::putJobRun);
@@ -1255,6 +1335,11 @@ public final class StateStore implements StoreReader {
     snapshot.tenants().forEach(this::putTenant);
     snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
     snapshot.cordonedNodes().forEach(nodeId -> putNodeCordon(nodeId, true));
+    snapshot
+        .nodeTaints()
+        .forEach(
+            (nodeId, tenantIds) ->
+                tenantIds.forEach(tenantId -> putNodeTaint(nodeId, tenantId, true)));
     snapshot.revokedCertificateSerials().forEach(serial -> putCertificateRevocation(serial, true));
     snapshot.workloadTokens().forEach(record -> putWorkloadToken(record, 0L));
     snapshot.configEntries().forEach(this::putConfigEntry);

@@ -33,11 +33,12 @@ public final class RoleBindingsCommand {
   }
 
   public void set(List<String> args) {
+    String usage = "set rolebinding requires <id> --subject user:<name>|group:<name> --role <name>";
     if (args.isEmpty()) {
-      throw new CliException("set rolebinding requires <id>");
+      throw new CliException(usage);
     }
     String id = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
     String subject = flags.get("--subject");
     String roleName = flags.get("--role");
 

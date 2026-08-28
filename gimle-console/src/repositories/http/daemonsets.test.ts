@@ -55,6 +55,7 @@ describe("HttpDaemonSetsRepository", () => {
       queueDepth: 0,
       cpuMillicoresUsed: 0,
       memoryBytesUsed: 0,
+      workerId: null,
     });
   });
 

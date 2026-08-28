@@ -9,14 +9,15 @@ import java.util.Optional;
 
 /**
  * Admission-time quota check, extracted unchanged from {@code ApiServer}'s former {@code
- * checkTenantQuota}: absent {@code tenantId} means nothing to check; an unknown tenant, an
- * unreadable artifact, or a submission that would push the tenant past its {@link
- * com.gimle.core.tenant.ResourceQuota} all reject outright. An unreadable artifact rejects the
- * submission for a *tenanted* deployment specifically (unlike {@code DeploymentReconciler}, which
- * just retries next tick with nothing yet at stake), since admission can't safely let a submission
- * through it has no way to verify against the tenant's quota. {@code artifactResolver} is the same
- * shared instance every reconciler resolves through, so an existing tenant deployment resolved from
- * an Andvari registry coordinate is summed correctly here too, not silently read as zero.
+ * checkTenantQuota}: an unenforceable {@code tenantId} (see {@link Tenant#isEnforceable}) means
+ * nothing to check; an unknown tenant, an unreadable artifact, or a submission that would push the
+ * tenant past its {@link com.gimle.core.tenant.ResourceQuota} all reject outright. An unreadable
+ * artifact rejects the submission for a *tenanted* deployment specifically (unlike {@code
+ * DeploymentReconciler}, which just retries next tick with nothing yet at stake), since admission
+ * can't safely let a submission through it has no way to verify against the tenant's quota. {@code
+ * artifactResolver} is the same shared instance every reconciler resolves through, so an existing
+ * tenant deployment resolved from an Andvari registry coordinate is summed correctly here too, not
+ * silently read as zero.
  */
 public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> {
 
@@ -34,7 +35,7 @@ public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> 
   @Override
   public AdmissionDecision<DeploymentSpec> review(AdmissionRequest<DeploymentSpec> request) {
     DeploymentSpec spec = request.spec();
-    if (spec.tenantId().isEmpty()) {
+    if (!Tenant.isEnforceable(spec.tenantId())) {
       return AdmissionDecision.allow(spec);
     }
     String tenantId = spec.tenantId().get();

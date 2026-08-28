@@ -38,7 +38,7 @@ class MutationBatchTest {
   @Test
   void a_nested_batch_is_rejected() {
     StateMutation.Batch inner =
-        new StateMutation.Batch(List.of(new StateMutation.RemoveDeployment("orders-service")));
+        new StateMutation.Batch(List.of(new StateMutation.RemoveDeployment("orders-service", 0)));
     assertThrows(IllegalArgumentException.class, () -> new StateMutation.Batch(List.of(inner)));
   }
 
@@ -48,9 +48,9 @@ class MutationBatchTest {
     // Put then remove the same key: only in-order application leaves the store empty.
     new StateMutation.Batch(
             List.of(
-                new StateMutation.PutDeployment(deployment("orders-service")),
-                new StateMutation.PutDeployment(deployment("catalog-service")),
-                new StateMutation.RemoveDeployment("orders-service")))
+                new StateMutation.PutDeployment(deployment("orders-service"), 0),
+                new StateMutation.PutDeployment(deployment("catalog-service"), 0),
+                new StateMutation.RemoveDeployment("orders-service", 1)))
         .applyTo(store);
 
     assertTrue(store.getDeployment("orders-service").isEmpty());
@@ -61,7 +61,11 @@ class MutationBatchTest {
   @Test
   void propose_all_of_an_empty_list_proposes_nothing() {
     List<StateMutation> proposed = new ArrayList<>();
-    MutationSink sink = proposed::add;
+    MutationSink sink =
+        m -> {
+          proposed.add(m);
+          return MutationOutcome.accepted();
+        };
 
     sink.proposeAll(List.of());
 
@@ -71,8 +75,12 @@ class MutationBatchTest {
   @Test
   void propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped() {
     List<StateMutation> proposed = new ArrayList<>();
-    MutationSink sink = proposed::add;
-    StateMutation only = new StateMutation.RemoveDeployment("orders-service");
+    MutationSink sink =
+        m -> {
+          proposed.add(m);
+          return MutationOutcome.accepted();
+        };
+    StateMutation only = new StateMutation.RemoveDeployment("orders-service", 0);
 
     sink.proposeAll(List.of(only));
 
@@ -82,11 +90,15 @@ class MutationBatchTest {
   @Test
   void propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order() {
     List<StateMutation> proposed = new ArrayList<>();
-    MutationSink sink = proposed::add;
+    MutationSink sink =
+        m -> {
+          proposed.add(m);
+          return MutationOutcome.accepted();
+        };
     List<StateMutation> burst =
         List.of(
-            new StateMutation.PutDeployment(deployment("orders-service")),
-            new StateMutation.RemoveDeployment("catalog-service"));
+            new StateMutation.PutDeployment(deployment("orders-service"), 0),
+            new StateMutation.RemoveDeployment("catalog-service", 0));
 
     sink.proposeAll(burst);
 
@@ -104,8 +116,8 @@ class MutationBatchTest {
 
     node.proposeAll(
         List.of(
-            new StateMutation.PutDeployment(deployment("orders-service")),
-            new StateMutation.PutDeployment(deployment("catalog-service"))));
+            new StateMutation.PutDeployment(deployment("orders-service"), 0),
+            new StateMutation.PutDeployment(deployment("catalog-service"), 0)));
 
     assertEquals(indexBefore + 1, raftLog.lastIndex());
     assertEquals(Optional.of(deployment("orders-service")), store.getDeployment("orders-service"));

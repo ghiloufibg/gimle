@@ -284,9 +284,12 @@ class ApiServerRaftTest {
     ApiServer replica = replicas.get(0);
     String baseUrl = "http://localhost:" + replica.port();
 
+    // Same tenant id before and after -- the second PUT is an update to an already-existing
+    // tenant, not a second real tenant, so it stays permitted under plaintext's single-tenant
+    // posture. This test is about write continuity across a leader failover, not multi-tenancy.
     HttpResponse<String> before =
         client.send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/before-failover"))
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/failover-tenant"))
                 .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 1)))
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -299,7 +302,7 @@ class ApiServerRaftTest {
 
     HttpResponse<String> after =
         client.send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/after-failover"))
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/failover-tenant"))
                 .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(2, 2, 2)))
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

@@ -11,6 +11,7 @@ function observation(overrides: Partial<InstanceObservation> = {}): InstanceObse
     queueDepth: 0,
     cpuMillicoresUsed: 0,
     memoryBytesUsed: 0,
+    workerId: null,
     ...overrides,
   };
 }

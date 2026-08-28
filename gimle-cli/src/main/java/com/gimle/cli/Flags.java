@@ -19,23 +19,34 @@ final class Flags {
 
   private Flags() {}
 
-  static Flags parse(List<String> args, Set<String> booleanFlagNames) {
-    return parse(args, booleanFlagNames, Set.of());
+  static Flags parse(List<String> args, Set<String> booleanFlagNames, String usage) {
+    return parse(args, booleanFlagNames, Set.of(), usage);
   }
 
   /**
    * {@code repeatableFlagNames} may appear more than once, accumulating into {@link
    * #getAll(String)} rather than each occurrence overwriting the last -- {@code set role}'s {@code
    * --permission}, repeated once per grant, is the one caller that needs this today.
+   *
+   * <p>{@code usage} is the calling command's own usage string, appended to either failure below
+   * the same way every hand-written "too few arguments" check elsewhere in this package already
+   * appends it (see {@code LogsCommand}'s own {@code "unknown flag: " + arg + "\n\n" + usage()}) --
+   * this parser has no notion of which command invoked it, so without a caller-supplied usage
+   * string a caller's own stray argument (a natural mistake: a value passed positionally where a
+   * flag was expected) surfaced only a bare "unexpected argument: ...", the one failure mode in
+   * this whole CLI that gave no hint of the correct syntax.
    */
   static Flags parse(
-      List<String> args, Set<String> booleanFlagNames, Set<String> repeatableFlagNames) {
+      List<String> args,
+      Set<String> booleanFlagNames,
+      Set<String> repeatableFlagNames,
+      String usage) {
     Flags flags = new Flags();
     int i = 0;
     while (i < args.size()) {
       String token = args.get(i);
       if (!token.startsWith("--")) {
-        throw new CliException("unexpected argument: " + token);
+        throw new CliException("unexpected argument: " + token + "\n\n" + usage);
       }
       if (booleanFlagNames.contains(token)) {
         flags.setBooleanFlags.add(token);
@@ -43,7 +54,7 @@ final class Flags {
         continue;
       }
       if (i + 1 >= args.size()) {
-        throw new CliException(token + " requires a value");
+        throw new CliException(token + " requires a value\n\n" + usage);
       }
       String value = args.get(i + 1);
       if (repeatableFlagNames.contains(token)) {

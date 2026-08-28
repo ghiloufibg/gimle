@@ -680,6 +680,13 @@ public final class FafnirServer implements AutoCloseable {
           }
           return;
         }
+        if ("replace".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRETMAP, Verb.WRITE, tenantId, Optional.of(name))) {
+            handleReplaceSecretMap(exchange, tenantId, name);
+          }
+          return;
+        }
         // DELETE /secretmaps/{tenantId}/{name}/{key}[?destroy=true] -- a single member key.
         String key = parts[2];
         if (!"DELETE".equals(exchange.getRequestMethod())) {
@@ -750,6 +757,11 @@ public final class FafnirServer implements AutoCloseable {
     respondJson(exchange, 200, Map.of("name", name, "keys", keys));
   }
 
+  /**
+   * {@code PUT} is always a merge: only the key(s) in {@code data} are touched, every other
+   * existing member key survives untouched. See {@link #handleReplaceSecretMap} for the sibling
+   * full-replace verb.
+   */
   private void handlePutSecretMap(HttpExchange exchange, String tenantId, String name)
       throws IOException {
     Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
@@ -764,6 +776,29 @@ public final class FafnirServer implements AutoCloseable {
     }
     List<SecretMapStore.SecretMapKeyResult> results =
         secretMapStore.setMany(tenantId, name, values);
+    List<Map<String, Object>> resultsJson =
+        results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
+    respondJson(exchange, 200, Map.of("results", resultsJson));
+  }
+
+  /**
+   * {@code POST .../replace} is the explicit full-replace counterpart to {@link
+   * #handlePutSecretMap}'s merge: every key not named in {@code data} is soft-deleted, so the
+   * resulting key set is exactly {@code data}'s key set. An absent or empty {@code data} is a valid
+   * request here (unlike {@code PUT}, which rejects it) -- it clears the SecretMap entirely,
+   * mirroring {@code ConfigMapStore#put} with an empty data map.
+   */
+  private void handleReplaceSecretMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
+    Object rawDataValue = body.get("data");
+    Map<String, Object> rawData = rawDataValue == null ? Map.of() : Json.asObject(rawDataValue);
+    Map<String, byte[]> values = new LinkedHashMap<>();
+    for (Map.Entry<String, Object> entry : rawData.entrySet()) {
+      values.put(entry.getKey(), decodeBase64((String) entry.getValue()));
+    }
+    List<SecretMapStore.SecretMapKeyResult> results =
+        secretMapStore.replaceAll(tenantId, name, values);
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
     respondJson(exchange, 200, Map.of("results", resultsJson));

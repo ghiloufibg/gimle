@@ -8,11 +8,9 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.manifest.DaemonSetSpec;
-import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.DaemonSetAssignment;
-import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
@@ -21,10 +19,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -339,38 +335,12 @@ public final class DaemonSetReconciler {
   }
 
   /**
-   * Mirrors {@link DeploymentReconciler#buildCandidates} exactly, built from {@link
-   * DaemonSetAssignment}s instead of {@link InstanceAssignment}s. {@code alreadyRunsThisDeployment}
+   * Mirrors {@link DeploymentReconciler#buildCandidates} exactly. {@code alreadyRunsThisDeployment}
    * is always {@code false} on every candidate here -- meaningless for a DaemonSet, since {@code
    * antiAffinityAcrossNodes} is always {@code false} too (see {@link DaemonSetSpec}'s own javadoc),
    * so nothing ever reads it.
    */
   private List<NodeCandidate> buildCandidates(String daemonSetName) {
-    Map<String, Set<String>> tenantsByNode = new HashMap<>();
-    for (DaemonSetAssignment assignment : store.listDaemonSetAssignments()) {
-      store
-          .getDaemonSetSpec(assignment.daemonSetName())
-          .flatMap(DaemonSetSpec::tenantId)
-          .ifPresent(
-              tenantId ->
-                  tenantsByNode
-                      .computeIfAbsent(assignment.nodeId(), key -> new HashSet<>())
-                      .add(tenantId));
-    }
-    // Fold in ordinary deployment replicas' tenant occupancy too, the same one-directional fold
-    // JobReconciler.buildCandidates already documents for Job -- DeploymentReconciler is
-    // deliberately left untouched, so this is not symmetric.
-    for (InstanceAssignment assignment : store.listAssignments()) {
-      store
-          .getDeployment(assignment.deploymentName())
-          .flatMap(DeploymentSpec::tenantId)
-          .ifPresent(
-              tenantId ->
-                  tenantsByNode
-                      .computeIfAbsent(assignment.nodeId(), key -> new HashSet<>())
-                      .add(tenantId));
-    }
-
     Instant now = clock.instant();
     List<NodeCandidate> candidates = new ArrayList<>();
     for (NodeRegistration registration : store.listNodeRegistrations()) {
@@ -387,7 +357,7 @@ public final class DaemonSetReconciler {
               registration.capabilities(),
               heartbeat.get().heartbeat().capacity(),
               false,
-              tenantsByNode.getOrDefault(registration.nodeId(), Set.of()),
+              store.getNodeTaints(registration.nodeId()),
               store.isNodeCordoned(registration.nodeId())));
     }
     return candidates;

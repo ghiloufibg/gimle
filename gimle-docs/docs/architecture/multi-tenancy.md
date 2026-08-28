@@ -21,16 +21,48 @@ It is auto-seeded at control-plane startup with a generous default quota, and on
 authorization § The reserved gimle-system
 tenant](./authn-authz.md#the-reserved-gimle-system-tenant) for the guard itself.
 
-A deployment optionally carries a `tenantId`. The quota constraint: the sum of
-`resourceRequest × replicas` across every deployment sharing that `tenantId` must not exceed the
-tenant's quota. Admission specifically checks against `resourceRequest × (replicas + maxSurge)` —
-`DeploymentSpec#maxCommittedInstances()` — rather than `replicas` alone: a rollout with a nonzero
-`disruption.maxSurge` (see [Manifest schema § Deployment manifest:
-disruption](../reference/manifest-schema.md#deployment-manifest-disruption)) can transiently run
-more than `replicas` instances, and admission has to reject a submission that couldn't stay within
-quota even briefly, not just at steady state. `QuotaReconciler`'s own continuous check (below) still
-sums plain `replicas` — a transient surge overshoot it would otherwise flag is expected to self-heal
-within one reconcile tick as the rollout completes, not something worth a standing violation for.
+A deployment (or DaemonSet/StatefulSet/Job/CronJob) manifest that omits `tenantId` resolves to a
+second reserved identity, `default` — the `default` namespace equivalent. Kubernetes never has a
+pod with no namespace: omit it, and the object silently lands in `default`, a real namespace with
+its own ConfigMaps/Secrets. Gimlé's manifest parsers do the same at parse time (`ManifestFields
+#parseTenantId`) rather than leaving "untenanted" a valid-but-broken state with nothing addressable
+to configure it — `/config/default/...`, `/secrets/default/...`, etc. all work for a
+`default`-tenant deployment exactly as they would for any operator-named tenant. Like
+`gimle-system`, `default` is auto-seeded at control-plane startup, but it carries none of
+`gimle-system`'s write/delete guard — an operator may freely adjust its quota through the ordinary
+`/tenants/*` API. Unlike `gimle-system`, `default` is also **not** subject to quota/LimitRange/
+policy enforcement (`Tenant#isEnforceable` treats it the same as no tenant at all) — matching real
+Kubernetes, where the `default` namespace carries no `ResourceQuota` object unless an admin
+explicitly creates one, so nothing is enforced against it by default either. Scheduler node taints
+and the config-addressability path both treat `default` as a real, ordinary tenant, since those are
+exactly the capabilities this defaulting exists to unlock.
+
+The quota constraint for a tenant that *is* enforced: the sum of `resourceRequest × replicas` across
+every deployment sharing that `tenantId` must not exceed the tenant's quota. Admission specifically
+checks against `resourceRequest × (replicas + maxSurge)` — `DeploymentSpec#maxCommittedInstances()`
+— rather than `replicas` alone: a rollout with a nonzero `disruption.maxSurge` (see [Manifest schema
+§ Deployment manifest: disruption](../reference/manifest-schema.md#deployment-manifest-disruption))
+can transiently run more than `replicas` instances, and admission has to reject a submission that
+couldn't stay within quota even briefly, not just at steady state. `QuotaReconciler`'s own
+continuous check (below) still sums plain `replicas` — a transient surge overshoot it would
+otherwise flag is expected to self-heal within one reconcile tick as the rollout completes, not
+something worth a standing violation for.
+
+## Plaintext transport is explicitly single-tenant
+
+Plaintext (the default transport, see [Transport security](./transport-security.md)) gives every
+caller the identical unauthenticated identity — there is no peer identity for RBAC to check, so
+there is no way, not even after the fact, to distinguish a legitimate co-tenant from an uninvited
+caller reaching into someone else's tenant. Rather than quietly allowing shared multi-tenant use
+under those conditions, `POST`/`PUT /tenants/{id}` refuses to create a second real tenant while
+running in plaintext: neither the reserved `gimle-system` tenant nor `default` (both above) counts
+toward the limit — both are seeded automatically regardless of transport — but the first
+operator-created tenant claims the one slot plaintext allows, and every subsequent *new* tenant id
+is rejected with `403` until the cluster moves to mTLS. An update to an already-existing tenant
+(adjusting its own quota, for
+example) is always permitted regardless of transport — the guard only ever blocks the creation of a
+genuinely new tenant identity. Real multi-tenancy requires mTLS, where a real peer identity exists
+for RBAC to actually check.
 
 ## Enforcement: checked at admission, and continuously
 

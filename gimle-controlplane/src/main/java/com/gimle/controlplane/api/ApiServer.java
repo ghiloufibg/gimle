@@ -87,6 +87,7 @@ import com.gimle.mimir.manifest.ParsedManifest;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
+import com.gimle.mimir.raft.MutationOutcome;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.ControllerRevision;
@@ -176,6 +177,11 @@ public final class ApiServer implements AutoCloseable {
   // that an operator never has to tune them for ordinary platform-extension traffic.
   private static final ResourceQuota RESERVED_SYSTEM_TENANT_QUOTA =
       new ResourceQuota(64L * 1024 * 1024 * 1024, 32_000, 1000);
+  // Generous on purpose, for the same reason: an untenanted deployment previously skipped quota
+  // checking entirely (see Tenant#DEFAULT_TENANT_ID's own javadoc), so this default must not turn
+  // into a surprise rejection for a workload that never had to fit inside any quota before.
+  private static final ResourceQuota DEFAULT_TENANT_QUOTA =
+      new ResourceQuota(32L * 1024 * 1024 * 1024, 16_000, 500);
 
   private final StoreClient storeClient;
   // Constructed from storeClient alone (it implements both StoreReader and MutationSink) rather
@@ -377,6 +383,7 @@ public final class ApiServer implements AutoCloseable {
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     seedReservedSystemTenantIfAbsent();
+    seedDefaultTenantIfAbsent();
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
     registerContexts(server);
@@ -398,6 +405,23 @@ public final class ApiServer implements AutoCloseable {
     storeClient.propose(
         new StateMutation.PutTenant(
             new Tenant(Tenant.RESERVED_SYSTEM_TENANT_ID, RESERVED_SYSTEM_TENANT_QUOTA)));
+  }
+
+  /**
+   * Ensures {@link Tenant#DEFAULT_TENANT_ID} exists as a real, persisted row before any request is
+   * ever served, the same check-then-propose shape {@link #seedReservedSystemTenantIfAbsent} uses
+   * just above and for the identical reason: every manifest parser now resolves an omitted {@code
+   * tenantId} to this id (see that field's own javadoc), so {@code TenantQuotaPlugin}'s existence
+   * check must never see it as unknown. Unlike the reserved system tenant, this one is an ordinary,
+   * unreserved tenant -- no write/delete guard singles it out, and an operator may freely rename
+   * its quota through the normal {@code /tenants/*} API without any special-casing.
+   */
+  private void seedDefaultTenantIfAbsent() {
+    if (storeClient.getTenant(Tenant.DEFAULT_TENANT_ID).isPresent()) {
+      return;
+    }
+    storeClient.propose(
+        new StateMutation.PutTenant(new Tenant(Tenant.DEFAULT_TENANT_ID, DEFAULT_TENANT_QUOTA)));
   }
 
   private void registerContexts(HttpServer target) throws IOException {
@@ -959,6 +983,16 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + parsedSpec.name() + "' does not match URL path '" + name + "'");
       return AuditOutcome.REJECTED;
     }
+    // Read as the very first store interaction this handler makes, before admissionArtifact/
+    // deploymentAdmissionChain below -- both of those make their own store round-trips, and a
+    // concurrent delete's own handler has nothing comparable in front of its own generation read,
+    // so it normally finishes its whole read-then-propose cycle first. Reading late (after that
+    // admission work) would silently observe the post-delete state as this request's own
+    // precondition instead of racing against the same starting point delete does; reading here
+    // instead means any change that lands during admission is correctly caught as a conflict by
+    // proposePutDeploymentOrConflict below, not absorbed.
+    Optional<DeploymentSpec> previous = storeClient.getDeployment(name);
+    long expectedGeneration = storeClient.getDeploymentGeneration(name);
     // Computed here, once, regardless of tenancy -- never trusted from the submitted
     // manifest itself (DeploymentManifestParser only parses artifactSha256 back out of StateStore's
     // own previously-written YAML on reload, never treats a caller-supplied value as
@@ -986,18 +1020,45 @@ public final class ApiServer implements AutoCloseable {
         yield AuditOutcome.REJECTED;
       }
       case AdmissionDecision.Allow<DeploymentSpec> allow -> {
-        Optional<DeploymentSpec> previous = storeClient.getDeployment(name);
         if (previous.isEmpty() || deploymentContentChanged(previous.get(), allow.spec())) {
           storeClient.propose(
               new StateMutation.AppendControllerRevision(
                   nextRevisionFor("Deployment", allow.spec(), OptionalInt.empty())));
         }
-        storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
+        if (!proposePutDeploymentOrConflict(exchange, allow.spec(), expectedGeneration)) {
+          yield AuditOutcome.REJECTED;
+        }
         attachWarnings(exchange, warnings, "deployment", name);
         respond(exchange, 200, "ok");
         yield AuditOutcome.APPLIED;
       }
     };
+  }
+
+  /**
+   * Shared by {@link #handlePutDeployment} and {@link #handleRollbackDeployment}: proposes {@code
+   * spec} via a generation-guarded {@code StateMutation.PutDeployment}, returning {@code true} if
+   * it landed. On rejection -- the deployment was concurrently created, deleted, or changed since
+   * {@code expectedGeneration} was read -- writes a {@code 409} explaining that and returns {@code
+   * false}, so the caller's own success response never runs for a write that didn't durably take
+   * effect exactly as sent.
+   */
+  private boolean proposePutDeploymentOrConflict(
+      HttpExchange exchange, DeploymentSpec spec, long expectedGeneration) throws IOException {
+    MutationOutcome outcome =
+        storeClient.propose(new StateMutation.PutDeployment(spec, expectedGeneration));
+    if (outcome instanceof MutationOutcome.Rejected rejected) {
+      respond(
+          exchange,
+          409,
+          "deployment '"
+              + spec.name()
+              + "' was concurrently modified since it was last read ("
+              + rejected.reason()
+              + "); re-fetch and retry");
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -1048,7 +1109,11 @@ public final class ApiServer implements AutoCloseable {
    * missing coordinate already is: an artifact tagged for one tenant should never silently end up
    * backing another tenant's workload. Either side being untenanted skips the check entirely --
    * this is purely additive over every existing untenanted deployment/artifact combination, which
-   * never had a tenant to compare in the first place.
+   * never had a tenant to compare in the first place. {@code deployingTenantId} is checked via
+   * {@link Tenant#isEnforceable}, not a plain {@code isPresent()}: a workload that omitted {@code
+   * tenantId} in its manifest resolves to {@link Tenant#DEFAULT_TENANT_ID} at parse time, and this
+   * check's whole point -- catching an artifact tagged for a real tenant silently backing a
+   * different real tenant's workload -- doesn't apply to a workload that never named one.
    */
   private AdmissionArtifact admissionArtifact(
       String artifactPath,
@@ -1093,7 +1158,7 @@ public final class ApiServer implements AutoCloseable {
       }
       case AndvariClient.HeadOutcome.Found found -> {
         if (found.tenantId().isPresent()
-            && deployingTenantId.isPresent()
+            && Tenant.isEnforceable(deployingTenantId)
             && !found.tenantId().get().equals(deployingTenantId.get())) {
           yield AdmissionArtifact.rejection(
               "artifact "
@@ -1204,27 +1269,29 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * A racing {@code apply} (scale-up or otherwise) submitted with no ordering against this delete
-   * can still commit its own {@code PutDeployment} after this method's own {@code RemoveDeployment}
-   * does -- two independent, unordered writes racing on one name is not something a single
-   * unconditional removal can prevent outright without a compare-and-set mechanism this store
-   * doesn't have (see {@code CLAUDE.md}'s own note on this class of race). What this re-read closes
-   * is the narrower, genuinely misleading half of that: this response never claims success while
-   * the read immediately following the removal still shows the deployment present -- an operator
-   * gets an honest {@code 409} instead of a `200` that turns out not to have reflected reality,
-   * rather than papering over a write that plainly didn't durably stick moments after being
-   * reported successful.
+   * Generation-guarded: proposes {@code RemoveDeployment} with the generation this handler last
+   * read as its precondition, so a racing {@code apply} that committed a change to this name after
+   * that read cannot be silently discarded by this delete -- see {@code
+   * StateMutation.RemoveDeployment}'s own javadoc for the full compare-and-set protocol this closes
+   * the concurrent apply/delete race with. A rejection here means someone else's write landed
+   * first; re-reading is only to decide which honest response fits: {@code 200} if the name is gone
+   * regardless (their write was itself a delete, or ours applied before theirs did -- either way,
+   * this caller's actual goal was met), {@code 409} if it is still present with content this caller
+   * never asked to keep.
    */
   private void handleDeleteDeployment(HttpExchange exchange, String name) throws IOException {
-    storeClient.propose(new StateMutation.RemoveDeployment(name));
-    if (storeClient.getDeployment(name).isPresent()) {
+    long expectedGeneration = storeClient.getDeploymentGeneration(name);
+    MutationOutcome outcome =
+        storeClient.propose(new StateMutation.RemoveDeployment(name, expectedGeneration));
+    if (outcome instanceof MutationOutcome.Rejected
+        && storeClient.getDeployment(name).isPresent()) {
       respond(
           exchange,
           409,
           "deployment "
               + name
-              + " still exists immediately after delete -- a concurrent write likely raced it;"
-              + " retry if this was unexpected");
+              + " was concurrently modified since it was last read -- retry if you still want it"
+              + " deleted");
       return;
     }
     respond(exchange, 200, "ok");
@@ -1264,6 +1331,12 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
+    // Read before any other store interaction below (revision listing, admissionArtifact,
+    // deploymentAdmissionChain) for the same reason handlePutDeployment reads it first thing: a
+    // concurrent delete's own handler has nothing comparable in front of its own generation read,
+    // so it normally finishes first, and reading this late would silently observe the post-delete
+    // state as this request's own precondition instead of racing against the same starting point.
+    long expectedGeneration = storeClient.getDeploymentGeneration(name);
     List<ControllerRevision> revisions = storeClient.listControllerRevisions("Deployment", name);
     if (revisions.isEmpty()) {
       respond(exchange, 404, "no revision history for deployment: " + name);
@@ -1303,8 +1376,9 @@ public final class ApiServer implements AutoCloseable {
         ControllerRevision newRevision =
             nextRevisionFor("Deployment", allow.spec(), targetRevision);
         storeClient.propose(new StateMutation.AppendControllerRevision(newRevision));
-        storeClient.propose(new StateMutation.PutDeployment(allow.spec()));
-        respondJson(exchange, 200, controllerRevisionToJson(newRevision));
+        if (proposePutDeploymentOrConflict(exchange, allow.spec(), expectedGeneration)) {
+          respondJson(exchange, 200, controllerRevisionToJson(newRevision));
+        }
       }
     }
   }
@@ -3022,6 +3096,8 @@ public final class ApiServer implements AutoCloseable {
         case "assignments" -> handleAssignments(exchange, nodeId);
         case "cordon" -> handleCordon(exchange, nodeId, true);
         case "uncordon" -> handleCordon(exchange, nodeId, false);
+        case "taint" -> handleTaint(exchange, nodeId, true);
+        case "untaint" -> handleTaint(exchange, nodeId, false);
         case "events" -> handleAppendInstanceEvent(exchange);
         default -> respond(exchange, 404, "unknown node endpoint: " + action);
       }
@@ -3215,6 +3291,30 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * Reserves (or releases) {@code nodeId} for one tenant -- the Kubernetes node-taint/toleration
+   * analogue described in {@code Scheduler}'s own javadoc: a tainted node excludes every tenant
+   * that isn't a member of its taint set from future placement, unconditionally across every
+   * isolation tier, until untainted. Never evicts an instance already running there, only keeps a
+   * non-tolerating tenant's new placements off it. Idempotent: tainting an already-tainted {@code
+   * (nodeId, tenantId)} pair, or untainting a pair that isn't tainted, is a no-op success.
+   */
+  private void handleTaint(HttpExchange exchange, String nodeId, boolean tainted)
+      throws IOException {
+    if (!"POST".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Object tenantId = body.get("tenantId");
+    if (!(tenantId instanceof String tenantIdString) || tenantIdString.isBlank()) {
+      respond(exchange, 400, "missing tenantId");
+      return;
+    }
+    storeClient.propose(new StateMutation.PutNodeTaint(nodeId, tenantIdString, tainted));
+    respond(exchange, 200, "ok");
+  }
+
+  /**
    * Relays one worker-reported {@link InstanceEvent}, forwarded by its agent, into the durable
    * per-instance event log -- the {@code nodeId} in the URL is only used for the {@code NODE:WRITE}
    * self-service authorization {@link #handleNode} already applied; the event itself carries its
@@ -3377,6 +3477,8 @@ public final class ApiServer implements AutoCloseable {
         capabilities.put("labels", List.copyOf(registration.capabilities().labels()));
         node.put("capabilities", capabilities);
         node.put("cordoned", storeClient.isNodeCordoned(registration.nodeId()));
+        node.put(
+            "taints", storeClient.getNodeTaints(registration.nodeId()).stream().sorted().toList());
         storeClient
             .getNodeHeartbeat(registration.nodeId())
             .ifPresent(
@@ -3459,7 +3561,8 @@ public final class ApiServer implements AutoCloseable {
         numberField(map, "memoryBytesUsed", 0L).longValue(),
         numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
         portsFromJson(map.get("ports")),
-        numberField(map, "volumeUsageBytes", 0L).longValue());
+        numberField(map, "volumeUsageBytes", 0L).longValue(),
+        Optional.ofNullable((String) map.get("workerId")));
   }
 
   /** {@code ports}, when present, is a vessel instance's own declared-port-name -> number map. */
@@ -3496,6 +3599,7 @@ public final class ApiServer implements AutoCloseable {
     if (obs.volumeUsageBytes() > 0) {
       map.put("volumeUsageBytes", obs.volumeUsageBytes());
     }
+    obs.workerId().ifPresent(id -> map.put("workerId", id));
     return map;
   }
 
@@ -3561,7 +3665,8 @@ public final class ApiServer implements AutoCloseable {
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
           if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.WRITE, Optional.of(id))
-              && !rejectIfReservedSystemTenant(exchange, Optional.of(id))) {
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(id))
+              && !rejectSecondTenantUnderPlaintext(exchange, id)) {
             handlePutTenant(exchange, id);
           }
         }
@@ -4557,8 +4662,9 @@ public final class ApiServer implements AutoCloseable {
                 forwardHeaders.put(
                     "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
               });
-      // POST is only ever the /rollback action route (see FafnirServer#handleSecretMaps), whose
-      // body -- a JSON {"groupVersion": N} -- must be forwarded on exactly like PUT's already is.
+      // POST is always one of the /rollback, /seal, or /replace action sub-routes (see
+      // FafnirServer#handleSecretMaps), whose JSON body must be forwarded on exactly like PUT's
+      // already is.
       byte[] body =
           "PUT".equals(exchange.getRequestMethod()) || "POST".equals(exchange.getRequestMethod())
               ? readBody(exchange).getBytes(StandardCharsets.UTF_8)
@@ -6492,6 +6598,40 @@ public final class ApiServer implements AutoCloseable {
 
   private static boolean isReservedSystemTenant(Optional<String> tenantId) {
     return tenantId.filter(Tenant.RESERVED_SYSTEM_TENANT_ID::equals).isPresent();
+  }
+
+  /**
+   * Plaintext transport gives every caller the identical unauthenticated identity (see {@link
+   * #isOperatorCaller}'s own javadoc) -- there is no way, not even after the fact, to distinguish a
+   * legitimate co-tenant from an uninvited caller reaching into someone else's tenant. Rather than
+   * quietly allowing shared multi-tenant use with no way to tell callers apart, plaintext mode is
+   * treated as explicitly single-tenant: creating a second real tenant is refused outright, the
+   * same "reject, don't silently allow" posture every other hard policy in this class already
+   * takes. Neither {@link Tenant#RESERVED_SYSTEM_TENANT_ID} nor {@link Tenant#DEFAULT_TENANT_ID}
+   * counts toward the limit -- both are seeded automatically on every replica regardless of
+   * transport, not an operator's own tenant. A no-op for an update to an already-existing tenant
+   * (this id itself) and for every mTLS caller, where a real peer identity exists for RBAC to
+   * actually check.
+   */
+  private boolean rejectSecondTenantUnderPlaintext(HttpExchange exchange, String id) {
+    if (exchange instanceof HttpsExchange || storeClient.getTenant(id).isPresent()) {
+      return false;
+    }
+    boolean anotherRealTenantExists =
+        storeClient.listTenants().stream()
+            .anyMatch(
+                tenant ->
+                    !tenant.id().equals(Tenant.RESERVED_SYSTEM_TENANT_ID)
+                        && !tenant.id().equals(Tenant.DEFAULT_TENANT_ID));
+    if (!anotherRealTenantExists) {
+      return false;
+    }
+    respondQuietly(
+        exchange,
+        403,
+        "plaintext mode has no caller identity to distinguish tenants -- only one real tenant may"
+            + " exist at a time; use mTLS for real multi-tenancy");
+    return true;
   }
 
   /**

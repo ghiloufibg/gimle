@@ -130,53 +130,47 @@ class SchedulerTest {
         () -> scheduler.place("orders", 0, IsolationTier.TIER_1, REQUEST, false, List.of()));
   }
 
-  // ---- tenant node-level isolation ----
+  // ---- node taints / tenant tolerations ----
 
-  private static NodeCandidate nodeWithTenants(
-      String id, NodeCapabilities capabilities, long freeMemoryBytes, Set<String> tenantsPresent) {
+  private static NodeCandidate nodeWithTaints(
+      String id, NodeCapabilities capabilities, long freeMemoryBytes, Set<String> taints) {
     return new NodeCandidate(
-        id,
-        capabilities,
-        new ResourceUsageSnapshot(freeMemoryBytes, 0, 1000, 0),
-        false,
-        tenantsPresent);
+        id, capabilities, new ResourceUsageSnapshot(freeMemoryBytes, 0, 1000, 0), false, taints);
   }
 
   @Test
-  void tenant_isolation_excludes_a_tier2_node_already_running_a_different_tenant() {
+  void taint_excludes_a_node_tainted_for_a_different_tenant() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants(
-                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
-            nodeWithTenants("node-free", TIER_1_AND_2, 200L * 1024 * 1024, Set.of()));
+            nodeWithTaints("node-tainted", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
+            nodeWithTaints("node-open", TIER_1_AND_2, 200L * 1024 * 1024, Set.of()));
 
     String chosen =
         scheduler.place(
             "orders", 0, IsolationTier.TIER_2, REQUEST, false, Optional.of("tenant-a"), candidates);
 
-    assertEquals("node-free", chosen);
+    assertEquals("node-open", chosen);
   }
 
   @Test
-  void tenant_isolation_permits_a_node_already_running_the_same_tenant() {
+  void taint_permits_a_node_tainted_for_the_same_tenant() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants(
-                "node-same-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-a")));
+            nodeWithTaints(
+                "node-tainted-same", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-a")));
 
     String chosen =
         scheduler.place(
             "orders", 0, IsolationTier.TIER_2, REQUEST, false, Optional.of("tenant-a"), candidates);
 
-    assertEquals("node-same-tenant", chosen);
+    assertEquals("node-tainted-same", chosen);
   }
 
   @Test
-  void tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant() {
+  void taint_fails_outright_when_every_capable_node_is_tainted_for_a_different_tenant() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants(
-                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+            nodeWithTaints("node-tainted", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
 
     assertThrows(
         GimleSchedulingException.class,
@@ -192,16 +186,15 @@ class SchedulerTest {
   }
 
   /**
-   * An operator hitting this needs to know which node(s) and which other tenant(s) are actually
-   * blocking placement -- an event that just says "tenant isolation violated" with no specifics is
-   * indistinguishable from any other unexplained scheduling failure.
+   * An operator hitting this needs to know which node(s) and which tenant(s) they're tainted for --
+   * an event that just says "node taints exclude tenant" with no specifics is indistinguishable
+   * from any other unexplained scheduling failure.
    */
   @Test
-  void tenant_isolation_failure_names_the_specific_blocking_node_and_tenant() {
+  void taint_failure_names_the_specific_blocking_node_and_tenant() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants(
-                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+            nodeWithTaints("node-tainted", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
 
     GimleSchedulingException failure =
         assertThrows(
@@ -216,16 +209,16 @@ class SchedulerTest {
                     Optional.of("tenant-a"),
                     candidates));
 
-    assertTrue(failure.getMessage().contains("node-other-tenant"), failure.getMessage());
+    assertTrue(failure.getMessage().contains("node-tainted"), failure.getMessage());
     assertTrue(failure.getMessage().contains("tenant-b"), failure.getMessage());
   }
 
   @Test
-  void tenant_isolation_failure_names_every_blocking_node_when_more_than_one_conflicts() {
+  void taint_failure_names_every_blocking_node_when_more_than_one_conflicts() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants("node-b", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
-            nodeWithTenants("node-c", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-c")));
+            nodeWithTaints("node-b", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
+            nodeWithTaints("node-c", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-c")));
 
     GimleSchedulingException failure =
         assertThrows(
@@ -247,31 +240,40 @@ class SchedulerTest {
   }
 
   @Test
-  void tenant_isolation_is_not_enforced_at_tier1() {
-    // Tier 1 density packing across separate deployments isn't implemented anywhere in this
-    // codebase -- node-level exclusion is deliberately a no-op here.
+  void taint_is_enforced_at_tier1_too_unlike_the_co_residency_check_it_replaced() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants(
-                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+            nodeWithTaints("node-tainted", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
+            nodeWithTaints("node-open", TIER_1_AND_2, 200L * 1024 * 1024, Set.of()));
 
     String chosen =
         scheduler.place(
             "orders", 0, IsolationTier.TIER_1, REQUEST, false, Optional.of("tenant-a"), candidates);
 
-    assertEquals("node-other-tenant", chosen);
+    assertEquals("node-open", chosen);
   }
 
   @Test
-  void tenant_isolation_is_not_enforced_when_no_tenant_id_given() {
+  void an_untenanted_deployment_never_tolerates_a_taint() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants(
-                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+            nodeWithTaints("node-tainted", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
 
-    String chosen = scheduler.place("orders", 0, IsolationTier.TIER_2, REQUEST, false, candidates);
+    assertThrows(
+        GimleSchedulingException.class,
+        () -> scheduler.place("orders", 0, IsolationTier.TIER_2, REQUEST, false, candidates));
+  }
 
-    assertEquals("node-other-tenant", chosen);
+  @Test
+  void an_untainted_node_admits_any_tenant() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithTaints("node-open", TIER_1_AND_2, 800L * 1024 * 1024, Set.of()));
+
+    String chosen =
+        scheduler.place(
+            "orders", 0, IsolationTier.TIER_2, REQUEST, false, Optional.of("tenant-a"), candidates);
+
+    assertEquals("node-open", chosen);
   }
 
   // ---- placement.requiredLabels ----
@@ -471,18 +473,17 @@ class SchedulerTest {
   }
 
   @Test
-  void eligible_nodes_applies_tenant_isolation_at_tier2() {
+  void eligible_nodes_applies_node_taints() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants(
-                "node-other-tenant", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
-            nodeWithTenants("node-free", TIER_1_AND_2, 200L * 1024 * 1024, Set.of()));
+            nodeWithTaints("node-tainted", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
+            nodeWithTaints("node-open", TIER_1_AND_2, 200L * 1024 * 1024, Set.of()));
 
     List<NodeCandidate> eligible =
         scheduler.eligibleNodes(
             IsolationTier.TIER_2, false, Optional.of("tenant-a"), Set.of(), candidates);
 
-    assertEquals(List.of("node-free"), eligible.stream().map(NodeCandidate::nodeId).toList());
+    assertEquals(List.of("node-open"), eligible.stream().map(NodeCandidate::nodeId).toList());
   }
 
   @Test
@@ -633,10 +634,10 @@ class SchedulerTest {
   }
 
   @Test
-  void sticky_placement_still_enforces_tenant_isolation_on_the_sticky_node() {
+  void sticky_placement_still_enforces_node_taints_on_the_sticky_node() {
     List<NodeCandidate> candidates =
         List.of(
-            nodeWithTenants("node-sticky", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
+            nodeWithTaints("node-sticky", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")));
 
     assertThrows(
         GimleSchedulingException.class,

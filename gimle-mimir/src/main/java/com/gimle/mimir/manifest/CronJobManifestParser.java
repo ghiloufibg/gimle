@@ -70,7 +70,7 @@ public final class CronJobManifestParser {
         parseJobTemplate(ManifestFields.requireMap(root, "jobTemplate"), version, warnings);
     Optional<Duration> startingDeadline = parseStartingDeadline(root);
     ConcurrencyPolicy concurrencyPolicy = parseConcurrencyPolicy(root);
-    Optional<String> tenantId = parseTenantId(root);
+    Optional<String> tenantId = ManifestFields.parseTenantId(root);
 
     try {
       return new CronJobSpec(
@@ -149,18 +149,6 @@ public final class CronJobManifestParser {
           "'jobTemplate.backoffLimit' must be a non-negative number if present");
     }
     return number.intValue();
-  }
-
-  /** {@code tenantId} is optional: absent means untenanted. */
-  private static Optional<String> parseTenantId(Map<?, ?> root) {
-    Object value = root.get("tenantId");
-    if (value == null) {
-      return Optional.empty();
-    }
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new GimleManifestException("'tenantId' must be a non-blank string if present");
-    }
-    return Optional.of(s);
   }
 
   // jobTemplate.placement's error messages are scoped to jobTemplate.placement.* rather than

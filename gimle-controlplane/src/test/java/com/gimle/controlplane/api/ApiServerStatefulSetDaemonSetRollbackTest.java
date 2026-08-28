@@ -106,6 +106,10 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
             .build());
   }
 
+  private HttpResponse<String> delete(String path) throws Exception {
+    return send(HttpRequest.newBuilder(URI.create(baseUrl + path)).DELETE().build());
+  }
+
   @Test
   void a_statefulset_module_version_change_mints_a_new_revision() throws Exception {
     assertEquals(200, put("/statefulsets/orders", statefulSetYaml("orders", "1.0.0")).statusCode());
@@ -139,6 +143,24 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
   @Test
   void rollback_of_an_unknown_statefulset_is_404() throws Exception {
     assertEquals(404, rollback("/statefulsets/never-deployed", "").statusCode());
+  }
+
+  @Test
+  void deleting_then_recreating_a_statefulset_starts_revision_history_fresh() throws Exception {
+    put("/statefulsets/orders", statefulSetYaml("orders", "1.0.0"));
+    put("/statefulsets/orders", statefulSetYaml("orders", "1.1.0")); // revision 2
+
+    assertEquals(200, delete("/statefulsets/orders").statusCode());
+    assertEquals(200, put("/statefulsets/orders", statefulSetYaml("orders", "2.0.0")).statusCode());
+
+    List<Map<String, Object>> values =
+        Json.asObjectList(
+            Json.asObject(Json.parse(getRevisions("/statefulsets/orders").body()))
+                .get("revisions"));
+    assertEquals(1, values.size());
+    assertEquals(1L, values.get(0).get("revision"));
+    assertEquals(
+        404, rollback("/statefulsets/orders", Json.write(Map.of("toRevision", 2))).statusCode());
   }
 
   @Test
@@ -181,5 +203,26 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
   @Test
   void rollback_of_an_unknown_daemonset_is_404() throws Exception {
     assertEquals(404, rollback("/daemonsets/never-deployed", "").statusCode());
+  }
+
+  @Test
+  void deleting_then_recreating_a_daemonset_starts_revision_history_fresh() throws Exception {
+    put("/daemonsets/node-exporter", daemonSetYaml("node-exporter", "1.0.0"));
+    put("/daemonsets/node-exporter", daemonSetYaml("node-exporter", "1.1.0")); // revision 2
+
+    assertEquals(200, delete("/daemonsets/node-exporter").statusCode());
+    assertEquals(
+        200,
+        put("/daemonsets/node-exporter", daemonSetYaml("node-exporter", "2.0.0")).statusCode());
+
+    List<Map<String, Object>> values =
+        Json.asObjectList(
+            Json.asObject(Json.parse(getRevisions("/daemonsets/node-exporter").body()))
+                .get("revisions"));
+    assertEquals(1, values.size());
+    assertEquals(1L, values.get(0).get("revision"));
+    assertEquals(
+        404,
+        rollback("/daemonsets/node-exporter", Json.write(Map.of("toRevision", 2))).statusCode());
   }
 }

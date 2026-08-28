@@ -7,6 +7,7 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.vessel.VesselEnvValue;
 import com.gimle.core.vessel.VesselFileMount;
 import com.gimle.core.vessel.VesselProbeSpec;
@@ -101,6 +102,24 @@ final class ManifestFields {
       warnings.add(
           "'" + key + "' is not a recognized field for this manifest kind and was ignored");
     }
+  }
+
+  /**
+   * The {@code tenantId} field shared by all five workload kinds: absent resolves to {@link
+   * Tenant#DEFAULT_TENANT_ID} rather than {@code Optional.empty()} -- the same "omit the namespace,
+   * land in {@code default}" defaulting Kubernetes applies at admission, so "no tenant" is never a
+   * valid-but-broken state with nothing addressable to configure it. A present-but-blank value is
+   * still rejected outright rather than silently treated as absent.
+   */
+  static Optional<String> parseTenantId(Map<?, ?> root) {
+    Object value = root.get("tenantId");
+    if (value == null) {
+      return Optional.of(Tenant.DEFAULT_TENANT_ID);
+    }
+    if (!(value instanceof String s) || s.isBlank()) {
+      throw new GimleManifestException("'tenantId' must be a non-blank string if present");
+    }
+    return Optional.of(s);
   }
 
   static Map<?, ?> requireMap(Map<?, ?> map, String key) {

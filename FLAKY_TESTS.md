@@ -308,6 +308,46 @@ gimle:flaky-tests` runs it on its own, one module at a time.
   config key) from an old `404` expectation to the `200` idempotent-delete behavior a separate,
   deliberate fix gave every resource kind's delete-of-a-never-existed-name path.
 
+## 2026-08-27 gimle-holmgang `-Pvalidation`, node-taint/GOV-8 branch
+
+- **`state-store-persistence.feature`'s destructive scenario** ("Tenants, roles, role bindings, and
+  accounts survive a store restart, snapshot included") — `Then within 60s the cluster accepts
+  writes again` timed out twice in a row (`HeimdallConditionError`, control plane logging
+  `no reachable store leader` continuously after the restart), both times run in isolation (its own
+  `@destructive` fresh cluster, nothing else in flight). The change under review in that same commit
+  was a one-line tenant-id rename in this feature file (`persist-tenant` → `holmgang-tenant`, an
+  unrelated GOV-8 fix reusing the topology's already-seeded tenant instead of creating a second
+  one) — no plausible mechanism by which renaming a string adds tens of seconds to a store restart,
+  and the store process itself came back up and re-bound its port fine both times (`process status:
+  4/4 alive`) well within the window, so this isn't a crash. This scenario deliberately forces
+  10,500+ log entries past the compaction threshold immediately before the restart specifically to
+  exercise `InstallSnapshot`-shaped recovery (see its own Gherkin comment) — the single most
+  disk/CPU-intensive restart-recovery path in the whole suite, and a strong match for this sandbox's
+  documented shared-CPU/IO stalling fixed timeouts (the "process-respawn wait windows" class this
+  file's own intro paragraph already names). Deterministic across both isolated re-runs rather than
+  intermittent, so this reads less like a race and more like this sandbox's disk/CPU throughput
+  specifically not fitting a 10,500-entry replay-or-snapshot-load inside 60s -- not re-tuned or
+  root-caused further here, since that's a store-recovery-performance investigation orthogonal to
+  the GOV-8 fix in flight; flagging per this file's own process rather than treating a two-run
+  reproduction as confirmed sandbox-only without saying so.
+
+## 2026-08-28 `gimle-controlplane` single-module test, SEC-7 branch
+
+- **`ApiServerDeploymentConcurrencyTest#a_racing_delete_of_a_never_existing_name_never_blocks_a_concurrent_create`**
+  failed both surefire rerun attempts in a single-module `-pl gimle-controlplane test` run
+  (`expected: <200> but was: <404>`), alongside the same store-infrastructure signatures as the
+  2026-08-25/2026-08-26 entries above (`no reachable store leader`, a garbled HTTP status line, a
+  TLS-alert-read-as-length "wire frame length" error) scattered across unrelated classes in the
+  same run. The change under review (the `secretmap replace` verb, plus narrowing an
+  Andvari-coordinate-ownership admission check to `Tenant#isEnforceable`) touches neither
+  deployment create/delete nor this test's own concurrency harness. Re-run twice in isolation
+  (alone, and paired with `ApiServerAuditOutcomeTest`, whose own single flake in the full run never
+  recurred either) — both times clean. `ApiServerDeploymentConcurrencyTest` is the same class the
+  2026-08-26 entry above already names as flaky under contention (there, specific repetitions in a
+  full-reactor run; here, the same class's own surefire-forked parallelism within one module), so
+  this reads as the same standing pattern recurring on a different repetition rather than a new
+  cause -- not re-diagnosed further here.
+
 ## 2026-08-25 full-reactor verify, bundle-artifact branch
 
 - **`ApiServerDeploymentRollbackTest` / `ApiServerStatefulSetDaemonSetRollbackTest` /

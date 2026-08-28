@@ -41,14 +41,16 @@ public final class RolesCommand {
    * one tenant instead of cluster-wide.
    */
   public void set(List<String> args) {
+    String usage = "set role requires <name> --permission <resource>:<verb>[:<tenant>] ...";
     if (args.isEmpty()) {
-      throw new CliException("set role requires <name>");
+      throw new CliException(usage);
     }
     String name = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), Set.of("--permission"));
+    Flags flags =
+        Flags.parse(args.subList(1, args.size()), Set.of(), Set.of("--permission"), usage);
     List<String> permissionSpecs = flags.getAll("--permission");
     if (permissionSpecs.isEmpty()) {
-      throw new CliException("set role requires at least one --permission");
+      throw new CliException(usage);
     }
 
     List<Map<String, Object>> permissions = new ArrayList<>();

@@ -16,6 +16,8 @@ import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.raft.MutationOutcome;
+import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
@@ -228,10 +230,15 @@ class DeploymentReconcilerTest {
         deployment("orders-service", 3, jar, new PlacementConstraints(Optional.empty(), true)));
 
     List<StateMutation> deferred = new ArrayList<>();
+    MutationSink deferringSink =
+        m -> {
+          deferred.add(m);
+          return MutationOutcome.accepted();
+        };
     new DeploymentReconciler(
             store,
             scheduler,
-            deferred::add,
+            deferringSink,
             DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT,
             Clock.systemUTC())
         .reconcileOnce();

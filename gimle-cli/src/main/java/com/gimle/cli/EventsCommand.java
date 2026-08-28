@@ -26,7 +26,11 @@ public final class EventsCommand {
   }
 
   public void run(String deploymentName, String instanceIndex, List<String> extraArgs) {
-    Flags flags = Flags.parse(extraArgs, Set.of());
+    Flags flags =
+        Flags.parse(
+            extraArgs,
+            Set.of(),
+            "usage: gimle events <deploymentName> <instanceIndex> [--limit N]");
     String path = "/events?deployment=" + deploymentName + "&instance=" + instanceIndex;
     List<Map<String, Object>> events = client.getList(path);
     String limitValue = flags.getOrDefault("--limit", null);

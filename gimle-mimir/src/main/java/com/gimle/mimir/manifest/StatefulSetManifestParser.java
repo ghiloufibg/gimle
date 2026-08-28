@@ -68,7 +68,7 @@ public final class StatefulSetManifestParser {
     String artifactPath = ManifestFields.optionalArtifactPath(root, version, warnings);
     int replicas = parseReplicas(root);
     PlacementConstraints placement = ManifestFields.parsePlacement(root);
-    Optional<String> tenantId = parseTenantId(root);
+    Optional<String> tenantId = ManifestFields.parseTenantId(root);
     Optional<String> artifactSha256 = parseArtifactSha256(root);
     Optional<VesselSpec> vessel = ManifestFields.parseVessel(root);
 
@@ -87,18 +87,6 @@ public final class StatefulSetManifestParser {
       throw new GimleManifestException("missing or non-numeric required field: replicas");
     }
     return number.intValue();
-  }
-
-  /** {@code tenantId} is optional: absent means untenanted. */
-  private static Optional<String> parseTenantId(Map<?, ?> root) {
-    Object value = root.get("tenantId");
-    if (value == null) {
-      return Optional.empty();
-    }
-    if (!(value instanceof String s) || s.isBlank()) {
-      throw new GimleManifestException("'tenantId' must be a non-blank string if present");
-    }
-    return Optional.of(s);
   }
 
   /**

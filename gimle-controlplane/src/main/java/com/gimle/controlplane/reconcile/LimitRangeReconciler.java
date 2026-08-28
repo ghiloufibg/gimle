@@ -3,6 +3,7 @@ package com.gimle.controlplane.reconcile;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.raft.MutationSink;
@@ -70,7 +71,9 @@ public final class LimitRangeReconciler {
 
   private void reconcileOne(DeploymentSpec spec) {
     Optional<String> reason =
-        spec.tenantId().flatMap(tenantId -> violationReasonFor(spec, tenantId));
+        Tenant.isEnforceable(spec.tenantId())
+            ? violationReasonFor(spec, spec.tenantId().get())
+            : Optional.empty();
     // Level-triggered means recomputing from scratch every tick, not re-proposing every tick --
     // see QuotaReconciler's own identical reasoning. Comparing the full reason (not just
     // present/absent) also re-proposes when the range changes which bound is failing, so the

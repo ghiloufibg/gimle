@@ -53,7 +53,35 @@ describe("HttpDeploymentsRepository", () => {
       queueDepth: 0,
       cpuMillicoresUsed: 0,
       memoryBytesUsed: 0,
+      workerId: null,
     });
+  });
+
+  it("maps an instance observation with no workerId key to null", async () => {
+    stubFetchSequence([() => jsonResponse([RAW_DEPLOYMENT])]);
+
+    const repo = new HttpDeploymentsRepository();
+    const all = await repo.all(true);
+
+    expect(all[0].instances[0].observation.workerId).toBeNull();
+  });
+
+  it("maps an instance observation's real workerId through unchanged", async () => {
+    const withWorkerId = {
+      ...RAW_DEPLOYMENT,
+      instances: [
+        {
+          ...RAW_DEPLOYMENT.instances[0],
+          observation: { ...RAW_DEPLOYMENT.instances[0].observation, workerId: "worker-4821" },
+        },
+      ],
+    };
+    stubFetchSequence([() => jsonResponse([withWorkerId])]);
+
+    const repo = new HttpDeploymentsRepository();
+    const all = await repo.all(true);
+
+    expect(all[0].instances[0].observation.workerId).toBe("worker-4821");
   });
 
   it("maps limitRangeViolating and its reason through unchanged", async () => {
