@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 644,
+    "totalRequirements": 645,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 521,
+    "notCoveredByAutomatedTest": 522,
     "releaseReadinessPercent": 19.1
   },
   "items": [
@@ -7086,6 +7086,17 @@
       "category": "Security",
       "feature": "Explicit SecretMap Replace Verb",
       "step": "Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-645",
+      "module": "gimle-mimir",
+      "category": "Application Platform",
+      "feature": "Deleting a Workload Clears Its Revision History",
+      "step": "Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

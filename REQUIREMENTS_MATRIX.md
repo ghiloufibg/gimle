@@ -654,6 +654,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-642 | Plaintext Transport Is Explicitly Single-Tenant | Governance | Complete | Yes |
 | GIMLE-643 | Implicit Default Tenant for Untenanted Workloads | Multi-tenancy | Complete | Yes |
 | GIMLE-644 | Explicit SecretMap Replace Verb | Security | Complete | Yes |
+| GIMLE-645 | Deleting a Workload Clears Its Revision History | Application Platform | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3676,6 +3677,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a deployment manifest with no tenantId submitted; When it is admitted; Then its tenantId resolves to "default", a real seeded tenant, and its config/secrets become addressable at /config/default/... without being subject to quota/limitrange/policy enforcement unless an operator explicitly configures those for "default".
+  ```
+
+#### GIMLE-645 — Deleting a Workload Clears Its Revision History
+
+- **Category**: Application Platform
+- **User story**: As an operator, I want deleting a Deployment/StatefulSet/DaemonSet to clear its ControllerRevision history, so recreating a workload under the same name is always a clean, fresh start instead of inheriting an unrelated prior incarnation's revisions.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `StateStore#removeDeployment`/`#removeDaemonSetSpec`/`#removeStatefulSetSpec` (controllerRevisions.remove)
+- **Test coverage**: `StateStoreTest#removing_a_deployment_clears_its_controller_revision_history`/`#recreating_a_deployment_under_the_same_name_after_delete_starts_revision_history_fresh`/`#removing_a_daemonset_clears_its_controller_revision_history`/`#removing_a_statefulset_clears_its_controller_revision_history`; `ApiServerDeploymentRollbackTest#deleting_then_recreating_a_deployment_starts_revision_history_fresh`; `ApiServerStatefulSetDaemonSetRollbackTest#deleting_then_recreating_a_statefulset_starts_revision_history_fresh`/`#deleting_then_recreating_a_daemonset_starts_revision_history_fresh`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404.
   ```
 
 ### gimle-fabric

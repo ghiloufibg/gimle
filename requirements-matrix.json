@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 643,
+  "requirementCount": 645,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -12704,6 +12704,24 @@
       "testCoverageDetail": "`SecretMapStoreTest#replace_all_removes_every_live_key_not_named_in_the_new_values`/`#replace_all_with_an_empty_map_clears_every_live_key`/`#replace_all_stamps_one_group_version_recording_the_final_state`/`#replace_all_reports_an_outcome_for_every_written_or_removed_key`; `FafnirServerSecretMapTest#replace_removes_every_key_not_named_in_the_new_data`/`#replace_with_no_data_at_all_clears_the_secret_map`/`#put_still_merges_and_leaves_other_keys_untouched`; `ApiServerSecretMapTest#replace_removes_keys_not_named_through_the_proxy_to_a_real_fafnir`; `ApiServerSecretMapAuthzTest#a_caller_with_no_secretmap_grant_may_not_replace_one_either`.",
       "gherkinSteps": [
         "Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-645",
+      "module": "gimle-mimir",
+      "feature": "Deleting a Workload Clears Its Revision History",
+      "category": "Application Platform",
+      "userStory": "As an operator, I want deleting a Deployment/StatefulSet/DaemonSet to clear its ControllerRevision history, so recreating a workload under the same name is always a clean, fresh start instead of inheriting an unrelated prior incarnation's revisions.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`StateStore#removeDeployment`/`#removeDaemonSetSpec`/`#removeStatefulSetSpec` (controllerRevisions.remove)"
+      ],
+      "testCoverageDetail": "`StateStoreTest#removing_a_deployment_clears_its_controller_revision_history`/`#recreating_a_deployment_under_the_same_name_after_delete_starts_revision_history_fresh`/`#removing_a_daemonset_clears_its_controller_revision_history`/`#removing_a_statefulset_clears_its_controller_revision_history`; `ApiServerDeploymentRollbackTest#deleting_then_recreating_a_deployment_starts_revision_history_fresh`; `ApiServerStatefulSetDaemonSetRollbackTest#deleting_then_recreating_a_statefulset_starts_revision_history_fresh`/`#deleting_then_recreating_a_daemonset_starts_revision_history_fresh`.",
+      "gherkinSteps": [
+        "Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

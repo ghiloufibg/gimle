@@ -23,10 +23,12 @@ import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.time.TestClock;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.ServiceSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -46,6 +48,27 @@ class StateStoreTest {
   private static DeploymentSpec sampleDeployment(String name, int replicas) {
     return new DeploymentSpec(
         name, ORDERS, "/var/gimle/artifacts/orders-1.0.0.jar", replicas, PlacementConstraints.NONE);
+  }
+
+  private static DaemonSetSpec sampleDaemonSet(String name) {
+    return new DaemonSetSpec(
+        name,
+        ORDERS,
+        "/var/gimle/artifacts/orders-1.0.0.jar",
+        PlacementConstraints.NONE,
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  private static StatefulSetSpec sampleStatefulSet(String name, int replicas) {
+    return new StatefulSetSpec(
+        name,
+        ORDERS,
+        "/var/gimle/artifacts/orders-1.0.0.jar",
+        replicas,
+        PlacementConstraints.NONE,
+        Optional.empty(),
+        Optional.empty());
   }
 
   @Test
@@ -857,6 +880,86 @@ class StateStoreTest {
 
     assertTrue(store.listControllerRevisions("Deployment", "never-deployed").isEmpty());
     assertTrue(store.getControllerRevision("Deployment", "never-deployed", 1).isEmpty());
+  }
+
+  @Test
+  void removing_a_deployment_clears_its_controller_revision_history() {
+    StateStore store = new StateStore();
+    store.putControllerRevision(
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            1,
+            sampleDeployment("orders-service", 1),
+            1_000L,
+            OptionalInt.empty()));
+
+    store.removeDeployment("orders-service");
+
+    assertTrue(store.listControllerRevisions("Deployment", "orders-service").isEmpty());
+  }
+
+  @Test
+  void recreating_a_deployment_under_the_same_name_after_delete_starts_revision_history_fresh() {
+    StateStore store = new StateStore();
+    store.putControllerRevision(
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            1,
+            sampleDeployment("orders-service", 1),
+            1_000L,
+            OptionalInt.empty()));
+    store.removeDeployment("orders-service");
+
+    // A brand-new Deployment reusing the same name -- its own first revision is numbered 1 again,
+    // not a continuation of the deleted Deployment's history.
+    ControllerRevision freshFirstRevision =
+        new ControllerRevision(
+            "Deployment",
+            "orders-service",
+            1,
+            sampleDeployment("orders-service", 5),
+            2_000L,
+            OptionalInt.empty());
+    store.putControllerRevision(freshFirstRevision);
+
+    assertEquals(
+        List.of(freshFirstRevision), store.listControllerRevisions("Deployment", "orders-service"));
+  }
+
+  @Test
+  void removing_a_daemonset_clears_its_controller_revision_history() {
+    StateStore store = new StateStore();
+    store.putControllerRevision(
+        new ControllerRevision(
+            "DaemonSet",
+            "orders-agent",
+            1,
+            sampleDaemonSet("orders-agent"),
+            1_000L,
+            OptionalInt.empty()));
+
+    store.removeDaemonSetSpec("orders-agent");
+
+    assertTrue(store.listControllerRevisions("DaemonSet", "orders-agent").isEmpty());
+  }
+
+  @Test
+  void removing_a_statefulset_clears_its_controller_revision_history() {
+    StateStore store = new StateStore();
+    store.putControllerRevision(
+        new ControllerRevision(
+            "StatefulSet",
+            "orders-db",
+            1,
+            sampleStatefulSet("orders-db", 3),
+            1_000L,
+            OptionalInt.empty()));
+
+    store.removeStatefulSetSpec("orders-db");
+
+    assertTrue(store.listControllerRevisions("StatefulSet", "orders-db").isEmpty());
   }
 
   @Test

@@ -90,6 +90,11 @@ class ApiServerDeploymentRollbackTest {
             .build());
   }
 
+  private HttpResponse<String> deleteDeployment(String name) throws Exception {
+    return send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name)).DELETE().build());
+  }
+
   private HttpResponse<String> rollback(String name, String body) throws Exception {
     return send(
         HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name + "/rollback"))
@@ -133,6 +138,25 @@ class ApiServerDeploymentRollbackTest {
     assertEquals(2, values.size());
     assertEquals(2L, values.get(0).get("revision"));
     assertEquals(1L, values.get(1).get("revision"));
+  }
+
+  @Test
+  void deleting_then_recreating_a_deployment_starts_revision_history_fresh() throws Exception {
+    putDeployment("orders-service", "1.0.0", 1);
+    putDeployment("orders-service", "1.1.0", 1); // revision 2
+
+    assertEquals(200, deleteDeployment("orders-service").statusCode());
+    assertEquals(200, putDeployment("orders-service", "2.0.0", 1).statusCode());
+
+    List<Map<String, Object>> values =
+        Json.asObjectList(
+            Json.asObject(Json.parse(getRevisions("orders-service").body())).get("revisions"));
+    // The new Deployment's own first revision, numbered 1 again -- not a continuation of the
+    // deleted Deployment's history, and rolling back to the old revision 2 is no longer possible.
+    assertEquals(1, values.size());
+    assertEquals(1L, values.get(0).get("revision"));
+
+    assertEquals(404, rollback("orders-service", Json.write(Map.of("toRevision", 2))).statusCode());
   }
 
   @Test

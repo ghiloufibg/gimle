@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 644
+- **Total requirements**: 645
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 521
+- **Not covered by automated test**: 522
 - **Release-readiness (automated coverage)**: 19.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -19,7 +19,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 46 | 6 | 40 | 13.0% |
-| gimle-mimir | 58 | 35 | 23 | 60.3% |
+| gimle-mimir | 59 | 35 | 24 | 59.3% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
 | gimle-controlplane | 78 | 14 | 64 | 17.9% |
 | gimle-fafnir | 26 | 11 | 15 | 42.3% |
@@ -609,6 +609,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-114 | Install-phase Nack escalates to FAILED (closing the "stuck at INSTALLED" gap) | Given an instance's lifecycleState is still "INSTALLED" When a Nack for that instance arrives over the control channel Then lifecycleState is set to "FAILED" Given the instance already progressed past INSTALLED (a later nack) Then its last real lifecycle state is preserved, not clobbered | No |
 
 ### gimle-mimir
+
+#### Application Platform
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-645 | Deleting a Workload Clears Its Revision History | Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404. | No |
 
 #### Config
 

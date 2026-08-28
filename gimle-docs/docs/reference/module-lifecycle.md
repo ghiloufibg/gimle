@@ -93,5 +93,8 @@ plain replica-count or placement edit. `gimle deployment revisions <name>` lists
 `gimle deployment rollback <name> [--to-revision N]` restores an earlier one — forward-only, the
 same drain-then-dispose mechanics above apply to the rollback exactly as they would to any other
 `apply`, since a rollback is just another admitted spec pointing at an older module version.
-StatefulSet and DaemonSet accept the identical two verbs. See the [CLI reference](./cli-reference.md)
-for the full flag shape.
+StatefulSet and DaemonSet accept the identical two verbs. Deleting a Deployment/StatefulSet/DaemonSet
+clears its revision history along with it: a later `apply` that reuses the same name starts a brand
+new history at revision 1 rather than inheriting the deleted workload's revisions, and its own old
+revision numbers are no longer valid `--to-revision` targets. See the
+[CLI reference](./cli-reference.md) for the full flag shape.

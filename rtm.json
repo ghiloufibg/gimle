@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 643,
+  "requirementCount": 645,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11147,6 +11147,21 @@
         "`SecretMapStore#replaceAll`",
         "`FafnirServer#handleReplaceSecretMap`",
         "`SecretMapCommand#replace`"
+      ]
+    },
+    {
+      "id": "GIMLE-645",
+      "module": "gimle-mimir",
+      "feature": "Deleting a Workload Clears Its Revision History",
+      "category": "Application Platform",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario yet exercises delete-then-recreate-under-the-same-name against a real running cluster -- coverage today is unit/route-level (StateStore, ApiServer rollback tests) only.",
+      "otherTestCoverage": "`StateStoreTest` (revision-history clearing on delete, for all three workload kinds), `ApiServerDeploymentRollbackTest`/`ApiServerStatefulSetDaemonSetRollbackTest` (delete-then-recreate revision reset)",
+      "sourceLocations": [
+        "`StateStore#removeDeployment`/`#removeDaemonSetSpec`/`#removeStatefulSetSpec`"
       ]
     }
   ]

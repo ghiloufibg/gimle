@@ -205,12 +205,24 @@ public final class StateStore implements StoreReader {
     return List.copyOf(deployments.values());
   }
 
+  /**
+   * Also clears this name's {@link ControllerRevision} history -- without this, a deleted
+   * Deployment's revisions stay keyed under {@link ControllerRevision#revisionKey}, orphaned
+   * indefinitely, and a later {@code apply} that recreates the same name would inherit them as if
+   * the new Deployment were a continuation of the old one: {@code nextRevisionFor} would keep
+   * incrementing from the old revision number instead of starting fresh, and a caller could roll
+   * back to a revision from an entirely different, already-deleted Deployment that merely happened
+   * to share this name. Since {@link StateMutation} is applied in strict Raft log order with no
+   * concurrent writers, clearing here is enough on its own to make a delete-then-recreate a clean
+   * break -- no separate identity token is needed to protect against a race that can't happen.
+   */
   public void removeDeployment(String name) {
     deployments.remove(name);
     deploymentGenerations.remove(name);
     clearAllRollingIndices(name);
     clearAllSurgeIndices(name);
     effectiveReplicas.remove(name);
+    controllerRevisions.remove(ControllerRevision.revisionKey("Deployment", name));
   }
 
   // ---- services ----
@@ -393,11 +405,14 @@ public final class StateStore implements StoreReader {
    * DaemonSet has no rollout left to track. Does not remove any {@link DaemonSetAssignment} still
    * on disk for it; {@code DaemonSetReconciler}'s own orphaned-assignment sweep is responsible for
    * those, the same "spec gone -> reconciler tears assignments down" ordering {@link
-   * #removeDeployment} already relies on for {@link InstanceAssignment}.
+   * #removeDeployment} already relies on for {@link InstanceAssignment}. Also clears this name's
+   * {@link ControllerRevision} history, for the same delete-then-recreate reason {@link
+   * #removeDeployment}'s own javadoc gives.
    */
   public void removeDaemonSetSpec(String name) {
     daemonSetSpecs.remove(name);
     clearAllRollingDaemonSetNodes(name);
+    controllerRevisions.remove(ControllerRevision.revisionKey("DaemonSet", name));
   }
 
   // ---- daemonset assignments ----
@@ -477,11 +492,14 @@ public final class StateStore implements StoreReader {
    * #removeStatefulSetIndexNode} only when the reconciler actually tears an index down for good
    * (this method removing the spec doesn't itself remove any {@link StatefulSetAssignment}; {@code
    * StatefulSetReconciler}'s own orphaned-assignment sweep does that, the same "spec gone ->
-   * reconciler tears assignments down" ordering {@link #removeDeployment} already relies on).
+   * reconciler tears assignments down" ordering {@link #removeDeployment} already relies on). Also
+   * clears this name's {@link ControllerRevision} history, for the same delete-then-recreate reason
+   * {@link #removeDeployment}'s own javadoc gives.
    */
   public void removeStatefulSetSpec(String name) {
     statefulSetSpecs.remove(name);
     clearRollingStatefulSetIndex(name);
+    controllerRevisions.remove(ControllerRevision.revisionKey("StatefulSet", name));
   }
 
   // ---- statefulset assignments ----
