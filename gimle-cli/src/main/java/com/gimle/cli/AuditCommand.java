@@ -29,7 +29,7 @@ public final class AuditCommand {
     if (args.isEmpty() || !"list".equals(args.get(0))) {
       throw new CliException(usage());
     }
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage());
 
     StringBuilder path = new StringBuilder("/audit");
     char separator = '?';

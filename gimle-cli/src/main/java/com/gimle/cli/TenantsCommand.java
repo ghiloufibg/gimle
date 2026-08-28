@@ -33,11 +33,13 @@ public final class TenantsCommand {
   }
 
   public void set(List<String> args) {
+    String usage =
+        "set tenant requires <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N";
     if (args.isEmpty()) {
-      throw new CliException("set tenant requires <id>");
+      throw new CliException(usage);
     }
     String id = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
     long maxMemoryBytes = flags.requireLong("--max-memory-bytes");
     long maxCpuMillicores = flags.requireLong("--max-cpu-millicores");
     long maxInstances = flags.requireLong("--max-instances");

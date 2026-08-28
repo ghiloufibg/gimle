@@ -36,11 +36,15 @@ public final class LimitRangeCommand {
   }
 
   public void set(List<String> args) {
+    String usage =
+        "set limitrange requires <tenantId> --min-request-memory M --min-request-cpu M"
+            + " --max-request-memory M --max-request-cpu M --min-limit-memory M --min-limit-cpu M"
+            + " --max-limit-memory M --max-limit-cpu M";
     if (args.isEmpty()) {
-      throw new CliException("set limitrange requires <tenantId>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
 
     Map<String, Object> body = new LinkedHashMap<>();
     putBoundIfPresent(body, flags, "minRequest", "--min-request-memory", "--min-request-cpu");

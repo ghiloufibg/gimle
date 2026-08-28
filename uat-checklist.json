@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 645,
+    "totalRequirements": 646,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 522,
-    "releaseReadinessPercent": 19.1
+    "notCoveredByAutomatedTest": 523,
+    "releaseReadinessPercent": 19.0
   },
   "items": [
     {
@@ -7097,6 +7097,17 @@
       "category": "Application Platform",
       "feature": "Deleting a Workload Clears Its Revision History",
       "step": "Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-646",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "CLI Flag Errors Always Show Usage",
+      "step": "Given a command like \"secret set default my-secret hunter2\" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

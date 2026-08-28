@@ -47,8 +47,12 @@ public final class NetworkPolicyCommand {
   }
 
   public void set(List<String> args) {
+    String usage =
+        "set networkpolicy requires <name> --tenant <id> [--deployment <name>...]"
+            + " [--service-interface <fqcn>...] [--allowed-caller-tenant <id>... |"
+            + " --deny-all-callers] [--allowed-callee-tenant <id>... | --deny-all-callees]";
     if (args.isEmpty()) {
-      throw new CliException("set networkpolicy requires <name>");
+      throw new CliException(usage);
     }
     String name = args.get(0);
     Flags flags =
@@ -59,10 +63,11 @@ public final class NetworkPolicyCommand {
                 "--deployment",
                 "--service-interface",
                 "--allowed-caller-tenant",
-                "--allowed-callee-tenant"));
+                "--allowed-callee-tenant"),
+            usage);
     String tenantId = flags.getOrDefault("--tenant", null);
     if (tenantId == null || tenantId.isBlank()) {
-      throw new CliException("set networkpolicy requires --tenant");
+      throw new CliException(usage);
     }
     List<String> deploymentNames = flags.getAll("--deployment");
     List<String> serviceInterfaceNames = flags.getAll("--service-interface");

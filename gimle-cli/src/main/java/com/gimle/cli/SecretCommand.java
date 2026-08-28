@@ -66,12 +66,13 @@ public final class SecretCommand {
   }
 
   private void get(List<String> args) {
+    String usage = "secret get requires <tenantId> <key> [--version N]";
     if (args.size() < 2) {
-      throw new CliException("secret get requires <tenantId> <key>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String key = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     String version = flags.getOrDefault("--version", null);
     String path =
         "/secrets/" + tenantId + "/" + key + (version == null ? "" : "?version=" + version);
@@ -85,12 +86,13 @@ public final class SecretCommand {
   }
 
   private void set(List<String> args) {
+    String usage = "secret set requires <tenantId> <key> --value <v>";
     if (args.size() < 2) {
-      throw new CliException("secret set requires <tenantId> <key> --value <v>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String key = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     String value = flags.get("--value");
 
     Map<String, Object> body = new LinkedHashMap<>();
@@ -109,12 +111,13 @@ public final class SecretCommand {
   }
 
   private void delete(List<String> args) {
+    String usage = "secret delete requires <tenantId> <key> [--destroy]";
     if (args.size() < 2) {
-      throw new CliException("secret delete requires <tenantId> <key>");
+      throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String key = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of("--destroy"));
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of("--destroy"), usage);
     boolean destroy = flags.isSet("--destroy");
     String path = "/secrets/" + tenantId + "/" + key + (destroy ? "?destroy=true" : "");
 

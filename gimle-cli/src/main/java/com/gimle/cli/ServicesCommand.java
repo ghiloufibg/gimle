@@ -39,18 +39,24 @@ public final class ServicesCommand {
   }
 
   public void set(List<String> args) {
+    String usage =
+        "set service requires <name> (--deployment <name> [--deployment <name>...] |"
+            + " --external-name <host>) --port <n> [--target-port <n>] [--tenant <id>]"
+            + " [--session-affinity]";
     if (args.isEmpty()) {
-      throw new CliException("set service requires <name>");
+      throw new CliException(usage);
     }
     String name = args.get(0);
     Flags flags =
         Flags.parse(
-            args.subList(1, args.size()), Set.of("--session-affinity"), Set.of("--deployment"));
+            args.subList(1, args.size()),
+            Set.of("--session-affinity"),
+            Set.of("--deployment"),
+            usage);
     List<String> deploymentNames = flags.getAll("--deployment");
     String externalName = flags.getOrDefault("--external-name", null);
     if (deploymentNames.isEmpty() && externalName == null) {
-      throw new CliException(
-          "set service requires at least one --deployment (or --external-name <host>)");
+      throw new CliException(usage);
     }
     long port = flags.requireLong("--port");
     String targetPortValue = flags.getOrDefault("--target-port", null);

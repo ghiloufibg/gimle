@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 645
+- **Total requirements**: 646
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 522
-- **Release-readiness (automated coverage)**: 19.1%
+- **Not covered by automated test**: 523
+- **Release-readiness (automated coverage)**: 19.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -27,7 +27,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 28 | 0 | 28 | 0.0% |
+| gimle-cli | 29 | 0 | 29 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 33 | 0 | 33 | 0.0% |
@@ -1401,6 +1401,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-600 | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | Given `gimle seal public-key --out pubkey.json` has saved the current sealing key, When `gimle seal value hunter2 --public-key pubkey.json --tenant acme-corp --name db-creds --key password --out password.sealed.json` is run entirely offline, Then `gimle secretmap seal acme-corp db-creds --from-sealed password=password.sealed.json` commits it and `gimle secretmap get acme-corp db-creds` shows the recovered plaintext at a new version. | No |
 | [ ] | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first. | No |
 | [ ] | GIMLE-605 | `limitrange` get/set/delete verbs | Given no LimitRange for tenant "acme" exists, When "gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m", Then PUT /limitranges/acme creates it and "gimle get limitrange acme" returns minRequest {memory: "64Mi", cpu: "50m"}. | No |
+| [ ] | GIMLE-646 | CLI Flag Errors Always Show Usage | Given a command like "secret set default my-secret hunter2" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does. | No |
 
 #### CLI / Build Tooling
 

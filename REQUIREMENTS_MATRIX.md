@@ -655,6 +655,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-643 | Implicit Default Tenant for Untenanted Workloads | Multi-tenancy | Complete | Yes |
 | GIMLE-644 | Explicit SecretMap Replace Verb | Security | Complete | Yes |
 | GIMLE-645 | Deleting a Workload Clears Its Revision History | Application Platform | Complete | Yes |
+| GIMLE-646 | CLI Flag Errors Always Show Usage | CLI | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -7021,6 +7022,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a StatefulSet with 3 desired replicas and none yet placed, When "gimle get statefulsets" runs with the default table output, Then the row shows replicas "0/3" and health "UNPLACED(3)" rather than a raw JSON blob for the spec/instances/unplacedCount fields.
   Given an applied DaemonSet, When "gimle get daemonsets" or "gimle get daemonset <name>" runs with the default table output, Then the row shows the module coordinate and a health column with no raw JSON braces or brackets in any cell.
   Given the same resources, When "-o json" is passed instead, Then the full nested spec/instances shape -- including each instance's own nodeId -- is returned unchanged, exactly as before this fix.
+  ```
+
+#### GIMLE-646 — CLI Flag Errors Always Show Usage
+
+- **Category**: CLI
+- **User story**: As an operator, I want a malformed CLI command to tell me the correct syntax no matter which part of the command I got wrong, so a stray argument is as easy to fix as a missing one.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `Flags#parse` (usage parameter threaded through both overloads), every `Flags.parse` call site across `gimle-cli` (21 command classes, 31 call sites)
+- **Test coverage**: `FlagsTest#a_stray_non_flag_token_reports_the_callers_own_usage_string`/`#a_flag_missing_its_value_also_reports_the_callers_own_usage_string`/`#a_valued_flag_and_a_boolean_flag_both_parse`/`#a_repeatable_flag_accumulates_every_occurrence`/`#an_unset_boolean_flag_is_not_reported_as_set`; full `gimle-cli` suite re-verified green, plus a real end-user pass against the built `gimle-cli` distribution archive confirming the fix.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a command like "secret set default my-secret hunter2" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does.
   ```
 
 ### gimle-hilmir

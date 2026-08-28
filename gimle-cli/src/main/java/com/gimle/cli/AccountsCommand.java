@@ -36,11 +36,12 @@ public final class AccountsCommand {
   }
 
   public void set(List<String> args) {
+    String usage = "set account requires <username> --password <value>";
     if (args.isEmpty()) {
-      throw new CliException("set account requires <username>");
+      throw new CliException(usage);
     }
     String username = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
     String password = flags.get("--password");
 
     Map<String, Object> body = new LinkedHashMap<>();

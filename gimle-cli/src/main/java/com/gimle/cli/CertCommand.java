@@ -132,10 +132,11 @@ public final class CertCommand {
 
   /** {@code gimle cert token create [--ttl <duration>]} -- {@code POST /bootstrap/tokens}. */
   private void tokenCreate(List<String> args) {
+    String usage = "usage: gimle cert token create [--ttl <duration>]";
     if (args.isEmpty() || !"create".equals(args.get(0))) {
-      throw new CliException("usage: gimle cert token create [--ttl <duration>]");
+      throw new CliException(usage);
     }
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
     Duration ttl = parseDuration(flags.getOrDefault("--ttl", "1h"));
 
     Map<String, Object> body = new LinkedHashMap<>();
@@ -158,7 +159,12 @@ public final class CertCommand {
    * it once an operator approves.
    */
   private void request(List<String> args) {
-    Flags flags = Flags.parse(args, Set.of());
+    Flags flags =
+        Flags.parse(
+            args,
+            Set.of(),
+            "usage: gimle cert request --purpose operator|node|tenant [--tenant <id>]"
+                + " --out-cert <path> --out-key <path> [--common-name <name>]");
     CsrPurpose purpose = parsePurpose(flags.getOrDefault("--purpose", "operator"));
     Path outCert = Path.of(flags.get("--out-cert"));
     Path outKey = Path.of(flags.get("--out-key"));
@@ -220,11 +226,12 @@ public final class CertCommand {
    * /bootstrap/csr/{id}}.
    */
   private void status(List<String> args) {
+    String usage = "usage: gimle cert status <request-id> --out-cert <path>";
     if (args.isEmpty()) {
-      throw new CliException("usage: gimle cert status <request-id> --out-cert <path>");
+      throw new CliException(usage);
     }
     String requestId = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
     Path outCert = Path.of(flags.get("--out-cert"));
 
     ControlPlaneClient trustOnlyClient = ControlPlaneClient.trustOnly(serverAddress);
@@ -267,7 +274,7 @@ public final class CertCommand {
    * #warnIfRenewalDue} points a user at; renews only if actually due, unless {@code --force}.
    */
   private void renew(List<String> args) {
-    Flags flags = Flags.parse(args, Set.of("--force"));
+    Flags flags = Flags.parse(args, Set.of("--force"), "usage: gimle cert renew [--force]");
     try {
       TlsSettings settings = TlsSettings.fromConfig();
       X509Certificate current =

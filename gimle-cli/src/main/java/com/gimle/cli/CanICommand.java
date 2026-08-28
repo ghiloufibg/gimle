@@ -34,13 +34,13 @@ public final class CanICommand {
   }
 
   public void run(List<String> args) {
+    String usage = "usage: gimle can-i <verb> <resource> [--tenant <id>] [--target <id>]";
     if (args.size() < 2) {
-      throw new CliException(
-          "usage: gimle can-i <verb> <resource> [--tenant <id>] [--target <id>]");
+      throw new CliException(usage);
     }
     Verb verb = parseVerb(args.get(0));
     ResourceKind resource = parseResource(args.get(1));
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of());
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage);
     String tenant = flags.getOrDefault("--tenant", null);
     String target = flags.getOrDefault("--target", null);
 

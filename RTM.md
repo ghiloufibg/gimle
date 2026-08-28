@@ -660,6 +660,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-643 | Implicit Default Tenant for Untenanted Workloads | New | Not Covered | — |
 | GIMLE-644 | Explicit SecretMap Replace Verb | New | Not Covered | — |
 | GIMLE-645 | Deleting a Workload Clears Its Revision History | New | Not Covered | — |
+| GIMLE-646 | CLI Flag Errors Always Show Usage | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -5028,6 +5029,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest` (get_statefulsets_renders_clean_table_columns_instead_of_raw_json_per_cell, get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell)
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/StatefulSetsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/DaemonSetsCommand.java`
 
+#### GIMLE-646 — CLI Flag Errors Always Show Usage
+
+- **Category**: CLI
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario exercises CLI error-message shape -- this is a CLI-internal usability property, covered at the gimle-cli unit level and by a real end-user distribution pass, not a cluster-behavior scenario Holmgang's own scope covers.
+- **Other test coverage (non-Holmgang, informational only)**: `FlagsTest` (unit-level); a real end-user pass against the built `gimle-cli` distribution archive
+- **Source location(s)**: `Flags#parse`, every `Flags.parse` call site across `gimle-cli`
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -6836,7 +6846,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**522 of 645 requirements are Not Covered.**
+**523 of 646 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6912,6 +6922,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-600 | gimle-cli | `gimle seal` command, `secret retire-key`, `secretmap seal` verbs | CLI | Exercised indirectly through `FafnirServerSealTest`/`ApiServerSealTest`/`ApiServerSealAuthzTest`'s coverage of the underlying routes these verbs call; no dedicated `SealCommand`/`SecretCommand`/`SecretMapCommand` unit test file exists, matching this class family's own untested-at-the-CLI-layer precedent. |
 | GIMLE-602 | gimle-cli | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | CLI | `GimleCliTest` against a real `ApiServer` (not mocked): `deployment revisions`, `deployment rollback` with and without `--to-revision`, and the 404 failure path. |
 | GIMLE-605 | gimle-cli | `limitrange` get/set/delete verbs | CLI | `GimleCliTest.set_limitrange_then_get_limitranges_round_trips` against a real `ApiServer` (not mocked). |
+| GIMLE-646 | gimle-cli | CLI Flag Errors Always Show Usage | CLI | `FlagsTest` (unit-level); a real end-user pass against the built `gimle-cli` distribution archive |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |
