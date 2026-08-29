@@ -666,6 +666,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-654 | Tenant-scoped resource keying (compound (tenantId, name) store key) | Multi-tenancy / State store | Complete | Yes |
 | GIMLE-655 | Tenant-scoped StatefulSet persistent volume identity | Multi-tenancy / Storage | Complete | Yes |
 | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Complete | Partial |
+| GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5204,6 +5205,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready.
+  ```
+
+#### GIMLE-657 — Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup
+
+- **Category**: Multi-tenancy / Authorization
+- **User story**: As a platform operator, I want a single-resource GET/DELETE (and the /endpoints/{name} lookup) to honor my explicit ?tenant=<id> query parameter, the same way apply already honors an explicit tenantId in the manifest body, so that two tenants sharing a bare resource name can never make me read or delete the wrong tenant's copy just because I passed --tenant on the CLI.
+- **Status**: Complete. `ApiServer.dispatchResourceRequest`'s GET/DELETE branches and `handleEndpoints` previously ignored a caller-declared `?tenant=` entirely, always preferring `existingTenant.lookup(name)`'s bare-name search across every tenant -- meaning `gimle get/delete <kind> <name> --tenant <id>` silently acted on whichever tenant's same-named resource the bare-name search happened to find first, not the one the caller asked for, and a DELETE under this path could destroy the wrong tenant's resource outright. Fixed via a new `declaredOrExistingTenant(exchange, existingTenant, name)` helper that checks for an explicit `?tenant=` first and only falls back to the bare-name search when the caller didn't supply one; `handleEndpoints` applies the identical precedence inline. Authorization is unaffected: `requireAuthorized` still independently re-checks the resolved tenant on every request, so honoring the caller's own selection for GET/DELETE never widens what they're allowed to touch, only which of their permitted tenants' resources the command targets -- the same `kubectl --namespace` semantics `apply` (PUT) already got right.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`declaredOrExistingTenant`, `dispatchResourceRequest`, `handleEndpoints`)
+- **Test coverage**: `ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` -- two tenants (`acme` and `default`) sharing a bare deployment name `shared-name`; asserts GET with `?tenant=acme`/`?tenant=default` each return only that tenant's own copy, and DELETE with `?tenant=acme` removes only acme's, leaving `default`'s intact.
+- **Gherkin scenario**:
+  ```gherkin
+  Given tenant "acme" and tenant "default" each have their own deployment named "shared-name"; When a caller GETs /deployments/shared-name?tenant=acme; Then the acme deployment is returned, never default's.
+  Given the same two deployments; When a caller DELETEs /deployments/shared-name?tenant=acme; Then only acme's copy is removed and default's copy still exists afterward.
   ```
 
 ### gimle-fafnir

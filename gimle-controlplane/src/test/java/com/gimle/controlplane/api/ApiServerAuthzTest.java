@@ -1759,6 +1759,81 @@ class ApiServerAuthzTest {
     }
   }
 
+  /**
+   * A caller-declared {@code ?tenant=} on a single-resource GET/DELETE must win over the bare-name
+   * search across tenants -- the same {@code kubectl --namespace} semantics {@code apply} already
+   * gets right for writes. Two tenants sharing a bare deployment name is exactly the case where a
+   * bare-name-only lookup silently picks the wrong one: this proves GET returns each tenant's own
+   * copy when asked, and DELETE removes only the tenant explicitly named, leaving the other intact.
+   */
+  @Test
+  void an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name()
+      throws Exception {
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
+
+    try (InProcessStore ignored = inProcessStore;
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "http://localhost:" + server.port();
+      HttpClient client = HttpClient.newHttpClient();
+      Path jar = buildFixtureJar("com.gimle.fixture.authz.disambiguate");
+
+      assertEquals(
+          200,
+          putDeployment(
+              client,
+              baseUrl,
+              "",
+              "shared-name",
+              "com.gimle.fixture.authz.disambiguate",
+              jar,
+              Optional.of("acme")));
+      assertEquals(
+          200,
+          putDeployment(
+              client,
+              baseUrl,
+              "",
+              "shared-name",
+              "com.gimle.fixture.authz.disambiguate",
+              jar,
+              Optional.empty()));
+
+      HttpResponse<String> getAcme = get(client, baseUrl + "/deployments/shared-name?tenant=acme");
+      assertEquals(200, getAcme.statusCode());
+      assertTrue(getAcme.body().contains("\"tenantId\":\"acme\""), getAcme.body());
+
+      HttpResponse<String> getDefault =
+          get(client, baseUrl + "/deployments/shared-name?tenant=default");
+      assertEquals(200, getDefault.statusCode());
+      assertTrue(getDefault.body().contains("\"tenantId\":\"default\""), getDefault.body());
+
+      assertEquals(
+          200,
+          client
+              .send(
+                  HttpRequest.newBuilder(
+                          URI.create(baseUrl + "/deployments/shared-name?tenant=acme"))
+                      .DELETE()
+                      .build(),
+                  HttpResponse.BodyHandlers.discarding())
+              .statusCode());
+
+      assertEquals(
+          200,
+          get(client, baseUrl + "/deployments/shared-name?tenant=default").statusCode(),
+          "the default tenant's own copy must survive deleting only acme's");
+      assertEquals(
+          404,
+          get(client, baseUrl + "/deployments/shared-name?tenant=acme").statusCode(),
+          "acme's own copy must be gone");
+    }
+  }
+
   private static HttpResponse<String> mint(HttpClient client, String baseUrl, String body)
       throws Exception {
     return client.send(

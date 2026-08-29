@@ -846,15 +846,14 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Resolves the tenant a bare {@code name} is actually stored under, for GET/DELETE by name (and
-   * for a PUT's own re-tenanting guard) -- {@code Optional.empty()} if no such resource exists
-   * under any tenant. Never a caller-declared {@code ?tenant=}: with per-tenant store keys, a
-   * caller can no longer be trusted to say which tenant's resource it means (that's exactly the
-   * authorization decision {@link #requireAuthorized} makes right after this), so this searches
-   * across every tenant for a spec named {@code name}, the same {@code
-   * resolveTenantForWorkloadName} shape {@code /endpoints/{name}} uses for the same reason. Each
-   * {@code handle{Deployment,Job, CronJob,DaemonSet,StatefulSet}} call site supplies its own
-   * kind-specific lookup.
+   * Resolves the tenant a bare {@code name} is actually stored under, for GET/DELETE by name when
+   * the caller declares no {@code ?tenant=} of its own (and for a PUT's own re-tenanting guard) --
+   * {@code Optional.empty()} if no such resource exists under any tenant. This is a convenience
+   * default only, standing in for a hint the caller never gave -- it never overrides one the caller
+   * did give (see {@code dispatchResourceRequest}'s own javadoc for why an explicit {@code
+   * ?tenant=} always wins): the same {@code resolveTenantForWorkloadName} shape {@code
+   * /endpoints/{name}} uses for the same reason. Each {@code handle{Deployment,Job,
+   * CronJob,DaemonSet,StatefulSet}} call site supplies its own kind-specific lookup.
    */
   @FunctionalInterface
   private interface TenantLookup {
@@ -873,12 +872,20 @@ public final class ApiServer implements AutoCloseable {
    * <p>PUT parses the submitted manifest here, before authorizing -- the only way to know which
    * tenant to check a write against is to look at what the write itself declares, the same
    * body-before-authorize order {@code handleConfigEntry}'s PUT already uses for its own {@code
-   * encrypted}-flag-dependent resource kind. GET/DELETE instead resolve the tenant to authorize
-   * against from {@code existingTenant} -- the resource's own currently stored tenant, found by
-   * bare-name search across every tenant -- never a caller-declared hint: a scoped-permission
-   * caller must not be able to fish for a different tenant's same-named resource by guessing at
-   * one, and a caller reading/deleting a resource it already knows the name of has no manifest of
-   * its own to read a tenant claim from anyway.
+   * encrypted}-flag-dependent resource kind. GET/DELETE resolve the tenant to authorize against
+   * from a caller-declared {@code ?tenant=} when one is given -- exactly {@code kubectl}'s own
+   * {@code --namespace} convention: naming the tenant is never itself a bypass, since {@link
+   * #requireAuthorized} still independently checks the caller's real grant against whichever tenant
+   * is resolved, so declaring one the caller isn't authorized for still denies cleanly. Only when
+   * the caller declares none does this fall back to {@code existingTenant} -- the resource's own
+   * currently stored tenant, found by bare-name search across every tenant -- purely so a manifest
+   * that itself omitted {@code tenantId} (which always resolves to {@code default} at parse time)
+   * can still be read/deleted back by the same bare name with no flag at all. Silently preferring
+   * that search over an explicit {@code ?tenant=} would be a real correctness bug, not a
+   * convenience: two tenants can legitimately share a name (that's the entire point of per-tenant
+   * store keys), and a caller who took the trouble to disambiguate must never have that
+   * disambiguation quietly overridden by a guess -- an operator asking to delete tenant A's
+   * same-named resource must never end up deleting tenant B's instead.
    */
   private void dispatchResourceRequest(
       HttpExchange exchange,
@@ -947,13 +954,13 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "GET" -> {
-          Optional<String> tenant = existingTenant.lookup(name);
+          Optional<String> tenant = declaredOrExistingTenant(exchange, existingTenant, name);
           if (requireAuthorized(exchange, kind, Verb.READ, tenant)) {
             get.run(exchange, tenant, name);
           }
         }
         case "DELETE" -> {
-          Optional<String> tenant = existingTenant.lookup(name);
+          Optional<String> tenant = declaredOrExistingTenant(exchange, existingTenant, name);
           if (requireAuthorized(exchange, kind, Verb.DELETE, tenant)) {
             delete.run(exchange, tenant, name);
           }
@@ -970,6 +977,20 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * The tenant a GET/DELETE-by-name should resolve to: an explicit {@code ?tenant=} the caller
+   * declared, taken verbatim (never second-guessed against what actually exists -- that's exactly
+   * what lets {@link #requireAuthorized} cleanly deny a caller naming a tenant it has no grant for,
+   * rather than this method silently substituting a different, resolvable one); only when the
+   * caller declares none does {@code existingTenant} run at all, as a pure convenience default for
+   * "no flag given" -- see {@link #dispatchResourceRequest}'s own javadoc for the full reasoning.
+   */
+  private Optional<String> declaredOrExistingTenant(
+      HttpExchange exchange, TenantLookup existingTenant, String name) {
+    Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    return declared.isPresent() ? declared : existingTenant.lookup(name);
   }
 
   private AuditOutcome handlePutDeployment(
@@ -2944,9 +2965,12 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "missing workload name");
         return;
       }
-      // Unlike every other workload route, never a caller-declared ?tenant= -- see
-      // resolveTenantForWorkloadName's own javadoc for why this route resolves it instead.
-      Optional<String> tenantHint = resolveTenantForWorkloadName(name);
+      // An explicit ?tenant= (an operator disambiguating a same-named collision, or a node that
+      // happens to know its own tenant) always wins, exactly like dispatchResourceRequest's own
+      // GET/DELETE -- resolveTenantForWorkloadName only stands in for a hint nobody gave.
+      Optional<String> declaredTenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      Optional<String> tenantHint =
+          declaredTenant.isPresent() ? declaredTenant : resolveTenantForWorkloadName(name);
       Optional<DeploymentSpec> deployment = storeClient.getDeployment(tenantHint, name);
       if (deployment.isPresent()) {
         if (authorizeEndpointsRead(
@@ -2987,15 +3011,14 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * The tenant of whichever Deployment/Job/DaemonSet/StatefulSet spec is named {@code name} --
-   * unlike every other workload route's own {@code ?tenant=} hint, {@code /endpoints/{name}} never
-   * takes a caller-declared one: this route predates per-tenant store keys as a bare-name
-   * convenience lookup (an operator, or a {@code gimle:nodes} caller that only ever knows the name
-   * of what it's running, never which tenant owns it), and it stays one here, resolving across
-   * every tenant instead. That guess is never trusted as an access decision by itself -- {@link
-   * #authorizeEndpointsRead} downstream independently re-checks the resolved tenant against the
-   * caller's real RBAC grant (or, for a node, its own real assignment), so guessing the wrong
-   * tenant under a same-named collision only ever costs an honest 403, never a cross-tenant read.
+   * The tenant of whichever Deployment/Job/DaemonSet/StatefulSet spec is named {@code name} -- the
+   * {@code /endpoints/{name}} fallback for a caller that declares no {@code ?tenant=} of its own
+   * (an operator with a broad grant, or a {@code gimle:nodes} caller that only ever knows the name
+   * of what it's running, never which tenant owns it), resolving across every tenant instead. That
+   * guess is never trusted as an access decision by itself -- {@link #authorizeEndpointsRead}
+   * downstream independently re-checks the resolved tenant against the caller's real RBAC grant
+   * (or, for a node, its own real assignment), so guessing the wrong tenant under a same-named
+   * collision only ever costs an honest 403, never a cross-tenant read.
    */
   private Optional<String> resolveTenantForWorkloadName(String name) {
     Optional<String> deployment = findTenantByName(storeClient.listDeployments(), name);

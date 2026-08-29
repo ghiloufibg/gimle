@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 656,
+  "requirementCount": 657,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11344,6 +11344,21 @@
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-657",
+      "module": "gimle-controlplane",
+      "feature": "Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup",
+      "category": "Multi-tenancy / Authorization",
+      "status": "New",
+      "statusNote": "New requirement: closes a bug where an explicit caller-declared ?tenant= was silently ignored on single-resource GET/DELETE and the endpoints lookup, in favor of a bare-name search across all tenants.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario with two tenants sharing a bare workload name and asserting `gimle get`/`gimle delete --tenant <id>` act on the declared tenant's own resource, not a bare-name search result.",
+      "otherTestCoverage": "`ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer.",
+      "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
       ]
     }

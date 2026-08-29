@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 656
+- **Total requirements**: 657
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 533
-- **Release-readiness (automated coverage)**: 18.8%
+- **Not covered by automated test**: 534
+- **Release-readiness (automated coverage)**: 18.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 60 | 35 | 25 | 58.3% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 79 | 14 | 65 | 17.7% |
+| gimle-controlplane | 80 | 14 | 66 | 17.5% |
 | gimle-fafnir | 26 | 11 | 15 | 42.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -961,6 +961,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-258 | Bootstrap node join via single-use token + CSR | Given an operator issued a bootstrap token; When a new node submits a CSR (purpose=NODE_CLIENT) with that token; Then the CA signs a cert stamped O=gimle:nodes, and the token cannot be reused. | No |
 | [ ] | GIMLE-259 | Operator-approval-gated CSR flow | Given a human submits a CSR (purpose=OPERATOR_CLIENT) with no client certificate; When submitted; Then it sits pending (202) until an existing operator approves it. | No |
+
+#### Multi-tenancy / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Given tenant "acme" and tenant "default" each have their own deployment named "shared-name"; When a caller GETs /deployments/shared-name?tenant=acme; Then the acme deployment is returned, never default's. Given the same two deployments; When a caller DELETEs /deployments/shared-name?tenant=acme; Then only acme's copy is removed and default's copy still exists afterward. | No |
 
 #### Multi-tenancy / Internal-Infra
 
