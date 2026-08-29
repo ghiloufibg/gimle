@@ -37,7 +37,7 @@ public final class ServiceReconciler {
     for (ServiceSpec spec : registry.list()) {
       try {
         List<ServiceEndpoint> endpoints = ServiceEndpointResolver.resolve(store, spec);
-        registry.putEndpoints(spec.name(), endpoints);
+        registry.putEndpoints(spec.tenantId(), spec.name(), endpoints);
       } catch (RuntimeException e) {
         // One Service's failure must never abort the rest of this tick's Services -- the next
         // tick retries this one from the same full snapshot, the same level-triggered posture

@@ -212,10 +212,12 @@ class StoreNodeTest {
         new InstanceEvent("evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L);
 
     StoreRpc.Response proposeResponse =
-        node.handle(new StoreRpc.Propose(new StateMutation.AppendInstanceEvent(event)));
+        node.handle(
+            new StoreRpc.Propose(new StateMutation.AppendInstanceEvent(Optional.empty(), event)));
     assertEquals(new StoreRpc.Ok(), proposeResponse);
 
-    StoreRpc.Response listResponse = node.handle(new StoreRpc.ListInstanceEvents("greeter", 0));
+    StoreRpc.Response listResponse =
+        node.handle(new StoreRpc.ListInstanceEvents(Optional.empty(), "greeter", 0));
     assertEquals(new StoreRpc.InstanceEventListResult(List.of(event)), listResponse);
   }
 
@@ -224,7 +226,7 @@ class StoreNodeTest {
     StoreNode node = leaderNode("events-empty");
     assertEquals(
         new StoreRpc.InstanceEventListResult(List.of()),
-        node.handle(new StoreRpc.ListInstanceEvents("never-deployed", 0)));
+        node.handle(new StoreRpc.ListInstanceEvents(Optional.empty(), "never-deployed", 0)));
   }
 
   // ---- ListAuditEvents / AppendAuditEvent (audit trail) ----

@@ -104,10 +104,10 @@ class JobReconcilerTest {
 
     new JobReconciler(store, scheduler).reconcileOnce();
 
-    List<JobRun> runs = store.listJobRunsFor("nightly-cleanup");
+    List<JobRun> runs = store.listJobRunsFor(Optional.empty(), "nightly-cleanup");
     assertEquals(1, runs.size());
     assertEquals(0, runs.get(0).attempt());
-    assertEquals(Optional.empty(), store.getJobPhase("nightly-cleanup"));
+    assertEquals(Optional.empty(), store.getJobPhase(Optional.empty(), "nightly-cleanup"));
   }
 
   @Test
@@ -122,7 +122,7 @@ class JobReconcilerTest {
     reconciler.reconcileOnce();
     reconciler.reconcileOnce(); // idempotent: calling again doesn't error or duplicate
 
-    assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
+    assertTrue(store.listJobRunsFor(Optional.empty(), "nightly-cleanup").isEmpty());
   }
 
   @Test
@@ -134,14 +134,16 @@ class JobReconcilerTest {
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
     JobReconciler reconciler = new JobReconciler(store, scheduler);
     reconciler.reconcileOnce();
-    JobRun placed = store.listJobRunsFor("nightly-cleanup").get(0);
+    JobRun placed = store.listJobRunsFor(Optional.empty(), "nightly-cleanup").get(0);
 
     reportRunState(store, placed, "COMPLETED");
     reconciler.reconcileOnce();
 
-    assertEquals(Optional.of(JobPhase.SUCCEEDED), store.getJobPhase("nightly-cleanup"));
-    assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
-    JobRunSummary summary = store.getJobRunSummary("nightly-cleanup").orElseThrow();
+    assertEquals(
+        Optional.of(JobPhase.SUCCEEDED), store.getJobPhase(Optional.empty(), "nightly-cleanup"));
+    assertTrue(store.listJobRunsFor(Optional.empty(), "nightly-cleanup").isEmpty());
+    JobRunSummary summary =
+        store.getJobRunSummary(Optional.empty(), "nightly-cleanup").orElseThrow();
     assertEquals(placed.attempt(), summary.attempt());
     assertEquals(placed.nodeId(), summary.nodeId());
   }
@@ -155,17 +157,17 @@ class JobReconcilerTest {
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
     JobReconciler reconciler = new JobReconciler(store, scheduler);
     reconciler.reconcileOnce();
-    JobRun attempt0 = store.listJobRunsFor("nightly-cleanup").get(0);
+    JobRun attempt0 = store.listJobRunsFor(Optional.empty(), "nightly-cleanup").get(0);
 
     reportRunState(store, attempt0, "FAILED");
     reconciler.reconcileOnce();
 
-    List<JobRun> runs = store.listJobRunsFor("nightly-cleanup");
+    List<JobRun> runs = store.listJobRunsFor(Optional.empty(), "nightly-cleanup");
     assertEquals(1, runs.size(), "the failed attempt is gone, replaced by exactly one retry");
     assertEquals(1, runs.get(0).attempt());
     assertEquals(
         Optional.empty(),
-        store.getJobPhase("nightly-cleanup"),
+        store.getJobPhase(Optional.empty(), "nightly-cleanup"),
         "still within backoffLimit -- not yet terminal");
   }
 
@@ -178,17 +180,19 @@ class JobReconcilerTest {
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
     JobReconciler reconciler = new JobReconciler(store, scheduler);
     reconciler.reconcileOnce();
-    JobRun attempt0 = store.listJobRunsFor("nightly-cleanup").get(0);
+    JobRun attempt0 = store.listJobRunsFor(Optional.empty(), "nightly-cleanup").get(0);
 
     reportRunState(store, attempt0, "FAILED");
     reconciler.reconcileOnce();
 
-    assertEquals(Optional.of(JobPhase.FAILED), store.getJobPhase("nightly-cleanup"));
-    assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
+    assertEquals(
+        Optional.of(JobPhase.FAILED), store.getJobPhase(Optional.empty(), "nightly-cleanup"));
+    assertTrue(store.listJobRunsFor(Optional.empty(), "nightly-cleanup").isEmpty());
     // The last attempt's own detail (node, attempt count) survives the JobRun removal above --
     // otherwise get jobs -o json's currentRun field would just disappear the moment a job fails,
     // with nothing left to say which node ran it or how many attempts occurred.
-    JobRunSummary summary = store.getJobRunSummary("nightly-cleanup").orElseThrow();
+    JobRunSummary summary =
+        store.getJobRunSummary(Optional.empty(), "nightly-cleanup").orElseThrow();
     assertEquals(attempt0.attempt(), summary.attempt());
     assertEquals(attempt0.nodeId(), summary.nodeId());
     assertTrue(summary.reason().contains("backoffLimit"), summary.reason());
@@ -211,13 +215,14 @@ class JobReconcilerTest {
             JobReconciler.DEFAULT_NODE_DARK_TIMEOUT,
             clock);
     reconciler.reconcileOnce();
-    assertEquals(1, store.listJobRunsFor("nightly-cleanup").size());
+    assertEquals(1, store.listJobRunsFor(Optional.empty(), "nightly-cleanup").size());
 
     clock.advance(Duration.ofMinutes(6)); // past the 5-minute deadline, run still mid-flight
     reconciler.reconcileOnce();
 
-    assertEquals(Optional.of(JobPhase.FAILED), store.getJobPhase("nightly-cleanup"));
-    assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
+    assertEquals(
+        Optional.of(JobPhase.FAILED), store.getJobPhase(Optional.empty(), "nightly-cleanup"));
+    assertTrue(store.listJobRunsFor(Optional.empty(), "nightly-cleanup").isEmpty());
   }
 
   @Test
@@ -226,13 +231,13 @@ class JobReconcilerTest {
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
-    store.putJobPhase("nightly-cleanup", JobPhase.SUCCEEDED);
+    store.putJobPhase(Optional.empty(), "nightly-cleanup", JobPhase.SUCCEEDED);
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
 
     new JobReconciler(store, scheduler).reconcileOnce();
 
     assertTrue(
-        store.listJobRunsFor("nightly-cleanup").isEmpty(),
+        store.listJobRunsFor(Optional.empty(), "nightly-cleanup").isEmpty(),
         "a job already terminal must never get a new attempt placed");
   }
 
@@ -244,12 +249,12 @@ class JobReconcilerTest {
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
     store.putJobSpec(job("nightly-cleanup", jar, 3, Optional.empty()));
     new JobReconciler(store, scheduler).reconcileOnce();
-    assertEquals(1, store.listJobRunsFor("nightly-cleanup").size());
+    assertEquals(1, store.listJobRunsFor(Optional.empty(), "nightly-cleanup").size());
 
-    store.removeJobSpec("nightly-cleanup");
+    store.removeJobSpec(Optional.empty(), "nightly-cleanup");
     new JobReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
+    assertTrue(store.listJobRunsFor(Optional.empty(), "nightly-cleanup").isEmpty());
     assertTrue(store.listJobRuns().isEmpty());
   }
 
@@ -273,7 +278,7 @@ class JobReconcilerTest {
 
     new JobReconciler(store, scheduler).reconcileOnce();
 
-    List<JobRun> runs = store.listJobRunsFor("nightly-cleanup");
+    List<JobRun> runs = store.listJobRunsFor(Optional.empty(), "nightly-cleanup");
     assertEquals(1, runs.size(), "only the highest attempt should survive convergence");
     assertEquals(1, runs.get(0).attempt());
   }
@@ -298,7 +303,7 @@ class JobReconcilerTest {
 
     new JobReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.listJobRunsFor("nightly-cleanup").isEmpty());
+    assertTrue(store.listJobRunsFor(Optional.empty(), "nightly-cleanup").isEmpty());
   }
 
   @Test
@@ -319,7 +324,7 @@ class JobReconcilerTest {
             placementGracePeriod,
             clock);
     reconciler.reconcileOnce();
-    JobRun attempt0 = store.listJobRunsFor("nightly-cleanup").get(0);
+    JobRun attempt0 = store.listJobRunsFor(Optional.empty(), "nightly-cleanup").get(0);
     reportRunState(store, attempt0, "ACTIVE");
 
     // node-a stops heartbeating (a partition, not a real failure): past nodeDarkTimeout, so it's
@@ -327,12 +332,12 @@ class JobReconcilerTest {
     clock.advance(nodeDarkTimeout.plus(Duration.ofSeconds(1)));
     reconciler.reconcileOnce();
 
-    List<JobRun> stillWithinGrace = store.listJobRunsFor("nightly-cleanup");
+    List<JobRun> stillWithinGrace = store.listJobRunsFor(Optional.empty(), "nightly-cleanup");
     assertEquals(
         1, stillWithinGrace.size(), "a merely-dark node's run must not be abandoned or retried");
     assertEquals(0, stillWithinGrace.get(0).attempt());
     assertEquals("node-a", stillWithinGrace.get(0).nodeId());
-    assertFalse(store.getJobPhase("nightly-cleanup").isPresent());
+    assertFalse(store.getJobPhase(Optional.empty(), "nightly-cleanup").isPresent());
   }
 
   @Test
@@ -354,7 +359,7 @@ class JobReconcilerTest {
             placementGracePeriod,
             clock);
     reconciler.reconcileOnce();
-    JobRun attempt0 = store.listJobRunsFor("nightly-cleanup").get(0);
+    JobRun attempt0 = store.listJobRunsFor(Optional.empty(), "nightly-cleanup").get(0);
     assertEquals("node-a", attempt0.nodeId());
     reportRunState(store, attempt0, "ACTIVE");
 
@@ -365,11 +370,13 @@ class JobReconcilerTest {
     registerNode(store, "node-b", 500L * 1024 * 1024, 4000);
     reconciler.reconcileOnce();
 
-    List<JobRun> afterGracePeriod = store.listJobRunsFor("nightly-cleanup");
+    List<JobRun> afterGracePeriod = store.listJobRunsFor(Optional.empty(), "nightly-cleanup");
     assertEquals(1, afterGracePeriod.size(), "a lost run is retried, never left duplicated");
     assertEquals(1, afterGracePeriod.get(0).attempt());
     assertEquals("node-b", afterGracePeriod.get(0).nodeId());
-    assertFalse(store.getJobPhase("nightly-cleanup").isPresent(), "still within backoffLimit");
+    assertFalse(
+        store.getJobPhase(Optional.empty(), "nightly-cleanup").isPresent(),
+        "still within backoffLimit");
   }
 
   @Test
@@ -381,15 +388,15 @@ class JobReconcilerTest {
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
     JobReconciler reconciler = new JobReconciler(store, scheduler);
     reconciler.reconcileOnce();
-    JobRun attempt0 = store.listJobRunsFor("nightly-cleanup").get(0);
+    JobRun attempt0 = store.listJobRunsFor(Optional.empty(), "nightly-cleanup").get(0);
     reportRunState(store, attempt0, "ACTIVE");
 
     reconciler.reconcileOnce();
     reconciler.reconcileOnce();
 
-    List<JobRun> runs = store.listJobRunsFor("nightly-cleanup");
+    List<JobRun> runs = store.listJobRunsFor(Optional.empty(), "nightly-cleanup");
     assertEquals(1, runs.size());
     assertEquals(0, runs.get(0).attempt());
-    assertFalse(store.getJobPhase("nightly-cleanup").isPresent());
+    assertFalse(store.getJobPhase(Optional.empty(), "nightly-cleanup").isPresent());
   }
 }

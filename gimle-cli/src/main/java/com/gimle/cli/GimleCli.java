@@ -272,8 +272,7 @@ public final class GimleCli {
     String action = args.get(0);
     List<String> rest = args.subList(1, args.size());
     switch (action) {
-      case "trigger" ->
-          new CronJobsCommand(client, output, out).trigger(requireOne(rest, "cronjob trigger"));
+      case "trigger" -> new CronJobsCommand(client, output, out).trigger(rest);
       default -> throw new CliException("unknown cronjob action: " + action);
     }
   }
@@ -318,8 +317,7 @@ public final class GimleCli {
     String action = args.get(0);
     List<String> rest = args.subList(1, args.size());
     switch (action) {
-      case "endpoints" ->
-          new ServicesCommand(client, output, out).endpoints(requireOne(rest, "service endpoints"));
+      case "endpoints" -> new ServicesCommand(client, output, out).endpoints(rest);
       default -> throw new CliException("unknown service action: " + action);
     }
   }
@@ -342,9 +340,7 @@ public final class GimleCli {
     List<String> rest = args.subList(1, args.size());
     switch (action) {
       case "rollback" -> new DeploymentsCommand(client, output, out).rollback(rest);
-      case "revisions" ->
-          new DeploymentsCommand(client, output, out)
-              .revisions(requireOne(rest, "deployment revisions"));
+      case "revisions" -> new DeploymentsCommand(client, output, out).revisions(rest);
       default -> throw new CliException("unknown deployment action: " + action);
     }
   }
@@ -361,9 +357,7 @@ public final class GimleCli {
     List<String> rest = args.subList(1, args.size());
     switch (action) {
       case "rollback" -> new StatefulSetsCommand(client, output, out).rollback(rest);
-      case "revisions" ->
-          new StatefulSetsCommand(client, output, out)
-              .revisions(requireOne(rest, "statefulset revisions"));
+      case "revisions" -> new StatefulSetsCommand(client, output, out).revisions(rest);
       default -> throw new CliException("unknown statefulset action: " + action);
     }
   }
@@ -380,9 +374,7 @@ public final class GimleCli {
     List<String> rest = args.subList(1, args.size());
     switch (action) {
       case "rollback" -> new DaemonSetsCommand(client, output, out).rollback(rest);
-      case "revisions" ->
-          new DaemonSetsCommand(client, output, out)
-              .revisions(requireOne(rest, "daemonset revisions"));
+      case "revisions" -> new DaemonSetsCommand(client, output, out).revisions(rest);
       default -> throw new CliException("unknown daemonset action: " + action);
     }
   }
@@ -444,19 +436,15 @@ public final class GimleCli {
     String noun = args.get(0);
     List<String> rest = args.subList(1, args.size());
     switch (noun) {
-      case "deployment", "deployments" ->
-          new DeploymentsCommand(client, output, out).delete(requireOne(rest, "deployment"));
-      case "job", "jobs" -> new JobsCommand(client, output, out).delete(requireOne(rest, "job"));
-      case "cronjob", "cronjobs" ->
-          new CronJobsCommand(client, output, out).delete(requireOne(rest, "cronjob"));
-      case "daemonset", "daemonsets" ->
-          new DaemonSetsCommand(client, output, out).delete(requireOne(rest, "daemonset"));
+      case "deployment", "deployments" -> new DeploymentsCommand(client, output, out).delete(rest);
+      case "job", "jobs" -> new JobsCommand(client, output, out).delete(rest);
+      case "cronjob", "cronjobs" -> new CronJobsCommand(client, output, out).delete(rest);
+      case "daemonset", "daemonsets" -> new DaemonSetsCommand(client, output, out).delete(rest);
       case "statefulset", "statefulsets" ->
-          new StatefulSetsCommand(client, output, out).delete(requireOne(rest, "statefulset"));
-      case "service", "services" ->
-          new ServicesCommand(client, output, out).delete(requireOne(rest, "service"));
+          new StatefulSetsCommand(client, output, out).delete(rest);
+      case "service", "services" -> new ServicesCommand(client, output, out).delete(rest);
       case "networkpolicy", "networkpolicies" ->
-          new NetworkPolicyCommand(client, output, out).delete(requireOne(rest, "networkpolicy"));
+          new NetworkPolicyCommand(client, output, out).delete(rest);
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));
       case "limitrange", "limitranges" ->

@@ -6,7 +6,7 @@ export interface StatefulSetsRepository {
   fetchPage(args: { cursor: string | null; pageSize: number }): Promise<Page<StatefulSet>>;
   fetchOne(name: string): Promise<StatefulSet>;
   create(spec: StatefulSetSpecInput): Promise<StatefulSet>;
-  remove(name: string): Promise<void>;
+  remove(name: string, tenantId?: string | null): Promise<void>;
 }
 
 export class MockStatefulSetsRepository implements StatefulSetsRepository {
@@ -23,7 +23,9 @@ export class MockStatefulSetsRepository implements StatefulSetsRepository {
     addStatefulSet(s);
     return delay(s);
   }
-  async remove(name: string) {
+  async remove(name: string, _tenantId?: string | null) {
+    // Fixture data is keyed by bare name only -- tenantId is accepted for interface parity with
+    // HttpStatefulSetsRepository but unused here.
     removeStatefulSet(name);
     return delay(undefined);
   }

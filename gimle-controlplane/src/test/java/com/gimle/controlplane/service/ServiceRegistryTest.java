@@ -51,13 +51,13 @@ class ServiceRegistryTest {
 
     registry.put(spec);
 
-    assertEquals(Optional.of(spec), registry.get("orders"));
+    assertEquals(Optional.of(spec), registry.get(Optional.empty(), "orders"));
   }
 
   @Test
   void get_of_an_unknown_name_is_empty() {
     ServiceRegistry registry = registry();
-    assertEquals(Optional.empty(), registry.get("nope"));
+    assertEquals(Optional.empty(), registry.get(Optional.empty(), "nope"));
   }
 
   @Test
@@ -76,19 +76,20 @@ class ServiceRegistryTest {
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service-v2"), 9090));
 
     assertEquals(1, registry.list().size());
-    assertEquals(9090, registry.get("orders").orElseThrow().port());
+    assertEquals(9090, registry.get(Optional.empty(), "orders").orElseThrow().port());
   }
 
   @Test
   void removing_a_service_also_removes_its_stored_endpoint_set() {
     ServiceRegistry registry = registry();
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
-    registry.putEndpoints("orders", List.of(new ServiceEndpoint("10.0.0.5", 51234)));
+    registry.putEndpoints(
+        Optional.empty(), "orders", List.of(new ServiceEndpoint("10.0.0.5", 51234)));
 
-    registry.remove("orders");
+    registry.remove(Optional.empty(), "orders");
 
-    assertEquals(Optional.empty(), registry.get("orders"));
-    assertTrue(registry.getEndpoints("orders").isEmpty());
+    assertEquals(Optional.empty(), registry.get(Optional.empty(), "orders"));
+    assertTrue(registry.getEndpoints(Optional.empty(), "orders").isEmpty());
   }
 
   @Test
@@ -96,7 +97,7 @@ class ServiceRegistryTest {
     ServiceRegistry registry = registry();
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
 
-    assertTrue(registry.getEndpoints("orders").isEmpty());
+    assertTrue(registry.getEndpoints(Optional.empty(), "orders").isEmpty());
   }
 
   /**
@@ -113,7 +114,7 @@ class ServiceRegistryTest {
 
       replicaA.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
 
-      assertEquals(8080, replicaB.get("orders").orElseThrow().port());
+      assertEquals(8080, replicaB.get(Optional.empty(), "orders").orElseThrow().port());
       assertEquals(1, replicaB.list().size());
     }
   }

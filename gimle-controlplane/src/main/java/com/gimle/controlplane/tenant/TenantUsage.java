@@ -1,21 +1,34 @@
 package com.gimle.controlplane.tenant;
 
+import com.gimle.controlplane.admission.WorkloadResourceProfile;
+import com.gimle.controlplane.admission.WorkloadResourceProfile.Profile;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.store.StoreReader;
 import java.util.Optional;
 
 /**
- * Shared quota-summation logic, used both at admission (the API server, before a deployment is
+ * Shared quota-summation logic, used both at admission (the API server, before a workload is
  * durably stored) and continuously ({@code QuotaReconciler}, every tick) -- one calculation, not
- * two copies that could drift. Reads each tenant deployment's module descriptor from its artifact
+ * two copies that could drift. Reads each tenant workload's module descriptor from its artifact
  * through the same {@link ArtifactResolver} every reconciler already uses (local path or
  * registry-coordinate alike -- a blank {@code artifactPath} resolved through Andvari is a
  * documented, fully-wired deployment shape, not a corner case); an unreadable/unresolvable artifact
  * is skipped (not a resource this calculation can charge against a tenant) the same way {@code
  * DeploymentReconciler} itself tolerates one and simply retries next tick.
+ *
+ * <p>Sums across every placeable workload kind (Deployment, Job, DaemonSet, StatefulSet) sharing a
+ * tenant, not Deployment alone -- a tenant's real resource footprint is the sum of all four, and
+ * charging only Deployment against its quota left every other kind free to consume unlimited
+ * resources under the same tenant. CronJob is excluded: it is never itself placed (see {@link
+ * WorkloadResourceProfile}'s own javadoc), only the ordinary JobSpecs it generates are, and those
+ * are counted here as Jobs like any other.
  */
 public final class TenantUsage {
 
@@ -43,69 +56,93 @@ public final class TenantUsage {
    * through a control plane's shared resolver.
    */
   public static Usage currentlyAssigned(
-      StoreReader store, String tenantId, Optional<String> excludingDeploymentName) {
-    return currentlyAssigned(
-        store, ArtifactResolver.localOnly(), tenantId, excludingDeploymentName);
+      StoreReader store, String tenantId, Optional<String> excludingWorkloadName) {
+    return currentlyAssigned(store, ArtifactResolver.localOnly(), tenantId, excludingWorkloadName);
   }
 
   /**
-   * Currently-assigned usage for {@code tenantId}, summed across every deployment sharing it
-   * *except* {@code excludingDeploymentName} (pass {@code Optional.empty()} to include everything)
-   * -- the exclusion lets admission compute "what would usage be after this PUT replaces its own
-   * prior spec" without double-counting the deployment being submitted.
+   * Currently-assigned usage for {@code tenantId}, summed across every Deployment/Job/DaemonSet/
+   * StatefulSet sharing it *except* {@code excludingWorkloadName} (pass {@code Optional.empty()} to
+   * include everything) -- the exclusion lets admission compute "what would usage be after this PUT
+   * replaces its own prior spec" without double-counting the workload being submitted. Matched by
+   * bare name only, not kind -- harmless in practice since a kind/name pair is what a submission's
+   * own URL path already pins down.
    */
   public static Usage currentlyAssigned(
       StoreReader store,
       ArtifactResolver artifactResolver,
       String tenantId,
-      Optional<String> excludingDeploymentName) {
-    long memoryBytes = 0;
-    long cpuMillicores = 0;
-    int instances = 0;
+      Optional<String> excludingWorkloadName) {
+    Usage total = new Usage(0, 0, 0);
     for (DeploymentSpec spec : store.listDeployments()) {
-      if (excludingDeploymentName.filter(spec.name()::equals).isPresent()) {
-        continue;
-      }
-      if (spec.tenantId().filter(tenantId::equals).isEmpty()) {
-        continue;
-      }
-      Usage contribution = contributionOf(store, artifactResolver, spec);
-      memoryBytes += contribution.memoryBytes();
-      cpuMillicores += contribution.cpuMillicores();
-      instances += contribution.instances();
+      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkloadName, spec);
     }
-    return new Usage(memoryBytes, cpuMillicores, instances);
+    for (JobSpec spec : store.listJobSpecs()) {
+      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkloadName, spec);
+    }
+    for (DaemonSetSpec spec : store.listDaemonSetSpecs()) {
+      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkloadName, spec);
+    }
+    for (StatefulSetSpec spec : store.listStatefulSetSpecs()) {
+      total = accumulate(total, store, artifactResolver, tenantId, excludingWorkloadName, spec);
+    }
+    return total;
+  }
+
+  private static Usage accumulate(
+      Usage total,
+      StoreReader store,
+      ArtifactResolver artifactResolver,
+      String tenantId,
+      Optional<String> excludingWorkloadName,
+      WorkloadSpec spec) {
+    if (excludingWorkloadName.filter(spec.name()::equals).isPresent()) {
+      return total;
+    }
+    if (spec.tenantId().filter(tenantId::equals).isEmpty()) {
+      return total;
+    }
+    Usage contribution = contributionOf(store, artifactResolver, spec);
+    return total.plus(
+        contribution.memoryBytes(), contribution.cpuMillicores(), contribution.instances());
   }
 
   /**
    * Local-artifact-only resolution -- the pre-registry behavior every existing test exercises. See
-   * {@link #contributionOf(StoreReader, ArtifactResolver, DeploymentSpec)} for real wiring through
-   * a control plane's shared resolver.
+   * {@link #contributionOf(StoreReader, ArtifactResolver, WorkloadSpec)} for real wiring through a
+   * control plane's shared resolver.
    */
   public static Usage contributionOf(StoreReader store, DeploymentSpec spec) {
     return contributionOf(store, ArtifactResolver.localOnly(), spec);
   }
 
-  /** One deployment's own contribution: {@code resourceRequest * effective replicas}. */
+  /**
+   * One workload's own contribution: {@code resourceRequest * committedInstances}, {@code
+   * committedInstances} meaning different things per kind -- see {@link WorkloadResourceProfile}'s
+   * own javadoc for why. Empty for a kind {@link WorkloadResourceProfile#of} has nothing to size (a
+   * CronJobSpec) -- it is not itself a resource consumer.
+   */
   public static Usage contributionOf(
-      StoreReader store, ArtifactResolver artifactResolver, DeploymentSpec spec) {
+      StoreReader store, ArtifactResolver artifactResolver, WorkloadSpec spec) {
+    Optional<Profile> profile = WorkloadResourceProfile.of(spec, store);
+    if (profile.isEmpty()) {
+      return new Usage(0, 0, 0);
+    }
+    Profile p = profile.get();
     ModuleDescriptor descriptor;
     try {
-      // A registry-coordinate deployment (blank artifactPath, resolved through Andvari) must be
-      // charged the same resource request DeploymentReconciler actually schedules against, not
+      // A registry-coordinate workload (blank artifactPath, resolved through Andvari) must be
+      // charged the same resource request its own reconciler actually schedules against, not
       // silently read as zero usage because a direct ModuleArtifactReader/VesselArtifacts read
       // can't resolve it -- see this class's own javadoc.
       descriptor =
-          artifactResolver
-              .resolve(spec.artifactPath(), spec.moduleId(), spec.vessel())
-              .descriptor();
+          artifactResolver.resolve(p.artifactPath(), p.moduleId(), p.vessel()).descriptor();
     } catch (RuntimeException e) {
       return new Usage(0, 0, 0);
     }
-    int replicas = store.getEffectiveReplicas(spec.name()).orElse(spec.replicas());
     return new Usage(
-        descriptor.resourceRequest().memoryBytes() * replicas,
-        descriptor.resourceRequest().cpuMillicores() * replicas,
-        replicas);
+        descriptor.resourceRequest().memoryBytes() * p.committedInstances(),
+        descriptor.resourceRequest().cpuMillicores() * p.committedInstances(),
+        p.committedInstances());
   }
 }

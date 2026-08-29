@@ -13,6 +13,7 @@ import com.gimle.core.module.Version;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -44,7 +45,7 @@ class LimitRangePluginTest {
   void untenanted_deployment_is_allowed_without_consulting_the_store() {
     DeploymentSpec spec = deployment("untenanted", Optional.empty());
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store(), Optional.empty()));
@@ -56,7 +57,7 @@ class LimitRangePluginTest {
   void a_tenant_with_no_limit_range_is_allowed_without_consulting_the_artifact() {
     DeploymentSpec spec = deployment("no-range", Optional.of("tenant-a"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store(), Optional.empty()));
@@ -76,7 +77,7 @@ class LimitRangePluginTest {
             Optional.empty()));
     DeploymentSpec spec = deployment("unreadable", Optional.of("tenant-a"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
@@ -168,7 +169,7 @@ class LimitRangePluginTest {
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     DeploymentSpec spec = deployment("ranged", jar, Optional.of("tenant-a"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
@@ -183,7 +184,7 @@ class LimitRangePluginTest {
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     DeploymentSpec spec = deployment("ranged-ok", jar, Optional.of("tenant-a"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));

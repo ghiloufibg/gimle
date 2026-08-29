@@ -111,16 +111,16 @@ class DeploymentReconcilerTest {
     // Right up to the timeout the node is still live and still takes placement.
     clock.advance(DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT);
     reconciler.reconcileOnce();
-    assertEquals(1, store.listAssignmentsFor("orders-service").size());
+    assertEquals(1, store.listAssignmentsFor(Optional.empty(), "orders-service").size());
 
     // Past it, with the assignment released the way ReplicaCountReconciler would release it, the
     // gap must stay open rather than being refilled on the same silent node.
-    store.removeAssignment("orders-service", 0);
+    store.removeAssignment(Optional.empty(), "orders-service", 0);
     clock.advance(Duration.ofSeconds(1));
     reconciler.reconcileOnce();
 
     assertTrue(
-        store.listAssignmentsFor("orders-service").isEmpty(),
+        store.listAssignmentsFor(Optional.empty(), "orders-service").isEmpty(),
         "a node that has stopped heartbeating must not be re-selected for placement");
   }
 
@@ -135,7 +135,8 @@ class DeploymentReconcilerTest {
 
     new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    List<InstanceAssignment> assignments = store.listAssignmentsFor("orders-service");
+    List<InstanceAssignment> assignments =
+        store.listAssignmentsFor(Optional.empty(), "orders-service");
     assertEquals(2, assignments.size());
     assertEquals(
         Set.of(0, 1),
@@ -154,7 +155,7 @@ class DeploymentReconcilerTest {
     reconciler.reconcileOnce();
     reconciler.reconcileOnce(); // idempotent: calling again doesn't error or duplicate
 
-    assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
+    assertTrue(store.listAssignmentsFor(Optional.empty(), "orders-service").isEmpty());
   }
 
   @Test
@@ -165,12 +166,13 @@ class DeploymentReconcilerTest {
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
     store.putDeployment(deployment("orders-service", 3, jar, PlacementConstraints.NONE));
     new DeploymentReconciler(store, scheduler).reconcileOnce();
-    assertEquals(3, store.listAssignmentsFor("orders-service").size());
+    assertEquals(3, store.listAssignmentsFor(Optional.empty(), "orders-service").size());
 
     store.putDeployment(deployment("orders-service", 1, jar, PlacementConstraints.NONE));
     new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    List<InstanceAssignment> remaining = store.listAssignmentsFor("orders-service");
+    List<InstanceAssignment> remaining =
+        store.listAssignmentsFor(Optional.empty(), "orders-service");
     assertEquals(1, remaining.size());
     assertEquals(0, remaining.get(0).instanceIndex());
   }
@@ -183,12 +185,12 @@ class DeploymentReconcilerTest {
     registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
     store.putDeployment(deployment("orders-service", 2, jar, PlacementConstraints.NONE));
     new DeploymentReconciler(store, scheduler).reconcileOnce();
-    assertEquals(2, store.listAssignmentsFor("orders-service").size());
+    assertEquals(2, store.listAssignmentsFor(Optional.empty(), "orders-service").size());
 
-    store.removeDeployment("orders-service");
+    store.removeDeployment(Optional.empty(), "orders-service");
     new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
+    assertTrue(store.listAssignmentsFor(Optional.empty(), "orders-service").isEmpty());
     assertTrue(store.listAssignments().isEmpty());
   }
 
@@ -204,7 +206,8 @@ class DeploymentReconcilerTest {
 
     new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    List<InstanceAssignment> assignments = store.listAssignmentsFor("orders-service");
+    List<InstanceAssignment> assignments =
+        store.listAssignmentsFor(Optional.empty(), "orders-service");
     assertEquals(2, assignments.size());
     assertEquals(
         2, Set.copyOf(assignments.stream().map(InstanceAssignment::nodeId).toList()).size());
@@ -244,7 +247,8 @@ class DeploymentReconcilerTest {
         .reconcileOnce();
     deferred.forEach(mutation -> mutation.applyTo(store));
 
-    List<InstanceAssignment> assignments = store.listAssignmentsFor("orders-service");
+    List<InstanceAssignment> assignments =
+        store.listAssignmentsFor(Optional.empty(), "orders-service");
     assertEquals(3, assignments.size());
     assertEquals(
         3, Set.copyOf(assignments.stream().map(InstanceAssignment::nodeId).toList()).size());
@@ -266,10 +270,10 @@ class DeploymentReconcilerTest {
 
     new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    List<InstanceAssignment> orders = store.listAssignmentsFor("orders-service");
+    List<InstanceAssignment> orders = store.listAssignmentsFor(Optional.empty(), "orders-service");
     assertEquals(
         Set.of(0, 1), Set.copyOf(orders.stream().map(InstanceAssignment::instanceIndex).toList()));
-    assertTrue(store.listAssignmentsFor("ghost-deployment").isEmpty());
+    assertTrue(store.listAssignmentsFor(Optional.empty(), "ghost-deployment").isEmpty());
   }
 
   @Test
@@ -285,7 +289,7 @@ class DeploymentReconcilerTest {
 
     new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    assertEquals(2, store.listAssignmentsFor("orders-service").size());
+    assertEquals(2, store.listAssignmentsFor(Optional.empty(), "orders-service").size());
   }
 
   @Test
@@ -303,7 +307,7 @@ class DeploymentReconcilerTest {
 
     new DeploymentReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
+    assertTrue(store.listAssignmentsFor(Optional.empty(), "orders-service").isEmpty());
   }
 
   /**
@@ -326,14 +330,14 @@ class DeploymentReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertTrue(store.listAssignmentsFor("orders-service").isEmpty());
+    assertTrue(store.listAssignmentsFor(Optional.empty(), "orders-service").isEmpty());
     assertEquals(
         1,
-        store.listInstanceEvents("orders-service", 0).size(),
+        store.listInstanceEvents(Optional.empty(), "orders-service", 0).size(),
         "five ticks of the exact same ongoing failure must record exactly one durable event, not"
             + " one per tick");
     assertEquals(
         InstanceEventKind.TRANSITION_FAILED,
-        store.listInstanceEvents("orders-service", 0).get(0).kind());
+        store.listInstanceEvents(Optional.empty(), "orders-service", 0).get(0).kind());
   }
 }

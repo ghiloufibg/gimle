@@ -96,9 +96,7 @@ describe("HttpDeploymentsRepository", () => {
     const all = await repo.all(true);
 
     expect(all[0].limitRangeViolating).toBe(true);
-    expect(all[0].limitRangeViolationReason).toBe(
-      "request memory 512Mi above maximum 256Mi",
-    );
+    expect(all[0].limitRangeViolationReason).toBe("request memory 512Mi above maximum 256Mi");
   });
 
   it("fetchOne GETs /deployments/{name} and maps the result", async () => {
@@ -220,5 +218,28 @@ describe("HttpDeploymentsRepository", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/deployments/checkout-service");
     expect(init.method).toBe("DELETE");
+  });
+
+  it("remove() appends ?tenant=<id> when a tenantId is given", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse()]);
+    const repo = new HttpDeploymentsRepository();
+
+    await repo.remove("checkout-service", "acme");
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("/deployments/checkout-service?tenant=acme");
+  });
+
+  it("remove() omits ?tenant= when the tenantId is null or absent", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse(), () => okResponse()]);
+    const repo = new HttpDeploymentsRepository();
+
+    await repo.remove("checkout-service", null);
+    await repo.remove("checkout-service");
+
+    const [urlWithNull] = fetchMock.mock.calls[0] as [string];
+    const [urlWithoutArg] = fetchMock.mock.calls[1] as [string];
+    expect(urlWithNull).toBe("/deployments/checkout-service");
+    expect(urlWithoutArg).toBe("/deployments/checkout-service");
   });
 });

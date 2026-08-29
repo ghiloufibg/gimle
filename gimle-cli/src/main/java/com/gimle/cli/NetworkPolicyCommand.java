@@ -43,7 +43,23 @@ public final class NetworkPolicyCommand {
       return;
     }
     String name = args.get(0);
-    OutputFormat.printObject(output, client.getObject("/networkpolicies/" + name), out);
+    String path = requireTenantScopedPath("/networkpolicies/" + name, args.subList(1, args.size()));
+    OutputFormat.printObject(output, client.getObject(path), out);
+  }
+
+  /**
+   * Unlike every other by-name resource here, a NetworkPolicy has no untenanted namespace to fall
+   * back to (its own {@code tenantId} is never optional -- see this class's own javadoc), so the
+   * control plane rejects a GET/DELETE with no {@code ?tenant=} outright. Caught here instead, with
+   * a clearer message than the API's own 400 -- the same "fail fast, locally" posture {@link #set}
+   * already takes for its own required {@code --tenant}.
+   */
+  private static String requireTenantScopedPath(String path, List<String> argsAfterName) {
+    String withTenant = TenantQuery.appendTo(path, argsAfterName);
+    if (withTenant.equals(path)) {
+      throw new CliException("networkpolicy requires --tenant <id>");
+    }
+    return withTenant;
   }
 
   public void set(List<String> args) {
@@ -113,8 +129,13 @@ public final class NetworkPolicyCommand {
         output, resultBody("configured", name), "networkpolicy/" + name + " configured", out);
   }
 
-  public void delete(String name) {
-    client.expectSuccess(client.delete("/networkpolicies/" + name));
+  public void delete(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing networkpolicy name/id");
+    }
+    String name = args.get(0);
+    String path = requireTenantScopedPath("/networkpolicies/" + name, args.subList(1, args.size()));
+    client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "networkpolicy/" + name + " deleted", out);
   }

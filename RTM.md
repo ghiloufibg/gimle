@@ -260,7 +260,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-243 | Independent-executor ticking (lease/reconcile/cert-rotation isolation) | Active | Not Covered | — |
 | GIMLE-244 | JPMS module boundary for gimle-controlplane | Active | Not Covered | — |
 | GIMLE-245 | Admission chain extension point | Active | Not Covered | — |
-| GIMLE-246 | Tenant resource quota admission check | Active | Covered | `quota-and-admission.feature` — "An over-quota deployment is rejected at admission" |
+| GIMLE-246 | Tenant resource quota admission check | Modified | Covered | `quota-and-admission.feature` — "An over-quota deployment is rejected at admission" |
 | GIMLE-247 | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Active | Not Covered | — |
 | GIMLE-248 | Registry-coordinate artifact admission (Andvari integration) | Active | Covered | `registry-deploy.feature` — "A pushed module deploys by coordinate with no artifact path" |
 | GIMLE-249 | PUT-time re-tenanting double-authorization | Active | Not Covered | — |
@@ -536,7 +536,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-519 | Rolling update preserves serving capacity and reaches new version | Active | Not Covered | — |
 | GIMLE-520 | Surge worker promotion carries out via in-place retarget, not respawn | Active | Not Covered | — |
 | GIMLE-521 | Autoscaling under real request-rate, error-rate, queue-depth, and weighted-blended load | Active | Not Covered | — |
-| GIMLE-522 | Multi-tenant quota enforcement (flag-not-evict, and admission rejection) | Active | Not Covered | — |
+| GIMLE-522 | Multi-tenant quota enforcement (flag-not-evict, and admission rejection) | Modified | Not Covered | — |
 | GIMLE-523 | Circuit breaker excludes a consistently-failing replica | Active | Not Covered | — |
 | GIMLE-524 | Gossip/SWIM failure detection across real separate agent processes | Active | Not Covered | — |
 | GIMLE-525 | Observability data survives agent death (Muninn fallback) and control-plane metrics round-trip | Active | Not Covered | — |
@@ -556,7 +556,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-539 | Control-plane partition tolerance (store-side) and reconvergence on heal | Active | Covered | `partition-tolerance.feature` — "A control plane cut off from the store stops serving and reconverges after heal" |
 | GIMLE-540 | Store leader self-demotion under silent peer partition; bounded write latency | Active | Covered | `partition-tolerance.feature` — "A store leader silently partitioned from its peers steps down and writes stay bounded" |
 | GIMLE-541 | Tenant deployment lifecycle with secret delivery and clean deletion | Active | Covered | `deployment-lifecycle.feature` — "A tenant-scoped module deploys, reads its secret, and is cleanly removed" |
-| GIMLE-542 | Tenant quota retroactive violation (flag, not evict) and admission rejection | Active | Covered | `quota-and-admission.feature` — "A retroactive quota violation is flagged but never evicts"; `quota-and-admission.feature` — "An over-quota deployment is rejected at admission" |
+| GIMLE-542 | Tenant quota retroactive violation (flag, not evict) and admission rejection | Modified | Covered | `quota-and-admission.feature` — "A retroactive quota violation is flagged but never evicts"; `quota-and-admission.feature` — "An over-quota deployment is rejected at admission" |
 | GIMLE-543 | Node cordoning blocks placement until uncordoned | Active | Covered | `scheduling.feature` — "A cordoned node blocks placement until uncordoned" |
 | GIMLE-544 | Worker-tier self-healing and liveness-exhaustion escalation (Gherkin coverage) | Active | Covered | `self-healing.feature` — "A killed worker JVM is respawned and the deployment returns to ACTIVE"; `self-healing.feature` — "A module that never passes liveness is escalated to FAILED for good" |
 | GIMLE-545 | Zero-downtime rolling update under surge budget (Gherkin coverage) | Active | Covered | `rolling-update.feature` — "Zero-downtime rollout under a surge budget" |
@@ -668,6 +668,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-651 | Explicit SecretMap Replace Verb | New | Not Covered | — |
 | GIMLE-652 | Deleting a Workload Clears Its Revision History | New | Not Covered | — |
 | GIMLE-653 | CLI Flag Errors Always Show Usage | New | Not Covered | — |
+| GIMLE-654 | Tenant-scoped resource keying (compound (tenantId, name) store key) | New | Not Covered | — |
+| GIMLE-655 | Tenant-scoped StatefulSet persistent volume identity | New | Not Covered | — |
+| GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | New | Not Covered | — |
+| GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1425,6 +1429,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a StatefulSet module whose volume declares no reclaimPolicy, When its index is permanently removed, Then the volume directory and its contents remain on disk.
 - **Other test coverage (non-Holmgang, informational only)**: `LocalDiskVolumeManagerTest` (release_under_default_retain_policy_leaves_the_data_on_disk, release_under_delete_policy_deletes_the_volume_directory_and_its_contents)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ReclaimPolicy.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`
+
+#### GIMLE-655 — Tenant-scoped StatefulSet persistent volume identity
+
+- **Category**: Multi-tenancy / Storage
+- **Status**: New  _(New requirement: closes a real cross-tenant collision in on-disk StatefulSet volume paths (two tenants running an identically-named StatefulSet on the same node could previously allocate into, or reattach to, each other's volume directory).)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that places two tenants' identically-named StatefulSet on the same node against a real cluster and asserts their volume data never mixes.
+- **Other test coverage (non-Holmgang, informational only)**: `LocalDiskVolumeManagerTest#two_tenants_with_an_identically_named_statefulset_get_distinct_directories`, `#destroying_one_tenants_volume_leaves_another_tenants_identically_named_one_intact`, `#list_allocated_reports_the_owning_tenant_for_a_tenanted_volume`
+- **Source location(s)**: `gimle-os/src/main/java/com/gimle/os/VolumeHandle.java`, `gimle-os/src/main/java/com/gimle/os/VolumeManager.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`
 
 ### gimle-pki
 
@@ -2774,6 +2787,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest` (revision-history clearing on delete, for all three workload kinds), `ApiServerDeploymentRollbackTest`/`ApiServerStatefulSetDaemonSetRollbackTest` (delete-then-recreate revision reset)
 - **Source location(s)**: `StateStore#removeDeployment`/`#removeDaemonSetSpec`/`#removeStatefulSetSpec`
 
+#### GIMLE-654 — Tenant-scoped resource keying (compound (tenantId, name) store key)
+
+- **Category**: Multi-tenancy / State store
+- **Status**: New  _(New requirement: closes a real cross-tenant collision in the state store (two tenants sharing a Deployment/Job/CronJob/DaemonSet/StatefulSet/Service/NetworkPolicy name could previously overwrite or read each other's resource).)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: extend an existing multi-tenant .feature file (or add one) whose Given/When/Then submits an identically-named Deployment under two different tenants against a real cluster and asserts each tenant's own GET/DELETE resolves only its own spec.
+- **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/TenantQuery.java`
+
 ### gimle-fabric
 
 #### GIMLE-181 — Same-Worker Direct Invocation Tier
@@ -3411,7 +3433,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-246 — Tenant resource quota admission check
 
 - **Category**: Admission / Multi-tenancy
-- **Status**: Active
+- **Status**: Modified  _(Behavior broadened: tenant quota admission/reconciliation now covers Job/DaemonSet/StatefulSet as well as Deployment (previously Deployment-only).)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/quota-and-admission.feature` — Scenario: *An over-quota deployment is rejected at admission*
@@ -3810,6 +3832,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No dedicated Holmgang Cucumber scenario exercises the plaintext single-tenant refusal itself against a real running cluster yet -- coverage today is ApiServerTest (HTTP endpoint, unit-level) plus the indirect proof that quota-and-admission.feature/limitrange.feature had to move off plaintext to keep creating a second tenant.
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`
 - **Source location(s)**: `ApiServer#rejectSecondTenantUnderPlaintext`, `ApiServer#handleTenant` (PUT branch)
+
+#### GIMLE-656 — Tenant-scoped heartbeat instance-observation matching and instance-log node resolution
+
+- **Category**: Multi-tenancy / Observability
+- **Status**: New  _(New requirement: closes a residual cross-tenant mismatch risk in heartbeat-to-assignment matching and instance-log node resolution.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario placing two tenants' identically-named workload on the same node and asserting health/readiness/log-read never cross tenants.
+- **Other test coverage (non-Holmgang, informational only)**: Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically.
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+
+#### GIMLE-657 — Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup
+
+- **Category**: Multi-tenancy / Authorization
+- **Status**: New  _(New requirement: closes a bug where an explicit caller-declared ?tenant= was silently ignored on single-resource GET/DELETE and the endpoints lookup, in favor of a bare-name search across all tenants.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario with two tenants sharing a bare workload name and asserting `gimle get`/`gimle delete --tenant <id>` act on the declared tenant's own resource, not a bare-name search result.
+- **Other test coverage (non-Holmgang, informational only)**: `ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
 
 ### gimle-fafnir
 
@@ -6379,7 +6419,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-522 — Multi-tenant quota enforcement (flag-not-evict, and admission rejection)
 
 - **Category**: Cluster Validation
-- **Status**: Active
+- **Status**: Modified  _(Behavior broadened: tenant quota admission/reconciliation now covers Job/DaemonSet/StatefulSet as well as Deployment (previously Deployment-only).)_
 - **Coverage**: Not Covered
 - **Gap note**: This is itself JUnit-based test/example infrastructure -- Multi-tenant quota enforcement (flag-not-evict, and admission rejection) is exercised by `gimle-smoke-tests`'/`gimle-testkit`'s own real-process tests (see Other test coverage), never by a Holmgang Cucumber scenario; per the strict rule that does not count as Covered.
 - **Other test coverage (non-Holmgang, informational only)**: `QuotaIT.a_tenant_over_quota_deployment_is_flagged_but_not_evicted`, `a_deployment_that_would_exceed_tenant_quota_is_rejected_at_admission`
@@ -6572,7 +6612,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-542 — Tenant quota retroactive violation (flag, not evict) and admission rejection
 
 - **Category**: Cluster Validation
-- **Status**: Active
+- **Status**: Modified  _(Behavior broadened: tenant quota admission/reconciliation now covers Job/DaemonSet/StatefulSet as well as Deployment (previously Deployment-only).)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/quota-and-admission.feature` — Scenario: *A retroactive quota violation is flagged but never evicts*
@@ -6918,7 +6958,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**530 of 653 requirements are Not Covered.**
+**534 of 657 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7217,7 +7257,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-009 | gimle-core | Vessel hosting mode (plain-process workload) | Module System / Vessel Hosting | `VesselSpecTest` (no probes/ports is valid, TCP readiness requires a declared port, fixed port allocation carries its number, negative fixed port rejected); VesselArtifacts NONE dedicated |
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
 | GIMLE-650 | gimle-mimir | Implicit Default Tenant for Untenanted Workloads | Multi-tenancy | `DeploymentManifestParserTest`, `DaemonSetManifestParserTest`, `StatefulSetManifestParserTest`, `JobManifestParserTest`, `CronJobManifestParserTest` (tenantId defaulting); full `gimle-controlplane` admission/reconciler/ApiServerTest suite |
+| GIMLE-657 | gimle-controlplane | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | `ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer. |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
+| GIMLE-656 | gimle-controlplane | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically. |
+| GIMLE-654 | gimle-mimir | Tenant-scoped resource keying (compound (tenantId, name) store key) | Multi-tenancy / State store | `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide` |
+| GIMLE-655 | gimle-os | Tenant-scoped StatefulSet persistent volume identity | Multi-tenancy / Storage | `LocalDiskVolumeManagerTest#two_tenants_with_an_identically_named_statefulset_get_distinct_directories`, `#destroying_one_tenants_volume_leaves_another_tenants_identically_named_one_intact`, `#list_allocated_reports_the_owning_tenant_for_a_tenanted_volume` |
 | GIMLE-623 | gimle-fabric | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit) |
 | GIMLE-626 | gimle-agent | Bifrost locality-preferred forwarding and ClientIP session affinity | Networking / Services | `BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints) |
 | GIMLE-628 | gimle-controlplane | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Networking / Services | `ServiceSpecTest`, `ApiServerServicesTest` (round trip, mixed-shape rejection), `SkaldServerTest` (CNAME and SRV external answers) |

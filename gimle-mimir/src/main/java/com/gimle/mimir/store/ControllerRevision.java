@@ -6,6 +6,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -88,8 +89,13 @@ public record ControllerRevision(
     };
   }
 
-  /** The composite {@link StateStore}/wire key one workload's revision history is grouped under. */
-  public static String revisionKey(String workloadKind, String name) {
-    return workloadKind + "#" + name;
+  /**
+   * The composite {@link StateStore}/wire key one workload's revision history is grouped under --
+   * {@code tenantId} scopes {@code name} the same way {@code StateStore}'s own tenant-scoped keys
+   * do everywhere else, so two different tenants' own identically-named Deployment/StatefulSet/
+   * DaemonSet never share a revision history.
+   */
+  public static String revisionKey(String workloadKind, Optional<String> tenantId, String name) {
+    return workloadKind + "#" + tenantId.orElse("") + '\0' + name;
   }
 }

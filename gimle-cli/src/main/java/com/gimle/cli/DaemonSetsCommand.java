@@ -44,7 +44,8 @@ public final class DaemonSetsCommand {
       return;
     }
     String name = args.get(0);
-    Map<String, Object> daemonSet = client.getObject("/daemonsets/" + name);
+    String path = TenantQuery.appendTo("/daemonsets/" + name, args.subList(1, args.size()));
+    Map<String, Object> daemonSet = client.getObject(path);
     OutputFormat.printObject(
         output, output == OutputFormat.Kind.TABLE ? humanize(daemonSet) : daemonSet, out);
   }
@@ -61,24 +62,38 @@ public final class DaemonSetsCommand {
         output, resultBody("applied", name), "daemonset/" + name + " applied", out);
   }
 
-  public void delete(String name) {
-    client.expectSuccess(client.delete("/daemonsets/" + name));
+  public void delete(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing daemonset name/id");
+    }
+    String name = args.get(0);
+    String path = TenantQuery.appendTo("/daemonsets/" + name, args.subList(1, args.size()));
+    client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "daemonset/" + name + " deleted", out);
   }
 
-  /** {@code daemonset revisions <name>} -- mirrors {@link DeploymentsCommand#revisions}. */
-  public void revisions(String name) {
-    Map<String, Object> response = client.getObject("/daemonsets/" + name + "/revisions");
+  /**
+   * {@code daemonset revisions <name> [--tenant <id>]} -- mirrors {@link
+   * DeploymentsCommand#revisions}.
+   */
+  public void revisions(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing daemonset name/id");
+    }
+    String name = args.get(0);
+    String path =
+        TenantQuery.appendTo("/daemonsets/" + name + "/revisions", args.subList(1, args.size()));
+    Map<String, Object> response = client.getObject(path);
     OutputFormat.printList(output, Json.asObjectList(response.get("revisions")), out);
   }
 
   /**
-   * {@code daemonset rollback <name> [--to-revision N]} -- mirrors {@link
+   * {@code daemonset rollback <name> [--to-revision N] [--tenant <id>]} -- mirrors {@link
    * DeploymentsCommand#rollback}.
    */
   public void rollback(List<String> args) {
-    String usage = "daemonset rollback requires <name> [--to-revision N]";
+    String usage = "daemonset rollback requires <name> [--to-revision N] [--tenant <id>]";
     if (args.isEmpty()) {
       throw new CliException(usage);
     }
@@ -89,8 +104,9 @@ public final class DaemonSetsCommand {
     if (toRevision != null) {
       body.put("toRevision", parseRevision(toRevision));
     }
-    String response =
-        client.expectSuccess(client.post("/daemonsets/" + name + "/rollback", Json.write(body)));
+    String path =
+        TenantQuery.appendTo("/daemonsets/" + name + "/rollback", args.subList(1, args.size()));
+    String response = client.expectSuccess(client.post(path, Json.write(body)));
     OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
   }
 

@@ -44,9 +44,17 @@ export const useNetworkPoliciesStore = create<State>((set, get) => ({
     }
   },
   async remove(name) {
+    // Unlike the other six tenant-scoped-by-name resources, tenantId here is never optional --
+    // NetworkPolicySpec always requires one, and the item is already loaded (this screen is
+    // always reached from the already-fetched list), so it's looked up here rather than widening
+    // this method's own public signature.
+    const tenantId = get().items.find((p) => p.name === name)?.tenantId;
+    if (!tenantId) {
+      throw new Error(`Cannot remove network policy "${name}": no known tenantId`);
+    }
     set({ loading: true, error: null });
     try {
-      await networkPoliciesRepo.remove(name);
+      await networkPoliciesRepo.remove(name, tenantId);
       set({ items: get().items.filter((p) => p.name !== name), loading: false });
     } catch (e) {
       set({ loading: false, error: (e as Error).message });

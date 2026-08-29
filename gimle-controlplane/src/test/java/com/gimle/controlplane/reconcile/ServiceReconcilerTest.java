@@ -78,7 +78,7 @@ class ServiceReconcilerTest {
     new ServiceReconciler(registry, store).reconcileOnce();
 
     assertTrue(
-        registry.getEndpoints("orders").isEmpty(),
+        registry.getEndpoints(Optional.empty(), "orders").isEmpty(),
         "a Service whose backing deployment has no assignments yet must converge to no endpoints,"
             + " not fail");
   }
@@ -97,7 +97,7 @@ class ServiceReconcilerTest {
 
     assertEquals(
         List.of(new ServiceEndpoint("10.0.0.5", 51234, Optional.of("node-a"))),
-        registry.getEndpoints("orders"));
+        registry.getEndpoints(Optional.empty(), "orders"));
   }
 
   @Test
@@ -112,7 +112,7 @@ class ServiceReconcilerTest {
 
     new ServiceReconciler(registry, store).reconcileOnce();
 
-    assertTrue(registry.getEndpoints("orders").isEmpty());
+    assertTrue(registry.getEndpoints(Optional.empty(), "orders").isEmpty());
   }
 
   @Test
@@ -127,7 +127,7 @@ class ServiceReconcilerTest {
 
     new ServiceReconciler(registry, store).reconcileOnce();
 
-    assertTrue(registry.getEndpoints("orders").isEmpty());
+    assertTrue(registry.getEndpoints(Optional.empty(), "orders").isEmpty());
   }
 
   /** deploymentNames is a real selector across multiple workload names, not just a single one. */
@@ -151,7 +151,7 @@ class ServiceReconcilerTest {
         Set.of(
             new ServiceEndpoint("10.0.0.5", 51234, Optional.of("node-a")),
             new ServiceEndpoint("10.0.0.6", 51235, Optional.of("node-b"))),
-        Set.copyOf(registry.getEndpoints("orders")));
+        Set.copyOf(registry.getEndpoints(Optional.empty(), "orders")));
   }
 
   @Test
@@ -169,10 +169,10 @@ class ServiceReconcilerTest {
 
     new ServiceReconciler(registry, store).reconcileOnce();
 
-    assertTrue(registry.getEndpoints("unreachable").isEmpty());
+    assertTrue(registry.getEndpoints(Optional.empty(), "unreachable").isEmpty());
     assertEquals(
         List.of(new ServiceEndpoint("10.0.0.5", 51234, Optional.of("node-a"))),
-        registry.getEndpoints("orders"));
+        registry.getEndpoints(Optional.empty(), "orders"));
   }
 
   @Test
@@ -186,13 +186,13 @@ class ServiceReconcilerTest {
     registry.put(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
     ServiceReconciler reconciler = new ServiceReconciler(registry, store);
     reconciler.reconcileOnce();
-    assertEquals(1, registry.getEndpoints("orders").size());
+    assertEquals(1, registry.getEndpoints(Optional.empty(), "orders").size());
 
-    store.removeAssignment("orders-service", 0);
+    store.removeAssignment(Optional.empty(), "orders-service", 0);
     reconciler.reconcileOnce();
 
     assertTrue(
-        registry.getEndpoints("orders").isEmpty(),
+        registry.getEndpoints(Optional.empty(), "orders").isEmpty(),
         "a level-triggered reconcile must fully replace the prior endpoint set, not merge into it");
   }
 }

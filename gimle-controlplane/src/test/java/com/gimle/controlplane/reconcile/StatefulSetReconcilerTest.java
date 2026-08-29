@@ -122,7 +122,8 @@ class StatefulSetReconcilerTest {
 
     new StatefulSetReconciler(store, scheduler).reconcileOnce();
 
-    List<StatefulSetAssignment> assignments = store.listStatefulSetAssignmentsFor("orders");
+    List<StatefulSetAssignment> assignments =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
     assertEquals(1, assignments.size());
     assertTrue(indexOf(assignments, 0).isPresent());
   }
@@ -140,7 +141,8 @@ class StatefulSetReconcilerTest {
 
     reconciler.reconcileOnce(); // index 0 still not ready -- must not place index 1
 
-    List<StatefulSetAssignment> assignments = store.listStatefulSetAssignmentsFor("orders");
+    List<StatefulSetAssignment> assignments =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
     assertEquals(1, assignments.size());
   }
 
@@ -155,12 +157,13 @@ class StatefulSetReconcilerTest {
     StatefulSetReconciler reconciler = new StatefulSetReconciler(store, scheduler);
     reconciler.reconcileOnce();
     StatefulSetAssignment index0 =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
 
     reportReady(store, index0);
     reconciler.reconcileOnce();
 
-    List<StatefulSetAssignment> assignments = store.listStatefulSetAssignmentsFor("orders");
+    List<StatefulSetAssignment> assignments =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
     assertEquals(2, assignments.size());
     assertTrue(indexOf(assignments, 1).isPresent());
   }
@@ -176,7 +179,7 @@ class StatefulSetReconcilerTest {
     StatefulSetReconciler reconciler = new StatefulSetReconciler(store, scheduler);
     reconciler.reconcileOnce();
     StatefulSetAssignment placed =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
     String originalNode = placed.nodeId();
     reportReady(store, placed);
 
@@ -187,7 +190,7 @@ class StatefulSetReconcilerTest {
     reconciler.reconcileOnce(); // re-places it -- must land back on the same node
 
     StatefulSetAssignment rolled =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
     assertEquals(originalNode, rolled.nodeId());
     assertEquals(v2.moduleId(), rolled.moduleId());
   }
@@ -206,20 +209,23 @@ class StatefulSetReconcilerTest {
     // Drive all three indices up, reporting each ready before the next is attempted.
     for (int i = 0; i < 3; i++) {
       reconciler.reconcileOnce();
-      List<StatefulSetAssignment> current = store.listStatefulSetAssignmentsFor("orders");
+      List<StatefulSetAssignment> current =
+          store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
       current.forEach(a -> reportReady(store, a));
     }
-    assertEquals(3, store.listStatefulSetAssignmentsFor("orders").size());
+    assertEquals(3, store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").size());
 
     store.putStatefulSetSpec(statefulSet("orders", jar, 1));
     reconciler.reconcileOnce();
 
-    List<StatefulSetAssignment> afterOneTick = store.listStatefulSetAssignmentsFor("orders");
+    List<StatefulSetAssignment> afterOneTick =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
     assertEquals(2, afterOneTick.size(), "only the highest index is removed per tick");
     assertTrue(indexOf(afterOneTick, 2).isEmpty());
 
     reconciler.reconcileOnce();
-    List<StatefulSetAssignment> afterTwoTicks = store.listStatefulSetAssignmentsFor("orders");
+    List<StatefulSetAssignment> afterTwoTicks =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
     assertEquals(1, afterTwoTicks.size());
     assertTrue(indexOf(afterTwoTicks, 0).isPresent());
   }
@@ -235,23 +241,26 @@ class StatefulSetReconcilerTest {
     store.putStatefulSetSpec(spec);
     StatefulSetReconciler reconciler = new StatefulSetReconciler(store, scheduler);
     reconciler.reconcileOnce();
-    reportReady(store, indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow());
+    reportReady(
+        store,
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow());
     reconciler.reconcileOnce();
     StatefulSetAssignment index1 =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 1).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).orElseThrow();
     String index1Node = index1.nodeId();
     reportReady(store, index1);
 
     // Scale down to 1 (drops index 1), then immediately back up to 2.
     store.putStatefulSetSpec(statefulSet("orders", jar, 1));
     reconciler.reconcileOnce();
-    assertTrue(indexOf(store.listStatefulSetAssignmentsFor("orders"), 1).isEmpty());
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isEmpty());
 
     store.putStatefulSetSpec(statefulSet("orders", jar, 2));
     reconciler.reconcileOnce();
 
     StatefulSetAssignment respawned =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 1).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).orElseThrow();
     assertEquals(
         index1Node,
         respawned.nodeId(),
@@ -266,14 +275,14 @@ class StatefulSetReconcilerTest {
     registerNode(store, "node-a");
     store.putStatefulSetSpec(statefulSet("orders", jar, 1));
     new StatefulSetReconciler(store, scheduler).reconcileOnce();
-    assertEquals(1, store.listStatefulSetAssignmentsFor("orders").size());
-    assertTrue(store.getStatefulSetIndexNode("orders", 0).isPresent());
+    assertEquals(1, store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").size());
+    assertTrue(store.getStatefulSetIndexNode(Optional.empty(), "orders", 0).isPresent());
 
-    store.removeStatefulSetSpec("orders");
+    store.removeStatefulSetSpec(Optional.empty(), "orders");
     new StatefulSetReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.listStatefulSetAssignmentsFor("orders").isEmpty());
-    assertTrue(store.getStatefulSetIndexNode("orders", 0).isEmpty());
+    assertTrue(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").isEmpty());
+    assertTrue(store.getStatefulSetIndexNode(Optional.empty(), "orders", 0).isEmpty());
   }
 
   @Test
@@ -295,7 +304,7 @@ class StatefulSetReconcilerTest {
 
     new StatefulSetReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.listStatefulSetAssignmentsFor("orders").isEmpty());
+    assertTrue(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").isEmpty());
   }
 
   @Test
@@ -310,7 +319,7 @@ class StatefulSetReconcilerTest {
     reconciler.reconcileOnce();
     reconciler.reconcileOnce(); // idempotent: calling again doesn't error or duplicate
 
-    assertTrue(store.listStatefulSetAssignmentsFor("orders").isEmpty());
+    assertTrue(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").isEmpty());
   }
 
   @Test
@@ -324,18 +333,18 @@ class StatefulSetReconcilerTest {
     StatefulSetReconciler reconciler = new StatefulSetReconciler(store, scheduler);
     reconciler.reconcileOnce();
     StatefulSetAssignment placed =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
     reportReady(store, placed);
 
     // Simulate the assignment disappearing (e.g. an operator-driven repair) while the node itself
     // is cordoned -- the sticky binding must still force placement back onto that exact node,
     // never onto node-b, even though node-b has free capacity.
-    store.removeStatefulSetAssignment("orders", 0);
+    store.removeStatefulSetAssignment(Optional.empty(), "orders", 0);
     store.putNodeCordon(placed.nodeId(), true);
     reconciler.reconcileOnce();
 
     assertTrue(
-        store.listStatefulSetAssignmentsFor("orders").isEmpty(),
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").isEmpty(),
         "a sticky index must stay unplaced rather than relocate to a different node");
   }
 
@@ -354,7 +363,8 @@ class StatefulSetReconcilerTest {
 
     new StatefulSetReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(indexOf(store.listStatefulSetAssignmentsFor("orders"), 5).isEmpty());
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 5).isEmpty());
   }
 
   @Test
@@ -381,7 +391,7 @@ class StatefulSetReconcilerTest {
             clock);
     reconciler.reconcileOnce();
     StatefulSetAssignment placed =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
     reportReady(store, placed);
     reconciler.reconcileOnce(); // clears any in-flight rolling-update bookkeeping first
 
@@ -390,7 +400,8 @@ class StatefulSetReconcilerTest {
     clock.advance(nodeDarkTimeout.plus(Duration.ofSeconds(1)));
     reconciler.reconcileOnce();
 
-    List<StatefulSetAssignment> stillWithinGrace = store.listStatefulSetAssignmentsFor("orders");
+    List<StatefulSetAssignment> stillWithinGrace =
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
     assertEquals(
         1,
         stillWithinGrace.size(),
@@ -423,7 +434,7 @@ class StatefulSetReconcilerTest {
             clock);
     reconciler.reconcileOnce();
     StatefulSetAssignment placed =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
     reportReady(store, placed);
     reconciler.reconcileOnce();
 
@@ -431,10 +442,10 @@ class StatefulSetReconcilerTest {
     reconciler.reconcileOnce();
 
     assertTrue(
-        store.listStatefulSetAssignmentsFor("orders").isEmpty(),
+        store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").isEmpty(),
         "a genuinely-gone node's assignment must be released");
     assertTrue(
-        store.getStatefulSetIndexNode("orders", 0).isPresent(),
+        store.getStatefulSetIndexNode(Optional.empty(), "orders", 0).isPresent(),
         "the sticky node binding must survive the release");
 
     // node-a comes back (a real recovery, not just a fresh heartbeat on a different machine).
@@ -442,7 +453,7 @@ class StatefulSetReconcilerTest {
     reconciler.reconcileOnce();
 
     StatefulSetAssignment replaced =
-        indexOf(store.listStatefulSetAssignmentsFor("orders"), 0).orElseThrow();
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
     assertEquals("node-a", replaced.nodeId(), "the sticky index must land back on the same node");
   }
 }

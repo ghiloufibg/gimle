@@ -238,20 +238,24 @@ public final class StoreCodec {
         }
         case StoreRpc.GetDeployment v -> {
           out.writeByte(TAG_GET_DEPLOYMENT);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.GetDeploymentGeneration v -> {
           out.writeByte(TAG_GET_DEPLOYMENT_GENERATION);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.ListDeployments v -> out.writeByte(TAG_LIST_DEPLOYMENTS);
         case StoreRpc.GetService v -> {
           out.writeByte(TAG_GET_SERVICE);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.ListServices v -> out.writeByte(TAG_LIST_SERVICES);
         case StoreRpc.GetNetworkPolicy v -> {
           out.writeByte(TAG_GET_NETWORK_POLICY);
+          out.writeUTF(v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.ListNetworkPolicies v -> out.writeByte(TAG_LIST_NETWORK_POLICIES);
@@ -262,18 +266,22 @@ public final class StoreCodec {
         case StoreRpc.ListLimitRanges v -> out.writeByte(TAG_LIST_LIMIT_RANGES);
         case StoreRpc.ListAssignmentsFor v -> {
           out.writeByte(TAG_LIST_ASSIGNMENTS_FOR);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.IsQuotaViolating v -> {
           out.writeByte(TAG_IS_QUOTA_VIOLATING);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.IsLimitRangeViolating v -> {
           out.writeByte(TAG_IS_LIMIT_RANGE_VIOLATING);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.GetLimitRangeViolationReason v -> {
           out.writeByte(TAG_GET_LIMIT_RANGE_VIOLATION_REASON);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.GetNodeTaints v -> {
@@ -297,47 +305,57 @@ public final class StoreCodec {
         case StoreRpc.ListAssignments v -> out.writeByte(TAG_LIST_ASSIGNMENTS);
         case StoreRpc.GetJobSpec v -> {
           out.writeByte(TAG_GET_JOB_SPEC);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.ListJobSpecs v -> out.writeByte(TAG_LIST_JOB_SPECS);
         case StoreRpc.ListJobRunsFor v -> {
           out.writeByte(TAG_LIST_JOB_RUNS_FOR);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.jobName());
         }
         case StoreRpc.ListJobRuns v -> out.writeByte(TAG_LIST_JOB_RUNS);
         case StoreRpc.GetJobPhase v -> {
           out.writeByte(TAG_GET_JOB_PHASE);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.jobName());
         }
         case StoreRpc.GetJobRunSummary v -> {
           out.writeByte(TAG_GET_JOB_RUN_SUMMARY);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.jobName());
         }
         case StoreRpc.GetCronJobSpec v -> {
           out.writeByte(TAG_GET_CRONJOB_SPEC);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.ListCronJobSpecs v -> out.writeByte(TAG_LIST_CRONJOB_SPECS);
         case StoreRpc.GetCronJobLastSchedule v -> {
           out.writeByte(TAG_GET_CRONJOB_LAST_SCHEDULE);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.GetDaemonSetSpec v -> {
           out.writeByte(TAG_GET_DAEMONSET_SPEC);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.ListDaemonSetSpecs v -> out.writeByte(TAG_LIST_DAEMONSET_SPECS);
         case StoreRpc.ListDaemonSetAssignments v -> out.writeByte(TAG_LIST_DAEMONSET_ASSIGNMENTS);
         case StoreRpc.ListDaemonSetAssignmentsFor v -> {
           out.writeByte(TAG_LIST_DAEMONSET_ASSIGNMENTS_FOR);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.daemonSetName());
         }
         case StoreRpc.ListRollingDaemonSetNodes v -> {
           out.writeByte(TAG_LIST_ROLLING_DAEMONSET_NODES);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.daemonSetName());
         }
         case StoreRpc.GetStatefulSetSpec v -> {
           out.writeByte(TAG_GET_STATEFULSET_SPEC);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.ListStatefulSetSpecs v -> out.writeByte(TAG_LIST_STATEFULSET_SPECS);
@@ -345,14 +363,17 @@ public final class StoreCodec {
             out.writeByte(TAG_LIST_STATEFULSET_ASSIGNMENTS);
         case StoreRpc.ListStatefulSetAssignmentsFor v -> {
           out.writeByte(TAG_LIST_STATEFULSET_ASSIGNMENTS_FOR);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.statefulSetName());
         }
         case StoreRpc.GetRollingStatefulSetIndex v -> {
           out.writeByte(TAG_GET_ROLLING_STATEFULSET_INDEX);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.statefulSetName());
         }
         case StoreRpc.GetStatefulSetIndexNode v -> {
           out.writeByte(TAG_GET_STATEFULSET_INDEX_NODE);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.statefulSetName());
           out.writeInt(v.instanceIndex());
         }
@@ -382,14 +403,17 @@ public final class StoreCodec {
         }
         case StoreRpc.GetEffectiveReplicas v -> {
           out.writeByte(TAG_GET_EFFECTIVE_REPLICAS);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.ListRollingIndices v -> {
           out.writeByte(TAG_LIST_ROLLING_INDICES);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.ListSurgeIndices v -> {
           out.writeByte(TAG_LIST_SURGE_INDICES);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
         }
         case StoreRpc.GetNodeHeartbeat v -> {
@@ -402,6 +426,7 @@ public final class StoreCodec {
         }
         case StoreRpc.GetReconcilerInstanceState v -> {
           out.writeByte(TAG_GET_RECONCILER_INSTANCE_STATE);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
           out.writeInt(v.instanceIndex());
         }
@@ -409,6 +434,7 @@ public final class StoreCodec {
             out.writeByte(TAG_LIST_RECONCILER_INSTANCE_STATES);
         case StoreRpc.ListInstanceEvents v -> {
           out.writeByte(TAG_LIST_INSTANCE_EVENTS);
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
           out.writeInt(v.instanceIndex());
         }
@@ -422,11 +448,13 @@ public final class StoreCodec {
         case StoreRpc.ListControllerRevisions v -> {
           out.writeByte(TAG_LIST_CONTROLLER_REVISIONS);
           out.writeUTF(v.workloadKind());
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
         }
         case StoreRpc.GetControllerRevision v -> {
           out.writeByte(TAG_GET_CONTROLLER_REVISION);
           out.writeUTF(v.workloadKind());
+          DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.name());
           out.writeInt(v.revision());
         }
@@ -819,51 +847,71 @@ public final class StoreCodec {
         case TAG_RELEASE_LEASE -> new StoreRpc.ReleaseLease(in.readUTF(), in.readUTF());
         case TAG_LIST_ACCOUNTS -> new StoreRpc.ListAccounts();
         case TAG_GET_TENANT -> new StoreRpc.GetTenant(in.readUTF());
-        case TAG_GET_DEPLOYMENT -> new StoreRpc.GetDeployment(in.readUTF());
-        case TAG_GET_DEPLOYMENT_GENERATION -> new StoreRpc.GetDeploymentGeneration(in.readUTF());
+        case TAG_GET_DEPLOYMENT ->
+            new StoreRpc.GetDeployment(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_GET_DEPLOYMENT_GENERATION ->
+            new StoreRpc.GetDeploymentGeneration(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_DEPLOYMENTS -> new StoreRpc.ListDeployments();
-        case TAG_GET_SERVICE -> new StoreRpc.GetService(in.readUTF());
+        case TAG_GET_SERVICE ->
+            new StoreRpc.GetService(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_SERVICES -> new StoreRpc.ListServices();
-        case TAG_GET_NETWORK_POLICY -> new StoreRpc.GetNetworkPolicy(in.readUTF());
+        case TAG_GET_NETWORK_POLICY -> new StoreRpc.GetNetworkPolicy(in.readUTF(), in.readUTF());
         case TAG_LIST_NETWORK_POLICIES -> new StoreRpc.ListNetworkPolicies();
         case TAG_GET_LIMIT_RANGE -> new StoreRpc.GetLimitRange(in.readUTF());
         case TAG_LIST_LIMIT_RANGES -> new StoreRpc.ListLimitRanges();
-        case TAG_LIST_ASSIGNMENTS_FOR -> new StoreRpc.ListAssignmentsFor(in.readUTF());
-        case TAG_IS_QUOTA_VIOLATING -> new StoreRpc.IsQuotaViolating(in.readUTF());
-        case TAG_IS_LIMIT_RANGE_VIOLATING -> new StoreRpc.IsLimitRangeViolating(in.readUTF());
+        case TAG_LIST_ASSIGNMENTS_FOR ->
+            new StoreRpc.ListAssignmentsFor(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_IS_QUOTA_VIOLATING ->
+            new StoreRpc.IsQuotaViolating(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_IS_LIMIT_RANGE_VIOLATING ->
+            new StoreRpc.IsLimitRangeViolating(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_LIMIT_RANGE_VIOLATION_REASON ->
-            new StoreRpc.GetLimitRangeViolationReason(in.readUTF());
+            new StoreRpc.GetLimitRangeViolationReason(
+                DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_IS_NODE_CORDONED -> new StoreRpc.IsNodeCordoned(in.readUTF());
         case TAG_GET_NODE_TAINTS -> new StoreRpc.GetNodeTaints(in.readUTF());
         case TAG_IS_CERTIFICATE_REVOKED -> new StoreRpc.IsCertificateRevoked(in.readUTF());
         case TAG_LIST_REVOKED_CERTIFICATE_SERIALS -> new StoreRpc.ListRevokedCertificateSerials();
         case TAG_GET_WORKLOAD_TOKEN -> new StoreRpc.GetWorkloadToken(in.readUTF());
         case TAG_LIST_ASSIGNMENTS -> new StoreRpc.ListAssignments();
-        case TAG_GET_JOB_SPEC -> new StoreRpc.GetJobSpec(in.readUTF());
+        case TAG_GET_JOB_SPEC ->
+            new StoreRpc.GetJobSpec(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_JOB_SPECS -> new StoreRpc.ListJobSpecs();
-        case TAG_LIST_JOB_RUNS_FOR -> new StoreRpc.ListJobRunsFor(in.readUTF());
+        case TAG_LIST_JOB_RUNS_FOR ->
+            new StoreRpc.ListJobRunsFor(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_JOB_RUNS -> new StoreRpc.ListJobRuns();
-        case TAG_GET_JOB_PHASE -> new StoreRpc.GetJobPhase(in.readUTF());
-        case TAG_GET_JOB_RUN_SUMMARY -> new StoreRpc.GetJobRunSummary(in.readUTF());
-        case TAG_GET_CRONJOB_SPEC -> new StoreRpc.GetCronJobSpec(in.readUTF());
+        case TAG_GET_JOB_PHASE ->
+            new StoreRpc.GetJobPhase(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_GET_JOB_RUN_SUMMARY ->
+            new StoreRpc.GetJobRunSummary(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_GET_CRONJOB_SPEC ->
+            new StoreRpc.GetCronJobSpec(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_CRONJOB_SPECS -> new StoreRpc.ListCronJobSpecs();
-        case TAG_GET_CRONJOB_LAST_SCHEDULE -> new StoreRpc.GetCronJobLastSchedule(in.readUTF());
-        case TAG_GET_DAEMONSET_SPEC -> new StoreRpc.GetDaemonSetSpec(in.readUTF());
+        case TAG_GET_CRONJOB_LAST_SCHEDULE ->
+            new StoreRpc.GetCronJobLastSchedule(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_GET_DAEMONSET_SPEC ->
+            new StoreRpc.GetDaemonSetSpec(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_DAEMONSET_SPECS -> new StoreRpc.ListDaemonSetSpecs();
         case TAG_LIST_DAEMONSET_ASSIGNMENTS -> new StoreRpc.ListDaemonSetAssignments();
         case TAG_LIST_DAEMONSET_ASSIGNMENTS_FOR ->
-            new StoreRpc.ListDaemonSetAssignmentsFor(in.readUTF());
+            new StoreRpc.ListDaemonSetAssignmentsFor(
+                DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_ROLLING_DAEMONSET_NODES ->
-            new StoreRpc.ListRollingDaemonSetNodes(in.readUTF());
-        case TAG_GET_STATEFULSET_SPEC -> new StoreRpc.GetStatefulSetSpec(in.readUTF());
+            new StoreRpc.ListRollingDaemonSetNodes(
+                DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_GET_STATEFULSET_SPEC ->
+            new StoreRpc.GetStatefulSetSpec(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_STATEFULSET_SPECS -> new StoreRpc.ListStatefulSetSpecs();
         case TAG_LIST_STATEFULSET_ASSIGNMENTS -> new StoreRpc.ListStatefulSetAssignments();
         case TAG_LIST_STATEFULSET_ASSIGNMENTS_FOR ->
-            new StoreRpc.ListStatefulSetAssignmentsFor(in.readUTF());
+            new StoreRpc.ListStatefulSetAssignmentsFor(
+                DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_ROLLING_STATEFULSET_INDEX ->
-            new StoreRpc.GetRollingStatefulSetIndex(in.readUTF());
+            new StoreRpc.GetRollingStatefulSetIndex(
+                DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_STATEFULSET_INDEX_NODE ->
-            new StoreRpc.GetStatefulSetIndexNode(in.readUTF(), in.readInt());
+            new StoreRpc.GetStatefulSetIndexNode(
+                DomainCodec.readOptionalString(in), in.readUTF(), in.readInt());
         case TAG_LIST_NODE_REGISTRATIONS -> new StoreRpc.ListNodeRegistrations();
         case TAG_LIST_TENANTS -> new StoreRpc.ListTenants();
         case TAG_LIST_CONFIG_ENTRIES_FOR -> new StoreRpc.ListConfigEntriesFor(in.readUTF());
@@ -873,20 +921,25 @@ public final class StoreCodec {
         case TAG_GET_ROLE_BINDING -> new StoreRpc.GetRoleBinding(in.readUTF());
         case TAG_GET_ACCOUNT -> new StoreRpc.GetAccount(in.readUTF());
         case TAG_GET_NODE_REGISTRATION -> new StoreRpc.GetNodeRegistration(in.readUTF());
-        case TAG_GET_EFFECTIVE_REPLICAS -> new StoreRpc.GetEffectiveReplicas(in.readUTF());
-        case TAG_LIST_ROLLING_INDICES -> new StoreRpc.ListRollingIndices(in.readUTF());
-        case TAG_LIST_SURGE_INDICES -> new StoreRpc.ListSurgeIndices(in.readUTF());
+        case TAG_GET_EFFECTIVE_REPLICAS ->
+            new StoreRpc.GetEffectiveReplicas(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_LIST_ROLLING_INDICES ->
+            new StoreRpc.ListRollingIndices(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_LIST_SURGE_INDICES ->
+            new StoreRpc.ListSurgeIndices(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
         case TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE ->
             new StoreRpc.ListConfigEntriesForLinearizable(in.readUTF());
         case TAG_GET_RECONCILER_INSTANCE_STATE ->
-            new StoreRpc.GetReconcilerInstanceState(in.readUTF(), in.readInt());
+            new StoreRpc.GetReconcilerInstanceState(
+                DomainCodec.readOptionalString(in), in.readUTF(), in.readInt());
         case TAG_LIST_RECONCILER_INSTANCE_STATES -> new StoreRpc.ListReconcilerInstanceStates();
         case TAG_ADD_SERVER ->
             new StoreRpc.AddServer(in.readUTF(), in.readUTF(), in.readInt(), in.readInt());
         case TAG_REMOVE_SERVER -> new StoreRpc.RemoveServer(in.readUTF());
         case TAG_LIST_INSTANCE_EVENTS ->
-            new StoreRpc.ListInstanceEvents(in.readUTF(), in.readInt());
+            new StoreRpc.ListInstanceEvents(
+                DomainCodec.readOptionalString(in), in.readUTF(), in.readInt());
         case TAG_LIST_AUDIT_EVENTS ->
             new StoreRpc.ListAuditEvents(
                 DomainCodec.readOptionalString(in),
@@ -894,9 +947,11 @@ public final class StoreCodec {
                 DomainCodec.readOptionalString(in),
                 DomainCodec.readOptionalLong(in));
         case TAG_LIST_CONTROLLER_REVISIONS ->
-            new StoreRpc.ListControllerRevisions(in.readUTF(), in.readUTF());
+            new StoreRpc.ListControllerRevisions(
+                in.readUTF(), DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_CONTROLLER_REVISION ->
-            new StoreRpc.GetControllerRevision(in.readUTF(), in.readUTF(), in.readInt());
+            new StoreRpc.GetControllerRevision(
+                in.readUTF(), DomainCodec.readOptionalString(in), in.readUTF(), in.readInt());
         case TAG_STATUS -> new StoreRpc.Status();
         case TAG_OK -> new StoreRpc.Ok();
         case TAG_NOT_LEADER -> new StoreRpc.NotLeader(in.readUTF());

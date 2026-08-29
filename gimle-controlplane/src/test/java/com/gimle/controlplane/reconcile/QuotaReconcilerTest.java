@@ -60,7 +60,7 @@ class QuotaReconcilerTest {
 
     new QuotaReconciler(store).reconcileOnce();
 
-    assertTrue(store.isQuotaViolating("orders"));
+    assertTrue(store.isQuotaViolating(Optional.of("acme"), "orders"));
   }
 
   @Test
@@ -72,7 +72,7 @@ class QuotaReconcilerTest {
 
     new QuotaReconciler(store).reconcileOnce();
 
-    assertFalse(store.isQuotaViolating("orders"));
+    assertFalse(store.isQuotaViolating(Optional.of("acme"), "orders"));
   }
 
   @Test
@@ -89,7 +89,7 @@ class QuotaReconcilerTest {
 
     new QuotaReconciler(store).reconcileOnce();
 
-    assertFalse(store.isQuotaViolating("orders"));
+    assertFalse(store.isQuotaViolating(Optional.empty(), "orders"));
   }
 
   @Test
@@ -100,7 +100,7 @@ class QuotaReconcilerTest {
 
     new QuotaReconciler(store).reconcileOnce();
 
-    assertFalse(store.isQuotaViolating("orders"));
+    assertFalse(store.isQuotaViolating(Optional.of("ghost-tenant"), "orders"));
   }
 
   @Test
@@ -111,12 +111,12 @@ class QuotaReconcilerTest {
     store.putDeployment(tenantedDeployment("orders", 2, jar, "acme"));
     // Simulate a violation already recorded from a previous tick, before this reconciler instance
     // ever ran -- a fresh QuotaReconciler must still converge correctly from this pre-set state.
-    store.putQuotaViolation("orders", true);
+    store.putQuotaViolation(Optional.of("acme"), "orders", true);
 
     store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     new QuotaReconciler(store).reconcileOnce();
 
-    assertFalse(store.isQuotaViolating("orders"));
+    assertFalse(store.isQuotaViolating(Optional.of("acme"), "orders"));
   }
 
   @Test
@@ -168,7 +168,7 @@ class QuotaReconcilerTest {
     reconciler.reconcileOnce();
     reconciler.reconcileOnce(); // still violating, must not re-propose
 
-    assertTrue(store.isQuotaViolating("orders"));
+    assertTrue(store.isQuotaViolating(Optional.of("acme"), "orders"));
     assertEquals(1, proposals.get(), "only the false->true transition should propose");
   }
 }

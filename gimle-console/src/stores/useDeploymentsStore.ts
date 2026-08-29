@@ -65,7 +65,11 @@ export const useDeploymentsStore = create<State>((set, get) => ({
     return d;
   },
   async remove(name) {
-    await deploymentsRepo.remove(name);
+    // The item is already loaded (this screen is always reached from the already-fetched list/
+    // detail state), so its own tenantId is looked up here rather than widening this method's
+    // public signature -- every UI call site keeps calling remove(name) unchanged.
+    const tenantId = get().items.find((d) => d.spec.name === name)?.spec.tenantId;
+    await deploymentsRepo.remove(name, tenantId);
     set({ items: get().items.filter((d) => d.spec.name !== name) });
   },
   async getOrFetch(name) {

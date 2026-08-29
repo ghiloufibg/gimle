@@ -39,7 +39,8 @@ public final class DeploymentsCommand {
       return;
     }
     String name = args.get(0);
-    Map<String, Object> deployment = client.getObject("/deployments/" + name);
+    String path = TenantQuery.appendTo("/deployments/" + name, args.subList(1, args.size()));
+    Map<String, Object> deployment = client.getObject(path);
     OutputFormat.printObject(
         output, output == OutputFormat.Kind.TABLE ? humanize(deployment) : deployment, out);
   }
@@ -56,25 +57,39 @@ public final class DeploymentsCommand {
         output, resultBody("applied", name), "deployment/" + name + " applied", out);
   }
 
-  public void delete(String name) {
-    client.expectSuccess(client.delete("/deployments/" + name));
+  public void delete(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing deployment name/id");
+    }
+    String name = args.get(0);
+    String path = TenantQuery.appendTo("/deployments/" + name, args.subList(1, args.size()));
+    client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "deployment/" + name + " deleted", out);
   }
 
-  /** {@code deployment revisions <name>} -- newest-first, the same order the API itself returns. */
-  public void revisions(String name) {
-    Map<String, Object> response = client.getObject("/deployments/" + name + "/revisions");
+  /**
+   * {@code deployment revisions <name> [--tenant <id>]} -- newest-first, the same order the API
+   * itself returns.
+   */
+  public void revisions(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing deployment name/id");
+    }
+    String name = args.get(0);
+    String path =
+        TenantQuery.appendTo("/deployments/" + name + "/revisions", args.subList(1, args.size()));
+    Map<String, Object> response = client.getObject(path);
     OutputFormat.printList(output, Json.asObjectList(response.get("revisions")), out);
   }
 
   /**
-   * {@code deployment rollback <name> [--to-revision N]} -- omitted {@code --to-revision} rolls
-   * back to the revision immediately before the current one, matching {@code gimle-hilmir}'s own
-   * {@code rollback --release <name> [--to-revision N]} default.
+   * {@code deployment rollback <name> [--to-revision N] [--tenant <id>]} -- omitted {@code
+   * --to-revision} rolls back to the revision immediately before the current one, matching {@code
+   * gimle-hilmir}'s own {@code rollback --release <name> [--to-revision N]} default.
    */
   public void rollback(List<String> args) {
-    String usage = "deployment rollback requires <name> [--to-revision N]";
+    String usage = "deployment rollback requires <name> [--to-revision N] [--tenant <id>]";
     if (args.isEmpty()) {
       throw new CliException(usage);
     }
@@ -85,8 +100,9 @@ public final class DeploymentsCommand {
     if (toRevision != null) {
       body.put("toRevision", parseRevision(toRevision));
     }
-    String response =
-        client.expectSuccess(client.post("/deployments/" + name + "/rollback", Json.write(body)));
+    String path =
+        TenantQuery.appendTo("/deployments/" + name + "/rollback", args.subList(1, args.size()));
+    String response = client.expectSuccess(client.post(path, Json.write(body)));
     OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
   }
 

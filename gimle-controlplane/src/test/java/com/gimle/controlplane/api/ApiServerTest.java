@@ -33,6 +33,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -1247,7 +1248,15 @@ class ApiServerTest {
         HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
             .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
             .build());
-    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
 
     HttpResponse<String> assignments =
         send(
@@ -1285,8 +1294,24 @@ class ApiServerTest {
         HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
             .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 2)))
             .build());
-    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
-    store.putAssignment(new InstanceAssignment("orders-service", 1, "node-a"));
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            1,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
     ModuleId moduleId = new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
     store.putNodeHeartbeat(
         new NodeHeartbeat(
@@ -1294,9 +1319,37 @@ class ApiServerTest {
             new ResourceUsageSnapshot(1000L, 0, 1000, 0),
             List.of(
                 new InstanceObservation(
-                    "orders-service", 0, moduleId, "ACTIVE", true, true, 10.0, 0, 0L, 0L, 2.0),
+                    "orders-service",
+                    0,
+                    moduleId,
+                    "ACTIVE",
+                    true,
+                    true,
+                    10.0,
+                    0,
+                    0L,
+                    0L,
+                    2.0,
+                    Map.of(),
+                    0L,
+                    Optional.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID)),
                 new InstanceObservation(
-                    "orders-service", 1, moduleId, "ACTIVE", true, true, 20.0, 0, 0L, 0L, 4.0))));
+                    "orders-service",
+                    1,
+                    moduleId,
+                    "ACTIVE",
+                    true,
+                    true,
+                    20.0,
+                    0,
+                    0L,
+                    0L,
+                    4.0,
+                    Map.of(),
+                    0L,
+                    Optional.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID)))));
 
     HttpResponse<String> metrics =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/metrics")).GET().build());
@@ -1662,7 +1715,7 @@ class ApiServerTest {
                 .build());
 
     assertEquals(409, put.statusCode());
-    assertTrue(store.getDeployment("over-quota").isEmpty());
+    assertTrue(store.getDeployment(Optional.of("tight"), "over-quota").isEmpty());
   }
 
   @Test
@@ -1687,7 +1740,7 @@ class ApiServerTest {
                 .build());
 
     assertEquals(200, put.statusCode());
-    assertTrue(store.getDeployment("within-quota").isPresent());
+    assertTrue(store.getDeployment(Optional.of("roomy"), "within-quota").isPresent());
   }
 
   @Test
@@ -1738,7 +1791,7 @@ class ApiServerTest {
                 .build());
 
     assertEquals(409, put.statusCode());
-    assertTrue(store.getDeployment("over-policy-ceiling").isEmpty());
+    assertTrue(store.getDeployment(Optional.of("policy-acme"), "over-policy-ceiling").isEmpty());
   }
 
   @Test
@@ -1768,7 +1821,8 @@ class ApiServerTest {
                 .build());
 
     assertEquals(200, put.statusCode());
-    assertTrue(store.getDeployment("within-policy-ceiling").isPresent());
+    assertTrue(
+        store.getDeployment(Optional.of("policy-acme-2"), "within-policy-ceiling").isPresent());
   }
 
   // ---- config/secrets distribution ----
@@ -1971,9 +2025,10 @@ class ApiServerTest {
           } else {
             body =
                 ("[{\"statefulSet\": \"sessions\", \"instanceIndex\": 0, \"usedBytes\": 42,"
-                        + " \"path\": \"/data/volumes/sessions/0\", \"inUse\": true},"
-                        + " {\"statefulSet\": \"sessions\", \"instanceIndex\": 1, \"usedBytes\":"
-                        + " 7, \"path\": \"/data/volumes/sessions/1\", \"inUse\": false}]")
+                        + " \"path\": \"/data/volumes/sessions/0\", \"inUse\": true, \"tenantId\":"
+                        + " \"default\"}, {\"statefulSet\": \"sessions\", \"instanceIndex\": 1,"
+                        + " \"usedBytes\": 7, \"path\": \"/data/volumes/sessions/1\", \"inUse\":"
+                        + " false, \"tenantId\": \"default\"}]")
                     .getBytes(StandardCharsets.UTF_8);
           }
           exchange.sendResponseHeaders(200, body.length);
@@ -1995,9 +2050,9 @@ class ApiServerTest {
               "/tmp/sessions.jar",
               1,
               com.gimle.mimir.manifest.PlacementConstraints.NONE,
-              Optional.empty(),
+              Optional.of(Tenant.DEFAULT_TENANT_ID),
               Optional.empty()));
-      store.putStatefulSetIndexNode("sessions", 0, "node-a");
+      store.putStatefulSetIndexNode(Optional.of(Tenant.DEFAULT_TENANT_ID), "sessions", 0, "node-a");
 
       HttpResponse<String> listing =
           send(HttpRequest.newBuilder(URI.create(baseUrl + "/volumes")).GET().build());

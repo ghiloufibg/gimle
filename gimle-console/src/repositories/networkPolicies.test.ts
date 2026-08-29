@@ -10,9 +10,9 @@ describe("MockNetworkPoliciesRepository", () => {
   });
 
   it("fetches one and throws for unknown", async () => {
-    const p = await repo.fetchOne("acme-billing-policy");
+    const p = await repo.fetchOne("acme-billing-policy", "acme");
     expect(p.allowedCallerTenantIds).toEqual(["partner"]);
-    await expect(repo.fetchOne("nope")).rejects.toThrow("NetworkPolicy not found: nope");
+    await expect(repo.fetchOne("nope", "acme")).rejects.toThrow("NetworkPolicy not found: nope");
   });
 
   it("creates, replaces and deletes", async () => {
@@ -22,15 +22,15 @@ describe("MockNetworkPoliciesRepository", () => {
       deploymentNames: [],
       allowedCallerTenantIds: [],
     });
-    expect((await repo.fetchOne("tmp-policy")).allowedCallerTenantIds).toEqual([]);
+    expect((await repo.fetchOne("tmp-policy", "acme")).allowedCallerTenantIds).toEqual([]);
     await repo.save({
       name: "tmp-policy",
       tenantId: "acme",
       deploymentNames: [],
       allowedCallerTenantIds: ["partner"],
     });
-    expect((await repo.fetchOne("tmp-policy")).allowedCallerTenantIds).toEqual(["partner"]);
-    await repo.remove("tmp-policy");
-    await expect(repo.fetchOne("tmp-policy")).rejects.toThrow();
+    expect((await repo.fetchOne("tmp-policy", "acme")).allowedCallerTenantIds).toEqual(["partner"]);
+    await repo.remove("tmp-policy", "acme");
+    await expect(repo.fetchOne("tmp-policy", "acme")).rejects.toThrow();
   });
 });

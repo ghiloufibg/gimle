@@ -72,7 +72,7 @@ class CronJobReconcilerTest {
     assertTrue(generatedJobsFor(store, "nightly-cleanup").isEmpty());
     assertEquals(
         Instant.parse("2026-01-01T00:00:00Z"),
-        store.getCronJobLastSchedule("nightly-cleanup").orElseThrow());
+        store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow());
   }
 
   @Test
@@ -93,7 +93,7 @@ class CronJobReconcilerTest {
     assertEquals("nightly-cleanup-" + clock.instant().getEpochSecond(), generated.get(0).name());
     assertEquals(
         Instant.parse("2026-01-01T00:01:00Z"),
-        store.getCronJobLastSchedule("nightly-cleanup").orElseThrow());
+        store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow());
   }
 
   @Test
@@ -150,7 +150,7 @@ class CronJobReconcilerTest {
     assertTrue(generatedJobsFor(store, "nightly-cleanup").isEmpty());
     assertEquals(
         Instant.parse("2026-01-02T01:00:00Z"),
-        store.getCronJobLastSchedule("nightly-cleanup").orElseThrow(),
+        store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow(),
         "the missed instant is still recorded so it's never reconsidered");
   }
 
@@ -208,7 +208,7 @@ class CronJobReconcilerTest {
     clock.advance(Duration.ofMinutes(1));
     reconciler.reconcileOnce();
     JobSpec firstFiring = generatedJobsFor(store, "nightly-cleanup").get(0);
-    store.putJobPhase(firstFiring.name(), JobPhase.SUCCEEDED);
+    store.putJobPhase(Optional.empty(), firstFiring.name(), JobPhase.SUCCEEDED);
 
     clock.advance(Duration.ofMinutes(1));
     reconciler.reconcileOnce();
@@ -237,7 +237,7 @@ class CronJobReconcilerTest {
     assertFalse(
         generated.get(0).name().equals(firstFiring.name()),
         "the new firing replaces the old one, not the other way around");
-    assertTrue(store.getJobSpec(firstFiring.name()).isEmpty());
+    assertTrue(store.getJobSpec(Optional.empty(), firstFiring.name()).isEmpty());
   }
 
   @Test
@@ -252,16 +252,17 @@ class CronJobReconcilerTest {
     CronJobReconciler reconciler =
         new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
     reconciler.reconcileOnce();
-    assertTrue(store.getCronJobLastSchedule("nightly-cleanup").isPresent());
-    Instant baseline = store.getCronJobLastSchedule("nightly-cleanup").orElseThrow();
+    assertTrue(store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").isPresent());
+    Instant baseline =
+        store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow();
 
-    Optional<String> jobName = reconciler.triggerNow("nightly-cleanup");
+    Optional<String> jobName = reconciler.triggerNow(Optional.empty(), "nightly-cleanup");
 
     assertTrue(jobName.isPresent());
     assertEquals(1, generatedJobsFor(store, "nightly-cleanup").size());
     assertEquals(
         baseline,
-        store.getCronJobLastSchedule("nightly-cleanup").orElseThrow(),
+        store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow(),
         "a manual trigger must not advance the schedule's own bookkeeping");
   }
 
@@ -272,7 +273,7 @@ class CronJobReconcilerTest {
 
     Optional<String> jobName =
         new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock)
-            .triggerNow("no-such-cronjob");
+            .triggerNow(Optional.empty(), "no-such-cronjob");
 
     assertTrue(jobName.isEmpty());
   }
@@ -292,7 +293,7 @@ class CronJobReconcilerTest {
     Path jar = buildFixtureJar();
     CronJobSpec spec = cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.REPLACE);
     store.putCronJobSpec(spec);
-    store.putCronJobLastSchedule("nightly-cleanup", clock.instant());
+    store.putCronJobLastSchedule(Optional.empty(), "nightly-cleanup", clock.instant());
     JobSpec stray1 =
         new JobSpec(
             "nightly-cleanup-1",
@@ -323,14 +324,14 @@ class CronJobReconcilerTest {
     assertEquals(
         1, generated.size(), "REPLACE must converge to exactly one non-terminal Job, not two");
     assertTrue(
-        store.getJobSpec("nightly-cleanup-1").isEmpty(),
+        store.getJobSpec(Optional.empty(), "nightly-cleanup-1").isEmpty(),
         "the first stray firing must be cleaned up");
     assertTrue(
-        store.getJobSpec("nightly-cleanup-2").isEmpty(),
+        store.getJobSpec(Optional.empty(), "nightly-cleanup-2").isEmpty(),
         "the second stray firing must be cleaned up");
     assertEquals(
         Instant.parse("2026-01-01T00:01:00Z"),
-        store.getCronJobLastSchedule("nightly-cleanup").orElseThrow());
+        store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow());
   }
 
   @Test
@@ -342,9 +343,9 @@ class CronJobReconcilerTest {
     CronJobReconciler reconciler =
         new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
     reconciler.reconcileOnce();
-    assertTrue(reconciler.triggerNow("nightly-cleanup").isPresent());
+    assertTrue(reconciler.triggerNow(Optional.empty(), "nightly-cleanup").isPresent());
 
-    Optional<String> second = reconciler.triggerNow("nightly-cleanup");
+    Optional<String> second = reconciler.triggerNow(Optional.empty(), "nightly-cleanup");
 
     assertTrue(second.isEmpty());
     assertEquals(1, generatedJobsFor(store, "nightly-cleanup").size());

@@ -92,11 +92,12 @@ public final class CronJobReconciler {
 
   private void reconcileCronJob(CronJobSpec spec) {
     Instant now = clock.instant();
-    Optional<Instant> lastScheduleTime = store.getCronJobLastSchedule(spec.name());
+    Optional<Instant> lastScheduleTime = store.getCronJobLastSchedule(spec.tenantId(), spec.name());
     if (lastScheduleTime.isEmpty()) {
       // First tick this CronJob has ever been reconciled -- see this class's own javadoc for why
       // this deliberately does not retroactively fire anything.
-      mutations.propose(new StateMutation.PutCronJobLastSchedule(spec.name(), now));
+      mutations.propose(
+          new StateMutation.PutCronJobLastSchedule(spec.tenantId(), spec.name(), now));
       return;
     }
 
@@ -111,7 +112,7 @@ public final class CronJobReconciler {
     // with the generated JobSpec when there is one -- an advance can no longer land while its
     // firing is lost to a crash in between.
     List<StateMutation> firing = new ArrayList<>();
-    firing.add(new StateMutation.PutCronJobLastSchedule(spec.name(), due.get()));
+    firing.add(new StateMutation.PutCronJobLastSchedule(spec.tenantId(), spec.name(), due.get()));
 
     if (spec.startingDeadline().isPresent()
         && Duration.between(due.get(), now).compareTo(spec.startingDeadline().get()) > 0) {
@@ -134,8 +135,8 @@ public final class CronJobReconciler {
    * name, or empty if the CronJob doesn't exist or {@link
    * com.gimle.mimir.manifest.ConcurrencyPolicy#FORBID} blocked it.
    */
-  public Optional<String> triggerNow(String cronJobName) {
-    Optional<CronJobSpec> spec = store.getCronJobSpec(cronJobName);
+  public Optional<String> triggerNow(Optional<String> tenantHint, String cronJobName) {
+    Optional<CronJobSpec> spec = store.getCronJobSpec(tenantHint, cronJobName);
     if (spec.isEmpty()) {
       return Optional.empty();
     }
@@ -163,7 +164,9 @@ public final class CronJobReconciler {
     List<JobSpec> generated =
         store.listJobSpecs().stream().filter(s -> s.name().startsWith(spec.name() + "-")).toList();
     List<JobSpec> nonTerminal =
-        generated.stream().filter(s -> store.getJobPhase(s.name()).isEmpty()).toList();
+        generated.stream()
+            .filter(s -> store.getJobPhase(s.tenantId(), s.name()).isEmpty())
+            .toList();
     if (!nonTerminal.isEmpty()) {
       switch (spec.concurrencyPolicy()) {
         case FORBID -> {
@@ -174,7 +177,8 @@ public final class CronJobReconciler {
           return Optional.empty();
         }
         case REPLACE ->
-            nonTerminal.forEach(s -> planned.add(new StateMutation.RemoveJobSpec(s.name())));
+            nonTerminal.forEach(
+                s -> planned.add(new StateMutation.RemoveJobSpec(s.tenantId(), s.name())));
         case ALLOW -> {
           // Nothing extra -- the new firing runs alongside whatever is still non-terminal.
         }

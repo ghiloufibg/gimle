@@ -68,7 +68,7 @@ class GreeterClusterTopologyIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30));
 
     Await.until(
-        () -> isActive(readUrl, "greeter-provider-deployment"),
+        () -> isActive(readUrl, "greeter-provider-deployment", Optional.of(SECRET_TENANT_ID)),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE, observed through a different"
             + " control-plane replica than the one it was submitted to");

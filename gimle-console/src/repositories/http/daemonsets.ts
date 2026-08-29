@@ -1,6 +1,6 @@
 import type { DaemonSet, DaemonSetInstance, DaemonSetSpecInput, Page } from "@/types";
 import type { DaemonSetsRepository } from "@/repositories/daemonsets";
-import { requestJson, requestOk, requestOkYaml } from "./apiClient";
+import { requestJson, requestOk, requestOkYaml, tenantQuery } from "./apiClient";
 
 // Wire shape -- mirrors ApiServer.java's daemonSetStatus()/handleDaemonSetsList serialization.
 // `instances[].observation` and `spec.tenantId` are both optional on the wire (an assignment can
@@ -107,6 +107,10 @@ export class HttpDaemonSetsRepository implements DaemonSetsRepository {
     return { items: all.slice(start, end), nextCursor: end < all.length ? String(end) : null };
   }
 
+  // No known tenantId is available on a cache miss (the whole point of fetchOne is that the item
+  // isn't in the already-loaded list) and no route currently threads one in from its own URL, so
+  // this stays scoped to the untenanted namespace -- a tenanted daemonset reached this way still
+  // 404s.
   async fetchOne(name: string): Promise<DaemonSet> {
     const raw = await requestJson<RawDaemonSet>("GET", `/daemonsets/${encodeURIComponent(name)}`);
     return mapDaemonSet(raw);
@@ -118,8 +122,8 @@ export class HttpDaemonSetsRepository implements DaemonSetsRepository {
     return this.fetchOne(spec.name);
   }
 
-  async remove(name: string): Promise<void> {
-    await requestOk("DELETE", `/daemonsets/${encodeURIComponent(name)}`);
+  async remove(name: string, tenantId?: string | null): Promise<void> {
+    await requestOk("DELETE", `/daemonsets/${encodeURIComponent(name)}${tenantQuery(tenantId)}`);
     this.cache = null;
   }
 }

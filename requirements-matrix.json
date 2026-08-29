@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 653,
+  "requirementCount": 656,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -4824,11 +4824,12 @@
       "module": "gimle-controlplane",
       "feature": "Tenant resource quota admission check",
       "category": "Admission / Multi-tenancy",
-      "userStory": "As a platform operator, I want a deployment rejected outright if it would push a tenant past its quota (accounting for surge headroom).",
-      "statusDetail": "Complete",
+      "userStory": "As a platform operator, I want a Deployment, Job, DaemonSet, or StatefulSet submission rejected outright if it would push its tenant past its quota (accounting for surge headroom on a Deployment, and each kind's own peak committed-instance count via WorkloadResourceProfile).",
+      "statusDetail": "Complete -- generalized from Deployment-only to every placeable WorkloadSpec kind (Deployment/Job/DaemonSet/StatefulSet) so a tenant can no longer bypass its quota by submitting a Job/DaemonSet/StatefulSet instead of a Deployment.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/TenantQuotaPlugin.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/WorkloadResourceProfile.java`",
         "`TenantUsage.java`"
       ],
       "testCoverageDetail": "`TenantQuotaPluginTest` — `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected`",
@@ -12900,6 +12901,88 @@
       "testCoverageDetail": "`FlagsTest#a_stray_non_flag_token_reports_the_callers_own_usage_string`/`#a_flag_missing_its_value_also_reports_the_callers_own_usage_string`/`#a_valued_flag_and_a_boolean_flag_both_parse`/`#a_repeatable_flag_accumulates_every_occurrence`/`#an_unset_boolean_flag_is_not_reported_as_set`; full `gimle-cli` suite re-verified green, plus a real end-user pass against the built `gimle-cli` distribution archive confirming the fix.",
       "gherkinSteps": [
         "Given a command like \"secret set default my-secret hunter2\" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-654",
+      "module": "gimle-mimir",
+      "feature": "Tenant-scoped resource keying (compound (tenantId, name) store key)",
+      "category": "Multi-tenancy / State store",
+      "userStory": "As a platform operator running more than one tenant, I want a Deployment, Job, CronJob, DaemonSet, StatefulSet, Service, or NetworkPolicy name to be unique only within its own tenant, not cluster-wide, so two tenants sharing a name can never collide, overwrite each other's spec, or read each other's resource.",
+      "statusDetail": "Complete -- StateStore's internal maps are keyed by a compound (tenantId, name) key (StateStore#scopedKey) rather than bare name; every StoreReader/StateStore/StoreClient/StoreRpc/StateMutation/DomainCodec method that addresses one of these resource kinds takes the owning tenantId. The control-plane API resolves the target tenant for a single-resource GET/DELETE from a caller-declared ?tenant=<id> query parameter (a PUT/apply always resolves it from the submitted manifest's own tenantId field, never ambiguous); gimle-cli exposes the same convention as --tenant <id> on every by-name get/delete/revisions/rollback/trigger/endpoints command. NetworkPolicy's tenantId was already mandatory (not optional) and its API/CLI routes require --tenant/?tenant= outright rather than defaulting to the untenanted namespace.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/TenantQuery.java`"
+      ],
+      "testCoverageDetail": "`StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`",
+      "gherkinSteps": [
+        "Given tenant A and tenant B each submit a Deployment named \"orders-service\"; When both are stored; Then each tenant's own GET resolves only its own spec, and the untenanted namespace sees neither."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-655",
+      "module": "gimle-os",
+      "feature": "Tenant-scoped StatefulSet persistent volume identity",
+      "category": "Multi-tenancy / Storage",
+      "userStory": "As a platform operator, I want a StatefulSet instance's on-disk persistent volume keyed by its owning tenant as well as its statefulSetName/instanceIndex/volumeName, so two tenants running an identically-named StatefulSet on the same node can never allocate into, or reattach to, each other's volume directory.",
+      "statusDetail": "Complete -- VolumeHandle/AllocatedVolume/VolumeManager (LocalDiskVolumeManager) all carry/accept an Optional<String> tenantId as part of a volume's identity; the on-disk layout is <dataRoot>/volumes/<tenantSegment>/<statefulSetName>/<instanceIndex>/<volumeName> (a fixed \"_untenanted\" sentinel segment for the untenanted namespace, distinct from any real tenant id). The agent's own /volumes HTTP inventory/destroy surface and the control plane's /volumes proxy both carry tenantId through (?tenant= query param, matching every other tenant-scoped route).",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-os/src/main/java/com/gimle/os/VolumeHandle.java`",
+        "`gimle-os/src/main/java/com/gimle/os/VolumeManager.java`",
+        "`gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`"
+      ],
+      "testCoverageDetail": "`LocalDiskVolumeManagerTest#two_tenants_with_an_identically_named_statefulset_get_distinct_directories`, `#destroying_one_tenants_volume_leaves_another_tenants_identically_named_one_intact`, `#list_allocated_reports_the_owning_tenant_for_a_tenanted_volume`",
+      "gherkinSteps": [
+        "Given tenant A and tenant B each run a StatefulSet named \"db\" with a volume \"data\" on the same node; When both allocate; Then each tenant's volume lives at a distinct on-disk path and neither can see the other's data."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-656",
+      "module": "gimle-controlplane",
+      "feature": "Tenant-scoped heartbeat instance-observation matching and instance-log node resolution",
+      "category": "Multi-tenancy / Observability",
+      "userStory": "As a platform operator, I want a node's heartbeat instance observation matched against an assignment/run by tenantId as well as by deploymentName/instanceIndex, and an instance's log request resolved to a node only within its own tenant, so two tenants' identically-named workload landing the same instance index on the same physical node can never have their health/readiness/autoscaling signals or log reads cross-wired.",
+      "statusDetail": "Complete -- InstanceObservation carries an Optional<String> tenantId (copied from the owning AssignedInstance, threaded through the agent's heartbeat JSON and gimle-mimir's DomainCodec wire codec); every reconciler/resolver that matches an InstanceObservation against an assignment/run (HealthReconciler, ReplicaCountReconciler, AutoscaleReconciler, JobReconciler, DeploymentReconciler, StatefulSetReconciler, DaemonSetReconciler, ServiceEndpointResolver, and ApiServer's own observation lookups) now also compares tenantId. ApiServer#resolveInstanceNodeId (backing the control plane's /logs/instances/* proxy) takes the caller-declared ?tenant=<id> and resolves strictly within that tenant's own assignments/runs, closing a real cross-tenant log-read risk where a bare deploymentName/instanceIndex could resolve to a different tenant's node.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+      ],
+      "testCoverageDetail": "Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this observation-matching path specifically.",
+      "gherkinSteps": [
+        "Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-657",
+      "module": "gimle-controlplane",
+      "feature": "Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup",
+      "category": "Multi-tenancy / Authorization",
+      "userStory": "As a platform operator, I want a single-resource GET/DELETE (and the /endpoints/{name} lookup) to honor my explicit ?tenant=<id> query parameter, the same way apply already honors an explicit tenantId in the manifest body, so that two tenants sharing a bare resource name can never make me read or delete the wrong tenant's copy just because I passed --tenant on the CLI.",
+      "statusDetail": "Complete. `ApiServer.dispatchResourceRequest`'s GET/DELETE branches and `handleEndpoints` previously ignored a caller-declared `?tenant=` entirely, always preferring `existingTenant.lookup(name)`'s bare-name search across every tenant -- meaning `gimle get/delete <kind> <name> --tenant <id>` silently acted on whichever tenant's same-named resource the bare-name search happened to find first, not the one the caller asked for, and a DELETE under this path could destroy the wrong tenant's resource outright. Fixed via a new `declaredOrExistingTenant(exchange, existingTenant, name)` helper that checks for an explicit `?tenant=` first and only falls back to the bare-name search when the caller didn't supply one; `handleEndpoints` applies the identical precedence inline. Authorization is unaffected: `requireAuthorized` still independently re-checks the resolved tenant on every request, so honoring the caller's own selection for GET/DELETE never widens what they're allowed to touch, only which of their permitted tenants' resources the command targets -- the same `kubectl --namespace` semantics `apply` (PUT) already got right.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`declaredOrExistingTenant`, `dispatchResourceRequest`, `handleEndpoints`)"
+      ],
+      "testCoverageDetail": "`ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` -- two tenants (`acme` and `default`) sharing a bare deployment name `shared-name`; asserts GET with `?tenant=acme`/`?tenant=default` each return only that tenant's own copy, and DELETE with `?tenant=acme` removes only acme's, leaving `default`'s intact.",
+      "gherkinSteps": [
+        "Given tenant \"acme\" and tenant \"default\" each have their own deployment named \"shared-name\"; When a caller GETs /deployments/shared-name?tenant=acme; Then the acme deployment is returned, never default's.",
+        "Given the same two deployments; When a caller DELETEs /deployments/shared-name?tenant=acme; Then only acme's copy is removed and default's copy still exists afterward."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

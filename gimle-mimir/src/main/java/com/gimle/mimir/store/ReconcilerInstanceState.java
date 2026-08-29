@@ -1,5 +1,7 @@
 package com.gimle.mimir.store;
 
+import java.util.Optional;
+
 /**
  * Persisted per-instance backoff/grace-period bookkeeping, keyed by {@code deploymentName}/{@code
  * instanceIndex} -- consolidates what {@code HealthReconciler} (restart-budget tracking via {@code
@@ -33,10 +35,39 @@ public record ReconcilerInstanceState(
     long nextAllowedAttemptEpochMilli,
     boolean pendingRetry,
     boolean permanentlyFailed,
-    long firstSeenMissingAtEpochMilli) {
+    long firstSeenMissingAtEpochMilli,
+    Optional<String> tenantId) {
 
   /** Sentinel for an unset timestamp field -- {@code Optional} doesn't survive the wire codec. */
   public static final long ABSENT = -1L;
+
+  public ReconcilerInstanceState {
+    if (tenantId == null) {
+      throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code tenantId} to {@code Optional.empty()} (untenanted). */
+  public ReconcilerInstanceState(
+      String deploymentName,
+      int instanceIndex,
+      int attemptsInWindow,
+      long windowStartEpochMilli,
+      long nextAllowedAttemptEpochMilli,
+      boolean pendingRetry,
+      boolean permanentlyFailed,
+      long firstSeenMissingAtEpochMilli) {
+    this(
+        deploymentName,
+        instanceIndex,
+        attemptsInWindow,
+        windowStartEpochMilli,
+        nextAllowedAttemptEpochMilli,
+        pendingRetry,
+        permanentlyFailed,
+        firstSeenMissingAtEpochMilli,
+        Optional.empty());
+  }
 
   /** True once every field is back at its default -- signals the record can be deleted outright. */
   public boolean isEmpty() {

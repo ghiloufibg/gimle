@@ -89,7 +89,7 @@ class RaftCodecTest {
             4L,
             List.of(
                 logEntry(3L, new StateMutation.PutDeployment(deploymentSpec(), 0)),
-                logEntry(4L, new StateMutation.RemoveDeployment("greeter", 1)),
+                logEntry(4L, new StateMutation.RemoveDeployment(Optional.empty(), "greeter", 1)),
                 logEntry(
                     5L,
                     new StateMutation.PutTenant(
@@ -311,9 +311,11 @@ class RaftCodecTest {
             List.of(new Account("admin", new byte[] {9, 8, 7, 6})),
             List.of(new ReconcilerInstanceState("greeter", 0, 2, 100L, 200L, true, false, -1L)),
             Set.of("node-1"),
-            List.of(
-                new InstanceEvent(
-                    "evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L)),
+            Map.of(
+                "greeter",
+                List.of(
+                    new InstanceEvent(
+                        "evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L))),
             List.of(
                 new AuditEvent(
                     "audit-1",
@@ -385,9 +387,9 @@ class RaftCodecTest {
     StateMutation.Batch batch =
         new StateMutation.Batch(
             List.of(
-                new StateMutation.RemoveDeployment("orders-service", 0),
-                new StateMutation.RemoveAssignment("orders-service", 0),
-                new StateMutation.AddRollingIndex("orders-service", 1)));
+                new StateMutation.RemoveDeployment(Optional.empty(), "orders-service", 0),
+                new StateMutation.RemoveAssignment(Optional.empty(), "orders-service", 0),
+                new StateMutation.AddRollingIndex(Optional.empty(), "orders-service", 1)));
     LogEntry entry = logEntry(1L, batch);
     assertEquals(entry, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(entry)));
   }
@@ -418,7 +420,8 @@ class RaftCodecTest {
   void round_trips_an_append_instance_event_mutation_with_and_without_a_cause_summary() {
     InstanceEvent withoutCause =
         new InstanceEvent("evt-1", "greeter", 0, InstanceEventKind.ACTIVE, "module active", 1_000L);
-    LogEntry active = logEntry(1L, new StateMutation.AppendInstanceEvent(withoutCause));
+    LogEntry active =
+        logEntry(1L, new StateMutation.AppendInstanceEvent(Optional.empty(), withoutCause));
     assertEquals(active, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(active)));
 
     InstanceEvent withCause =
@@ -430,7 +433,8 @@ class RaftCodecTest {
             "transition ACTIVE -> STOPPING failed",
             Optional.of("java.lang.IllegalStateException: boom"),
             2_000L);
-    LogEntry failed = logEntry(2L, new StateMutation.AppendInstanceEvent(withCause));
+    LogEntry failed =
+        logEntry(2L, new StateMutation.AppendInstanceEvent(Optional.empty(), withCause));
     assertEquals(failed, RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(failed)));
   }
 

@@ -99,7 +99,8 @@ class DaemonSetReconcilerTest {
 
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
 
-    List<DaemonSetAssignment> assignments = store.listDaemonSetAssignmentsFor("node-exporter");
+    List<DaemonSetAssignment> assignments =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(2, assignments.size());
     assertEquals(
         Set.of("node-a", "node-b"),
@@ -118,7 +119,8 @@ class DaemonSetReconcilerTest {
 
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
 
-    List<DaemonSetAssignment> assignments = store.listDaemonSetAssignmentsFor("gpu-agent");
+    List<DaemonSetAssignment> assignments =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "gpu-agent");
     assertEquals(1, assignments.size());
     assertEquals("node-gpu", assignments.get(0).nodeId());
   }
@@ -134,7 +136,7 @@ class DaemonSetReconcilerTest {
     reconciler.reconcileOnce();
     reconciler.reconcileOnce(); // idempotent
 
-    assertTrue(store.listDaemonSetAssignmentsFor("node-exporter").isEmpty());
+    assertTrue(store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
   }
 
   @Test
@@ -147,12 +149,13 @@ class DaemonSetReconcilerTest {
     registerNode(store, "node-b");
     DaemonSetReconciler reconciler = new DaemonSetReconciler(store, scheduler);
     reconciler.reconcileOnce();
-    assertEquals(2, store.listDaemonSetAssignmentsFor("node-exporter").size());
+    assertEquals(2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
 
     store.putNodeCordon("node-a", true);
     reconciler.reconcileOnce();
 
-    List<DaemonSetAssignment> assignments = store.listDaemonSetAssignmentsFor("node-exporter");
+    List<DaemonSetAssignment> assignments =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(1, assignments.size());
     assertEquals("node-b", assignments.get(0).nodeId());
   }
@@ -165,12 +168,12 @@ class DaemonSetReconcilerTest {
     store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
     registerNode(store, "node-a");
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
-    assertEquals(1, store.listDaemonSetAssignmentsFor("node-exporter").size());
+    assertEquals(1, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
 
-    store.removeDaemonSetSpec("node-exporter");
+    store.removeDaemonSetSpec(Optional.empty(), "node-exporter");
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.listDaemonSetAssignmentsFor("node-exporter").isEmpty());
+    assertTrue(store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
     assertTrue(store.listDaemonSetAssignments().isEmpty());
   }
 
@@ -192,7 +195,7 @@ class DaemonSetReconcilerTest {
 
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(store.listDaemonSetAssignmentsFor("node-exporter").isEmpty());
+    assertTrue(store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
   }
 
   @Test
@@ -216,7 +219,8 @@ class DaemonSetReconcilerTest {
 
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
 
-    List<DaemonSetAssignment> assignments = store.listDaemonSetAssignmentsFor("node-exporter");
+    List<DaemonSetAssignment> assignments =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(1, assignments.size());
     assertEquals("node-fresh", assignments.get(0).nodeId());
   }
@@ -232,7 +236,8 @@ class DaemonSetReconcilerTest {
     store.putDaemonSetSpec(v1);
     DaemonSetReconciler reconciler = new DaemonSetReconciler(store, scheduler);
     reconciler.reconcileOnce();
-    for (DaemonSetAssignment a : store.listDaemonSetAssignmentsFor("node-exporter")) {
+    for (DaemonSetAssignment a :
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter")) {
       reportReady(store, a);
     }
 
@@ -244,7 +249,8 @@ class DaemonSetReconcilerTest {
     // Exactly one node is mid-rollout at a time: still 2 total assignments (the old one on the
     // not-yet-rolled node, plus the freshly re-placed one on the rolled node), never both nodes
     // torn down simultaneously.
-    List<DaemonSetAssignment> midRollout = store.listDaemonSetAssignmentsFor("node-exporter");
+    List<DaemonSetAssignment> midRollout =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(2, midRollout.size());
     long onNewVersion = midRollout.stream().filter(a -> a.moduleId().equals(v2.moduleId())).count();
     assertEquals(1, onNewVersion, "exactly one node should have rolled forward so far");
@@ -252,19 +258,21 @@ class DaemonSetReconcilerTest {
     // The rolled node hasn't reported ready yet -- another tick must not start a second rollout.
     reconciler.reconcileOnce();
     long stillOnNewVersion =
-        store.listDaemonSetAssignmentsFor("node-exporter").stream()
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
             .filter(a -> a.moduleId().equals(v2.moduleId()))
             .count();
     assertEquals(
         1, stillOnNewVersion, "a second node must not start rolling before the first is ready");
 
-    for (DaemonSetAssignment a : store.listDaemonSetAssignmentsFor("node-exporter")) {
+    for (DaemonSetAssignment a :
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter")) {
       reportReady(store, a);
     }
     reconciler.reconcileOnce();
     reconciler.reconcileOnce();
 
-    List<DaemonSetAssignment> done = store.listDaemonSetAssignmentsFor("node-exporter");
+    List<DaemonSetAssignment> done =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(2, done.size());
     assertTrue(done.stream().allMatch(a -> a.moduleId().equals(v2.moduleId())));
   }
@@ -289,14 +297,15 @@ class DaemonSetReconcilerTest {
             placementGracePeriod,
             clock);
     reconciler.reconcileOnce();
-    assertEquals(2, store.listDaemonSetAssignmentsFor("node-exporter").size());
+    assertEquals(2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
 
     // node-a stops heartbeating (a partition, not a real failure): past nodeDarkTimeout, so it's
     // no longer a placement candidate, but still well within the combined grace window.
     clock.advance(nodeDarkTimeout.plus(Duration.ofSeconds(1)));
     reconciler.reconcileOnce();
 
-    List<DaemonSetAssignment> stillWithinGrace = store.listDaemonSetAssignmentsFor("node-exporter");
+    List<DaemonSetAssignment> stillWithinGrace =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(
         2,
         stillWithinGrace.size(),
@@ -311,7 +320,8 @@ class DaemonSetReconcilerTest {
     registerNode(store, "node-b");
     reconciler.reconcileOnce();
 
-    List<DaemonSetAssignment> afterGracePeriod = store.listDaemonSetAssignmentsFor("node-exporter");
+    List<DaemonSetAssignment> afterGracePeriod =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(1, afterGracePeriod.size());
     assertEquals("node-b", afterGracePeriod.get(0).nodeId());
   }
@@ -338,12 +348,13 @@ class DaemonSetReconcilerTest {
             placementGracePeriod,
             clock);
     reconciler.reconcileOnce();
-    assertEquals(2, store.listDaemonSetAssignmentsFor("node-exporter").size());
+    assertEquals(2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
 
     store.putNodeCordon("node-a", true);
     reconciler.reconcileOnce();
 
-    List<DaemonSetAssignment> assignments = store.listDaemonSetAssignmentsFor("node-exporter");
+    List<DaemonSetAssignment> assignments =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(1, assignments.size());
     assertEquals("node-b", assignments.get(0).nodeId());
   }

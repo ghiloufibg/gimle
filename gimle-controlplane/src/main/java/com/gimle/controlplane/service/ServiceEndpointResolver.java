@@ -35,7 +35,8 @@ public final class ServiceEndpointResolver {
     }
     List<ServiceEndpoint> endpoints = new ArrayList<>();
     for (String deploymentName : spec.deploymentNames()) {
-      for (InstanceAssignment assignment : store.listAssignmentsFor(deploymentName)) {
+      for (InstanceAssignment assignment :
+          store.listAssignmentsFor(spec.tenantId(), deploymentName)) {
         readyObservation(store, assignment)
             .flatMap(ServiceEndpointResolver::solePort)
             .ifPresent(
@@ -62,7 +63,8 @@ public final class ServiceEndpointResolver {
                     .filter(
                         obs ->
                             obs.deploymentName().equals(assignment.deploymentName())
-                                && obs.instanceIndex() == assignment.instanceIndex())
+                                && obs.instanceIndex() == assignment.instanceIndex()
+                                && obs.tenantId().equals(assignment.tenantId()))
                     .findFirst())
         .filter(InstanceObservation::alive)
         .filter(InstanceObservation::ready);

@@ -43,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -391,6 +392,7 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveDeployment m -> {
         out.writeByte(MUT_REMOVE_DEPLOYMENT);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.name());
         out.writeLong(m.expectedGeneration());
       }
@@ -400,6 +402,7 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveService m -> {
         out.writeByte(MUT_REMOVE_SERVICE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.name());
       }
       case StateMutation.PutNetworkPolicy m -> {
@@ -408,6 +411,7 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveNetworkPolicy m -> {
         out.writeByte(MUT_REMOVE_NETWORK_POLICY);
+        out.writeUTF(m.tenantId());
         out.writeUTF(m.name());
       }
       case StateMutation.AppendControllerRevision m -> {
@@ -424,6 +428,7 @@ public final class RaftCodec {
       }
       case StateMutation.PutLimitRangeViolation m -> {
         out.writeByte(MUT_PUT_LIMIT_RANGE_VIOLATION);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeUTF(m.reason());
       }
@@ -440,32 +445,38 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveAssignment m -> {
         out.writeByte(MUT_REMOVE_ASSIGNMENT);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
       case StateMutation.AddRollingIndex m -> {
         out.writeByte(MUT_ADD_ROLLING_INDEX);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
       case StateMutation.RemoveRollingIndex m -> {
         out.writeByte(MUT_REMOVE_ROLLING_INDEX);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
       case StateMutation.AddSurgeIndex m -> {
         out.writeByte(MUT_ADD_SURGE_INDEX);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeInt(m.surgeIndex());
         out.writeInt(m.targetIndex());
       }
       case StateMutation.RemoveSurgeIndex m -> {
         out.writeByte(MUT_REMOVE_SURGE_INDEX);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeInt(m.surgeIndex());
       }
       case StateMutation.PutEffectiveReplicas m -> {
         out.writeByte(MUT_PUT_EFFECTIVE_REPLICAS);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeInt(m.replicas());
       }
@@ -483,6 +494,7 @@ public final class RaftCodec {
       }
       case StateMutation.PutQuotaViolation m -> {
         out.writeByte(MUT_PUT_QUOTA_VIOLATION);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeBoolean(m.violating());
       }
@@ -525,6 +537,7 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveReconcilerInstanceState m -> {
         out.writeByte(MUT_REMOVE_RECONCILER_INSTANCE_STATE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
@@ -555,6 +568,7 @@ public final class RaftCodec {
       }
       case StateMutation.AppendInstanceEvent m -> {
         out.writeByte(MUT_APPEND_INSTANCE_EVENT);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         DomainCodec.writeInstanceEvent(out, m.event());
       }
       case StateMutation.AppendAuditEvent m -> {
@@ -567,6 +581,7 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveJobSpec m -> {
         out.writeByte(MUT_REMOVE_JOB_SPEC);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.name());
       }
       case StateMutation.PutJobRun m -> {
@@ -575,11 +590,13 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveJobRun m -> {
         out.writeByte(MUT_REMOVE_JOB_RUN);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.jobName());
         out.writeInt(m.attempt());
       }
       case StateMutation.PutJobPhase m -> {
         out.writeByte(MUT_PUT_JOB_PHASE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.jobName());
         out.writeUTF(m.phase().name());
       }
@@ -593,10 +610,12 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveCronJobSpec m -> {
         out.writeByte(MUT_REMOVE_CRONJOB_SPEC);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.name());
       }
       case StateMutation.PutCronJobLastSchedule m -> {
         out.writeByte(MUT_PUT_CRONJOB_LAST_SCHEDULE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.name());
         out.writeLong(m.lastScheduleTime().toEpochMilli());
       }
@@ -606,6 +625,7 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveDaemonSetSpec m -> {
         out.writeByte(MUT_REMOVE_DAEMONSET_SPEC);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.name());
       }
       case StateMutation.PutDaemonSetAssignment m -> {
@@ -614,16 +634,19 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveDaemonSetAssignment m -> {
         out.writeByte(MUT_REMOVE_DAEMONSET_ASSIGNMENT);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.daemonSetName());
         out.writeUTF(m.nodeId());
       }
       case StateMutation.AddRollingDaemonSetNode m -> {
         out.writeByte(MUT_ADD_ROLLING_DAEMONSET_NODE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.daemonSetName());
         out.writeUTF(m.nodeId());
       }
       case StateMutation.RemoveRollingDaemonSetNode m -> {
         out.writeByte(MUT_REMOVE_ROLLING_DAEMONSET_NODE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.daemonSetName());
         out.writeUTF(m.nodeId());
       }
@@ -633,6 +656,7 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveStatefulSetSpec m -> {
         out.writeByte(MUT_REMOVE_STATEFULSET_SPEC);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.name());
       }
       case StateMutation.PutStatefulSetAssignment m -> {
@@ -641,26 +665,31 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveStatefulSetAssignment m -> {
         out.writeByte(MUT_REMOVE_STATEFULSET_ASSIGNMENT);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.statefulSetName());
         out.writeInt(m.instanceIndex());
       }
       case StateMutation.PutRollingStatefulSetIndex m -> {
         out.writeByte(MUT_PUT_ROLLING_STATEFULSET_INDEX);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.statefulSetName());
         out.writeInt(m.instanceIndex());
       }
       case StateMutation.ClearRollingStatefulSetIndex m -> {
         out.writeByte(MUT_CLEAR_ROLLING_STATEFULSET_INDEX);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.statefulSetName());
       }
       case StateMutation.PutStatefulSetIndexNode m -> {
         out.writeByte(MUT_PUT_STATEFULSET_INDEX_NODE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.statefulSetName());
         out.writeInt(m.instanceIndex());
         out.writeUTF(m.nodeId());
       }
       case StateMutation.RemoveStatefulSetIndexNode m -> {
         out.writeByte(MUT_REMOVE_STATEFULSET_INDEX_NODE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.statefulSetName());
         out.writeInt(m.instanceIndex());
       }
@@ -675,21 +704,31 @@ public final class RaftCodec {
         yield new StateMutation.PutDeployment(spec, in.readLong());
       }
       case MUT_REMOVE_DEPLOYMENT -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
         String name = in.readUTF();
-        yield new StateMutation.RemoveDeployment(name, in.readLong());
+        yield new StateMutation.RemoveDeployment(tenantId, name, in.readLong());
       }
       case MUT_PUT_SERVICE -> new StateMutation.PutService(DomainCodec.readServiceSpec(in));
-      case MUT_REMOVE_SERVICE -> new StateMutation.RemoveService(in.readUTF());
+      case MUT_REMOVE_SERVICE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.RemoveService(tenantId, in.readUTF());
+      }
       case MUT_PUT_NETWORK_POLICY ->
           new StateMutation.PutNetworkPolicy(DomainCodec.readNetworkPolicySpec(in));
-      case MUT_REMOVE_NETWORK_POLICY -> new StateMutation.RemoveNetworkPolicy(in.readUTF());
+      case MUT_REMOVE_NETWORK_POLICY -> {
+        String tenantId = in.readUTF();
+        yield new StateMutation.RemoveNetworkPolicy(tenantId, in.readUTF());
+      }
       case MUT_APPEND_CONTROLLER_REVISION ->
           new StateMutation.AppendControllerRevision(DomainCodec.readControllerRevision(in));
       case MUT_PUT_LIMIT_RANGE ->
           new StateMutation.PutLimitRange(DomainCodec.readLimitRangeSpec(in));
       case MUT_REMOVE_LIMIT_RANGE -> new StateMutation.RemoveLimitRange(in.readUTF());
-      case MUT_PUT_LIMIT_RANGE_VIOLATION ->
-          new StateMutation.PutLimitRangeViolation(in.readUTF(), in.readUTF());
+      case MUT_PUT_LIMIT_RANGE_VIOLATION -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.PutLimitRangeViolation(tenantId, deploymentName, in.readUTF());
+      }
       case MUT_BATCH -> {
         int count = in.readInt();
         List<StateMutation> nested = new ArrayList<>(count);
@@ -700,21 +739,45 @@ public final class RaftCodec {
       }
       case MUT_PUT_ASSIGNMENT ->
           new StateMutation.PutAssignment(DomainCodec.readInstanceAssignment(in));
-      case MUT_REMOVE_ASSIGNMENT -> new StateMutation.RemoveAssignment(in.readUTF(), in.readInt());
-      case MUT_ADD_ROLLING_INDEX -> new StateMutation.AddRollingIndex(in.readUTF(), in.readInt());
-      case MUT_REMOVE_ROLLING_INDEX ->
-          new StateMutation.RemoveRollingIndex(in.readUTF(), in.readInt());
-      case MUT_ADD_SURGE_INDEX ->
-          new StateMutation.AddSurgeIndex(in.readUTF(), in.readInt(), in.readInt());
-      case MUT_REMOVE_SURGE_INDEX -> new StateMutation.RemoveSurgeIndex(in.readUTF(), in.readInt());
-      case MUT_PUT_EFFECTIVE_REPLICAS ->
-          new StateMutation.PutEffectiveReplicas(in.readUTF(), in.readInt());
+      case MUT_REMOVE_ASSIGNMENT -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.RemoveAssignment(tenantId, deploymentName, in.readInt());
+      }
+      case MUT_ADD_ROLLING_INDEX -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.AddRollingIndex(tenantId, deploymentName, in.readInt());
+      }
+      case MUT_REMOVE_ROLLING_INDEX -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.RemoveRollingIndex(tenantId, deploymentName, in.readInt());
+      }
+      case MUT_ADD_SURGE_INDEX -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.AddSurgeIndex(tenantId, deploymentName, in.readInt(), in.readInt());
+      }
+      case MUT_REMOVE_SURGE_INDEX -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.RemoveSurgeIndex(tenantId, deploymentName, in.readInt());
+      }
+      case MUT_PUT_EFFECTIVE_REPLICAS -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.PutEffectiveReplicas(tenantId, deploymentName, in.readInt());
+      }
       case MUT_PUT_NODE_REGISTRATION ->
           new StateMutation.PutNodeRegistration(DomainCodec.readNodeRegistration(in));
       case MUT_PUT_TENANT -> new StateMutation.PutTenant(DomainCodec.readTenant(in));
       case MUT_REMOVE_TENANT -> new StateMutation.RemoveTenant(in.readUTF());
-      case MUT_PUT_QUOTA_VIOLATION ->
-          new StateMutation.PutQuotaViolation(in.readUTF(), in.readBoolean());
+      case MUT_PUT_QUOTA_VIOLATION -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.PutQuotaViolation(tenantId, deploymentName, in.readBoolean());
+      }
       case MUT_PUT_CONFIG_ENTRY ->
           new StateMutation.PutConfigEntry(DomainCodec.readConfigEntry(in));
       case MUT_REMOVE_CONFIG_ENTRY ->
@@ -728,8 +791,12 @@ public final class RaftCodec {
       case MUT_REMOVE_ACCOUNT -> new StateMutation.RemoveAccount(in.readUTF());
       case MUT_PUT_RECONCILER_INSTANCE_STATE ->
           new StateMutation.PutReconcilerInstanceState(DomainCodec.readReconcilerInstanceState(in));
-      case MUT_REMOVE_RECONCILER_INSTANCE_STATE ->
-          new StateMutation.RemoveReconcilerInstanceState(in.readUTF(), in.readInt());
+      case MUT_REMOVE_RECONCILER_INSTANCE_STATE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.RemoveReconcilerInstanceState(
+            tenantId, deploymentName, in.readInt());
+      }
       case MUT_PUT_NODE_CORDON -> new StateMutation.PutNodeCordon(in.readUTF(), in.readBoolean());
       case MUT_PUT_NODE_TAINT ->
           new StateMutation.PutNodeTaint(in.readUTF(), in.readUTF(), in.readBoolean());
@@ -739,50 +806,100 @@ public final class RaftCodec {
           new StateMutation.PutWorkloadToken(
               DomainCodec.readWorkloadTokenRecord(in), in.readLong());
       case MUT_REMOVE_WORKLOAD_TOKEN -> new StateMutation.RemoveWorkloadToken(in.readUTF());
-      case MUT_APPEND_INSTANCE_EVENT ->
-          new StateMutation.AppendInstanceEvent(DomainCodec.readInstanceEvent(in));
+      case MUT_APPEND_INSTANCE_EVENT -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.AppendInstanceEvent(tenantId, DomainCodec.readInstanceEvent(in));
+      }
       case MUT_APPEND_AUDIT_EVENT ->
           new StateMutation.AppendAuditEvent(DomainCodec.readAuditEvent(in));
       case MUT_PUT_JOB_SPEC -> new StateMutation.PutJobSpec(DomainCodec.readJobSpec(in));
-      case MUT_REMOVE_JOB_SPEC -> new StateMutation.RemoveJobSpec(in.readUTF());
+      case MUT_REMOVE_JOB_SPEC -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.RemoveJobSpec(tenantId, in.readUTF());
+      }
       case MUT_PUT_JOB_RUN -> new StateMutation.PutJobRun(DomainCodec.readJobRun(in));
-      case MUT_REMOVE_JOB_RUN -> new StateMutation.RemoveJobRun(in.readUTF(), in.readInt());
-      case MUT_PUT_JOB_PHASE ->
-          new StateMutation.PutJobPhase(in.readUTF(), JobPhase.valueOf(in.readUTF()));
+      case MUT_REMOVE_JOB_RUN -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String jobName = in.readUTF();
+        yield new StateMutation.RemoveJobRun(tenantId, jobName, in.readInt());
+      }
+      case MUT_PUT_JOB_PHASE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String jobName = in.readUTF();
+        yield new StateMutation.PutJobPhase(tenantId, jobName, JobPhase.valueOf(in.readUTF()));
+      }
       case MUT_PUT_JOB_RUN_SUMMARY ->
           new StateMutation.PutJobRunSummary(DomainCodec.readJobRunSummary(in));
       case MUT_PUT_CRONJOB_SPEC ->
           new StateMutation.PutCronJobSpec(DomainCodec.readCronJobSpec(in));
-      case MUT_REMOVE_CRONJOB_SPEC -> new StateMutation.RemoveCronJobSpec(in.readUTF());
-      case MUT_PUT_CRONJOB_LAST_SCHEDULE ->
-          new StateMutation.PutCronJobLastSchedule(
-              in.readUTF(), Instant.ofEpochMilli(in.readLong()));
+      case MUT_REMOVE_CRONJOB_SPEC -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.RemoveCronJobSpec(tenantId, in.readUTF());
+      }
+      case MUT_PUT_CRONJOB_LAST_SCHEDULE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String name = in.readUTF();
+        yield new StateMutation.PutCronJobLastSchedule(
+            tenantId, name, Instant.ofEpochMilli(in.readLong()));
+      }
       case MUT_PUT_DAEMONSET_SPEC ->
           new StateMutation.PutDaemonSetSpec(DomainCodec.readDaemonSetSpec(in));
-      case MUT_REMOVE_DAEMONSET_SPEC -> new StateMutation.RemoveDaemonSetSpec(in.readUTF());
+      case MUT_REMOVE_DAEMONSET_SPEC -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.RemoveDaemonSetSpec(tenantId, in.readUTF());
+      }
       case MUT_PUT_DAEMONSET_ASSIGNMENT ->
           new StateMutation.PutDaemonSetAssignment(DomainCodec.readDaemonSetAssignment(in));
-      case MUT_REMOVE_DAEMONSET_ASSIGNMENT ->
-          new StateMutation.RemoveDaemonSetAssignment(in.readUTF(), in.readUTF());
-      case MUT_ADD_ROLLING_DAEMONSET_NODE ->
-          new StateMutation.AddRollingDaemonSetNode(in.readUTF(), in.readUTF());
-      case MUT_REMOVE_ROLLING_DAEMONSET_NODE ->
-          new StateMutation.RemoveRollingDaemonSetNode(in.readUTF(), in.readUTF());
+      case MUT_REMOVE_DAEMONSET_ASSIGNMENT -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String daemonSetName = in.readUTF();
+        yield new StateMutation.RemoveDaemonSetAssignment(tenantId, daemonSetName, in.readUTF());
+      }
+      case MUT_ADD_ROLLING_DAEMONSET_NODE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String daemonSetName = in.readUTF();
+        yield new StateMutation.AddRollingDaemonSetNode(tenantId, daemonSetName, in.readUTF());
+      }
+      case MUT_REMOVE_ROLLING_DAEMONSET_NODE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String daemonSetName = in.readUTF();
+        yield new StateMutation.RemoveRollingDaemonSetNode(tenantId, daemonSetName, in.readUTF());
+      }
       case MUT_PUT_STATEFULSET_SPEC ->
           new StateMutation.PutStatefulSetSpec(DomainCodec.readStatefulSetSpec(in));
-      case MUT_REMOVE_STATEFULSET_SPEC -> new StateMutation.RemoveStatefulSetSpec(in.readUTF());
+      case MUT_REMOVE_STATEFULSET_SPEC -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.RemoveStatefulSetSpec(tenantId, in.readUTF());
+      }
       case MUT_PUT_STATEFULSET_ASSIGNMENT ->
           new StateMutation.PutStatefulSetAssignment(DomainCodec.readStatefulSetAssignment(in));
-      case MUT_REMOVE_STATEFULSET_ASSIGNMENT ->
-          new StateMutation.RemoveStatefulSetAssignment(in.readUTF(), in.readInt());
-      case MUT_PUT_ROLLING_STATEFULSET_INDEX ->
-          new StateMutation.PutRollingStatefulSetIndex(in.readUTF(), in.readInt());
-      case MUT_CLEAR_ROLLING_STATEFULSET_INDEX ->
-          new StateMutation.ClearRollingStatefulSetIndex(in.readUTF());
-      case MUT_PUT_STATEFULSET_INDEX_NODE ->
-          new StateMutation.PutStatefulSetIndexNode(in.readUTF(), in.readInt(), in.readUTF());
-      case MUT_REMOVE_STATEFULSET_INDEX_NODE ->
-          new StateMutation.RemoveStatefulSetIndexNode(in.readUTF(), in.readInt());
+      case MUT_REMOVE_STATEFULSET_ASSIGNMENT -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String statefulSetName = in.readUTF();
+        yield new StateMutation.RemoveStatefulSetAssignment(
+            tenantId, statefulSetName, in.readInt());
+      }
+      case MUT_PUT_ROLLING_STATEFULSET_INDEX -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String statefulSetName = in.readUTF();
+        yield new StateMutation.PutRollingStatefulSetIndex(tenantId, statefulSetName, in.readInt());
+      }
+      case MUT_CLEAR_ROLLING_STATEFULSET_INDEX -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.ClearRollingStatefulSetIndex(tenantId, in.readUTF());
+      }
+      case MUT_PUT_STATEFULSET_INDEX_NODE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String statefulSetName = in.readUTF();
+        int instanceIndex = in.readInt();
+        yield new StateMutation.PutStatefulSetIndexNode(
+            tenantId, statefulSetName, instanceIndex, in.readUTF());
+      }
+      case MUT_REMOVE_STATEFULSET_INDEX_NODE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String statefulSetName = in.readUTF();
+        yield new StateMutation.RemoveStatefulSetIndexNode(tenantId, statefulSetName, in.readInt());
+      }
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -931,8 +1048,12 @@ public final class RaftCodec {
         out.writeUTF(nodeId);
       }
       out.writeInt(snapshot.instanceEvents().size());
-      for (InstanceEvent event : snapshot.instanceEvents()) {
-        DomainCodec.writeInstanceEvent(out, event);
+      for (Map.Entry<String, List<InstanceEvent>> e : snapshot.instanceEvents().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeInt(e.getValue().size());
+        for (InstanceEvent event : e.getValue()) {
+          DomainCodec.writeInstanceEvent(out, event);
+        }
       }
       out.writeInt(snapshot.auditEvents().size());
       for (AuditEvent event : snapshot.auditEvents()) {
@@ -1146,10 +1267,16 @@ public final class RaftCodec {
       for (int i = 0; i < cordonedCount; i++) {
         cordonedNodes.add(in.readUTF());
       }
-      List<InstanceEvent> instanceEvents = new ArrayList<>();
-      int instanceEventCount = in.readInt();
-      for (int i = 0; i < instanceEventCount; i++) {
-        instanceEvents.add(DomainCodec.readInstanceEvent(in));
+      Map<String, List<InstanceEvent>> instanceEvents = new LinkedHashMap<>();
+      int instanceEventKeyCount = in.readInt();
+      for (int i = 0; i < instanceEventKeyCount; i++) {
+        String key = in.readUTF();
+        int eventCount = in.readInt();
+        List<InstanceEvent> events = new ArrayList<>();
+        for (int j = 0; j < eventCount; j++) {
+          events.add(DomainCodec.readInstanceEvent(in));
+        }
+        instanceEvents.put(key, events);
       }
       List<AuditEvent> auditEvents = new ArrayList<>();
       int auditEventCount = in.readInt();

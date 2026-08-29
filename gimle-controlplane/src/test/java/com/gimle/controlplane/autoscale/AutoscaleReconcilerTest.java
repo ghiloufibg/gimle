@@ -124,13 +124,13 @@ class AutoscaleReconcilerTest {
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(5, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -147,7 +147,7 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(5, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -157,16 +157,16 @@ class AutoscaleReconcilerTest {
     AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas("orders-service", 5);
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
     // 1m used out of a 10m request: 10% utilization, a fifth of the 50% target.
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
     reconciler.reconcileOnce();
-    assertEquals(4, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
 
     reconciler.reconcileOnce();
-    assertEquals(3, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -176,7 +176,7 @@ class AutoscaleReconcilerTest {
     AutoscalePolicy policy = new AutoscalePolicy(2, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas("orders-service", 5);
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
@@ -184,7 +184,7 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(2, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(2, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -200,7 +200,7 @@ class AutoscaleReconcilerTest {
     reconciler.reconcileOnce();
     reconciler.reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -219,7 +219,7 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(Optional.empty(), store.getEffectiveReplicas("orders-service"));
+    assertEquals(Optional.empty(), store.getEffectiveReplicas(Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -275,7 +275,7 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce(); // steady state: already at the 5-replica ceiling
     }
 
-    assertEquals(5, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
     assertEquals(3, proposalsToReachCeiling, "expected exactly the 3 real transitions 2->3->4->5");
     assertEquals(
         proposalsToReachCeiling,
@@ -295,19 +295,23 @@ class AutoscaleReconcilerTest {
     Path jarHigh = buildFixtureJar();
     DeploymentSpec highSpec = deployment("above-max-service", 2, jarHigh, policy);
     store.putDeployment(highSpec);
-    store.putEffectiveReplicas("above-max-service", 9); // already above maxReplicas=5
+    // already above maxReplicas=5
+    store.putEffectiveReplicas(Optional.empty(), "above-max-service", 9);
     twoReadyInstancesAt(store, "above-max-service", highSpec.moduleId(), 10L); // 100% util
 
     Path jarLow = buildFixtureJar();
     DeploymentSpec lowSpec = deployment("below-min-service", 2, jarLow, policy);
     store.putDeployment(lowSpec);
-    store.putEffectiveReplicas("below-min-service", -3); // already below minReplicas=1
+    // already below minReplicas=1
+    store.putEffectiveReplicas(Optional.empty(), "below-min-service", -3);
     twoReadyInstancesAt(store, "below-min-service", lowSpec.moduleId(), 1L); // 10% util
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(5, store.getEffectiveReplicas("above-max-service").orElseThrow());
-    assertEquals(1, store.getEffectiveReplicas("below-min-service").orElseThrow());
+    assertEquals(
+        5, store.getEffectiveReplicas(Optional.empty(), "above-max-service").orElseThrow());
+    assertEquals(
+        1, store.getEffectiveReplicas(Optional.empty(), "below-min-service").orElseThrow());
   }
 
   @Test
@@ -327,7 +331,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         3,
-        store.getEffectiveReplicas("orders-service").orElseThrow(),
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
         "queue depth alone should drive a scale-up even though CPU utilization is well under"
             + " target");
   }
@@ -347,7 +351,7 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -365,7 +369,7 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(3, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -384,7 +388,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         1,
-        store.getEffectiveReplicas("orders-service").orElseThrow(),
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
         "an unconfigured signal must never influence the scaling decision");
   }
 
@@ -419,7 +423,7 @@ class AutoscaleReconcilerTest {
 
     assertEquals(
         1,
-        store.getEffectiveReplicas("orders-service").orElseThrow(),
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
         "heavily weighting CPU should pull the blended decision below what request rate alone"
             + " would have driven under worst-signal-wins");
   }
@@ -453,7 +457,7 @@ class AutoscaleReconcilerTest {
 
     new AutoscaleReconciler(store).reconcileOnce();
 
-    assertEquals(2, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(2, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 
   @Test
@@ -482,7 +486,8 @@ class AutoscaleReconcilerTest {
             OptionalDouble.of(2.0));
     DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
     store.putDeployment(spec);
-    store.putEffectiveReplicas("orders-service", -3); // already below minReplicas=1
+    // already below minReplicas=1
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", -3);
     twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L, 0.0, 0.0, 15);
 
     AutoscaleReconciler reconciler = new AutoscaleReconciler(store);
@@ -490,6 +495,6 @@ class AutoscaleReconcilerTest {
       reconciler.reconcileOnce();
     }
 
-    assertEquals(5, store.getEffectiveReplicas("orders-service").orElseThrow());
+    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
   }
 }

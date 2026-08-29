@@ -43,17 +43,17 @@ class RaftNodeRecoveryTest {
     RaftNode node = new RaftNode("n1", Map.of(), new RaftLog(dir), store);
     node.start();
     node.propose(new StateMutation.PutDeployment(spec, 0));
-    assertEquals(Optional.of(spec), store.getDeployment("orders-service"));
+    assertEquals(Optional.of(spec), store.getDeployment(Optional.empty(), "orders-service"));
     node.close();
 
     // A fresh, empty state machine: everything it ends up holding must come from the log.
     StateStore restarted = new StateStore();
     RaftNode reopened = new RaftNode("n1", Map.of(), new RaftLog(dir), restarted);
-    assertTrue(restarted.getDeployment("orders-service").isEmpty());
+    assertTrue(restarted.getDeployment(Optional.empty(), "orders-service").isEmpty());
     // start() self-elects the single node, whose fresh-leader no-op entry lets it commit -- and
     // therefore re-apply -- its previous term's entries without waiting for a client write.
     reopened.start();
-    assertEquals(Optional.of(spec), restarted.getDeployment("orders-service"));
+    assertEquals(Optional.of(spec), restarted.getDeployment(Optional.empty(), "orders-service"));
     reopened.close();
   }
 
@@ -71,7 +71,7 @@ class RaftNodeRecoveryTest {
     StateStore restored = new StateStore();
     RaftNode node = new RaftNode("n1", Map.of(), new RaftLog(dir), restored);
     // Restored at construction, before start() -- the snapshot needs no election to apply.
-    assertEquals(Optional.of(spec), restored.getDeployment("orders-service"));
+    assertEquals(Optional.of(spec), restored.getDeployment(Optional.empty(), "orders-service"));
     node.close();
   }
 

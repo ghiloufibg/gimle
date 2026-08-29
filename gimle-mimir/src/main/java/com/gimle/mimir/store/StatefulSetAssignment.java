@@ -2,6 +2,7 @@ package com.gimle.mimir.store;
 
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
+import java.util.Optional;
 
 /**
  * The scheduler's placement decision for one {@code StatefulSet} index -- mirrors {@link
@@ -18,7 +19,8 @@ public record StatefulSetAssignment(
     int instanceIndex,
     String nodeId,
     ModuleId moduleId,
-    String artifactPath) {
+    String artifactPath,
+    Optional<String> tenantId) {
 
   public StatefulSetAssignment {
     if (statefulSetName == null || statefulSetName.isBlank()) {
@@ -34,5 +36,18 @@ public record StatefulSetAssignment(
       throw new IllegalArgumentException("moduleId must not be null");
     }
     ArtifactReference.requireValid(artifactPath);
+    if (tenantId == null) {
+      throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code tenantId} to {@code Optional.empty()} (untenanted). */
+  public StatefulSetAssignment(
+      String statefulSetName,
+      int instanceIndex,
+      String nodeId,
+      ModuleId moduleId,
+      String artifactPath) {
+    this(statefulSetName, instanceIndex, nodeId, moduleId, artifactPath, Optional.empty());
   }
 }

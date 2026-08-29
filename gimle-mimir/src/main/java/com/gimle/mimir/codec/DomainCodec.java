@@ -303,6 +303,7 @@ public final class DomainCodec {
     writeModuleId(out, run.moduleId());
     out.writeUTF(run.artifactPath());
     out.writeUTF(run.startedAt().toString());
+    writeOptionalString(out, run.tenantId());
   }
 
   public static JobRun readJobRun(DataInputStream in) throws IOException {
@@ -312,7 +313,8 @@ public final class DomainCodec {
     ModuleId moduleId = readModuleId(in);
     String artifactPath = in.readUTF();
     Instant startedAt = Instant.parse(in.readUTF());
-    return new JobRun(jobName, attempt, nodeId, moduleId, artifactPath, startedAt);
+    Optional<String> tenantId = readOptionalString(in);
+    return new JobRun(jobName, attempt, nodeId, moduleId, artifactPath, startedAt, tenantId);
   }
 
   public static void writeJobRunSummary(DataOutputStream out, JobRunSummary summary)
@@ -321,6 +323,7 @@ public final class DomainCodec {
     out.writeInt(summary.attempt());
     out.writeUTF(summary.nodeId());
     out.writeUTF(summary.reason());
+    writeOptionalString(out, summary.tenantId());
   }
 
   public static JobRunSummary readJobRunSummary(DataInputStream in) throws IOException {
@@ -328,7 +331,8 @@ public final class DomainCodec {
     int attempt = in.readInt();
     String nodeId = in.readUTF();
     String reason = in.readUTF();
-    return new JobRunSummary(jobName, attempt, nodeId, reason);
+    Optional<String> tenantId = readOptionalString(in);
+    return new JobRunSummary(jobName, attempt, nodeId, reason, tenantId);
   }
 
   public static void writeJobTemplate(DataOutputStream out, JobTemplate template)
@@ -402,6 +406,7 @@ public final class DomainCodec {
     out.writeUTF(assignment.nodeId());
     writeModuleId(out, assignment.moduleId());
     out.writeUTF(assignment.artifactPath());
+    writeOptionalString(out, assignment.tenantId());
   }
 
   public static DaemonSetAssignment readDaemonSetAssignment(DataInputStream in) throws IOException {
@@ -409,7 +414,8 @@ public final class DomainCodec {
     String nodeId = in.readUTF();
     ModuleId moduleId = readModuleId(in);
     String artifactPath = in.readUTF();
-    return new DaemonSetAssignment(daemonSetName, nodeId, moduleId, artifactPath);
+    Optional<String> tenantId = readOptionalString(in);
+    return new DaemonSetAssignment(daemonSetName, nodeId, moduleId, artifactPath, tenantId);
   }
 
   public static void writeStatefulSetSpec(DataOutputStream out, StatefulSetSpec spec)
@@ -444,6 +450,7 @@ public final class DomainCodec {
     out.writeUTF(assignment.nodeId());
     writeModuleId(out, assignment.moduleId());
     out.writeUTF(assignment.artifactPath());
+    writeOptionalString(out, assignment.tenantId());
   }
 
   public static StatefulSetAssignment readStatefulSetAssignment(DataInputStream in)
@@ -453,8 +460,9 @@ public final class DomainCodec {
     String nodeId = in.readUTF();
     ModuleId moduleId = readModuleId(in);
     String artifactPath = in.readUTF();
+    Optional<String> tenantId = readOptionalString(in);
     return new StatefulSetAssignment(
-        statefulSetName, instanceIndex, nodeId, moduleId, artifactPath);
+        statefulSetName, instanceIndex, nodeId, moduleId, artifactPath, tenantId);
   }
 
   public static void writePlacementConstraints(DataOutputStream out, PlacementConstraints pc)
@@ -823,6 +831,7 @@ public final class DomainCodec {
     writeModuleId(out, assignment.moduleId());
     out.writeUTF(assignment.artifactPath());
     writeOptionalInt(out, assignment.renamedFromInstanceIndex());
+    writeOptionalString(out, assignment.tenantId());
   }
 
   public static InstanceAssignment readInstanceAssignment(DataInputStream in) throws IOException {
@@ -832,8 +841,15 @@ public final class DomainCodec {
     ModuleId moduleId = readModuleId(in);
     String artifactPath = in.readUTF();
     OptionalInt renamedFromInstanceIndex = readOptionalInt(in);
+    Optional<String> tenantId = readOptionalString(in);
     return new InstanceAssignment(
-        deploymentName, instanceIndex, nodeId, moduleId, artifactPath, renamedFromInstanceIndex);
+        deploymentName,
+        instanceIndex,
+        nodeId,
+        moduleId,
+        artifactPath,
+        renamedFromInstanceIndex,
+        tenantId);
   }
 
   public static void writeNodeRegistration(DataOutputStream out, NodeRegistration registration)
@@ -1019,6 +1035,7 @@ public final class DomainCodec {
     }
     out.writeLong(obs.volumeUsageBytes());
     writeOptionalString(out, obs.workerId());
+    writeOptionalString(out, obs.tenantId());
   }
 
   public static InstanceObservation readInstanceObservation(DataInputStream in) throws IOException {
@@ -1041,6 +1058,7 @@ public final class DomainCodec {
     }
     long volumeUsageBytes = in.readLong();
     Optional<String> workerId = readOptionalString(in);
+    Optional<String> tenantId = readOptionalString(in);
     return new InstanceObservation(
         deploymentName,
         instanceIndex,
@@ -1055,7 +1073,8 @@ public final class DomainCodec {
         errorRatePerSecond,
         ports,
         volumeUsageBytes,
-        workerId);
+        workerId,
+        tenantId);
   }
 
   public static void writeNodeHeartbeat(DataOutputStream out, NodeHeartbeat heartbeat)
@@ -1101,6 +1120,7 @@ public final class DomainCodec {
     out.writeBoolean(state.pendingRetry());
     out.writeBoolean(state.permanentlyFailed());
     out.writeLong(state.firstSeenMissingAtEpochMilli());
+    writeOptionalString(out, state.tenantId());
   }
 
   public static ReconcilerInstanceState readReconcilerInstanceState(DataInputStream in)
@@ -1113,6 +1133,7 @@ public final class DomainCodec {
     boolean pendingRetry = in.readBoolean();
     boolean permanentlyFailed = in.readBoolean();
     long firstSeenMissingAtEpochMilli = in.readLong();
+    Optional<String> tenantId = readOptionalString(in);
     return new ReconcilerInstanceState(
         deploymentName,
         instanceIndex,
@@ -1121,7 +1142,8 @@ public final class DomainCodec {
         nextAllowedAttemptEpochMilli,
         pendingRetry,
         permanentlyFailed,
-        firstSeenMissingAtEpochMilli);
+        firstSeenMissingAtEpochMilli,
+        tenantId);
   }
 
   public static void writeInstanceEvent(DataOutputStream out, InstanceEvent event)

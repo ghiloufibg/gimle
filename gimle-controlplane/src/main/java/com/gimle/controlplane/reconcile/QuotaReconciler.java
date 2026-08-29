@@ -3,23 +3,26 @@ package com.gimle.controlplane.reconcile;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.tenant.Tenant;
-import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Continuously re-derives each tenant's current total assigned resources and marks a deployment's
+ * Continuously re-derives each tenant's current total assigned resources and marks a workload's
  * status as quota-violating if a quota was retroactively lowered below what's already running.
  * Level-triggered like every other reconciler: every tick recomputes every tenant's usage from
- * scratch against {@link StateStore#listDeployments}, rather than tracking deltas since last tick,
- * so a quota edit, a deployment edit, or a fresh empty store all converge through the same code
- * path.
+ * scratch against every placeable workload kind (Deployment, Job, DaemonSet, StatefulSet -- see
+ * {@link TenantUsage}'s own javadoc for why all four, not Deployment alone), rather than tracking
+ * deltas since last tick, so a quota edit, a workload edit, or a fresh empty store all converge
+ * through the same code path.
  *
  * <p>Deliberately does <b>not</b> evict instances to force compliance -- an even more
  * consequential, unrequested action than leaving a stalled rolling update unrolled-back; a human
@@ -52,36 +55,34 @@ public final class QuotaReconciler {
   }
 
   public void reconcileOnce() {
+    List<WorkloadSpec> workloads = new ArrayList<>();
+    workloads.addAll(store.listDeployments());
+    workloads.addAll(store.listJobSpecs());
+    workloads.addAll(store.listDaemonSetSpecs());
+    workloads.addAll(store.listStatefulSetSpecs());
+
     Map<String, TenantUsage.Usage> usageByTenant = new HashMap<>();
-    for (DeploymentSpec spec : store.listDeployments()) {
+    for (WorkloadSpec spec : workloads) {
       try {
         accumulateUsage(usageByTenant, spec);
       } catch (RuntimeException e) {
-        // One deployment's usage computation failing (e.g. an unresolvable artifact reference)
-        // must never abort the rest of this tick's usage accumulation -- the next tick retries
-        // from the same full snapshot.
-        log.warn(
-            "quota usage accumulation for deployment {} failed: {}",
-            spec.name(),
-            e.getMessage(),
-            e);
+        // One workload's usage computation failing (e.g. an unresolvable artifact reference) must
+        // never abort the rest of this tick's usage accumulation -- the next tick retries from the
+        // same full snapshot.
+        log.warn("quota usage accumulation for {} failed: {}", spec.name(), e.getMessage(), e);
       }
     }
 
-    for (DeploymentSpec spec : store.listDeployments()) {
+    for (WorkloadSpec spec : workloads) {
       try {
         reconcileQuotaViolation(spec, usageByTenant);
       } catch (RuntimeException e) {
-        log.warn(
-            "quota violation reconcile for deployment {} failed: {}",
-            spec.name(),
-            e.getMessage(),
-            e);
+        log.warn("quota violation reconcile for {} failed: {}", spec.name(), e.getMessage(), e);
       }
     }
   }
 
-  private void accumulateUsage(Map<String, TenantUsage.Usage> usageByTenant, DeploymentSpec spec) {
+  private void accumulateUsage(Map<String, TenantUsage.Usage> usageByTenant, WorkloadSpec spec) {
     if (!Tenant.isEnforceable(spec.tenantId())) {
       return;
     }
@@ -98,7 +99,7 @@ public final class QuotaReconciler {
   }
 
   private void reconcileQuotaViolation(
-      DeploymentSpec spec, Map<String, TenantUsage.Usage> usageByTenant) {
+      WorkloadSpec spec, Map<String, TenantUsage.Usage> usageByTenant) {
     boolean violating = false;
     if (Tenant.isEnforceable(spec.tenantId())) {
       String tenantId = spec.tenantId().get();
@@ -112,7 +113,7 @@ public final class QuotaReconciler {
           violating = true;
           log.warn(
               "tenant {} exceeds its quota (memoryBytes={}/{}, cpuMillicores={}/{},"
-                  + " instances={}/{}); deployment {} marked quota-violating",
+                  + " instances={}/{}); {} marked quota-violating",
               tenantId,
               usage.memoryBytes(),
               tenant.quota().maxMemoryBytes(),
@@ -129,8 +130,9 @@ public final class QuotaReconciler {
     // what happened on prior ticks, but a value that's already correct shouldn't cost a fresh
     // replicated write -- see StateMutation's own javadoc on why heartbeats were kept out of
     // the log entirely for the same reason.
-    if (store.isQuotaViolating(spec.name()) != violating) {
-      mutations.propose(new StateMutation.PutQuotaViolation(spec.name(), violating));
+    if (store.isQuotaViolating(spec.tenantId(), spec.name()) != violating) {
+      mutations.propose(
+          new StateMutation.PutQuotaViolation(spec.tenantId(), spec.name(), violating));
     }
   }
 }

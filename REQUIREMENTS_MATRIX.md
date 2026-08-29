@@ -663,6 +663,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-651 | Explicit SecretMap Replace Verb | Security | Complete | Yes |
 | GIMLE-652 | Deleting a Workload Clears Its Revision History | Application Platform | Complete | Yes |
 | GIMLE-653 | CLI Flag Errors Always Show Usage | CLI | Complete | Yes |
+| GIMLE-654 | Tenant-scoped resource keying (compound (tenantId, name) store key) | Multi-tenancy / State store | Complete | Yes |
+| GIMLE-655 | Tenant-scoped StatefulSet persistent volume identity | Multi-tenancy / Storage | Complete | Yes |
+| GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Complete | Partial |
+| GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -1651,6 +1655,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a StatefulSet module whose volume declares no reclaimPolicy, When its index is permanently removed, Then the volume directory and its contents remain on disk.
   Given a StatefulSet module whose volume declares reclaimPolicy Delete, When its index is permanently removed, Then the volume directory is recursively deleted.
+  ```
+
+#### GIMLE-655 — Tenant-scoped StatefulSet persistent volume identity
+
+- **Category**: Multi-tenancy / Storage
+- **User story**: As a platform operator, I want a StatefulSet instance's on-disk persistent volume keyed by its owning tenant as well as its statefulSetName/instanceIndex/volumeName, so two tenants running an identically-named StatefulSet on the same node can never allocate into, or reattach to, each other's volume directory.
+- **Status**: Complete -- VolumeHandle/AllocatedVolume/VolumeManager (LocalDiskVolumeManager) all carry/accept an Optional<String> tenantId as part of a volume's identity; the on-disk layout is <dataRoot>/volumes/<tenantSegment>/<statefulSetName>/<instanceIndex>/<volumeName> (a fixed "_untenanted" sentinel segment for the untenanted namespace, distinct from any real tenant id). The agent's own /volumes HTTP inventory/destroy surface and the control plane's /volumes proxy both carry tenantId through (?tenant= query param, matching every other tenant-scoped route).
+- **Confidence**: High
+- **Source location(s)**: `gimle-os/src/main/java/com/gimle/os/VolumeHandle.java`, `gimle-os/src/main/java/com/gimle/os/VolumeManager.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`
+- **Test coverage**: `LocalDiskVolumeManagerTest#two_tenants_with_an_identically_named_statefulset_get_distinct_directories`, `#destroying_one_tenants_volume_leaves_another_tenants_identically_named_one_intact`, `#list_allocated_reports_the_owning_tenant_for_a_tenanted_volume`
+- **Gherkin scenario**:
+  ```gherkin
+  Given tenant A and tenant B each run a StatefulSet named "db" with a volume "data" on the same node; When both allocate; Then each tenant's volume lives at a distinct on-disk path and neither can see the other's data.
   ```
 
 ### gimle-pki
@@ -3701,6 +3718,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404.
   ```
 
+#### GIMLE-654 — Tenant-scoped resource keying (compound (tenantId, name) store key)
+
+- **Category**: Multi-tenancy / State store
+- **User story**: As a platform operator running more than one tenant, I want a Deployment, Job, CronJob, DaemonSet, StatefulSet, Service, or NetworkPolicy name to be unique only within its own tenant, not cluster-wide, so two tenants sharing a name can never collide, overwrite each other's spec, or read each other's resource.
+- **Status**: Complete -- StateStore's internal maps are keyed by a compound (tenantId, name) key (StateStore#scopedKey) rather than bare name; every StoreReader/StateStore/StoreClient/StoreRpc/StateMutation/DomainCodec method that addresses one of these resource kinds takes the owning tenantId. The control-plane API resolves the target tenant for a single-resource GET/DELETE from a caller-declared ?tenant=<id> query parameter (a PUT/apply always resolves it from the submitted manifest's own tenantId field, never ambiguous); gimle-cli exposes the same convention as --tenant <id> on every by-name get/delete/revisions/rollback/trigger/endpoints command. NetworkPolicy's tenantId was already mandatory (not optional) and its API/CLI routes require --tenant/?tenant= outright rather than defaulting to the untenanted namespace.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/TenantQuery.java`
+- **Test coverage**: `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`
+- **Gherkin scenario**:
+  ```gherkin
+  Given tenant A and tenant B each submit a Deployment named "orders-service"; When both are stored; Then each tenant's own GET resolves only its own spec, and the untenanted namespace sees neither.
+  ```
+
 ### gimle-fabric
 
 #### GIMLE-181 — Same-Worker Direct Invocation Tier
@@ -4597,10 +4627,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-246 — Tenant resource quota admission check
 
 - **Category**: Admission / Multi-tenancy
-- **User story**: As a platform operator, I want a deployment rejected outright if it would push a tenant past its quota (accounting for surge headroom).
-- **Status**: Complete
+- **User story**: As a platform operator, I want a Deployment, Job, DaemonSet, or StatefulSet submission rejected outright if it would push its tenant past its quota (accounting for surge headroom on a Deployment, and each kind's own peak committed-instance count via WorkloadResourceProfile).
+- **Status**: Complete -- generalized from Deployment-only to every placeable WorkloadSpec kind (Deployment/Job/DaemonSet/StatefulSet) so a tenant can no longer bypass its quota by submitting a Job/DaemonSet/StatefulSet instead of a Deployment.
 - **Confidence**: High
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/TenantQuotaPlugin.java`, `TenantUsage.java`
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/TenantQuotaPlugin.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/admission/WorkloadResourceProfile.java`, `TenantUsage.java`
 - **Test coverage**: `TenantQuotaPluginTest` — `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected`
 - **Gherkin scenario**:
   ```gherkin
@@ -5163,6 +5193,33 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted.
+  ```
+
+#### GIMLE-656 — Tenant-scoped heartbeat instance-observation matching and instance-log node resolution
+
+- **Category**: Multi-tenancy / Observability
+- **User story**: As a platform operator, I want a node's heartbeat instance observation matched against an assignment/run by tenantId as well as by deploymentName/instanceIndex, and an instance's log request resolved to a node only within its own tenant, so two tenants' identically-named workload landing the same instance index on the same physical node can never have their health/readiness/autoscaling signals or log reads cross-wired.
+- **Status**: Complete -- InstanceObservation carries an Optional<String> tenantId (copied from the owning AssignedInstance, threaded through the agent's heartbeat JSON and gimle-mimir's DomainCodec wire codec); every reconciler/resolver that matches an InstanceObservation against an assignment/run (HealthReconciler, ReplicaCountReconciler, AutoscaleReconciler, JobReconciler, DeploymentReconciler, StatefulSetReconciler, DaemonSetReconciler, ServiceEndpointResolver, and ApiServer's own observation lookups) now also compares tenantId. ApiServer#resolveInstanceNodeId (backing the control plane's /logs/instances/* proxy) takes the caller-declared ?tenant=<id> and resolves strictly within that tenant's own assignments/runs, closing a real cross-tenant log-read risk where a bare deploymentName/instanceIndex could resolve to a different tenant's node.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+- **Test coverage**: Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this observation-matching path specifically.
+- **Gherkin scenario**:
+  ```gherkin
+  Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready.
+  ```
+
+#### GIMLE-657 — Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup
+
+- **Category**: Multi-tenancy / Authorization
+- **User story**: As a platform operator, I want a single-resource GET/DELETE (and the /endpoints/{name} lookup) to honor my explicit ?tenant=<id> query parameter, the same way apply already honors an explicit tenantId in the manifest body, so that two tenants sharing a bare resource name can never make me read or delete the wrong tenant's copy just because I passed --tenant on the CLI.
+- **Status**: Complete. `ApiServer.dispatchResourceRequest`'s GET/DELETE branches and `handleEndpoints` previously ignored a caller-declared `?tenant=` entirely, always preferring `existingTenant.lookup(name)`'s bare-name search across every tenant -- meaning `gimle get/delete <kind> <name> --tenant <id>` silently acted on whichever tenant's same-named resource the bare-name search happened to find first, not the one the caller asked for, and a DELETE under this path could destroy the wrong tenant's resource outright. Fixed via a new `declaredOrExistingTenant(exchange, existingTenant, name)` helper that checks for an explicit `?tenant=` first and only falls back to the bare-name search when the caller didn't supply one; `handleEndpoints` applies the identical precedence inline. Authorization is unaffected: `requireAuthorized` still independently re-checks the resolved tenant on every request, so honoring the caller's own selection for GET/DELETE never widens what they're allowed to touch, only which of their permitted tenants' resources the command targets -- the same `kubectl --namespace` semantics `apply` (PUT) already got right.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`declaredOrExistingTenant`, `dispatchResourceRequest`, `handleEndpoints`)
+- **Test coverage**: `ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` -- two tenants (`acme` and `default`) sharing a bare deployment name `shared-name`; asserts GET with `?tenant=acme`/`?tenant=default` each return only that tenant's own copy, and DELETE with `?tenant=acme` removes only acme's, leaving `default`'s intact.
+- **Gherkin scenario**:
+  ```gherkin
+  Given tenant "acme" and tenant "default" each have their own deployment named "shared-name"; When a caller GETs /deployments/shared-name?tenant=acme; Then the acme deployment is returned, never default's.
+  Given the same two deployments; When a caller DELETEs /deployments/shared-name?tenant=acme; Then only acme's copy is removed and default's copy still exists afterward.
   ```
 
 ### gimle-fafnir

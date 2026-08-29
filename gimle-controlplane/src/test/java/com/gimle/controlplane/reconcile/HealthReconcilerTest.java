@@ -15,6 +15,7 @@ import com.gimle.mimir.store.StateStore;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -61,7 +62,7 @@ class HealthReconcilerTest {
   }
 
   private static boolean hasAssignment(StateStore store, String deploymentName, int index) {
-    return store.listAssignmentsFor(deploymentName).stream()
+    return store.listAssignmentsFor(Optional.empty(), deploymentName).stream()
         .anyMatch(a -> a.instanceIndex() == index);
   }
 
@@ -303,6 +304,9 @@ class HealthReconcilerTest {
     assertTrue(hasAssignment(store, "fresh-unhealthy-service", 0));
     assertTrue(hasAssignment(store, "exhausted-service", 0));
     assertTrue(
-        store.getReconcilerInstanceState("exhausted-service", 0).orElseThrow().permanentlyFailed());
+        store
+            .getReconcilerInstanceState(Optional.empty(), "exhausted-service", 0)
+            .orElseThrow()
+            .permanentlyFailed());
   }
 }

@@ -156,7 +156,8 @@ class ApiServerNetworkPoliciesAuthzTest {
       HttpClient noPermissionClient = mutualTlsClient(ca, "CN=no-permission-caller");
       HttpResponse<String> response =
           noPermissionClient.send(
-              HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/deny-by-default"))
+              HttpRequest.newBuilder(
+                      URI.create(baseUrl + "/networkpolicies/deny-by-default?tenant=acme"))
                   .DELETE()
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

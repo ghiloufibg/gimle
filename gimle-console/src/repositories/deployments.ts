@@ -14,7 +14,7 @@ export interface DeploymentsRepository {
   fetchOne(name: string): Promise<Deployment>;
   fetchSummary(): Promise<DeploymentsSummary>;
   create(spec: DeploymentSpecInput): Promise<Deployment>;
-  remove(name: string): Promise<void>;
+  remove(name: string, tenantId?: string | null): Promise<void>;
 }
 
 export class MockDeploymentsRepository implements DeploymentsRepository {
@@ -45,7 +45,9 @@ export class MockDeploymentsRepository implements DeploymentsRepository {
     addDeployment(d);
     return delay(d);
   }
-  async remove(name: string) {
+  async remove(name: string, _tenantId?: string | null) {
+    // Fixture data is keyed by bare name only -- tenantId is accepted for interface parity with
+    // HttpDeploymentsRepository but unused here.
     removeDeployment(name);
     return delay(undefined);
   }

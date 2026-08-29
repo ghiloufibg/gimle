@@ -66,7 +66,11 @@ export const useCronJobsStore = create<State>((set, get) => ({
     return c;
   },
   async remove(name) {
-    await cronJobsRepo.remove(name);
+    // The item is already loaded (this screen is always reached from the already-fetched list/
+    // detail state), so its own tenantId is looked up here rather than widening this method's
+    // public signature -- every UI call site keeps calling remove(name) unchanged.
+    const tenantId = get().items.find((c) => c.spec.name === name)?.spec.tenantId;
+    await cronJobsRepo.remove(name, tenantId);
     set({ items: get().items.filter((c) => c.spec.name !== name) });
   },
   async getOrFetch(name) {

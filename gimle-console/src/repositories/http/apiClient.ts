@@ -89,6 +89,14 @@ export async function requestJsonWithBody<T>(
   return res.json() as Promise<T>;
 }
 
+/** `?tenant=<id>` suffix for a by-name GET/DELETE route on a tenant-scoped-by-name resource
+ * (Deployment/Job/CronJob/DaemonSet/StatefulSet/Service/NetworkPolicy) -- omitted entirely when no
+ * tenantId is known, which resolves to the untenanted namespace exactly as it did before these
+ * resources were keyed by (tenantId, name) instead of bare name. */
+export function tenantQuery(tenantId?: string | null): string {
+  return tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : "";
+}
+
 /** PUT with a raw YAML body -- only used for deployment manifests (http/deployments.ts), which the
  * control plane parses with SnakeYAML, not JSON. */
 export async function requestOkYaml(path: string, yaml: string): Promise<void> {

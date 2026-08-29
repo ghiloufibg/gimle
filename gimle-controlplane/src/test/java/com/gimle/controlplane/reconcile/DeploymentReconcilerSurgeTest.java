@@ -105,7 +105,7 @@ class DeploymentReconcilerSurgeTest {
         new NodeHeartbeat(
             nodeId,
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
-            store.listAssignmentsFor(deploymentName).stream()
+            store.listAssignmentsFor(Optional.empty(), deploymentName).stream()
                 .map(
                     a ->
                         new InstanceObservation(
@@ -115,7 +115,7 @@ class DeploymentReconcilerSurgeTest {
 
   private static Optional<InstanceAssignment> assignmentAtIfPresent(
       StateStore store, String name, int index) {
-    return store.listAssignmentsFor(name).stream()
+    return store.listAssignmentsFor(Optional.empty(), name).stream()
         .filter(a -> a.instanceIndex() == index)
         .findFirst();
   }
@@ -149,7 +149,7 @@ class DeploymentReconcilerSurgeTest {
     // maxUnavailable (budget 1) runs first and claims the lowest mismatched index (0); maxSurge
     // (budget 1) then claims the remaining mismatch (1) -- the two budgets never double-claim the
     // same index (see the dedicated independence test below for the general case).
-    Map<Integer, Integer> surging = store.getSurgeIndices("orders-service");
+    Map<Integer, Integer> surging = store.getSurgeIndices(Optional.empty(), "orders-service");
     assertEquals(1, surging.size());
     int surgeIndex = surging.keySet().iterator().next();
     assertEquals(1, surging.get(surgeIndex));
@@ -161,7 +161,7 @@ class DeploymentReconcilerSurgeTest {
     // The surge instance itself is already up, on v2, at its own synthetic index.
     assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", surgeIndex).moduleId());
     // Running count is replicas + 1 (the surge slot) -- capacity never drops below replicas.
-    assertEquals(3, store.listAssignmentsFor("orders-service").size());
+    assertEquals(3, store.listAssignmentsFor(Optional.empty(), "orders-service").size());
   }
 
   @Test
@@ -185,14 +185,15 @@ class DeploymentReconcilerSurgeTest {
     store.putDeployment(v2);
     reconciler.reconcileOnce();
 
-    int surgeIndex = store.getSurgeIndices("orders-service").keySet().iterator().next();
-    int targetIndex = store.getSurgeIndices("orders-service").get(surgeIndex);
+    int surgeIndex =
+        store.getSurgeIndices(Optional.empty(), "orders-service").keySet().iterator().next();
+    int targetIndex = store.getSurgeIndices(Optional.empty(), "orders-service").get(surgeIndex);
     String surgeNodeId = assignmentAt(store, "orders-service", surgeIndex).nodeId();
     markReady(store, "node-a", "orders-service", surgeIndex, v2.moduleId());
     reconciler.reconcileOnce(); // promotes: retargets in place, no restart, same tick
 
     assertTrue(
-        store.getSurgeIndices("orders-service").isEmpty(),
+        store.getSurgeIndices(Optional.empty(), "orders-service").isEmpty(),
         "promotion must clear the surge tracking entry");
     // No later-tick scale-down sweep needed: the surge slot's own assignment is gone in this same
     // tick, retargeted rather than left orphaned for later reclaiming.
@@ -213,7 +214,7 @@ class DeploymentReconcilerSurgeTest {
             + " own already-running worker instead of restarting it");
     assertEquals(
         2,
-        store.listAssignmentsFor("orders-service").size(),
+        store.listAssignmentsFor(Optional.empty(), "orders-service").size(),
         "no extra tick needed to converge back to exactly replicas instances");
   }
 
@@ -242,21 +243,23 @@ class DeploymentReconcilerSurgeTest {
 
     assertEquals(
         2,
-        store.getSurgeIndices("orders-service").size(),
+        store.getSurgeIndices(Optional.empty(), "orders-service").size(),
         "maxSurge: 2 must start exactly 2 surges, not fewer and not the remaining mismatches too");
 
     // Neither surge is ready yet: a second tick must not exceed the budget.
     reconciler.reconcileOnce();
-    assertEquals(2, store.getSurgeIndices("orders-service").size());
+    assertEquals(2, store.getSurgeIndices(Optional.empty(), "orders-service").size());
 
     // One surge becomes ready -- the freed slot is topped up with a new surge in the same tick.
     int firstSurgeIndex =
-        store.getSurgeIndices("orders-service").keySet().stream().min(Integer::compare).get();
+        store.getSurgeIndices(Optional.empty(), "orders-service").keySet().stream()
+            .min(Integer::compare)
+            .get();
     markReady(store, "node-a", "orders-service", firstSurgeIndex, v2.moduleId());
     reconciler.reconcileOnce();
     assertEquals(
         2,
-        store.getSurgeIndices("orders-service").size(),
+        store.getSurgeIndices(Optional.empty(), "orders-service").size(),
         "a freed surge slot must be topped up immediately, keeping in-flight count at the budget");
 
     // Drain everything to completion, marking whichever indices are currently in flight (rolling
@@ -264,21 +267,21 @@ class DeploymentReconcilerSurgeTest {
     // uses.
     for (int tick = 0;
         tick < 20
-            && (!store.getRollingIndices("orders-service").isEmpty()
-                || !store.getSurgeIndices("orders-service").isEmpty()
-                || store.listAssignmentsFor("orders-service").size() != 5
-                || store.listAssignmentsFor("orders-service").stream()
+            && (!store.getRollingIndices(Optional.empty(), "orders-service").isEmpty()
+                || !store.getSurgeIndices(Optional.empty(), "orders-service").isEmpty()
+                || store.listAssignmentsFor(Optional.empty(), "orders-service").size() != 5
+                || store.listAssignmentsFor(Optional.empty(), "orders-service").stream()
                     .anyMatch(a -> !a.moduleId().equals(v2.moduleId())));
         tick++) {
       markAllCurrentlyAssignedReady(store, "node-a", "orders-service");
       reconciler.reconcileOnce();
     }
 
-    assertEquals(Set.of(), store.getRollingIndices("orders-service"));
-    assertTrue(store.getSurgeIndices("orders-service").isEmpty());
-    assertEquals(5, store.listAssignmentsFor("orders-service").size());
+    assertEquals(Set.of(), store.getRollingIndices(Optional.empty(), "orders-service"));
+    assertTrue(store.getSurgeIndices(Optional.empty(), "orders-service").isEmpty());
+    assertEquals(5, store.listAssignmentsFor(Optional.empty(), "orders-service").size());
     assertTrue(
-        store.listAssignmentsFor("orders-service").stream()
+        store.listAssignmentsFor(Optional.empty(), "orders-service").stream()
             .allMatch(a -> a.moduleId().equals(v2.moduleId())),
         "the rollout must fully converge to v2 across every index, with no leftover surge slots");
   }
@@ -304,8 +307,9 @@ class DeploymentReconcilerSurgeTest {
     store.putDeployment(v2);
     reconciler.reconcileOnce();
 
-    Set<Integer> rollingTargets = store.getRollingIndices("orders-service");
-    Set<Integer> surgeTargets = Set.copyOf(store.getSurgeIndices("orders-service").values());
+    Set<Integer> rollingTargets = store.getRollingIndices(Optional.empty(), "orders-service");
+    Set<Integer> surgeTargets =
+        Set.copyOf(store.getSurgeIndices(Optional.empty(), "orders-service").values());
     assertEquals(1, rollingTargets.size());
     assertEquals(1, surgeTargets.size());
     assertTrue(
@@ -341,8 +345,9 @@ class DeploymentReconcilerSurgeTest {
     store.putDeployment(v2);
     reconciler.reconcileOnce();
 
-    int surgeIndex = store.getSurgeIndices("orders-service").keySet().iterator().next();
-    int targetIndex = store.getSurgeIndices("orders-service").get(surgeIndex);
+    int surgeIndex =
+        store.getSurgeIndices(Optional.empty(), "orders-service").keySet().iterator().next();
+    int targetIndex = store.getSurgeIndices(Optional.empty(), "orders-service").get(surgeIndex);
 
     // Scale down before the surge ever reports ready -- the target index falls out of range.
     DeploymentSpec v2Scaled =
@@ -351,7 +356,7 @@ class DeploymentReconcilerSurgeTest {
     reconciler.reconcileOnce();
 
     assertTrue(
-        store.getSurgeIndices("orders-service").isEmpty(),
+        store.getSurgeIndices(Optional.empty(), "orders-service").isEmpty(),
         "a surge whose target has scaled out of range must be abandoned, not promoted into a"
             + " nonexistent index");
     if (targetIndex >= 1) {
@@ -361,7 +366,7 @@ class DeploymentReconcilerSurgeTest {
     reconciler.reconcileOnce(); // the now-untracked, out-of-range surge assignment is reclaimed
 
     assertTrue(assignmentAtIfPresent(store, "orders-service", surgeIndex).isEmpty());
-    assertEquals(1, store.listAssignmentsFor("orders-service").size());
+    assertEquals(1, store.listAssignmentsFor(Optional.empty(), "orders-service").size());
   }
 
   @Test
@@ -386,7 +391,7 @@ class DeploymentReconcilerSurgeTest {
     store.putDeployment(v2);
     reconciler.reconcileOnce();
 
-    Map<Integer, Integer> before = store.getSurgeIndices("orders-service");
+    Map<Integer, Integer> before = store.getSurgeIndices(Optional.empty(), "orders-service");
     assertEquals(1, before.size());
 
     // Simulate a control-plane restart: a fresh DeploymentReconciler with no in-memory history at
@@ -395,13 +400,13 @@ class DeploymentReconcilerSurgeTest {
     DeploymentReconciler restartedReconciler = new DeploymentReconciler(store, scheduler);
 
     restartedReconciler.reconcileOnce(); // must not start a second, duplicate surge
-    assertEquals(before, store.getSurgeIndices("orders-service"));
+    assertEquals(before, store.getSurgeIndices(Optional.empty(), "orders-service"));
 
     int surgeIndex = before.keySet().iterator().next();
     int targetIndex = before.get(surgeIndex);
     markReady(store, "node-a", "orders-service", surgeIndex, v2.moduleId());
     restartedReconciler.reconcileOnce();
-    assertTrue(store.getSurgeIndices("orders-service").isEmpty());
+    assertTrue(store.getSurgeIndices(Optional.empty(), "orders-service").isEmpty());
     assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", targetIndex).moduleId());
   }
 }

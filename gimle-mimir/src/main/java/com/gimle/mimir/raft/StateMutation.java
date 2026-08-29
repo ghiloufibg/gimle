@@ -27,6 +27,7 @@ import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Every mutating operation {@link StateStore} exposes, replicated through the Raft log -- one
@@ -53,7 +54,7 @@ public sealed interface StateMutation extends RaftLogPayload {
   record PutDeployment(DeploymentSpec spec, long expectedGeneration) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      long current = store.getDeploymentGeneration(spec.name());
+      long current = store.getDeploymentGeneration(spec.tenantId(), spec.name());
       if (current != expectedGeneration) {
         return MutationOutcome.rejected(
             "deployment '"
@@ -76,10 +77,11 @@ public sealed interface StateMutation extends RaftLogPayload {
    * whether the caller's actual goal (the name being gone) was already met by someone else's write,
    * or whether a genuinely different, newer state exists that the caller never asked to discard.
    */
-  record RemoveDeployment(String name, long expectedGeneration) implements StateMutation {
+  record RemoveDeployment(Optional<String> tenantId, String name, long expectedGeneration)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      long current = store.getDeploymentGeneration(name);
+      long current = store.getDeploymentGeneration(tenantId, name);
       if (current != expectedGeneration) {
         return MutationOutcome.rejected(
             "deployment '"
@@ -89,7 +91,7 @@ public sealed interface StateMutation extends RaftLogPayload {
                 + ", expected "
                 + expectedGeneration);
       }
-      store.removeDeployment(name);
+      store.removeDeployment(tenantId, name);
       return MutationOutcome.accepted();
     }
   }
@@ -102,10 +104,10 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveService(String name) implements StateMutation {
+  record RemoveService(Optional<String> tenantId, String name) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeService(name);
+      store.removeService(tenantId, name);
       return MutationOutcome.accepted();
     }
   }
@@ -118,10 +120,10 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveNetworkPolicy(String name) implements StateMutation {
+  record RemoveNetworkPolicy(String tenantId, String name) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeNetworkPolicy(name);
+      store.removeNetworkPolicy(tenantId, name);
       return MutationOutcome.accepted();
     }
   }
@@ -134,10 +136,11 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveAssignment(String deploymentName, int instanceIndex) implements StateMutation {
+  record RemoveAssignment(Optional<String> tenantId, String deploymentName, int instanceIndex)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeAssignment(deploymentName, instanceIndex);
+      store.removeAssignment(tenantId, deploymentName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }
@@ -150,10 +153,10 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveJobSpec(String name) implements StateMutation {
+  record RemoveJobSpec(Optional<String> tenantId, String name) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeJobSpec(name);
+      store.removeJobSpec(tenantId, name);
       return MutationOutcome.accepted();
     }
   }
@@ -166,18 +169,20 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveJobRun(String jobName, int attempt) implements StateMutation {
+  record RemoveJobRun(Optional<String> tenantId, String jobName, int attempt)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeJobRun(jobName, attempt);
+      store.removeJobRun(tenantId, jobName, attempt);
       return MutationOutcome.accepted();
     }
   }
 
-  record PutJobPhase(String jobName, JobPhase phase) implements StateMutation {
+  record PutJobPhase(Optional<String> tenantId, String jobName, JobPhase phase)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putJobPhase(jobName, phase);
+      store.putJobPhase(tenantId, jobName, phase);
       return MutationOutcome.accepted();
     }
   }
@@ -203,18 +208,19 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveCronJobSpec(String name) implements StateMutation {
+  record RemoveCronJobSpec(Optional<String> tenantId, String name) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeCronJobSpec(name);
+      store.removeCronJobSpec(tenantId, name);
       return MutationOutcome.accepted();
     }
   }
 
-  record PutCronJobLastSchedule(String name, Instant lastScheduleTime) implements StateMutation {
+  record PutCronJobLastSchedule(Optional<String> tenantId, String name, Instant lastScheduleTime)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putCronJobLastSchedule(name, lastScheduleTime);
+      store.putCronJobLastSchedule(tenantId, name, lastScheduleTime);
       return MutationOutcome.accepted();
     }
   }
@@ -227,10 +233,10 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveDaemonSetSpec(String name) implements StateMutation {
+  record RemoveDaemonSetSpec(Optional<String> tenantId, String name) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeDaemonSetSpec(name);
+      store.removeDaemonSetSpec(tenantId, name);
       return MutationOutcome.accepted();
     }
   }
@@ -243,26 +249,29 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveDaemonSetAssignment(String daemonSetName, String nodeId) implements StateMutation {
+  record RemoveDaemonSetAssignment(Optional<String> tenantId, String daemonSetName, String nodeId)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeDaemonSetAssignment(daemonSetName, nodeId);
+      store.removeDaemonSetAssignment(tenantId, daemonSetName, nodeId);
       return MutationOutcome.accepted();
     }
   }
 
-  record AddRollingDaemonSetNode(String daemonSetName, String nodeId) implements StateMutation {
+  record AddRollingDaemonSetNode(Optional<String> tenantId, String daemonSetName, String nodeId)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.addRollingDaemonSetNode(daemonSetName, nodeId);
+      store.addRollingDaemonSetNode(tenantId, daemonSetName, nodeId);
       return MutationOutcome.accepted();
     }
   }
 
-  record RemoveRollingDaemonSetNode(String daemonSetName, String nodeId) implements StateMutation {
+  record RemoveRollingDaemonSetNode(Optional<String> tenantId, String daemonSetName, String nodeId)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeRollingDaemonSetNode(daemonSetName, nodeId);
+      store.removeRollingDaemonSetNode(tenantId, daemonSetName, nodeId);
       return MutationOutcome.accepted();
     }
   }
@@ -275,10 +284,10 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveStatefulSetSpec(String name) implements StateMutation {
+  record RemoveStatefulSetSpec(Optional<String> tenantId, String name) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeStatefulSetSpec(name);
+      store.removeStatefulSetSpec(tenantId, name);
       return MutationOutcome.accepted();
     }
   }
@@ -291,11 +300,12 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveStatefulSetAssignment(String statefulSetName, int instanceIndex)
+  record RemoveStatefulSetAssignment(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeStatefulSetAssignment(statefulSetName, instanceIndex);
+      store.removeStatefulSetAssignment(tenantId, statefulSetName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }
@@ -308,19 +318,21 @@ public sealed interface StateMutation extends RaftLogPayload {
    * statefulSetName}, not {@code deploymentName}) -- the two resource kinds never share a
    * namespace.
    */
-  record PutRollingStatefulSetIndex(String statefulSetName, int instanceIndex)
+  record PutRollingStatefulSetIndex(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putRollingStatefulSetIndex(statefulSetName, instanceIndex);
+      store.putRollingStatefulSetIndex(tenantId, statefulSetName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }
 
-  record ClearRollingStatefulSetIndex(String statefulSetName) implements StateMutation {
+  record ClearRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.clearRollingStatefulSetIndex(statefulSetName);
+      store.clearRollingStatefulSetIndex(tenantId, statefulSetName);
       return MutationOutcome.accepted();
     }
   }
@@ -334,36 +346,40 @@ public sealed interface StateMutation extends RaftLogPayload {
    * return); only {@link RemoveStatefulSetIndexNode} clears it, fired solely on the two genuinely
    * permanent cases -- index scaled below the replica count, or the whole spec deleted.
    */
-  record PutStatefulSetIndexNode(String statefulSetName, int instanceIndex, String nodeId)
+  record PutStatefulSetIndexNode(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex, String nodeId)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putStatefulSetIndexNode(statefulSetName, instanceIndex, nodeId);
+      store.putStatefulSetIndexNode(tenantId, statefulSetName, instanceIndex, nodeId);
       return MutationOutcome.accepted();
     }
   }
 
-  record RemoveStatefulSetIndexNode(String statefulSetName, int instanceIndex)
+  record RemoveStatefulSetIndexNode(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeStatefulSetIndexNode(statefulSetName, instanceIndex);
+      store.removeStatefulSetIndexNode(tenantId, statefulSetName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }
 
-  record AddRollingIndex(String deploymentName, int instanceIndex) implements StateMutation {
+  record AddRollingIndex(Optional<String> tenantId, String deploymentName, int instanceIndex)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.addRollingIndex(deploymentName, instanceIndex);
+      store.addRollingIndex(tenantId, deploymentName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }
 
-  record RemoveRollingIndex(String deploymentName, int instanceIndex) implements StateMutation {
+  record RemoveRollingIndex(Optional<String> tenantId, String deploymentName, int instanceIndex)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeRollingIndex(deploymentName, instanceIndex);
+      store.removeRollingIndex(tenantId, deploymentName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }
@@ -373,27 +389,30 @@ public sealed interface StateMutation extends RaftLogPayload {
    * {@code >= replicas}) as provisioning a replacement for {@code targetIndex} ahead of removing
    * the original -- see {@code DeploymentReconciler#handleSurge}.
    */
-  record AddSurgeIndex(String deploymentName, int surgeIndex, int targetIndex)
+  record AddSurgeIndex(
+      Optional<String> tenantId, String deploymentName, int surgeIndex, int targetIndex)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.addSurgeIndex(deploymentName, surgeIndex, targetIndex);
+      store.addSurgeIndex(tenantId, deploymentName, surgeIndex, targetIndex);
       return MutationOutcome.accepted();
     }
   }
 
-  record RemoveSurgeIndex(String deploymentName, int surgeIndex) implements StateMutation {
+  record RemoveSurgeIndex(Optional<String> tenantId, String deploymentName, int surgeIndex)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeSurgeIndex(deploymentName, surgeIndex);
+      store.removeSurgeIndex(tenantId, deploymentName, surgeIndex);
       return MutationOutcome.accepted();
     }
   }
 
-  record PutEffectiveReplicas(String deploymentName, int replicas) implements StateMutation {
+  record PutEffectiveReplicas(Optional<String> tenantId, String deploymentName, int replicas)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putEffectiveReplicas(deploymentName, replicas);
+      store.putEffectiveReplicas(tenantId, deploymentName, replicas);
       return MutationOutcome.accepted();
     }
   }
@@ -422,10 +441,11 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record PutQuotaViolation(String deploymentName, boolean violating) implements StateMutation {
+  record PutQuotaViolation(Optional<String> tenantId, String deploymentName, boolean violating)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putQuotaViolation(deploymentName, violating);
+      store.putQuotaViolation(tenantId, deploymentName, violating);
       return MutationOutcome.accepted();
     }
   }
@@ -493,10 +513,11 @@ public sealed interface StateMutation extends RaftLogPayload {
    * StateStore#putInstanceEvent}, applied identically on every replica as this same mutation is
    * replayed, not a separate mutation of its own.
    */
-  record AppendInstanceEvent(InstanceEvent event) implements StateMutation {
+  record AppendInstanceEvent(Optional<String> tenantId, InstanceEvent event)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putInstanceEvent(event);
+      store.putInstanceEvent(tenantId, event);
       return MutationOutcome.accepted();
     }
   }
@@ -548,10 +569,11 @@ public sealed interface StateMutation extends RaftLogPayload {
    * A blank {@code reason} clears the violation; a non-blank one sets it -- same convention {@link
    * com.gimle.mimir.store.StateStore#putLimitRangeViolation} documents on its own.
    */
-  record PutLimitRangeViolation(String deploymentName, String reason) implements StateMutation {
+  record PutLimitRangeViolation(Optional<String> tenantId, String deploymentName, String reason)
+      implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.putLimitRangeViolation(deploymentName, reason);
+      store.putLimitRangeViolation(tenantId, deploymentName, reason);
       return MutationOutcome.accepted();
     }
   }
@@ -633,11 +655,12 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
-  record RemoveReconcilerInstanceState(String deploymentName, int instanceIndex)
+  record RemoveReconcilerInstanceState(
+      Optional<String> tenantId, String deploymentName, int instanceIndex)
       implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      store.removeReconcilerInstanceState(deploymentName, instanceIndex);
+      store.removeReconcilerInstanceState(tenantId, deploymentName, instanceIndex);
       return MutationOutcome.accepted();
     }
   }

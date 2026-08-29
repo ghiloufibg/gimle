@@ -3,6 +3,7 @@ package com.gimle.os;
 import com.gimle.core.module.VolumeRequest;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Allocates a {@code StatefulSet}-shaped instance's persistent local-disk storage, structurally
@@ -11,6 +12,10 @@ import java.util.List;
  * is the deliberate scope for persistent storage here, not a stand-in for a distributed volume
  * system; a sticky-placement instance's data lives on the machine it's scheduled to, and nothing in
  * this interface assumes otherwise.
+ *
+ * <p>Every method takes the owning workload's {@code tenantId} as part of a volume's identity, not
+ * as incidental context -- see {@link VolumeHandle}'s own javadoc for why a bare {@code
+ * statefulSetName} is not by itself a safe on-disk key.
  *
  * <p>{@code release} is called only on permanent removal (a {@code StatefulSet} index scaled down
  * for good, or the whole spec deleted) -- never on an ordinary reschedule or rolling-update
@@ -21,7 +26,11 @@ import java.util.List;
 public interface VolumeManager {
 
   VolumeHandle allocate(
-      String statefulSetName, int instanceIndex, String volumeName, VolumeRequest request);
+      Optional<String> tenantId,
+      String statefulSetName,
+      int instanceIndex,
+      String volumeName,
+      VolumeRequest request);
 
   Path hostPath(VolumeHandle handle);
 
@@ -34,18 +43,18 @@ public interface VolumeManager {
   List<AllocatedVolume> listAllocated();
 
   /**
-   * Unconditionally deletes every named volume directory under {@code (statefulSetName,
+   * Unconditionally deletes every named volume directory under {@code (tenantId, statefulSetName,
    * instanceIndex)}, ignoring any reclaim policy -- the explicit operator action that reclaims a
    * retained orphan, never called by the platform's own lifecycle (which goes through {@link
    * #release}). A directory that's already gone is a silent no-op, matching {@link #release}'s
    * idempotent posture.
    */
-  void destroy(String statefulSetName, int instanceIndex);
+  void destroy(Optional<String> tenantId, String statefulSetName, int instanceIndex);
 
   /**
-   * The bytes currently occupied across every named volume of {@code (statefulSetName,
+   * The bytes currently occupied across every named volume of {@code (tenantId, statefulSetName,
    * instanceIndex)}, or 0 with no directory on disk -- the soft usage observation heartbeats
    * sample, never an enforced ceiling.
    */
-  long usedBytes(String statefulSetName, int instanceIndex);
+  long usedBytes(Optional<String> tenantId, String statefulSetName, int instanceIndex);
 }

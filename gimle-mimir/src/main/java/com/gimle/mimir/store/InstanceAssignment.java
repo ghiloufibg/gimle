@@ -2,6 +2,7 @@ package com.gimle.mimir.store;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -29,7 +30,8 @@ public record InstanceAssignment(
     String nodeId,
     ModuleId moduleId,
     String artifactPath,
-    OptionalInt renamedFromInstanceIndex) {
+    OptionalInt renamedFromInstanceIndex,
+    Optional<String> tenantId) {
 
   /**
    * The placeholder the three-argument constructor uses; a caller resolving "what should this
@@ -62,6 +64,27 @@ public record InstanceAssignment(
       throw new IllegalArgumentException(
           "renamedFromInstanceIndex must be OptionalInt.empty(), not null");
     }
+    if (tenantId == null) {
+      throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code tenantId} to {@code Optional.empty()} (untenanted). */
+  public InstanceAssignment(
+      String deploymentName,
+      int instanceIndex,
+      String nodeId,
+      ModuleId moduleId,
+      String artifactPath,
+      OptionalInt renamedFromInstanceIndex) {
+    this(
+        deploymentName,
+        instanceIndex,
+        nodeId,
+        moduleId,
+        artifactPath,
+        renamedFromInstanceIndex,
+        Optional.empty());
   }
 
   /** Back-compat: defaults {@code renamedFromInstanceIndex} to {@code OptionalInt.empty()}. */

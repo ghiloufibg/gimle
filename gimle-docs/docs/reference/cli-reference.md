@@ -18,24 +18,24 @@ Any order, anywhere on the command line:
 ## Verbs
 
 ```text
-gimle get deployments [name]
-gimle get jobs [name]
-gimle get cronjobs [name]
-gimle get daemonsets [name]
-gimle get statefulsets [name]
+gimle get deployments [name] [--tenant <id>]
+gimle get jobs [name] [--tenant <id>]
+gimle get cronjobs [name] [--tenant <id>]
+gimle get daemonsets [name] [--tenant <id>]
+gimle get statefulsets [name] [--tenant <id>]
 gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or ArtifactSet, read from the file itself)
-gimle delete deployment <name>
-gimle delete job <name>
-gimle delete cronjob <name>
-gimle delete daemonset <name>
-gimle delete statefulset <name>
-gimle deployment revisions <name>
-gimle deployment rollback <name> [--to-revision N]
-gimle statefulset revisions <name>
-gimle statefulset rollback <name> [--to-revision N]
-gimle daemonset revisions <name>
-gimle daemonset rollback <name> [--to-revision N]
-gimle cronjob trigger <name>
+gimle delete deployment <name> [--tenant <id>]
+gimle delete job <name> [--tenant <id>]
+gimle delete cronjob <name> [--tenant <id>]
+gimle delete daemonset <name> [--tenant <id>]
+gimle delete statefulset <name> [--tenant <id>]
+gimle deployment revisions <name> [--tenant <id>]
+gimle deployment rollback <name> [--to-revision N] [--tenant <id>]
+gimle statefulset revisions <name> [--tenant <id>]
+gimle statefulset rollback <name> [--to-revision N] [--tenant <id>]
+gimle daemonset revisions <name> [--tenant <id>]
+gimle daemonset rollback <name> [--to-revision N] [--tenant <id>]
+gimle cronjob trigger <name> [--tenant <id>]
 gimle get nodes
 gimle get node-assignments <nodeId>
 gimle cordon <nodeId>
@@ -45,16 +45,16 @@ gimle untaint <nodeId> <tenantId>
 gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
 gimle events <deploymentName> <instanceIndex> [--limit N]
-gimle get services [name]
+gimle get services [name] [--tenant <id>]
 gimle set service <name> (--deployment <name> [--deployment ...] | --external-name <host>)
                           --port N [--target-port N] [--tenant <id>] [--session-affinity]
-gimle delete service <name>
-gimle service endpoints <name>
-gimle get networkpolicies [name]
+gimle delete service <name> [--tenant <id>]
+gimle service endpoints <name> [--tenant <id>]
+gimle get networkpolicies [name] [--tenant <id>]
 gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
                                 [--allowed-caller-tenant <id> ... | --deny-all-callers]
                                 [--allowed-callee-tenant <id> ... | --deny-all-callees]
-gimle delete networkpolicy <name>
+gimle delete networkpolicy <name> --tenant <id>
 gimle get tenants [id]
 gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
 gimle delete tenant <id>

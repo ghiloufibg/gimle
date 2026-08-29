@@ -1,12 +1,14 @@
 package com.gimle.mimir.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import java.util.Optional;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
@@ -131,10 +133,20 @@ class ControllerRevisionTest {
   @Test
   void revision_key_combines_workload_kind_and_name_so_kinds_never_collide() {
     assertEquals(
-        "Deployment#orders-service",
-        ControllerRevision.revisionKey("Deployment", "orders-service"));
+        "Deployment#\0orders-service",
+        ControllerRevision.revisionKey("Deployment", Optional.empty(), "orders-service"));
     assertEquals(
-        "StatefulSet#orders-service",
-        ControllerRevision.revisionKey("StatefulSet", "orders-service"));
+        "StatefulSet#\0orders-service",
+        ControllerRevision.revisionKey("StatefulSet", Optional.empty(), "orders-service"));
+  }
+
+  @Test
+  void revision_key_also_scopes_by_tenant_so_tenants_never_collide() {
+    assertEquals(
+        "Deployment#tenant-a\0orders-service",
+        ControllerRevision.revisionKey("Deployment", Optional.of("tenant-a"), "orders-service"));
+    assertNotEquals(
+        ControllerRevision.revisionKey("Deployment", Optional.of("tenant-a"), "orders-service"),
+        ControllerRevision.revisionKey("Deployment", Optional.of("tenant-b"), "orders-service"));
   }
 }

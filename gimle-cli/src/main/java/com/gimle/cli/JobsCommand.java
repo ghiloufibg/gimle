@@ -33,7 +33,8 @@ public final class JobsCommand {
       return;
     }
     String name = args.get(0);
-    OutputFormat.printObject(output, client.getObject("/jobs/" + name), out);
+    String path = TenantQuery.appendTo("/jobs/" + name, args.subList(1, args.size()));
+    OutputFormat.printObject(output, client.getObject(path), out);
   }
 
   public void apply(List<String> args, PrintStream err) {
@@ -47,8 +48,13 @@ public final class JobsCommand {
     OutputFormat.printResult(output, resultBody("applied", name), "job/" + name + " applied", out);
   }
 
-  public void delete(String name) {
-    client.expectSuccess(client.delete("/jobs/" + name));
+  public void delete(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing job name/id");
+    }
+    String name = args.get(0);
+    String path = TenantQuery.appendTo("/jobs/" + name, args.subList(1, args.size()));
+    client.expectSuccess(client.delete(path));
     OutputFormat.printResult(output, resultBody("deleted", name), "job/" + name + " deleted", out);
   }
 

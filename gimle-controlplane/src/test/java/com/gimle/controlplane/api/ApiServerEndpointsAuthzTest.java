@@ -28,6 +28,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -201,7 +202,15 @@ class ApiServerEndpointsAuthzTest {
             PlacementConstraints.NONE,
             Optional.empty(),
             Optional.of(tenantId)));
-    store.putAssignment(new InstanceAssignment("dep-" + tenantId, 0, nodeId));
+    store.putAssignment(
+        new InstanceAssignment(
+            "dep-" + tenantId,
+            0,
+            nodeId,
+            moduleId,
+            "/var/gimle/artifacts/orders-1.0.0.jar",
+            OptionalInt.empty(),
+            Optional.of(tenantId)));
   }
 
   private HttpClient nodeClient(CertificateAuthority ca, String nodeId) throws Exception {

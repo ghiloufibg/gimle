@@ -1,10 +1,11 @@
 package com.gimle.controlplane.admission;
 
+import com.gimle.controlplane.admission.WorkloadResourceProfile.Profile;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.tenant.Tenant;
-import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import java.util.Optional;
 
 /**
@@ -12,14 +13,21 @@ import java.util.Optional;
  * checkTenantQuota}: an unenforceable {@code tenantId} (see {@link Tenant#isEnforceable}) means
  * nothing to check; an unknown tenant, an unreadable artifact, or a submission that would push the
  * tenant past its {@link com.gimle.core.tenant.ResourceQuota} all reject outright. An unreadable
- * artifact rejects the submission for a *tenanted* deployment specifically (unlike {@code
- * DeploymentReconciler}, which just retries next tick with nothing yet at stake), since admission
- * can't safely let a submission through it has no way to verify against the tenant's quota. {@code
- * artifactResolver} is the same shared instance every reconciler resolves through, so an existing
- * tenant deployment resolved from an Andvari registry coordinate is summed correctly here too, not
- * silently read as zero.
+ * artifact rejects the submission for a *tenanted* workload specifically (unlike a reconciler,
+ * which just retries next tick with nothing yet at stake), since admission can't safely let a
+ * submission through it has no way to verify against the tenant's quota. {@code artifactResolver}
+ * is the same shared instance every reconciler resolves through, so an existing tenant workload
+ * resolved from an Andvari registry coordinate is summed correctly here too, not silently read as
+ * zero.
+ *
+ * <p>Generic over every placeable {@link WorkloadSpec} kind (Deployment, Job, DaemonSet,
+ * StatefulSet), not Deployment alone -- see {@link WorkloadResourceProfile}'s own javadoc for how
+ * each kind's own {@code committedInstances} is sized, and {@link TenantUsage}'s for why the
+ * aggregate this checks against must include every kind, not just the one being submitted right
+ * now. A CronJobSpec (which {@link WorkloadResourceProfile#of} has nothing to size) is allowed
+ * through unconditionally -- it is never itself a resource consumer.
  */
-public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> {
+public final class TenantQuotaPlugin implements AdmissionPlugin<WorkloadSpec> {
 
   private final ArtifactResolver artifactResolver;
 
@@ -33,8 +41,8 @@ public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> 
   }
 
   @Override
-  public AdmissionDecision<DeploymentSpec> review(AdmissionRequest<DeploymentSpec> request) {
-    DeploymentSpec spec = request.spec();
+  public AdmissionDecision<WorkloadSpec> review(AdmissionRequest<WorkloadSpec> request) {
+    WorkloadSpec spec = request.spec();
     if (!Tenant.isEnforceable(spec.tenantId())) {
       return AdmissionDecision.allow(spec);
     }
@@ -43,17 +51,20 @@ public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> 
     if (tenant.isEmpty()) {
       return AdmissionDecision.reject("unknown tenantId: " + tenantId);
     }
+    Optional<Profile> profile = WorkloadResourceProfile.of(spec, request.store());
+    if (profile.isEmpty()) {
+      return AdmissionDecision.allow(spec);
+    }
     if (request.artifact().isEmpty()) {
       return AdmissionDecision.reject(
-          "cannot verify tenant quota: artifact unreadable at " + spec.artifactPath());
+          "cannot verify tenant quota: artifact unreadable at " + profile.get().artifactPath());
     }
     ModuleDescriptor descriptor = request.artifact().get().descriptor();
-    // Sums against maxCommittedInstances() (replicas + maxSurge), not replicas alone -- a rollout
-    // that surges may transiently run more instances than replicas declares, and admission has to
-    // charge the tenant's quota for the peak it could actually reach, not just the steady state.
-    // DeploymentManifestParser accepts a nonzero maxSurge today, so this genuinely changes the
-    // admission outcome once a submission's disruption budget surges -- not a no-op.
-    int committed = spec.maxCommittedInstances();
+    // Sums against committedInstances (replicas + maxSurge for a Deployment, plain replicas for a
+    // StatefulSet, always 1 for a Job, currently-registered node count for a DaemonSet), not
+    // "replicas" alone -- admission has to charge the tenant's quota for the peak this submission
+    // could actually reach, not just its steady state. See Profile's own javadoc.
+    int committed = profile.get().committedInstances();
     TenantUsage.Usage existing =
         TenantUsage.currentlyAssigned(
             request.store(), artifactResolver, tenantId, Optional.of(spec.name()));
@@ -64,7 +75,7 @@ public final class TenantQuotaPlugin implements AdmissionPlugin<DeploymentSpec> 
             committed);
     if (withThisSubmission.exceeds(tenant.get().quota())) {
       return AdmissionDecision.reject(
-          "deployment "
+          "workload "
               + spec.name()
               + " would push tenant "
               + tenantId

@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -46,7 +47,7 @@ class ReplicaCountReconcilerTest {
   private static final Duration GRACE_PERIOD = Duration.ofSeconds(5);
 
   private static boolean hasAssignment(StateStore store, String deploymentName, int index) {
-    return store.listAssignmentsFor(deploymentName).stream()
+    return store.listAssignmentsFor(Optional.empty(), deploymentName).stream()
         .anyMatch(a -> a.instanceIndex() == index);
   }
 

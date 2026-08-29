@@ -25,6 +25,7 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -48,6 +49,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -903,13 +905,14 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * The re-tenanting guard: a PUT that would move an existing resource into a different tenant
-   * needs write access under both the tenant it is being moved into <em>and</em> the tenant it
-   * currently belongs to -- otherwise a permission scoped to one tenant could reach across the
-   * boundary and claim a resource out of another tenant it was never granted any access to.
+   * A same-named resource under a different tenant is a wholly independent one, not the same
+   * resource "moved" -- each lives under its own {@code (tenantId, name)} store key (see {@code
+   * StateStore}'s own tenant scoping), so a write scoped to one tenant is sufficient by itself to
+   * create or update that tenant's own "shared", regardless of what any other tenant's identically-
+   * named "shared" holds, and never touches it.
    */
   @Test
-  void a_write_permission_scoped_to_one_tenant_cannot_reclaim_another_tenants_deployment()
+  void a_write_permission_scoped_to_one_tenant_creates_its_own_independent_same_named_deployment()
       throws Exception {
     CertificateAuthority ca =
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
@@ -939,10 +942,10 @@ class ApiServerAuthzTest {
       String cookie = login(client, baseUrl, "acme-writer", "pw");
 
       Path jar = buildFixtureJar("com.gimle.fixture.authz.reclaim");
-      // acme-writer holds DEPLOYMENT:WRITE:acme but not :beta -- resubmitting "shared" under
-      // acme must not succeed just because the *new* tenant is one it's authorized for.
+      // acme-writer holds DEPLOYMENT:WRITE:acme but not :beta -- that alone is sufficient to
+      // create acme's own "shared", since it's a distinct store key from beta's.
       assertEquals(
-          403,
+          200,
           putDeployment(
               client,
               baseUrl,
@@ -952,7 +955,11 @@ class ApiServerAuthzTest {
               jar,
               Optional.of("acme")));
       assertEquals(
-          Optional.of("beta"), store.getDeployment("shared").flatMap(DeploymentSpec::tenantId));
+          Optional.of("beta"),
+          store.getDeployment(Optional.of("beta"), "shared").flatMap(DeploymentSpec::tenantId));
+      assertEquals(
+          Optional.of("acme"),
+          store.getDeployment(Optional.of("acme"), "shared").flatMap(DeploymentSpec::tenantId));
     }
   }
 
@@ -1094,14 +1101,35 @@ class ApiServerAuthzTest {
               jar,
               "gimle-system"),
           "deployment");
-      assertEquals(200, operatorPutJob(operatorClient, baseUrl, "sys-job", "gimle-system"), "job");
       assertEquals(
           200,
-          operatorPutDaemonSet(operatorClient, baseUrl, "sys-ds", "gimle-system"),
+          operatorPutJob(
+              operatorClient,
+              baseUrl,
+              "sys-job",
+              "com.gimle.fixture.authz.operator",
+              jar,
+              "gimle-system"),
+          "job");
+      assertEquals(
+          200,
+          operatorPutDaemonSet(
+              operatorClient,
+              baseUrl,
+              "sys-ds",
+              "com.gimle.fixture.authz.operator",
+              jar,
+              "gimle-system"),
           "daemonset");
       assertEquals(
           200,
-          operatorPutStatefulSet(operatorClient, baseUrl, "sys-sts", "gimle-system"),
+          operatorPutStatefulSet(
+              operatorClient,
+              baseUrl,
+              "sys-sts",
+              "com.gimle.fixture.authz.operator",
+              jar,
+              "gimle-system"),
           "statefulset");
       assertEquals(
           200, operatorPutCronJob(operatorClient, baseUrl, "sys-cj", "gimle-system"), "cronjob");
@@ -1175,14 +1203,37 @@ class ApiServerAuthzTest {
         .statusCode();
   }
 
+  /**
+   * Unlike {@link #putJob}'s own {@link #jobYaml} (fine for an unenforceable, e.g. {@code default},
+   * tenant -- {@link com.gimle.controlplane.admission.TenantQuotaPlugin} never reads its bogus
+   * artifact path at all there), {@code gimle-system} is a real, quota-enforced tenant, so this
+   * needs a real, readable jar the same way {@link #operatorPutDeployment} already does -- an
+   * unreadable path would otherwise reject with 409 before ever reaching the RBAC decision this
+   * test exists to exercise.
+   */
   private static int operatorPutJob(
-      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      HttpClient operatorClient,
+      String baseUrl,
+      String name,
+      String moduleName,
+      Path jar,
+      String tenantId)
       throws IOException, InterruptedException {
+    String yaml =
+        """
+        kind: Job
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        backoffLimit: 3
+        tenantId: %s
+        """
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantId);
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/" + name))
-            .PUT(
-                HttpRequest.BodyPublishers.ofString(
-                    jobYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
             .build();
     return operatorClient
         .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
@@ -1218,14 +1269,32 @@ class ApiServerAuthzTest {
         .statusCode();
   }
 
+  /**
+   * Like {@link #operatorPutJob}, {@code gimle-system} is a real, quota-enforced tenant, so this
+   * needs a real, readable jar rather than {@link #daemonSetYaml}'s own bogus artifact path.
+   */
   private static int operatorPutDaemonSet(
-      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      HttpClient operatorClient,
+      String baseUrl,
+      String name,
+      String moduleName,
+      Path jar,
+      String tenantId)
       throws IOException, InterruptedException {
+    String yaml =
+        """
+        kind: DaemonSet
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        tenantId: %s
+        """
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantId);
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/" + name))
-            .PUT(
-                HttpRequest.BodyPublishers.ofString(
-                    daemonSetYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
             .build();
     return operatorClient
         .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
@@ -1260,14 +1329,33 @@ class ApiServerAuthzTest {
         .statusCode();
   }
 
+  /**
+   * Like {@link #operatorPutJob}, {@code gimle-system} is a real, quota-enforced tenant, so this
+   * needs a real, readable jar rather than {@link #statefulSetYaml}'s own bogus artifact path.
+   */
   private static int operatorPutStatefulSet(
-      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      HttpClient operatorClient,
+      String baseUrl,
+      String name,
+      String moduleName,
+      Path jar,
+      String tenantId)
       throws IOException, InterruptedException {
+    String yaml =
+        """
+        kind: StatefulSet
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        tenantId: %s
+        """
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantId);
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/" + name))
-            .PUT(
-                HttpRequest.BodyPublishers.ofString(
-                    statefulSetYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
             .build();
     return operatorClient
         .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
@@ -1575,7 +1663,18 @@ class ApiServerAuthzTest {
             PlacementConstraints.NONE,
             Optional.empty(),
             Optional.of("acme")));
-    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    // Tenanted to match the deployment above -- workloadTenantId resolves the mint's tenant off
+    // the assignment's own tenantId, not the deployment spec's, so an untenanted assignment here
+    // would make this deployment look untenanted to the mint endpoint.
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of("acme")));
 
     InProcessFafnir inProcessFafnir =
         InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
@@ -1629,14 +1728,20 @@ class ApiServerAuthzTest {
     InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
     StateStore store = inProcessStore.store();
     store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 10_000, 100)));
+    ModuleId gatewayModuleId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
     store.putDaemonSetSpec(
         new DaemonSetSpec(
             "gimle-gateway",
-            new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
+            gatewayModuleId,
             "/tmp/gateway.jar",
             PlacementConstraints.NONE,
             Optional.of("acme"),
             Optional.empty()));
+    // workloadTenantId resolves the mint's tenant off the live assignment's own tenantId, not the
+    // spec's, so a placement must exist here too, carrying the same tenant as the spec above.
+    store.putDaemonSetAssignment(
+        new DaemonSetAssignment(
+            "gimle-gateway", "node-a", gatewayModuleId, "/tmp/gateway.jar", Optional.of("acme")));
 
     try (InProcessStore ignored = inProcessStore;
         InProcessFafnir inProcessFafnir =
@@ -1651,6 +1756,81 @@ class ApiServerAuthzTest {
 
       assertEquals(200, minted.statusCode());
       assertNotNull(Json.asObject(Json.parse(minted.body())).get("token"));
+    }
+  }
+
+  /**
+   * A caller-declared {@code ?tenant=} on a single-resource GET/DELETE must win over the bare-name
+   * search across tenants -- the same {@code kubectl --namespace} semantics {@code apply} already
+   * gets right for writes. Two tenants sharing a bare deployment name is exactly the case where a
+   * bare-name-only lookup silently picks the wrong one: this proves GET returns each tenant's own
+   * copy when asked, and DELETE removes only the tenant explicitly named, leaving the other intact.
+   */
+  @Test
+  void an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name()
+      throws Exception {
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
+
+    try (InProcessStore ignored = inProcessStore;
+        InProcessFafnir inProcessFafnir =
+            InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "http://localhost:" + server.port();
+      HttpClient client = HttpClient.newHttpClient();
+      Path jar = buildFixtureJar("com.gimle.fixture.authz.disambiguate");
+
+      assertEquals(
+          200,
+          putDeployment(
+              client,
+              baseUrl,
+              "",
+              "shared-name",
+              "com.gimle.fixture.authz.disambiguate",
+              jar,
+              Optional.of("acme")));
+      assertEquals(
+          200,
+          putDeployment(
+              client,
+              baseUrl,
+              "",
+              "shared-name",
+              "com.gimle.fixture.authz.disambiguate",
+              jar,
+              Optional.empty()));
+
+      HttpResponse<String> getAcme = get(client, baseUrl + "/deployments/shared-name?tenant=acme");
+      assertEquals(200, getAcme.statusCode());
+      assertTrue(getAcme.body().contains("\"tenantId\":\"acme\""), getAcme.body());
+
+      HttpResponse<String> getDefault =
+          get(client, baseUrl + "/deployments/shared-name?tenant=default");
+      assertEquals(200, getDefault.statusCode());
+      assertTrue(getDefault.body().contains("\"tenantId\":\"default\""), getDefault.body());
+
+      assertEquals(
+          200,
+          client
+              .send(
+                  HttpRequest.newBuilder(
+                          URI.create(baseUrl + "/deployments/shared-name?tenant=acme"))
+                      .DELETE()
+                      .build(),
+                  HttpResponse.BodyHandlers.discarding())
+              .statusCode());
+
+      assertEquals(
+          200,
+          get(client, baseUrl + "/deployments/shared-name?tenant=default").statusCode(),
+          "the default tenant's own copy must survive deleting only acme's");
+      assertEquals(
+          404,
+          get(client, baseUrl + "/deployments/shared-name?tenant=acme").statusCode(),
+          "acme's own copy must be gone");
     }
   }
 

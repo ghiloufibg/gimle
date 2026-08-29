@@ -39,6 +39,15 @@ import java.util.Optional;
  * a worker's own shipped metrics/traces use -- what closes the gap where an operator had no way to
  * discover which worker to pick in the console's Metrics/Traces process picker for a given
  * instance.
+ *
+ * <p>{@code tenantId} is the owning deployment/job's own tenant, copied straight from the
+ * assignment's {@code AssignedInstance#tenantId()} the same observation-building call site already
+ * reads every other field from. Without it, a heartbeat match keyed on {@code (deploymentName,
+ * instanceIndex)} alone cannot tell two different tenants' identically-named workload apart if a
+ * scheduler placement (nothing prevents this once names are tenant-scoped, not globally unique)
+ * ever lands both on the very same node -- every {@code *Reconciler}/{@code
+ * ServiceEndpointResolver} match against this record's own {@code deploymentName}/{@code
+ * instanceIndex} also checks {@code tenantId} for exactly this reason.
  */
 public record InstanceObservation(
     String deploymentName,
@@ -54,7 +63,8 @@ public record InstanceObservation(
     double errorRatePerSecond,
     Map<String, Integer> ports,
     long volumeUsageBytes,
-    Optional<String> workerId) {
+    Optional<String> workerId,
+    Optional<String> tenantId) {
 
   public InstanceObservation {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -79,10 +89,47 @@ public record InstanceObservation(
     if (workerId == null) {
       throw new IllegalArgumentException("workerId must not be null; use Optional.empty()");
     }
+    if (tenantId == null) {
+      throw new IllegalArgumentException("tenantId must not be null; use Optional.empty()");
+    }
     ports = Map.copyOf(ports);
   }
 
-  /** Back-compat: defaults {@code workerId} to {@link Optional#empty()}. */
+  /** Back-compat: defaults {@code tenantId} to {@link Optional#empty()}. */
+  public InstanceObservation(
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId,
+      String lifecycleState,
+      boolean alive,
+      boolean ready,
+      double requestRatePerSecond,
+      int queueDepth,
+      long cpuMillicoresUsed,
+      long memoryBytesUsed,
+      double errorRatePerSecond,
+      Map<String, Integer> ports,
+      long volumeUsageBytes,
+      Optional<String> workerId) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        lifecycleState,
+        alive,
+        ready,
+        requestRatePerSecond,
+        queueDepth,
+        cpuMillicoresUsed,
+        memoryBytesUsed,
+        errorRatePerSecond,
+        ports,
+        volumeUsageBytes,
+        workerId,
+        Optional.empty());
+  }
+
+  /** Back-compat: defaults {@code workerId} and {@code tenantId} to {@link Optional#empty()}. */
   public InstanceObservation(
       String deploymentName,
       int instanceIndex,

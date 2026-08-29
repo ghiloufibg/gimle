@@ -37,15 +37,15 @@ public final class NetworkPolicyRegistry {
     mutations.propose(new StateMutation.PutNetworkPolicy(spec));
   }
 
-  public Optional<NetworkPolicySpec> get(String name) {
-    return store.getNetworkPolicy(name);
+  public Optional<NetworkPolicySpec> get(String tenantId, String name) {
+    return store.getNetworkPolicy(tenantId, name);
   }
 
   public List<NetworkPolicySpec> list() {
     return store.listNetworkPolicies();
   }
 
-  public void remove(String name) {
-    mutations.propose(new StateMutation.RemoveNetworkPolicy(name));
+  public void remove(String tenantId, String name) {
+    mutations.propose(new StateMutation.RemoveNetworkPolicy(tenantId, name));
   }
 }

@@ -40,7 +40,8 @@ public final class StatefulSetsCommand {
       return;
     }
     String name = args.get(0);
-    Map<String, Object> statefulSet = client.getObject("/statefulsets/" + name);
+    String path = TenantQuery.appendTo("/statefulsets/" + name, args.subList(1, args.size()));
+    Map<String, Object> statefulSet = client.getObject(path);
     OutputFormat.printObject(
         output, output == OutputFormat.Kind.TABLE ? humanize(statefulSet) : statefulSet, out);
   }
@@ -57,24 +58,38 @@ public final class StatefulSetsCommand {
         output, resultBody("applied", name), "statefulset/" + name + " applied", out);
   }
 
-  public void delete(String name) {
-    client.expectSuccess(client.delete("/statefulsets/" + name));
+  public void delete(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing statefulset name/id");
+    }
+    String name = args.get(0);
+    String path = TenantQuery.appendTo("/statefulsets/" + name, args.subList(1, args.size()));
+    client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "statefulset/" + name + " deleted", out);
   }
 
-  /** {@code statefulset revisions <name>} -- mirrors {@link DeploymentsCommand#revisions}. */
-  public void revisions(String name) {
-    Map<String, Object> response = client.getObject("/statefulsets/" + name + "/revisions");
+  /**
+   * {@code statefulset revisions <name> [--tenant <id>]} -- mirrors {@link
+   * DeploymentsCommand#revisions}.
+   */
+  public void revisions(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing statefulset name/id");
+    }
+    String name = args.get(0);
+    String path =
+        TenantQuery.appendTo("/statefulsets/" + name + "/revisions", args.subList(1, args.size()));
+    Map<String, Object> response = client.getObject(path);
     OutputFormat.printList(output, Json.asObjectList(response.get("revisions")), out);
   }
 
   /**
-   * {@code statefulset rollback <name> [--to-revision N]} -- mirrors {@link
+   * {@code statefulset rollback <name> [--to-revision N] [--tenant <id>]} -- mirrors {@link
    * DeploymentsCommand#rollback}.
    */
   public void rollback(List<String> args) {
-    String usage = "statefulset rollback requires <name> [--to-revision N]";
+    String usage = "statefulset rollback requires <name> [--to-revision N] [--tenant <id>]";
     if (args.isEmpty()) {
       throw new CliException(usage);
     }
@@ -85,8 +100,9 @@ public final class StatefulSetsCommand {
     if (toRevision != null) {
       body.put("toRevision", parseRevision(toRevision));
     }
-    String response =
-        client.expectSuccess(client.post("/statefulsets/" + name + "/rollback", Json.write(body)));
+    String path =
+        TenantQuery.appendTo("/statefulsets/" + name + "/rollback", args.subList(1, args.size()));
+    String response = client.expectSuccess(client.post(path, Json.write(body)));
     OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
   }
 

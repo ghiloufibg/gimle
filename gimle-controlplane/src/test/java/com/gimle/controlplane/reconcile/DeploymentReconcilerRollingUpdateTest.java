@@ -121,7 +121,7 @@ class DeploymentReconcilerRollingUpdateTest {
   }
 
   private static InstanceAssignment assignmentAt(StateStore store, String name, int index) {
-    return store.listAssignmentsFor(name).stream()
+    return store.listAssignmentsFor(Optional.empty(), name).stream()
         .filter(a -> a.instanceIndex() == index)
         .findFirst()
         .orElseThrow();
@@ -149,13 +149,13 @@ class DeploymentReconcilerRollingUpdateTest {
     reconciler.reconcileOnce();
     assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 0).moduleId());
     assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
     // Not yet ready: a second reconcile must not touch index 1 or start a second migration --
     // the default disruption budget (no disruption: block) is maxUnavailable: 1.
     reconciler.reconcileOnce();
     assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
     markReady(store, "node-a", "orders-service", 0, v2.moduleId());
     // A single tick both clears index 0 (now confirmed ready) and, since budget is freed in the
@@ -163,7 +163,7 @@ class DeploymentReconcilerRollingUpdateTest {
     // top-up model, not a settle-then-scan one.
     reconciler.reconcileOnce();
     assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 0).moduleId());
-    assertEquals(Set.of(1), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(1), store.getRollingIndices(Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -185,7 +185,7 @@ class DeploymentReconcilerRollingUpdateTest {
     DeploymentSpec v2 = deployment("orders-service", 2, jarV2);
     store.putDeployment(v2);
     reconciler.reconcileOnce();
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
     assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
 
     // Simulate a control-plane restart: a fresh DeploymentReconciler with no in-memory history at
@@ -193,15 +193,15 @@ class DeploymentReconcilerRollingUpdateTest {
     // restart with a control-plane replica.
     DeploymentReconciler restartedReconciler = new DeploymentReconciler(store, scheduler);
 
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
     restartedReconciler.reconcileOnce();
     // Index 0 still hasn't turned ready: index 1 must remain untouched even after the restart.
     assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
     markReady(store, "node-a", "orders-service", 0, v2.moduleId());
     restartedReconciler.reconcileOnce(); // clears index 0, immediately tops up with index 1
-    assertEquals(Set.of(1), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(1), store.getRollingIndices(Optional.empty(), "orders-service"));
     assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
   }
 
@@ -229,10 +229,10 @@ class DeploymentReconcilerRollingUpdateTest {
       reconciler.reconcileOnce(); // index 0's readiness is never reported
     }
 
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
     assertEquals(index1Before, assignmentAt(store, "orders-service", 1));
     assertTrue(
-        store.listAssignmentsFor("orders-service").stream()
+        store.listAssignmentsFor(Optional.empty(), "orders-service").stream()
             .anyMatch(a -> a.instanceIndex() == 0 && a.moduleId().equals(v2.moduleId())));
   }
 
@@ -263,7 +263,7 @@ class DeploymentReconcilerRollingUpdateTest {
     DeploymentSpec v2 = deployment("orders-service", 2, jarV2);
     store.putDeployment(v2);
     reconciler.reconcileOnce();
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
     // The stale heartbeat: still reports index 0 as ready, but on the OLD moduleId -- exactly what
     // a node agent that silently kept the old worker running would keep sending forever.
@@ -272,7 +272,7 @@ class DeploymentReconcilerRollingUpdateTest {
 
     assertEquals(
         Set.of(0),
-        store.getRollingIndices("orders-service"),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
         "a ready-but-wrong-moduleId observation must not be mistaken for the rollout completing");
     assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
   }
@@ -305,7 +305,7 @@ class DeploymentReconcilerRollingUpdateTest {
     DeploymentSpec v2 = deployment("orders-service", 1, jarV2);
     store.putDeployment(v2);
     reconciler.reconcileOnce(); // starts rolling index 0 forward to v2
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
     // Index 0 becomes ready on v2 -- but a THIRD version is submitted before the next reconcile
     // tick runs, racing ahead of the check that would otherwise have cleared the in-flight marker.
@@ -320,7 +320,7 @@ class DeploymentReconcilerRollingUpdateTest {
     reconciler.reconcileOnce();
     assertEquals(
         Set.of(0),
-        store.getRollingIndices("orders-service"),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
         "the v1->v2 migration must clear, and the v2->v3 migration it immediately uncovers must"
             + " start in its place -- otherwise this deployment can never roll forward again");
     assertEquals(
@@ -332,7 +332,7 @@ class DeploymentReconcilerRollingUpdateTest {
     reconciler.reconcileOnce();
     assertEquals(
         Set.of(),
-        store.getRollingIndices("orders-service"),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
         "the chained rollout should also complete cleanly, proving rollouts chain instead of"
             + " deadlocking on the first one a newer submission races ahead of");
   }
@@ -362,26 +362,28 @@ class DeploymentReconcilerRollingUpdateTest {
     reconciler.reconcileOnce();
     assertEquals(
         2,
-        store.getRollingIndices("orders-service").size(),
+        store.getRollingIndices(Optional.empty(), "orders-service").size(),
         "maxUnavailable: 2 must start exactly 2 migrations, not all 5 and not just 1");
 
     // Neither of the two in-flight indices is ready yet: a second tick must not exceed the budget.
     reconciler.reconcileOnce();
-    assertEquals(2, store.getRollingIndices("orders-service").size());
+    assertEquals(2, store.getRollingIndices(Optional.empty(), "orders-service").size());
 
     // The lower of the two in-flight indices becomes ready -- the freed slot is topped up with a
     // third migration in the same tick, keeping exactly 2 in flight rather than dropping to 1.
     int firstInFlight =
-        store.getRollingIndices("orders-service").stream().min(Integer::compare).orElseThrow();
+        store.getRollingIndices(Optional.empty(), "orders-service").stream()
+            .min(Integer::compare)
+            .orElseThrow();
     markReady(store, "node-a", "orders-service", firstInFlight, v2.moduleId());
     reconciler.reconcileOnce();
     assertEquals(
         2,
-        store.getRollingIndices("orders-service").size(),
+        store.getRollingIndices(Optional.empty(), "orders-service").size(),
         "a freed slot must be topped up immediately, keeping the in-flight count at the budget"
             + " rather than draining to 1 before starting the next migration");
     assertTrue(
-        store.listAssignmentsFor("orders-service").stream()
+        store.listAssignmentsFor(Optional.empty(), "orders-service").stream()
                 .filter(a -> a.moduleId().equals(v2.moduleId()))
                 .count()
             >= 1);
@@ -397,20 +399,22 @@ class DeploymentReconcilerRollingUpdateTest {
     // and immediately tops back up, needing at most 2 more ticks to finish the remaining 4 -- the
     // loop exists to guard against a stalled/non-converging bug turning into an infinite loop, not
     // because this scenario is expected to need anywhere near 10.
-    for (int tick = 0; tick < 10 && !store.getRollingIndices("orders-service").isEmpty(); tick++) {
+    for (int tick = 0;
+        tick < 10 && !store.getRollingIndices(Optional.empty(), "orders-service").isEmpty();
+        tick++) {
       markManyReady(
           store,
           "node-a",
           "orders-service",
           v2.moduleId(),
-          store.getRollingIndices("orders-service"));
+          store.getRollingIndices(Optional.empty(), "orders-service"));
       reconciler.reconcileOnce();
     }
     assertTrue(
-        store.listAssignmentsFor("orders-service").stream()
+        store.listAssignmentsFor(Optional.empty(), "orders-service").stream()
             .allMatch(a -> a.moduleId().equals(v2.moduleId())),
         "the rollout must fully converge to v2 across every index");
-    assertEquals(Set.of(), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(), store.getRollingIndices(Optional.empty(), "orders-service"));
   }
 
   /**
@@ -461,12 +465,12 @@ class DeploymentReconcilerRollingUpdateTest {
     reconciler.reconcileOnce();
     assertEquals(
         Set.of(0),
-        store.getRollingIndices("orders-service"),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
         "a same-moduleId, different-artifactPath re-apply must still trigger a rollout");
 
     markReady(store, "node-a", "orders-service", 0, moduleId);
     reconciler.reconcileOnce();
-    assertEquals(Set.of(), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(), store.getRollingIndices(Optional.empty(), "orders-service"));
     assertEquals(
         jarV2.toAbsolutePath().toString(),
         assignmentAt(store, "orders-service", 0).artifactPath(),
@@ -504,7 +508,7 @@ class DeploymentReconcilerRollingUpdateTest {
     DeploymentSpec v2 = deployment("orders-service", 1, jarV2);
     store.putDeployment(v2);
     reconciler.reconcileOnce(); // starts rolling index 0 forward; it will never become ready
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
     // A rollback to the known-good v1 is submitted while the broken migration is still in flight
     // -- exactly what an operator would try in this situation.
@@ -515,7 +519,7 @@ class DeploymentReconcilerRollingUpdateTest {
     for (int i = 0; i < 5; i++) {
       reconciler.reconcileOnce();
     }
-    assertEquals(Set.of(0), store.getRollingIndices("orders-service"));
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
     assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 0).moduleId());
 
     // HealthReconciler has now exhausted index 0's restart budget and given up on it.
@@ -537,7 +541,7 @@ class DeploymentReconcilerRollingUpdateTest {
     reconciler.reconcileOnce();
     assertEquals(
         Set.of(0),
-        store.getRollingIndices("orders-service"),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
         "freeing the budget must let the pending rollback to v1 start in the same tick, not stay"
             + " wedged");
     assertEquals(
@@ -549,7 +553,7 @@ class DeploymentReconcilerRollingUpdateTest {
     reconciler.reconcileOnce();
     assertEquals(
         Set.of(),
-        store.getRollingIndices("orders-service"),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
         "the rollback must complete cleanly once its own replacement confirms ready");
   }
 }

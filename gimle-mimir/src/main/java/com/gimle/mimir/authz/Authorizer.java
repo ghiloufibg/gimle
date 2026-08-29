@@ -259,7 +259,7 @@ public final class Authorizer {
   private boolean deploymentTenantAssignedToNode(String nodeId, String tenantId) {
     return store.listAssignments().stream()
         .filter(a -> a.nodeId().equals(nodeId))
-        .map(a -> store.getDeployment(a.deploymentName()))
+        .map(a -> store.getDeployment(a.tenantId(), a.deploymentName()))
         .flatMap(Optional::stream)
         .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
   }
@@ -267,7 +267,7 @@ public final class Authorizer {
   private boolean jobTenantAssignedToNode(String nodeId, String tenantId) {
     return store.listJobRuns().stream()
         .filter(run -> run.nodeId().equals(nodeId))
-        .map(run -> store.getJobSpec(run.jobName()))
+        .map(run -> store.getJobSpec(run.tenantId(), run.jobName()))
         .flatMap(Optional::stream)
         .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
   }
@@ -275,7 +275,7 @@ public final class Authorizer {
   private boolean daemonSetTenantAssignedToNode(String nodeId, String tenantId) {
     return store.listDaemonSetAssignments().stream()
         .filter(a -> a.nodeId().equals(nodeId))
-        .map(a -> store.getDaemonSetSpec(a.daemonSetName()))
+        .map(a -> store.getDaemonSetSpec(a.tenantId(), a.daemonSetName()))
         .flatMap(Optional::stream)
         .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
   }
@@ -283,7 +283,7 @@ public final class Authorizer {
   private boolean statefulSetTenantAssignedToNode(String nodeId, String tenantId) {
     return store.listStatefulSetAssignments().stream()
         .filter(a -> a.nodeId().equals(nodeId))
-        .map(a -> store.getStatefulSetSpec(a.statefulSetName()))
+        .map(a -> store.getStatefulSetSpec(a.tenantId(), a.statefulSetName()))
         .flatMap(Optional::stream)
         .anyMatch(spec -> spec.tenantId().filter(tenantId::equals).isPresent());
   }

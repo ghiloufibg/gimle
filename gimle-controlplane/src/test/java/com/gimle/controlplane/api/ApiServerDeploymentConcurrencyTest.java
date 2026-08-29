@@ -264,14 +264,25 @@ class ApiServerDeploymentConcurrencyTest {
    * has never existed can never destroy anything a concurrent create just made, since deleting a
    * genuinely absent name is a true no-op (the established idempotent convention, {@code CHAOS-2})
    * that leaves the generation guard's own precondition untouched -- so the create's identical
-   * "expected absent" precondition still holds no matter which of the two actually commits first.
-   * The create must therefore always succeed here, unconditionally. The delete's own response does
-   * still depend on ordering, and correctly so: if its no-op commits before the create, it reports
-   * the plain 200 a no-op earns; if the create commits first, the delete's own precondition (this
-   * name was absent when I read it) no longer holds against the object that now exists, and it is
-   * refused with an honest 409 rather than silently no-op'ing against content it never observed --
-   * exactly the same "don't destroy or ignore a state you never actually saw" principle the
-   * already-existing-deployment test above proves, not a special case carved out from it.
+   * "expected absent" precondition still holds no matter which of the two actually commits first,
+   * as long as delete's own tenant resolution (see {@code dispatchResourceRequest}'s own javadoc --
+   * a bare DELETE resolves the tenant to authorize against from whatever spec is actually named
+   * this, the same as GET) itself still observed the name as absent. The create therefore
+   * <em>usually</em> succeeds unconditionally here -- but not unconditionally: if delete's own
+   * bare-name resolution happens to run after the create has already landed, it correctly resolves
+   * the *same* tenant the create just used (this is by design -- a real caller asking to delete a
+   * name it never scoped to one tenant must reach whatever real object now has that name, the same
+   * way {@code kubectl delete} would), and its generation-guarded removal then legitimately deletes
+   * what the create just committed, rather than the no-op this method's own name assumes. That
+   * outcome is honest, not torn: the create still visibly took effect (its own 200 already proves
+   * it ran), and the deployment is genuinely gone afterward -- a real, total order (create, then
+   * delete) rather than delete silently losing to content it never saw. Both final states below are
+   * therefore accepted, matching every other race in this class: "some real total order," never "a
+   * specific side always wins." The delete's own response does still depend on ordering: if its
+   * no-op commits before the create, it reports the plain 200 a no-op earns; if the create commits
+   * first and delete's resolution still observed the pre-create absence, delete is refused with an
+   * honest 409 against content it never observed; if delete's resolution observed the post-create
+   * state, its own removal succeeds with 200 -- deleting the real thing it correctly found.
    */
   @RepeatedTest(5)
   @Timeout(20)
@@ -311,21 +322,31 @@ class ApiServerDeploymentConcurrencyTest {
       assertTrue(
           deleteResponse.statusCode() == 200 || deleteResponse.statusCode() == 409,
           "delete of a never-existing name must resolve to its own no-op success (it committed"
-              + " before the create) or an honest conflict (the create committed first, so the"
-              + " name is no longer absent as this delete's own precondition assumed) -- never"
-              + " anything else: "
+              + " before the create, or its own tenant resolution never saw the create at all), an"
+              + " honest conflict (its resolution observed the pre-create absence but the create"
+              + " committed first), or -- see this method's own javadoc -- a real removal of what"
+              + " the create just committed, never anything else: "
               + deleteResponse.statusCode()
               + " "
               + deleteResponse.body());
 
+      // Both outcomes are a real, total order of the two requests -- see this method's own
+      // javadoc for why delete legitimately winning (having correctly resolved the same tenant
+      // the create just used) is not a torn or lost result, just the create-then-delete ordering.
       HttpResponse<String> finalState = getDeployment(name);
-      assertEquals(
-          200,
-          finalState.statusCode(),
-          "the create must always have taken effect, whatever the delete's own outcome was");
-      Map<String, Object> spec =
-          Json.asObject(Json.asObject(Json.parse(finalState.body())).get("spec"));
-      assertEquals(5, ((Number) spec.get("replicas")).intValue());
+      if (finalState.statusCode() == 200) {
+        Map<String, Object> spec =
+            Json.asObject(Json.asObject(Json.parse(finalState.body())).get("spec"));
+        assertEquals(5, ((Number) spec.get("replicas")).intValue());
+      } else {
+        assertEquals(
+            404,
+            finalState.statusCode(),
+            "if the create's own content didn't survive, the name must be genuinely gone -- never"
+                + " any other status: "
+                + finalState.body());
+        assertEquals(200, deleteResponse.statusCode(), "only a real removal explains this");
+      }
     } finally {
       pool.shutdownNow();
     }

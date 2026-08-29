@@ -29,22 +29,22 @@ describe("HttpNetworkPoliciesRepository", () => {
     expect(init.method).toBe("GET");
   });
 
-  it("fetchOne GETs /networkpolicies/{name}, url-encoding the segment", async () => {
+  it("fetchOne GETs /networkpolicies/{name}?tenant=<id>, url-encoding both segments", async () => {
     const fetchMock = stubFetchSequence([
       () =>
         jsonResponse({
           name: "a/b",
-          tenantId: "acme",
+          tenantId: "acme/co",
           deploymentNames: [],
           allowedCallerTenantIds: [],
         }),
     ]);
     const repo = new HttpNetworkPoliciesRepository();
 
-    await repo.fetchOne("a/b");
+    await repo.fetchOne("a/b", "acme/co");
 
     const [url] = fetchMock.mock.calls[0] as [string];
-    expect(url).toBe("/networkpolicies/a%2Fb");
+    expect(url).toBe("/networkpolicies/a%2Fb?tenant=acme%2Fco");
   });
 
   it("save POSTs the full spec to the bare /networkpolicies collection", async () => {
@@ -69,14 +69,14 @@ describe("HttpNetworkPoliciesRepository", () => {
     });
   });
 
-  it("remove DELETEs /networkpolicies/{name}", async () => {
+  it("remove DELETEs /networkpolicies/{name}?tenant=<id> -- tenantId is always required, never omitted", async () => {
     const fetchMock = stubFetchSequence([() => okResponse()]);
     const repo = new HttpNetworkPoliciesRepository();
 
-    await repo.remove("acme-billing-policy");
+    await repo.remove("acme-billing-policy", "acme");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/networkpolicies/acme-billing-policy");
+    expect(url).toBe("/networkpolicies/acme-billing-policy?tenant=acme");
     expect(init.method).toBe("DELETE");
   });
 });

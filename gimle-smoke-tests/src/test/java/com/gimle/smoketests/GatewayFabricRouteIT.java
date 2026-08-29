@@ -143,11 +143,16 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30));
 
     Await.until(
-        () -> daemonSetActiveNodeCount(baseUrl, "gimle-gateway") == 1,
+        () ->
+            daemonSetActiveNodeCount(
+                    baseUrl, "gimle-gateway", Optional.of(Tenant.RESERVED_SYSTEM_TENANT_ID))
+                == 1,
         Duration.ofSeconds(90),
         "the gimle-gateway DaemonSet should place exactly one ACTIVE instance, on the sole"
             + " edge-labeled node");
-    assertTrue(daemonSetHasNodeAssignment(baseUrl, "gimle-gateway", EDGE_NODE_ID));
+    assertTrue(
+        daemonSetHasNodeAssignment(
+            baseUrl, "gimle-gateway", EDGE_NODE_ID, Optional.of(Tenant.RESERVED_SYSTEM_TENANT_ID)));
 
     Await.until(
         () ->

@@ -176,7 +176,8 @@ public final class HealthReconciler {
             ReconcilerInstanceState.ABSENT,
             false,
             persisted.permanentlyFailed(),
-            persisted.firstSeenMissingAtEpochMilli()));
+            persisted.firstSeenMissingAtEpochMilli(),
+            assignment.tenantId()));
   }
 
   private void handleUnhealthy(
@@ -195,6 +196,7 @@ public final class HealthReconciler {
         // deployment's future rollouts forever.
         mutations.propose(
             new StateMutation.AppendInstanceEvent(
+                assignment.tenantId(),
                 new InstanceEvent(
                     UUID.randomUUID().toString(),
                     assignment.deploymentName(),
@@ -216,7 +218,7 @@ public final class HealthReconciler {
       mutations.proposeAll(
           List.of(
               new StateMutation.RemoveAssignment(
-                  assignment.deploymentName(), assignment.instanceIndex()),
+                  assignment.tenantId(), assignment.deploymentName(), assignment.instanceIndex()),
               saveMutation(trackerState(assignment, persisted, tracker, false, false))));
       return;
     }
@@ -267,7 +269,8 @@ public final class HealthReconciler {
             : tracker.nextAllowedAttempt().toEpochMilli(),
         pendingRetry,
         permanentlyFailed,
-        previous.firstSeenMissingAtEpochMilli());
+        previous.firstSeenMissingAtEpochMilli(),
+        assignment.tenantId());
   }
 
   private void save(ReconcilerInstanceState state) {
@@ -277,14 +280,15 @@ public final class HealthReconciler {
   private static StateMutation saveMutation(ReconcilerInstanceState state) {
     if (state.isEmpty()) {
       return new StateMutation.RemoveReconcilerInstanceState(
-          state.deploymentName(), state.instanceIndex());
+          state.tenantId(), state.deploymentName(), state.instanceIndex());
     }
     return new StateMutation.PutReconcilerInstanceState(state);
   }
 
   private ReconcilerInstanceState currentState(InstanceAssignment assignment) {
     return store
-        .getReconcilerInstanceState(assignment.deploymentName(), assignment.instanceIndex())
+        .getReconcilerInstanceState(
+            assignment.tenantId(), assignment.deploymentName(), assignment.instanceIndex())
         .orElseGet(() -> emptyState(assignment));
   }
 
@@ -297,7 +301,8 @@ public final class HealthReconciler {
         ReconcilerInstanceState.ABSENT,
         false,
         false,
-        ReconcilerInstanceState.ABSENT);
+        ReconcilerInstanceState.ABSENT,
+        assignment.tenantId());
   }
 
   private Optional<InstanceObservation> findObservation(InstanceAssignment assignment) {
@@ -310,8 +315,12 @@ public final class HealthReconciler {
   private static Optional<InstanceObservation> findIn(
       NodeHeartbeat heartbeat, InstanceAssignment assignment) {
     for (InstanceObservation observation : heartbeat.instances()) {
+      // tenantId included in the match, not just (deploymentName, instanceIndex) -- see
+      // InstanceObservation's own javadoc for why: two different tenants' identically-named
+      // deployment can otherwise land the same instanceIndex on the very same node.
       if (observation.deploymentName().equals(assignment.deploymentName())
-          && observation.instanceIndex() == assignment.instanceIndex()) {
+          && observation.instanceIndex() == assignment.instanceIndex()
+          && observation.tenantId().equals(assignment.tenantId())) {
         return Optional.of(observation);
       }
     }

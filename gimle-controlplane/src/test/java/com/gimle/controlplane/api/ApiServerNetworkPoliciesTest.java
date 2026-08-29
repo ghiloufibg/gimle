@@ -92,7 +92,8 @@ class ApiServerNetworkPoliciesTest {
 
     HttpResponse<String> get =
         send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/deny-by-default"))
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/networkpolicies/deny-by-default?tenant=acme"))
                 .GET()
                 .build());
     assertEquals(200, get.statusCode());
@@ -117,7 +118,7 @@ class ApiServerNetworkPoliciesTest {
 
     HttpResponse<String> get =
         send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/deny-all"))
+            HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/deny-all?tenant=acme"))
                 .GET()
                 .build());
     assertEquals(200, get.statusCode());
@@ -129,7 +130,10 @@ class ApiServerNetworkPoliciesTest {
   @Timeout(10)
   void get_of_an_unknown_network_policy_is_404() throws Exception {
     HttpResponse<String> response =
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/nope")).GET().build());
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/nope?tenant=acme"))
+                .GET()
+                .build());
     assertEquals(404, response.statusCode());
   }
 
@@ -145,14 +149,16 @@ class ApiServerNetworkPoliciesTest {
 
     HttpResponse<String> delete =
         send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/deny-by-default"))
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/networkpolicies/deny-by-default?tenant=acme"))
                 .DELETE()
                 .build());
     assertEquals(200, delete.statusCode());
 
     HttpResponse<String> get =
         send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/deny-by-default"))
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/networkpolicies/deny-by-default?tenant=acme"))
                 .GET()
                 .build());
     assertEquals(404, get.statusCode());
@@ -233,7 +239,8 @@ class ApiServerNetworkPoliciesTest {
 
     HttpResponse<String> get =
         send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/deny-by-default"))
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/networkpolicies/deny-by-default?tenant=acme"))
                 .GET()
                 .build());
     Map<String, Object> spec = Json.asObject(Json.parse(get.body()));
@@ -268,7 +275,8 @@ class ApiServerNetworkPoliciesTest {
 
       HttpResponse<String> getFromSecondReplica =
           send(
-              HttpRequest.newBuilder(URI.create(secondBaseUrl + "/networkpolicies/deny-by-default"))
+              HttpRequest.newBuilder(
+                      URI.create(secondBaseUrl + "/networkpolicies/deny-by-default?tenant=acme"))
                   .GET()
                   .build());
       assertEquals(200, getFromSecondReplica.statusCode());
@@ -296,7 +304,10 @@ class ApiServerNetworkPoliciesTest {
             .build());
 
     HttpResponse<String> get =
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/scoped")).GET().build());
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/networkpolicies/scoped?tenant=acme"))
+                .GET()
+                .build());
     Map<String, Object> spec = Json.asObject(Json.parse(get.body()));
     assertEquals(List.of("orders-service"), spec.get("deploymentNames"));
   }

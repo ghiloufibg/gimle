@@ -1178,15 +1178,16 @@ class GimleCliTest {
     assertTrue(stdout().contains("acme-policy"));
 
     outBuffer.reset();
-    int getSingleExit = run("-o", "json", "get", "networkpolicy", "acme-policy");
+    int getSingleExit =
+        run("-o", "json", "get", "networkpolicy", "acme-policy", "--tenant", "acme");
     assertEquals(0, getSingleExit);
     assertTrue(stdout().contains("\"tenantId\":\"acme\""));
     assertTrue(stdout().contains("\"allowedCallerTenantIds\":[\"partner\"]"));
 
-    int deleteExit = run("delete", "networkpolicy", "acme-policy");
+    int deleteExit = run("delete", "networkpolicy", "acme-policy", "--tenant", "acme");
     assertEquals(0, deleteExit);
     outBuffer.reset();
-    int getAfterDeleteExit = run("get", "networkpolicy", "acme-policy");
+    int getAfterDeleteExit = run("get", "networkpolicy", "acme-policy", "--tenant", "acme");
     assertEquals(1, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
@@ -1215,7 +1216,7 @@ class GimleCliTest {
     assertEquals(0, setExit, stderr());
 
     outBuffer.reset();
-    int getExit = run("-o", "json", "get", "networkpolicy", "acme-egress");
+    int getExit = run("-o", "json", "get", "networkpolicy", "acme-egress", "--tenant", "acme");
     assertEquals(0, getExit);
     assertTrue(stdout().contains("\"serviceInterfaceNames\":[\"com.acme.Orders\"]"), stdout());
     assertTrue(stdout().contains("\"allowedCalleeTenantIds\":[\"partner\"]"), stdout());
@@ -1231,9 +1232,16 @@ class GimleCliTest {
 
   @Test
   void get_networkpolicy_not_found_produces_a_clear_error() {
-    int exit = run("get", "networkpolicy", "does-not-exist");
+    int exit = run("get", "networkpolicy", "does-not-exist", "--tenant", "acme");
     assertEquals(1, exit);
     assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
+  void get_networkpolicy_without_a_tenant_flag_fails_client_side() {
+    int exit = run("get", "networkpolicy", "does-not-exist");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("--tenant"));
   }
 
   // ---- table-output humanization for get nodes / get deployments ----
