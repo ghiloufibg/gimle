@@ -292,8 +292,13 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   boolean isQuotaViolating(String baseUrl, String deploymentName) {
+    return isQuotaViolating(baseUrl, deploymentName, Optional.empty());
+  }
+
+  /** Like {@link #isQuotaViolating(String, String)}, but for a tenant-scoped deployment. */
+  boolean isQuotaViolating(String baseUrl, String deploymentName, Optional<String> tenantId) {
     try {
-      Map<String, Object> status = deploymentStatus(baseUrl, deploymentName);
+      Map<String, Object> status = deploymentStatus(baseUrl, deploymentName, tenantId);
       return Boolean.TRUE.equals(status.get("quotaViolating"));
     } catch (Exception e) {
       return false;
@@ -2261,9 +2266,23 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   Map<String, Object> daemonSetStatus(String baseUrl, String name) throws Exception {
+    return daemonSetStatus(baseUrl, name, Optional.empty());
+  }
+
+  /** Like {@link #daemonSetStatus(String, String)}, but for a tenant-scoped DaemonSet -- see
+   * {@link #providerLogShowsTheSecret(String, Optional)}'s own javadoc for why this is needed. */
+  Map<String, Object> daemonSetStatus(String baseUrl, String name, Optional<String> tenantId)
+      throws Exception {
     HttpResponse<String> response =
         httpClient.send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/" + name)).GET().build(),
+            HttpRequest.newBuilder(
+                    URI.create(
+                        baseUrl
+                            + "/daemonsets/"
+                            + name
+                            + tenantId.map(id -> "?tenant=" + id).orElse("")))
+                .GET()
+                .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     if (response.statusCode() != 200) {
       return Map.of("instances", List.of());
@@ -2273,8 +2292,13 @@ abstract class GreeterSmokeClusterSupport {
 
   /** One instance per node, always at index 0 -- {@code ApiServer#daemonSetStatus}'s own shape. */
   int daemonSetActiveNodeCount(String baseUrl, String name) {
+    return daemonSetActiveNodeCount(baseUrl, name, Optional.empty());
+  }
+
+  /** Like {@link #daemonSetActiveNodeCount(String, String)}, but for a tenant-scoped DaemonSet. */
+  int daemonSetActiveNodeCount(String baseUrl, String name, Optional<String> tenantId) {
     try {
-      Map<String, Object> status = daemonSetStatus(baseUrl, name);
+      Map<String, Object> status = daemonSetStatus(baseUrl, name, tenantId);
       List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
       int count = 0;
       for (Map<String, Object> instance : instances) {
@@ -2291,8 +2315,14 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   boolean daemonSetHasNodeAssignment(String baseUrl, String name, String nodeId) {
+    return daemonSetHasNodeAssignment(baseUrl, name, nodeId, Optional.empty());
+  }
+
+  /** Like {@link #daemonSetHasNodeAssignment(String, String, String)}, but tenant-scoped. */
+  boolean daemonSetHasNodeAssignment(
+      String baseUrl, String name, String nodeId, Optional<String> tenantId) {
     try {
-      Map<String, Object> status = daemonSetStatus(baseUrl, name);
+      Map<String, Object> status = daemonSetStatus(baseUrl, name, tenantId);
       List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
       for (Map<String, Object> instance : instances) {
         if (nodeId.equals(instance.get("nodeId"))) {
@@ -2651,8 +2681,13 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   boolean isActive(String baseUrl, String deploymentName) {
+    return isActive(baseUrl, deploymentName, Optional.empty());
+  }
+
+  /** Like {@link #isActive(String, String)}, but for a tenant-scoped deployment. */
+  boolean isActive(String baseUrl, String deploymentName, Optional<String> tenantId) {
     try {
-      Map<String, Object> status = deploymentStatus(baseUrl, deploymentName);
+      Map<String, Object> status = deploymentStatus(baseUrl, deploymentName, tenantId);
       List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
       if (instances.isEmpty()) {
         return false;
@@ -2709,8 +2744,19 @@ abstract class GreeterSmokeClusterSupport {
   /** {@link #assertConditionHoldsThroughout} specialized to "deployment stays fully ACTIVE." */
   void assertStaysActive(String baseUrl, String deploymentName, Duration window, String message)
       throws InterruptedException {
+    assertStaysActive(baseUrl, deploymentName, Optional.empty(), window, message);
+  }
+
+  /** Like {@link #assertStaysActive(String, String, Duration, String)}, but tenant-scoped. */
+  void assertStaysActive(
+      String baseUrl,
+      String deploymentName,
+      Optional<String> tenantId,
+      Duration window,
+      String message)
+      throws InterruptedException {
     assertConditionHoldsThroughout(
-        () -> isActive(baseUrl, deploymentName), window, Duration.ofSeconds(5), message);
+        () -> isActive(baseUrl, deploymentName, tenantId), window, Duration.ofSeconds(5), message);
   }
 
   /**
@@ -2737,7 +2783,23 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   Map<String, Object> deploymentStatus(String baseUrl, String deploymentName) {
-    Optional<HttpResponse<String>> response = tryGet(baseUrl + "/deployments/" + deploymentName);
+    return deploymentStatus(baseUrl, deploymentName, Optional.empty());
+  }
+
+  /**
+   * Like {@link #deploymentStatus(String, String)}, but for a tenant-scoped deployment -- {@code
+   * GET /deployments/{name}} now addresses the untenanted namespace unless the caller declares
+   * {@code ?tenant=}, the same convention {@code ApiServer#dispatchResourceRequest} documents for
+   * every per-tenant resource kind.
+   */
+  Map<String, Object> deploymentStatus(
+      String baseUrl, String deploymentName, Optional<String> tenantId) {
+    String url =
+        baseUrl
+            + "/deployments/"
+            + deploymentName
+            + tenantId.map(id -> "?tenant=" + id).orElse("");
+    Optional<HttpResponse<String>> response = tryGet(url);
     if (response.isEmpty() || response.get().statusCode() != 200) {
       return Map.of("instances", List.of());
     }
@@ -2761,8 +2823,23 @@ abstract class GreeterSmokeClusterSupport {
    * observes the cross-worker fabric call.
    */
   boolean providerLogShowsTheSecret(String baseUrl) {
+    return providerLogShowsTheSecret(baseUrl, Optional.empty());
+  }
+
+  /**
+   * Like {@link #providerLogShowsTheSecret(String)}, but for a tenant-scoped
+   * greeter-provider-deployment -- {@code GET /logs/instances/{name}/{index}} resolves its
+   * placement through {@code ApiServer#resolveInstanceNodeId}, which is itself scoped to {@code
+   * ?tenant=} the same way every other per-tenant route is, so a tenanted deployment's logs 404
+   * here unless the caller declares which tenant.
+   */
+  boolean providerLogShowsTheSecret(String baseUrl, Optional<String> tenantId) {
     Optional<HttpResponse<String>> response =
-        tryGet(baseUrl + "/logs/instances/greeter-provider-deployment/0" + "?category=APPLICATION");
+        tryGet(
+            baseUrl
+                + "/logs/instances/greeter-provider-deployment/0"
+                + "?category=APPLICATION"
+                + tenantId.map(id -> "&tenant=" + id).orElse(""));
     return response.isPresent()
         && response.get().statusCode() == 200
         && response.get().body().contains(SECRET_VALUE);
@@ -2775,6 +2852,18 @@ abstract class GreeterSmokeClusterSupport {
    */
   boolean instanceLogContains(
       String baseUrl, String deploymentName, int instanceIndex, String category, String text) {
+    return instanceLogContains(baseUrl, deploymentName, instanceIndex, category, text, Optional.empty());
+  }
+
+  /** Like {@link #instanceLogContains}, but for a tenant-scoped deployment -- see {@link
+   * #providerLogShowsTheSecret(String, Optional)}'s own javadoc for why. */
+  boolean instanceLogContains(
+      String baseUrl,
+      String deploymentName,
+      int instanceIndex,
+      String category,
+      String text,
+      Optional<String> tenantId) {
     Optional<HttpResponse<String>> response =
         tryGet(
             baseUrl
@@ -2783,7 +2872,8 @@ abstract class GreeterSmokeClusterSupport {
                 + "/"
                 + instanceIndex
                 + "?category="
-                + category);
+                + category
+                + tenantId.map(id -> "&tenant=" + id).orElse(""));
     return response.isPresent()
         && response.get().statusCode() == 200
         && response.get().body().contains(text);

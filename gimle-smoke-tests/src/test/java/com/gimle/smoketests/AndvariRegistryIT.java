@@ -87,7 +87,7 @@ class AndvariRegistryIT extends GreeterSmokeClusterSupport {
         Duration.ofSeconds(30));
 
     Await.until(
-        () -> isActive(readUrl, DEPLOYMENT_NAME),
+        () -> isActive(readUrl, DEPLOYMENT_NAME, Optional.of(SECRET_TENANT_ID)),
         Duration.ofSeconds(90),
         DEPLOYMENT_NAME
             + " should reach ACTIVE from a registry-resolved jar, observed through a different"

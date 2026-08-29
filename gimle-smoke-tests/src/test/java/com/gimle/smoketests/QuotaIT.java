@@ -64,11 +64,11 @@ class QuotaIT extends GreeterSmokeClusterSupport {
         Optional.of(quotaTenantId),
         Duration.ofSeconds(30));
     Await.until(
-        () -> isActive(baseUrl, "greeter-provider-deployment"),
+        () -> isActive(baseUrl, "greeter-provider-deployment", Optional.of(quotaTenantId)),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE under a compliant quota");
     assertFalse(
-        isQuotaViolating(baseUrl, "greeter-provider-deployment"),
+        isQuotaViolating(baseUrl, "greeter-provider-deployment", Optional.of(quotaTenantId)),
         "should not be flagged while comfortably within quota");
 
     // Retroactively lower the same tenant's quota below what's already running -- QuotaReconciler's
@@ -76,7 +76,7 @@ class QuotaIT extends GreeterSmokeClusterSupport {
     putTenantQuota(baseUrl, quotaTenantId, 1L, 1L, 0);
 
     Await.until(
-        () -> isQuotaViolating(baseUrl, "greeter-provider-deployment"),
+        () -> isQuotaViolating(baseUrl, "greeter-provider-deployment", Optional.of(quotaTenantId)),
         Duration.ofSeconds(30),
         "greeter-provider-deployment should be flagged quota-violating once its tenant's quota is"
             + " retroactively lowered below what's already running");
@@ -92,6 +92,7 @@ class QuotaIT extends GreeterSmokeClusterSupport {
     assertStaysActive(
         baseUrl,
         "greeter-provider-deployment",
+        Optional.of(quotaTenantId),
         Duration.ofSeconds(5),
         "a quota-violating deployment must stay untouched, never evicted, per QuotaReconciler's"
             + " own documented contract");
@@ -136,7 +137,7 @@ class QuotaIT extends GreeterSmokeClusterSupport {
         Optional.of(tenantId),
         Duration.ofSeconds(30));
     Await.until(
-        () -> isActive(baseUrl, "greeter-provider-quota-admission-a"),
+        () -> isActive(baseUrl, "greeter-provider-quota-admission-a", Optional.of(tenantId)),
         Duration.ofSeconds(60),
         "the first deployment should reach ACTIVE while comfortably within quota");
 
@@ -158,7 +159,10 @@ class QuotaIT extends GreeterSmokeClusterSupport {
     HttpResponse<String> secondDeploymentStatus =
         httpClient.send(
             HttpRequest.newBuilder(
-                    URI.create(baseUrl + "/deployments/greeter-provider-quota-admission-b"))
+                    URI.create(
+                        baseUrl
+                            + "/deployments/greeter-provider-quota-admission-b?tenant="
+                            + tenantId))
                 .GET()
                 .build(),
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -169,7 +173,7 @@ class QuotaIT extends GreeterSmokeClusterSupport {
             + " zero-instances/pending state");
 
     assertTrue(
-        isActive(baseUrl, "greeter-provider-quota-admission-a"),
+        isActive(baseUrl, "greeter-provider-quota-admission-a", Optional.of(tenantId)),
         "the first, already-compliant deployment must be completely unaffected by the second"
             + " submission's rejection");
   }

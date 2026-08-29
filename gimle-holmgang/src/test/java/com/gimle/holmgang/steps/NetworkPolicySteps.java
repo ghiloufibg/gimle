@@ -45,6 +45,7 @@ public final class NetworkPolicySteps {
       final String allowedCallerTenantId,
       final int replica) {
     postNetworkPolicy(replica, name, tenantId, List.of(), List.of(allowedCallerTenantId));
+    world.networkPolicyTenants.put(name, tenantId);
   }
 
   @Then("within {int}s network policy {string} is visible via control-plane replica {int}")
@@ -122,9 +123,19 @@ public final class NetworkPolicySteps {
     }
   }
 
-  /** Empty when the policy doesn't exist yet on this replica -- a legitimate transient state. */
+  /**
+   * Empty when the policy doesn't exist yet on this replica -- a legitimate transient state.
+   * NetworkPolicy's {@code tenantId} is never optional (see {@code ApiServer#handleNetworkPolicy}),
+   * so this resolves it from whatever {@code aNetworkPolicyIsCreatedViaReplica} recorded under this
+   * same {@code name} rather than requiring every calling step's own Gherkin sentence to repeat it.
+   */
   private Optional<Map<String, Object>> getNetworkPolicy(final int replica, final String name) {
-    final String url = world.cluster().api(replica).baseUrl() + "/networkpolicies/" + name;
+    final String tenantId = world.networkPolicyTenants.get(name);
+    final String url =
+        world.cluster().api(replica).baseUrl()
+            + "/networkpolicies/"
+            + name
+            + (tenantId != null ? "?tenant=" + tenantId : "");
     final HttpResponse<String> response;
     try {
       response =

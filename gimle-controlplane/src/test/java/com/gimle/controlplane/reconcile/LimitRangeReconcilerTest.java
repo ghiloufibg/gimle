@@ -75,10 +75,10 @@ class LimitRangeReconcilerTest {
 
     new LimitRangeReconciler(store).reconcileOnce();
 
-    assertTrue(store.isLimitRangeViolating("orders"));
+    assertTrue(store.isLimitRangeViolating(Optional.of("acme"), "orders"));
     assertEquals(
         "request memory 16Mi below minimum 32Mi",
-        store.limitRangeViolationReason("orders").orElseThrow());
+        store.limitRangeViolationReason(Optional.of("acme"), "orders").orElseThrow());
   }
 
   @Test
@@ -96,7 +96,7 @@ class LimitRangeReconcilerTest {
 
     new LimitRangeReconciler(store).reconcileOnce();
 
-    assertFalse(store.isLimitRangeViolating("orders"));
+    assertFalse(store.isLimitRangeViolating(Optional.of("acme"), "orders"));
   }
 
   @Test
@@ -113,7 +113,7 @@ class LimitRangeReconcilerTest {
 
     new LimitRangeReconciler(store).reconcileOnce();
 
-    assertFalse(store.isLimitRangeViolating("orders"));
+    assertFalse(store.isLimitRangeViolating(Optional.empty(), "orders"));
   }
 
   @Test
@@ -124,7 +124,7 @@ class LimitRangeReconcilerTest {
 
     new LimitRangeReconciler(store).reconcileOnce();
 
-    assertFalse(store.isLimitRangeViolating("orders"));
+    assertFalse(store.isLimitRangeViolating(Optional.of("acme"), "orders"));
   }
 
   @Test
@@ -142,7 +142,8 @@ class LimitRangeReconcilerTest {
     // Simulate a violation already recorded from a previous tick, before this reconciler instance
     // ever ran -- a fresh LimitRangeReconciler must still converge correctly from this pre-set
     // state, matching QuotaReconciler's own identical convergence test.
-    store.putLimitRangeViolation("orders", "request memory 16Mi below minimum 32Mi");
+    store.putLimitRangeViolation(
+        Optional.of("acme"), "orders", "request memory 16Mi below minimum 32Mi");
 
     store.putLimitRange(
         new LimitRangeSpec(
@@ -153,8 +154,8 @@ class LimitRangeReconcilerTest {
             Optional.empty()));
     new LimitRangeReconciler(store).reconcileOnce();
 
-    assertFalse(store.isLimitRangeViolating("orders"));
-    assertTrue(store.limitRangeViolationReason("orders").isEmpty());
+    assertFalse(store.isLimitRangeViolating(Optional.of("acme"), "orders"));
+    assertTrue(store.limitRangeViolationReason(Optional.of("acme"), "orders").isEmpty());
   }
 
   @Test
@@ -172,7 +173,7 @@ class LimitRangeReconcilerTest {
     new LimitRangeReconciler(store).reconcileOnce();
     assertEquals(
         "request memory 16Mi below minimum 32Mi",
-        store.limitRangeViolationReason("orders").orElseThrow());
+        store.limitRangeViolationReason(Optional.of("acme"), "orders").orElseThrow());
 
     // Relax the memory floor but tighten the limit ceiling below the fixture's 32Mi limit instead
     // -- still violating, but for a different reason entirely.
@@ -185,10 +186,10 @@ class LimitRangeReconcilerTest {
             Optional.of(new ResourceSpec("16Mi", "20m"))));
     new LimitRangeReconciler(store).reconcileOnce();
 
-    assertTrue(store.isLimitRangeViolating("orders"));
+    assertTrue(store.isLimitRangeViolating(Optional.of("acme"), "orders"));
     assertEquals(
         "limit memory 32Mi above maximum 16Mi",
-        store.limitRangeViolationReason("orders").orElseThrow());
+        store.limitRangeViolationReason(Optional.of("acme"), "orders").orElseThrow());
   }
 
   @Test
@@ -207,7 +208,7 @@ class LimitRangeReconcilerTest {
 
     new LimitRangeReconciler(store).reconcileOnce();
 
-    assertFalse(store.isLimitRangeViolating("broken"));
-    assertTrue(store.isLimitRangeViolating("orders"));
+    assertFalse(store.isLimitRangeViolating(Optional.of("acme"), "broken"));
+    assertTrue(store.isLimitRangeViolating(Optional.of("acme"), "orders"));
   }
 }

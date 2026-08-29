@@ -34,7 +34,8 @@ public final class CronJobsCommand {
       return;
     }
     String name = args.get(0);
-    OutputFormat.printObject(output, client.getObject("/cronjobs/" + name), out);
+    String path = TenantQuery.appendTo("/cronjobs/" + name, args.subList(1, args.size()));
+    OutputFormat.printObject(output, client.getObject(path), out);
   }
 
   public void apply(List<String> args, PrintStream err) {
@@ -49,8 +50,13 @@ public final class CronJobsCommand {
         output, resultBody("applied", name), "cronjob/" + name + " applied", out);
   }
 
-  public void delete(String name) {
-    client.expectSuccess(client.delete("/cronjobs/" + name));
+  public void delete(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing cronjob name/id");
+    }
+    String name = args.get(0);
+    String path = TenantQuery.appendTo("/cronjobs/" + name, args.subList(1, args.size()));
+    client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "cronjob/" + name + " deleted", out);
   }
@@ -61,8 +67,13 @@ public final class CronJobsCommand {
    * blocked it) surfaces through {@link ControlPlaneClient#expectSuccess}'s own error path the same
    * way any other rejected write does, not a special case here.
    */
-  public void trigger(String name) {
-    String responseBody = client.expectSuccess(client.post("/cronjobs/" + name + "/trigger", ""));
+  public void trigger(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing cronjob name/id");
+    }
+    String name = args.get(0);
+    String path = TenantQuery.appendTo("/cronjobs/" + name + "/trigger", args.subList(1, args.size()));
+    String responseBody = client.expectSuccess(client.post(path, ""));
     Map<String, Object> body;
     try {
       body = Json.asObject(Json.parse(responseBody));

@@ -377,6 +377,7 @@ public final class StatefulSetReconciler {
             obs ->
                 obs.deploymentName().equals(assignment.statefulSetName())
                     && obs.instanceIndex() == assignment.instanceIndex()
+                    && obs.tenantId().equals(assignment.tenantId())
                     && obs.moduleId().equals(assignment.moduleId())
                     && obs.ready());
   }

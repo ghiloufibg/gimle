@@ -45,9 +45,13 @@ export const useServicesStore = create<State>((set, get) => ({
     }
   },
   async remove(name) {
+    // The item is already loaded (this screen is always reached from the already-fetched list
+    // state), so its own tenantId is looked up here rather than widening this method's public
+    // signature -- every UI call site keeps calling remove(name) unchanged.
+    const tenantId = get().items.find((s) => s.name === name)?.tenantId;
     set({ loading: true, error: null });
     try {
-      await servicesRepo.remove(name);
+      await servicesRepo.remove(name, tenantId);
       set({ items: get().items.filter((s) => s.name !== name), loading: false });
     } catch (e) {
       set({ loading: false, error: (e as Error).message });
@@ -56,8 +60,11 @@ export const useServicesStore = create<State>((set, get) => ({
   },
   // Deliberately never cached alongside `items`: the live endpoint set is reconciler-independent
   // and can change between two reads of an otherwise-unchanged Service, the same reasoning
-  // `ApiServer#handleServiceEndpoints` documents for never serving it from a cache.
+  // `ApiServer#handleServiceEndpoints` documents for never serving it from a cache. tenantId is
+  // looked up from the already-loaded `items` the same way `remove` does, so callers keep passing
+  // just the name.
   async fetchEndpoints(name) {
-    return servicesRepo.fetchEndpoints(name);
+    const tenantId = get().items.find((s) => s.name === name)?.tenantId;
+    return servicesRepo.fetchEndpoints(name, tenantId);
   },
 }));

@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 653,
+  "requirementCount": 656,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -4406,8 +4406,8 @@
       "module": "gimle-controlplane",
       "feature": "Tenant resource quota admission check",
       "category": "Admission / Multi-tenancy",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Behavior broadened: tenant quota admission/reconciliation now covers Job/DaemonSet/StatefulSet as well as Deployment (previously Deployment-only).",
       "coverage": "Covered",
       "holmgangScenarios": [
         {
@@ -8918,8 +8918,8 @@
       "module": "gimle-smoke-tests",
       "feature": "Multi-tenant quota enforcement (flag-not-evict, and admission rejection)",
       "category": "Cluster Validation",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Behavior broadened: tenant quota admission/reconciliation now covers Job/DaemonSet/StatefulSet as well as Deployment (previously Deployment-only).",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "This is itself JUnit-based test/example infrastructure -- Multi-tenant quota enforcement (flag-not-evict, and admission rejection) is exercised by `gimle-smoke-tests`'/`gimle-testkit`'s own real-process tests (see Other test coverage), never by a Holmgang Cucumber scenario; per the strict rule that does not count as Covered.",
@@ -9302,8 +9302,8 @@
       "module": "gimle-holmgang",
       "feature": "Tenant quota retroactive violation (flag, not evict) and admission rejection",
       "category": "Cluster Validation",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Behavior broadened: tenant quota admission/reconciliation now covers Job/DaemonSet/StatefulSet as well as Deployment (previously Deployment-only).",
       "coverage": "Covered",
       "holmgangScenarios": [
         {
@@ -11291,6 +11291,60 @@
       "sourceLocations": [
         "`Flags#parse`",
         "every `Flags.parse` call site across `gimle-cli`"
+      ]
+    },
+    {
+      "id": "GIMLE-654",
+      "module": "gimle-mimir",
+      "feature": "Tenant-scoped resource keying (compound (tenantId, name) store key)",
+      "category": "Multi-tenancy / State store",
+      "status": "New",
+      "statusNote": "New requirement: closes a real cross-tenant collision in the state store (two tenants sharing a Deployment/Job/CronJob/DaemonSet/StatefulSet/Service/NetworkPolicy name could previously overwrite or read each other's resource).",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: extend an existing multi-tenant .feature file (or add one) whose Given/When/Then submits an identically-named Deployment under two different tenants against a real cluster and asserts each tenant's own GET/DELETE resolves only its own spec.",
+      "otherTestCoverage": "`StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/TenantQuery.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-655",
+      "module": "gimle-os",
+      "feature": "Tenant-scoped StatefulSet persistent volume identity",
+      "category": "Multi-tenancy / Storage",
+      "status": "New",
+      "statusNote": "New requirement: closes a real cross-tenant collision in on-disk StatefulSet volume paths (two tenants running an identically-named StatefulSet on the same node could previously allocate into, or reattach to, each other's volume directory).",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that places two tenants' identically-named StatefulSet on the same node against a real cluster and asserts their volume data never mixes.",
+      "otherTestCoverage": "`LocalDiskVolumeManagerTest#two_tenants_with_an_identically_named_statefulset_get_distinct_directories`, `#destroying_one_tenants_volume_leaves_another_tenants_identically_named_one_intact`, `#list_allocated_reports_the_owning_tenant_for_a_tenanted_volume`",
+      "sourceLocations": [
+        "`gimle-os/src/main/java/com/gimle/os/VolumeHandle.java`",
+        "`gimle-os/src/main/java/com/gimle/os/VolumeManager.java`",
+        "`gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-656",
+      "module": "gimle-controlplane",
+      "feature": "Tenant-scoped heartbeat instance-observation matching and instance-log node resolution",
+      "category": "Multi-tenancy / Observability",
+      "status": "New",
+      "statusNote": "New requirement: closes a residual cross-tenant mismatch risk in heartbeat-to-assignment matching and instance-log node resolution.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario placing two tenants' identically-named workload on the same node and asserting health/readiness/log-read never cross tenants.",
+      "otherTestCoverage": "Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
       ]
     }
   ]

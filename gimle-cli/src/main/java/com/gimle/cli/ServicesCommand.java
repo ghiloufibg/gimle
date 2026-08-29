@@ -35,7 +35,8 @@ public final class ServicesCommand {
       return;
     }
     String name = args.get(0);
-    OutputFormat.printObject(output, client.getObject("/services/" + name), out);
+    String path = TenantQuery.appendTo("/services/" + name, args.subList(1, args.size()));
+    OutputFormat.printObject(output, client.getObject(path), out);
   }
 
   public void set(List<String> args) {
@@ -83,15 +84,29 @@ public final class ServicesCommand {
         output, resultBody("configured", name), "service/" + name + " configured", out);
   }
 
-  public void delete(String name) {
-    client.expectSuccess(client.delete("/services/" + name));
+  public void delete(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing service name/id");
+    }
+    String name = args.get(0);
+    String path = TenantQuery.appendTo("/services/" + name, args.subList(1, args.size()));
+    client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "service/" + name + " deleted", out);
   }
 
-  /** {@code GET /services/{name}/endpoints} -- the live, reconciler-independent endpoint set. */
-  public void endpoints(String name) {
-    OutputFormat.printObject(output, client.getObject("/services/" + name + "/endpoints"), out);
+  /**
+   * {@code service endpoints <name> [--tenant <id>]} -- the live, reconciler-independent endpoint
+   * set.
+   */
+  public void endpoints(List<String> args) {
+    if (args.isEmpty()) {
+      throw new CliException("missing service name/id");
+    }
+    String name = args.get(0);
+    String path =
+        TenantQuery.appendTo("/services/" + name + "/endpoints", args.subList(1, args.size()));
+    OutputFormat.printObject(output, client.getObject(path), out);
   }
 
   private static long parsePort(String value) {

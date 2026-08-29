@@ -15,7 +15,7 @@ export interface JobsRepository {
   fetchOne(name: string): Promise<Job>;
   fetchSummary(): Promise<JobsSummary>;
   create(spec: JobSpecInput): Promise<Job>;
-  remove(name: string): Promise<void>;
+  remove(name: string, tenantId?: string | null): Promise<void>;
 }
 
 export class MockJobsRepository implements JobsRepository {
@@ -42,7 +42,9 @@ export class MockJobsRepository implements JobsRepository {
     addJob(j);
     return delay(j);
   }
-  async remove(name: string) {
+  async remove(name: string, _tenantId?: string | null) {
+    // Fixture data is keyed by bare name only -- tenantId is accepted for interface parity with
+    // HttpJobsRepository but unused here.
     removeJob(name);
     return delay(undefined);
   }

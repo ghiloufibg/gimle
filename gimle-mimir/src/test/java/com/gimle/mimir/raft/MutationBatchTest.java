@@ -38,7 +38,8 @@ class MutationBatchTest {
   @Test
   void a_nested_batch_is_rejected() {
     StateMutation.Batch inner =
-        new StateMutation.Batch(List.of(new StateMutation.RemoveDeployment("orders-service", 0)));
+        new StateMutation.Batch(
+            List.of(new StateMutation.RemoveDeployment(Optional.empty(), "orders-service", 0)));
     assertThrows(IllegalArgumentException.class, () -> new StateMutation.Batch(List.of(inner)));
   }
 
@@ -50,12 +51,13 @@ class MutationBatchTest {
             List.of(
                 new StateMutation.PutDeployment(deployment("orders-service"), 0),
                 new StateMutation.PutDeployment(deployment("catalog-service"), 0),
-                new StateMutation.RemoveDeployment("orders-service", 1)))
+                new StateMutation.RemoveDeployment(Optional.empty(), "orders-service", 1)))
         .applyTo(store);
 
-    assertTrue(store.getDeployment("orders-service").isEmpty());
+    assertTrue(store.getDeployment(Optional.empty(), "orders-service").isEmpty());
     assertEquals(
-        Optional.of(deployment("catalog-service")), store.getDeployment("catalog-service"));
+        Optional.of(deployment("catalog-service")),
+        store.getDeployment(Optional.empty(), "catalog-service"));
   }
 
   @Test
@@ -80,7 +82,7 @@ class MutationBatchTest {
           proposed.add(m);
           return MutationOutcome.accepted();
         };
-    StateMutation only = new StateMutation.RemoveDeployment("orders-service", 0);
+    StateMutation only = new StateMutation.RemoveDeployment(Optional.empty(), "orders-service", 0);
 
     sink.proposeAll(List.of(only));
 
@@ -98,7 +100,7 @@ class MutationBatchTest {
     List<StateMutation> burst =
         List.of(
             new StateMutation.PutDeployment(deployment("orders-service"), 0),
-            new StateMutation.RemoveDeployment("catalog-service", 0));
+            new StateMutation.RemoveDeployment(Optional.empty(), "catalog-service", 0));
 
     sink.proposeAll(burst);
 
@@ -120,9 +122,12 @@ class MutationBatchTest {
             new StateMutation.PutDeployment(deployment("catalog-service"), 0)));
 
     assertEquals(indexBefore + 1, raftLog.lastIndex());
-    assertEquals(Optional.of(deployment("orders-service")), store.getDeployment("orders-service"));
     assertEquals(
-        Optional.of(deployment("catalog-service")), store.getDeployment("catalog-service"));
+        Optional.of(deployment("orders-service")),
+        store.getDeployment(Optional.empty(), "orders-service"));
+    assertEquals(
+        Optional.of(deployment("catalog-service")),
+        store.getDeployment(Optional.empty(), "catalog-service"));
     node.close();
   }
 }

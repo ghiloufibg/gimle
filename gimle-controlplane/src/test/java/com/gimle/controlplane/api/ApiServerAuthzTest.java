@@ -25,6 +25,7 @@ import com.gimle.core.tls.TlsSettings;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -48,6 +49,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -952,7 +954,8 @@ class ApiServerAuthzTest {
               jar,
               Optional.of("acme")));
       assertEquals(
-          Optional.of("beta"), store.getDeployment("shared").flatMap(DeploymentSpec::tenantId));
+          Optional.of("beta"),
+          store.getDeployment(Optional.of("beta"), "shared").flatMap(DeploymentSpec::tenantId));
     }
   }
 
@@ -1575,7 +1578,18 @@ class ApiServerAuthzTest {
             PlacementConstraints.NONE,
             Optional.empty(),
             Optional.of("acme")));
-    store.putAssignment(new InstanceAssignment("orders-service", 0, "node-a"));
+    // Tenanted to match the deployment above -- workloadTenantId resolves the mint's tenant off
+    // the assignment's own tenantId, not the deployment spec's, so an untenanted assignment here
+    // would make this deployment look untenanted to the mint endpoint.
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of("acme")));
 
     InProcessFafnir inProcessFafnir =
         InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
@@ -1629,14 +1643,20 @@ class ApiServerAuthzTest {
     InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
     StateStore store = inProcessStore.store();
     store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 10_000, 100)));
+    ModuleId gatewayModuleId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
     store.putDaemonSetSpec(
         new DaemonSetSpec(
             "gimle-gateway",
-            new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
+            gatewayModuleId,
             "/tmp/gateway.jar",
             PlacementConstraints.NONE,
             Optional.of("acme"),
             Optional.empty()));
+    // workloadTenantId resolves the mint's tenant off the live assignment's own tenantId, not the
+    // spec's, so a placement must exist here too, carrying the same tenant as the spec above.
+    store.putDaemonSetAssignment(
+        new DaemonSetAssignment(
+            "gimle-gateway", "node-a", gatewayModuleId, "/tmp/gateway.jar", Optional.of("acme")));
 
     try (InProcessStore ignored = inProcessStore;
         InProcessFafnir inProcessFafnir =

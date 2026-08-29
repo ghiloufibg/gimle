@@ -1035,6 +1035,7 @@ public final class DomainCodec {
     }
     out.writeLong(obs.volumeUsageBytes());
     writeOptionalString(out, obs.workerId());
+    writeOptionalString(out, obs.tenantId());
   }
 
   public static InstanceObservation readInstanceObservation(DataInputStream in) throws IOException {
@@ -1057,6 +1058,7 @@ public final class DomainCodec {
     }
     long volumeUsageBytes = in.readLong();
     Optional<String> workerId = readOptionalString(in);
+    Optional<String> tenantId = readOptionalString(in);
     return new InstanceObservation(
         deploymentName,
         instanceIndex,
@@ -1071,7 +1073,8 @@ public final class DomainCodec {
         errorRatePerSecond,
         ports,
         volumeUsageBytes,
-        workerId);
+        workerId,
+        tenantId);
   }
 
   public static void writeNodeHeartbeat(DataOutputStream out, NodeHeartbeat heartbeat)

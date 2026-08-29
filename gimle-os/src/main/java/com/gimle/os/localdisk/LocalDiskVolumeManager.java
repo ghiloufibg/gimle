@@ -14,21 +14,29 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * The guaranteed-minimum, and today the only, {@link VolumeManager}: no replication, no CSI-style
- * pluggable backend, one directory per {@code (statefulSetName, instanceIndex, volumeName)} triple
- * under {@code <dataRoot>/volumes/}, checked for free space at {@link #allocate} time only --
- * soft/advisory, matching {@code PortableJvmFlagsResourceLimiter}'s own no-continuous-enforcement
- * posture extended from CPU/memory to disk, not a new precedent.
+ * pluggable backend, one directory per {@code (tenantId, statefulSetName, instanceIndex,
+ * volumeName)} quadruple under {@code <dataRoot>/volumes/}, checked for free space at {@link
+ * #allocate} time only -- soft/advisory, matching {@code PortableJvmFlagsResourceLimiter}'s own
+ * no-continuous-enforcement posture extended from CPU/memory to disk, not a new precedent.
  */
 public final class LocalDiskVolumeManager implements VolumeManager {
 
   private static final Logger log = LoggerFactory.getLogger(LocalDiskVolumeManager.class);
   private static final String VOLUMES_DIR = "volumes";
+
+  /**
+   * The on-disk directory segment for the untenanted namespace -- distinct from any real tenant id
+   * (which is always operator-supplied and non-blank), so an untenanted volume can never collide
+   * with a real tenant's own directory.
+   */
+  private static final String UNTENANTED_SEGMENT = "_untenanted";
 
   private final Path dataRoot;
 
@@ -38,8 +46,12 @@ public final class LocalDiskVolumeManager implements VolumeManager {
 
   @Override
   public VolumeHandle allocate(
-      String statefulSetName, int instanceIndex, String volumeName, VolumeRequest request) {
-    Path path = instancePath(statefulSetName, instanceIndex).resolve(volumeName);
+      Optional<String> tenantId,
+      String statefulSetName,
+      int instanceIndex,
+      String volumeName,
+      VolumeRequest request) {
+    Path path = instancePath(tenantId, statefulSetName, instanceIndex).resolve(volumeName);
     try {
       Files.createDirectories(path);
     } catch (IOException e) {
@@ -50,20 +62,29 @@ public final class LocalDiskVolumeManager implements VolumeManager {
       throw GimleVolumeException.insufficientSpace(
           statefulSetName, instanceIndex, request.sizeBytes(), usableBytes);
     }
-    return new VolumeHandle(statefulSetName, instanceIndex, volumeName, request);
+    return new VolumeHandle(tenantId, statefulSetName, instanceIndex, volumeName, request);
   }
 
   @Override
   public Path hostPath(VolumeHandle handle) {
-    return instancePath(handle.statefulSetName(), handle.instanceIndex())
+    return instancePath(handle.tenantId(), handle.statefulSetName(), handle.instanceIndex())
         .resolve(handle.volumeName());
   }
 
-  private Path instancePath(String statefulSetName, int instanceIndex) {
+  private Path instancePath(Optional<String> tenantId, String statefulSetName, int instanceIndex) {
     return dataRoot
         .resolve(VOLUMES_DIR)
+        .resolve(tenantSegment(tenantId))
         .resolve(statefulSetName)
         .resolve(String.valueOf(instanceIndex));
+  }
+
+  private static String tenantSegment(Optional<String> tenantId) {
+    return tenantId.orElse(UNTENANTED_SEGMENT);
+  }
+
+  private static Optional<String> tenantIdFromSegment(String segment) {
+    return UNTENANTED_SEGMENT.equals(segment) ? Optional.empty() : Optional.of(segment);
   }
 
   /**
@@ -81,7 +102,8 @@ public final class LocalDiskVolumeManager implements VolumeManager {
     Path path = hostPath(handle);
     if (handle.request().reclaimPolicy() == ReclaimPolicy.RETAIN) {
       log.info(
-          "retaining volume data for {}[{}]/{} at {} (reclaimPolicy=RETAIN)",
+          "retaining volume data for tenant {} {}[{}]/{} at {} (reclaimPolicy=RETAIN)",
+          handle.tenantId().orElse("-"),
           handle.statefulSetName(),
           handle.instanceIndex(),
           handle.volumeName(),
@@ -95,11 +117,12 @@ public final class LocalDiskVolumeManager implements VolumeManager {
   }
 
   /**
-   * Walks {@code <dataRoot>/volumes/<statefulSetName>/<index>/<volumeName>} three levels deep --
-   * the exact layout {@link #allocate} creates -- and sums each leaf directory's file sizes. A
-   * subtree that isn't a well-formed {@code <name>/<numeric-index>/<volumeName>} triple is skipped
-   * rather than failing the whole listing: nothing else should ever write under {@code volumes/},
-   * but an operator poking around with a stray file must not make the inventory unreadable.
+   * Walks {@code <dataRoot>/volumes/<tenantSegment>/<statefulSetName>/<index>/<volumeName>} four
+   * levels deep -- the exact layout {@link #allocate} creates -- and sums each leaf directory's
+   * file sizes. A subtree that isn't a well-formed {@code
+   * <tenantSegment>/<name>/<numeric-index>/<volumeName>} quadruple is skipped rather than failing
+   * the whole listing: nothing else should ever write under {@code volumes/}, but an operator
+   * poking around with a stray file must not make the inventory unreadable.
    */
   @Override
   public List<AllocatedVolume> listAllocated() {
@@ -108,37 +131,47 @@ public final class LocalDiskVolumeManager implements VolumeManager {
       return List.of();
     }
     List<AllocatedVolume> volumes = new ArrayList<>();
-    try (Stream<Path> names = Files.list(volumesRoot)) {
-      for (Path nameDir : names.filter(Files::isDirectory).sorted().toList()) {
-        Path setName = nameDir.getFileName();
-        if (setName == null) {
-          continue; // a root path has no file name; listing children of volumesRoot never does
+    try (Stream<Path> tenants = Files.list(volumesRoot)) {
+      for (Path tenantDir : tenants.filter(Files::isDirectory).sorted().toList()) {
+        Path tenantSegment = tenantDir.getFileName();
+        if (tenantSegment == null) {
+          continue;
         }
-        try (Stream<Path> indices = Files.list(nameDir)) {
-          for (Path indexDir : indices.filter(Files::isDirectory).sorted().toList()) {
-            Path indexName = indexDir.getFileName();
-            if (indexName == null) {
-              continue;
+        Optional<String> tenantId = tenantIdFromSegment(tenantSegment.toString());
+        try (Stream<Path> names = Files.list(tenantDir)) {
+          for (Path nameDir : names.filter(Files::isDirectory).sorted().toList()) {
+            Path setName = nameDir.getFileName();
+            if (setName == null) {
+              continue; // a root path has no file name; listing children of tenantDir never does
             }
-            int index;
-            try {
-              index = Integer.parseInt(indexName.toString());
-            } catch (NumberFormatException e) {
-              continue;
-            }
-            try (Stream<Path> volumeNames = Files.list(indexDir)) {
-              for (Path volumeDir : volumeNames.filter(Files::isDirectory).sorted().toList()) {
-                Path volumeName = volumeDir.getFileName();
-                if (volumeName == null) {
+            try (Stream<Path> indices = Files.list(nameDir)) {
+              for (Path indexDir : indices.filter(Files::isDirectory).sorted().toList()) {
+                Path indexName = indexDir.getFileName();
+                if (indexName == null) {
                   continue;
                 }
-                volumes.add(
-                    new AllocatedVolume(
-                        setName.toString(),
-                        index,
-                        volumeName.toString(),
-                        volumeDir,
-                        directorySize(volumeDir)));
+                int index;
+                try {
+                  index = Integer.parseInt(indexName.toString());
+                } catch (NumberFormatException e) {
+                  continue;
+                }
+                try (Stream<Path> volumeNames = Files.list(indexDir)) {
+                  for (Path volumeDir : volumeNames.filter(Files::isDirectory).sorted().toList()) {
+                    Path volumeName = volumeDir.getFileName();
+                    if (volumeName == null) {
+                      continue;
+                    }
+                    volumes.add(
+                        new AllocatedVolume(
+                            tenantId,
+                            setName.toString(),
+                            index,
+                            volumeName.toString(),
+                            volumeDir,
+                            directorySize(volumeDir)));
+                  }
+                }
               }
             }
           }
@@ -151,13 +184,14 @@ public final class LocalDiskVolumeManager implements VolumeManager {
   }
 
   @Override
-  public void destroy(String statefulSetName, int instanceIndex) {
-    Path path = instancePath(statefulSetName, instanceIndex);
+  public void destroy(Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    Path path = instancePath(tenantId, statefulSetName, instanceIndex);
     if (!Files.exists(path)) {
       return;
     }
     log.warn(
-        "destroying volume data for {}[{}] at {} (explicit operator destroy)",
+        "destroying volume data for tenant {} {}[{}] at {} (explicit operator destroy)",
+        tenantId.orElse("-"),
         statefulSetName,
         instanceIndex,
         path);
@@ -165,8 +199,8 @@ public final class LocalDiskVolumeManager implements VolumeManager {
   }
 
   @Override
-  public long usedBytes(String statefulSetName, int instanceIndex) {
-    Path path = instancePath(statefulSetName, instanceIndex);
+  public long usedBytes(Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    Path path = instancePath(tenantId, statefulSetName, instanceIndex);
     if (!Files.isDirectory(path)) {
       return 0;
     }

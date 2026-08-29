@@ -57,7 +57,7 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
         Optional.of(SECRET_TENANT_ID),
         Duration.ofSeconds(30));
     Await.until(
-        () -> isActive(baseUrl, "greeter-provider-deployment"),
+        () -> isActive(baseUrl, "greeter-provider-deployment", Optional.of(SECRET_TENANT_ID)),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE before the worker is killed");
 
@@ -76,7 +76,7 @@ class SelfHealingIT extends GreeterSmokeClusterSupport {
           // ACTIVE (proof the respawned worker is genuinely healthy, not just alive).
           return current.isPresent()
               && current.get().pid() != firstWorkerPid
-              && isActive(baseUrl, "greeter-provider-deployment");
+              && isActive(baseUrl, "greeter-provider-deployment", Optional.of(SECRET_TENANT_ID));
         },
         Duration.ofSeconds(60),
         "a new worker process should replace pid "

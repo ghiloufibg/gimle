@@ -51,13 +51,13 @@ class NetworkPolicyRegistryTest {
 
     registry.put(spec);
 
-    assertEquals(Optional.of(spec), registry.get("deny-by-default"));
+    assertEquals(Optional.of(spec), registry.get("acme", "deny-by-default"));
   }
 
   @Test
   void get_of_an_unknown_name_is_empty() {
     NetworkPolicyRegistry registry = registry();
-    assertEquals(Optional.empty(), registry.get("nope"));
+    assertEquals(Optional.empty(), registry.get("acme", "nope"));
   }
 
   @Test
@@ -78,7 +78,7 @@ class NetworkPolicyRegistryTest {
     assertEquals(1, registry.list().size());
     assertEquals(
         Optional.of(Set.of("partner-b")),
-        registry.get("deny-by-default").orElseThrow().allowedCallerTenantIds());
+        registry.get("acme", "deny-by-default").orElseThrow().allowedCallerTenantIds());
   }
 
   @Test
@@ -86,9 +86,9 @@ class NetworkPolicyRegistryTest {
     NetworkPolicyRegistry registry = registry();
     registry.put(new NetworkPolicySpec("deny-by-default", "acme", Set.of()));
 
-    registry.remove("deny-by-default");
+    registry.remove("acme", "deny-by-default");
 
-    assertEquals(Optional.empty(), registry.get("deny-by-default"));
+    assertEquals(Optional.empty(), registry.get("acme", "deny-by-default"));
     assertTrue(registry.list().isEmpty());
   }
 
@@ -108,7 +108,7 @@ class NetworkPolicyRegistryTest {
 
       assertEquals(
           Optional.of(Set.of("partner-tenant")),
-          replicaB.get("deny-by-default").orElseThrow().allowedCallerTenantIds());
+          replicaB.get("acme", "deny-by-default").orElseThrow().allowedCallerTenantIds());
       assertEquals(1, replicaB.list().size());
     }
   }

@@ -7,7 +7,7 @@ import type {
   Page,
 } from "@/types";
 import type { DeploymentsRepository, DeploymentsSummary } from "@/repositories/deployments";
-import { requestJson, requestOk, requestOkYaml } from "./apiClient";
+import { requestJson, requestOk, requestOkYaml, tenantQuery } from "./apiClient";
 
 // Wire shapes -- mirrors ApiServer.java's deploymentStatus()/handleDeploymentsList serialization.
 // `instances[].observation` and `spec.tenantId` are both optional on the wire (an instance can be
@@ -161,6 +161,10 @@ export class HttpDeploymentsRepository implements DeploymentsRepository {
     return { items: all.slice(start, end), nextCursor: end < all.length ? String(end) : null };
   }
 
+  // No known tenantId is available on a cache miss (the whole point of fetchOne is that the item
+  // isn't in the already-loaded list) and no route currently threads one in from its own URL, so
+  // this stays scoped to the untenanted namespace -- a tenanted deployment reached this way still
+  // 404s. Fixing that needs a `?tenant=` param on the detail route itself, not invented here.
   async fetchOne(name: string): Promise<Deployment> {
     const raw = await requestJson<RawDeployment>("GET", `/deployments/${encodeURIComponent(name)}`);
     return mapDeployment(raw);
@@ -184,8 +188,8 @@ export class HttpDeploymentsRepository implements DeploymentsRepository {
     return this.fetchOne(spec.name);
   }
 
-  async remove(name: string): Promise<void> {
-    await requestOk("DELETE", `/deployments/${encodeURIComponent(name)}`);
+  async remove(name: string, tenantId?: string | null): Promise<void> {
+    await requestOk("DELETE", `/deployments/${encodeURIComponent(name)}${tenantQuery(tenantId)}`);
     this.cache = null;
   }
 }

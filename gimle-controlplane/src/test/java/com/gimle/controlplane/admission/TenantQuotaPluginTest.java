@@ -14,6 +14,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.testsupport.TestModuleBuilder;
@@ -41,7 +42,7 @@ class TenantQuotaPluginTest {
   void untenanted_deployment_is_allowed_without_consulting_the_store() {
     DeploymentSpec spec = deployment("untenanted", Optional.empty());
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store(), Optional.empty()));
@@ -53,7 +54,7 @@ class TenantQuotaPluginTest {
   void deployment_for_an_unknown_tenant_is_rejected() {
     DeploymentSpec spec = deployment("orphan", Optional.of("does-not-exist"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store(), Optional.empty()));
@@ -69,7 +70,7 @@ class TenantQuotaPluginTest {
     store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     DeploymentSpec spec = deployment("unreadable", Optional.of("acme"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.empty()));
@@ -90,7 +91,7 @@ class TenantQuotaPluginTest {
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     DeploymentSpec spec = deployment("over-quota", jar, Optional.of("tight"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
@@ -108,7 +109,7 @@ class TenantQuotaPluginTest {
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     DeploymentSpec spec = deployment("within-quota", jar, Optional.of("roomy"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
@@ -130,7 +131,7 @@ class TenantQuotaPluginTest {
         deployment(
             "surging", jar, Optional.of("surge-tight"), Optional.of(new DisruptionBudget(1, 1)));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
@@ -151,7 +152,7 @@ class TenantQuotaPluginTest {
     ModuleArtifact artifact = ModuleArtifactReader.read(jar);
     DeploymentSpec spec = deployment("exact-fit-deployment", jar, Optional.of("exact-fit"));
 
-    AdmissionDecision<DeploymentSpec> decision =
+    AdmissionDecision<WorkloadSpec> decision =
         plugin.review(
             new AdmissionRequest<>(
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));

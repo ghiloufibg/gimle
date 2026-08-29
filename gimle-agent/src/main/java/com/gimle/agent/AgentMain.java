@@ -334,9 +334,10 @@ public final class AgentMain {
                     .filter(instance -> !instance.volumeHandles.isEmpty())
                     .map(
                         instance ->
-                            instance.assigned.deploymentName()
-                                + "#"
-                                + instance.assigned.instanceIndex())
+                            AgentLogServer.volumeKey(
+                                instance.assigned.tenantId(),
+                                instance.assigned.deploymentName(),
+                                instance.assigned.instanceIndex()))
                     .collect(Collectors.toUnmodifiableSet()));
     logServer.start();
     String apiAddress = resolveAdvertisedHost() + ":" + logServer.port();
@@ -952,7 +953,9 @@ public final class AgentMain {
     try {
       instance.volumeUsageBytes =
           volumeManager.usedBytes(
-              instance.assigned.deploymentName(), instance.assigned.instanceIndex());
+              instance.assigned.tenantId(),
+              instance.assigned.deploymentName(),
+              instance.assigned.instanceIndex());
       instance.volumeUsageSampledAtMillis = now;
     } catch (RuntimeException e) {
       log.warn(
@@ -998,6 +1001,7 @@ public final class AgentMain {
     if (instance.fabricWorkerId != null) {
       observation.put("workerId", instance.fabricWorkerId);
     }
+    instance.assigned.tenantId().ifPresent(tenantId -> observation.put("tenantId", tenantId));
     return observation;
   }
 
@@ -1031,6 +1035,7 @@ public final class AgentMain {
     observation.put("errorRatePerSecond", 0.0);
     observation.put("queueDepth", 0);
     observation.put("ports", instance.allocatedPorts);
+    instance.assigned.tenantId().ifPresent(tenantId -> observation.put("tenantId", tenantId));
     return observation;
   }
 
@@ -1881,6 +1886,7 @@ public final class AgentMain {
       try {
         handles.add(
             volumeManager.allocate(
+                assigned.tenantId(),
                 assigned.deploymentName(),
                 assigned.instanceIndex(),
                 entry.getKey(),
@@ -2667,6 +2673,7 @@ public final class AgentMain {
       try {
         handles.add(
             volumeManager.allocate(
+                instance.assigned.tenantId(),
                 instance.assigned.deploymentName(),
                 instance.assigned.instanceIndex(),
                 entry.getKey(),

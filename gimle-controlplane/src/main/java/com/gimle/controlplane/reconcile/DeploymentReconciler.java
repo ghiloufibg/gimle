@@ -633,6 +633,7 @@ public final class DeploymentReconciler {
             obs ->
                 obs.deploymentName().equals(assignment.deploymentName())
                     && obs.instanceIndex() == assignment.instanceIndex()
+                    && obs.tenantId().equals(assignment.tenantId())
                     && obs.moduleId().equals(assignment.moduleId())
                     && obs.ready());
   }

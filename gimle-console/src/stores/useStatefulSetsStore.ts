@@ -65,7 +65,11 @@ export const useStatefulSetsStore = create<State>((set, get) => ({
     return s;
   },
   async remove(name) {
-    await statefulSetsRepo.remove(name);
+    // The item is already loaded (this screen is always reached from the already-fetched list/
+    // detail state), so its own tenantId is looked up here rather than widening this method's
+    // public signature -- every UI call site keeps calling remove(name) unchanged.
+    const tenantId = get().items.find((s) => s.spec.name === name)?.spec.tenantId;
+    await statefulSetsRepo.remove(name, tenantId);
     set({ items: get().items.filter((s) => s.spec.name !== name) });
   },
   async getOrFetch(name) {

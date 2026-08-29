@@ -48,6 +48,25 @@ continuous check (below) still sums plain `replicas` — a transient surge overs
 otherwise flag is expected to self-heal within one reconcile tick as the rollout completes, not
 something worth a standing violation for.
 
+## Names are scoped per tenant, like a Kubernetes namespace
+
+A Deployment/Job/CronJob/DaemonSet/StatefulSet/Service name is unique only within its own
+`tenantId`, not cluster-wide — the state store's own key is the compound pair `(tenantId, name)`,
+the same relationship a Kubernetes object's name has to its namespace. Two tenants (including
+`default`) are free to each run their own `orders-service` Deployment without either colliding
+with, overwriting, or being able to read the other's — the untenanted (`tenantId` omitted, distinct
+from `default`) namespace is one more such bucket, not a fallback that only sometimes applies.
+
+The one place this has a visible cost is addressing a single resource by bare name: a `PUT` (`apply`
+in the CLI) always resolves unambiguously, since the manifest's own `tenantId:` field is part of the
+write's target key, but a `GET`/`DELETE` by name alone is now ambiguous whenever more than one
+tenant happens to share it. Both the API and `gimle-cli` resolve this the same way: a caller-declared
+`?tenant=<id>` query parameter (`--tenant <id>` on the CLI) names which tenant's copy to address,
+omitted meaning the untenanted namespace — see the [CLI reference](../reference/cli-reference.md)
+for the full per-verb flag list. `NetworkPolicySpec` is the one exception: its own `tenantId` was
+never optional to begin with (it restricts exactly one tenant's own traffic), so `--tenant`/
+`?tenant=` is required, not defaulted, on its `get`/`delete` routes specifically.
+
 ## Plaintext transport is explicitly single-tenant
 
 Plaintext (the default transport, see [Transport security](./transport-security.md)) gives every

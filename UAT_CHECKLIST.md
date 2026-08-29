@@ -6,22 +6,22 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 653
+- **Total requirements**: 656
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 530
+- **Not covered by automated test**: 533
 - **Release-readiness (automated coverage)**: 18.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
 | gimle-core | 43 | 15 | 28 | 34.9% |
 | gimle-module | 25 | 11 | 14 | 44.0% |
-| gimle-os | 7 | 0 | 7 | 0.0% |
+| gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 46 | 6 | 40 | 13.0% |
-| gimle-mimir | 59 | 35 | 24 | 59.3% |
+| gimle-mimir | 60 | 35 | 25 | 58.3% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 78 | 14 | 64 | 17.9% |
+| gimle-controlplane | 79 | 14 | 65 | 17.7% |
 | gimle-fafnir | 26 | 11 | 15 | 42.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -269,6 +269,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-612 | Volume reclaim policy: Retain-by-default persistent volume release | Given a StatefulSet module whose volume declares no reclaimPolicy, When its index is permanently removed, Then the volume directory and its contents remain on disk. Given a StatefulSet module whose volume declares reclaimPolicy Delete, When its index is permanently removed, Then the volume directory is recursively deleted. | No |
+
+#### Multi-tenancy / Storage
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-655 | Tenant-scoped StatefulSet persistent volume identity | Given tenant A and tenant B each run a StatefulSet named "db" with a volume "data" on the same node; When both allocate; Then each tenant's volume lives at a distinct on-disk path and neither can see the other's data. | No |
 
 #### Resource Limiting
 
@@ -676,6 +682,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-650 | Implicit Default Tenant for Untenanted Workloads | Given a deployment manifest with no tenantId submitted; When it is admitted; Then its tenantId resolves to "default", a real seeded tenant, and its config/secrets become addressable at /config/default/... without being subject to quota/limitrange/policy enforcement unless an operator explicitly configures those for "default". | No |
 
+#### Multi-tenancy / State store
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-654 | Tenant-scoped resource keying (compound (tenantId, name) store key) | Given tenant A and tenant B each submit a Deployment named "orders-service"; When both are stored; Then each tenant's own GET resolves only its own spec, and the untenanted namespace sees neither. | No |
+
 #### Networking/Security
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -955,6 +967,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-271 | Reserved system-tenant auto-seeding | Given a fresh control-plane replica starts against an empty store; When it initializes; Then it proposes a Tenant row for RESERVED_SYSTEM_TENANT_ID unless one already exists. | No |
+
+#### Multi-tenancy / Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready. | No |
 
 #### Networking / Services
 

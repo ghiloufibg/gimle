@@ -374,7 +374,9 @@ public final class JobReconciler {
         .stream()
         .filter(
             obs ->
-                obs.deploymentName().equals(run.jobName()) && obs.instanceIndex() == run.attempt())
+                obs.deploymentName().equals(run.jobName())
+                    && obs.instanceIndex() == run.attempt()
+                    && obs.tenantId().equals(run.tenantId()))
         .findFirst();
   }
 

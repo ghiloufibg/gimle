@@ -63,7 +63,8 @@ public final class ServiceEndpointResolver {
                     .filter(
                         obs ->
                             obs.deploymentName().equals(assignment.deploymentName())
-                                && obs.instanceIndex() == assignment.instanceIndex())
+                                && obs.instanceIndex() == assignment.instanceIndex()
+                                && obs.tenantId().equals(assignment.tenantId()))
                     .findFirst())
         .filter(InstanceObservation::alive)
         .filter(InstanceObservation::ready);

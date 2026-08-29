@@ -1662,7 +1662,7 @@ class ApiServerTest {
                 .build());
 
     assertEquals(409, put.statusCode());
-    assertTrue(store.getDeployment("over-quota").isEmpty());
+    assertTrue(store.getDeployment(Optional.of("tight"), "over-quota").isEmpty());
   }
 
   @Test
@@ -1687,7 +1687,7 @@ class ApiServerTest {
                 .build());
 
     assertEquals(200, put.statusCode());
-    assertTrue(store.getDeployment("within-quota").isPresent());
+    assertTrue(store.getDeployment(Optional.of("roomy"), "within-quota").isPresent());
   }
 
   @Test
@@ -1738,7 +1738,7 @@ class ApiServerTest {
                 .build());
 
     assertEquals(409, put.statusCode());
-    assertTrue(store.getDeployment("over-policy-ceiling").isEmpty());
+    assertTrue(store.getDeployment(Optional.of("policy-acme"), "over-policy-ceiling").isEmpty());
   }
 
   @Test
@@ -1768,7 +1768,8 @@ class ApiServerTest {
                 .build());
 
     assertEquals(200, put.statusCode());
-    assertTrue(store.getDeployment("within-policy-ceiling").isPresent());
+    assertTrue(
+        store.getDeployment(Optional.of("policy-acme-2"), "within-policy-ceiling").isPresent());
   }
 
   // ---- config/secrets distribution ----
@@ -1997,7 +1998,7 @@ class ApiServerTest {
               com.gimle.mimir.manifest.PlacementConstraints.NONE,
               Optional.empty(),
               Optional.empty()));
-      store.putStatefulSetIndexNode("sessions", 0, "node-a");
+      store.putStatefulSetIndexNode(Optional.empty(), "sessions", 0, "node-a");
 
       HttpResponse<String> listing =
           send(HttpRequest.newBuilder(URI.create(baseUrl + "/volumes")).GET().build());

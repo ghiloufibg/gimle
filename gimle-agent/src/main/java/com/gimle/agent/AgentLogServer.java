@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
@@ -218,13 +219,16 @@ final class AgentLogServer implements AutoCloseable {
         List<Map<String, Object>> body = new ArrayList<>();
         for (AllocatedVolume volume : volumeManager.listAllocated()) {
           Map<String, Object> entry = new LinkedHashMap<>();
+          entry.put("tenantId", volume.tenantId().orElse(null));
           entry.put("statefulSet", volume.statefulSetName());
           entry.put("instanceIndex", volume.instanceIndex());
           entry.put("volumeName", volume.volumeName());
           entry.put("usedBytes", volume.usedBytes());
           entry.put("path", volume.hostPath().toString());
           entry.put(
-              "inUse", inUse.contains(volume.statefulSetName() + "#" + volume.instanceIndex()));
+              "inUse",
+              inUse.contains(
+                  volumeKey(volume.tenantId(), volume.statefulSetName(), volume.instanceIndex())));
           body.add(entry);
         }
         respondJson(exchange, 200, body);
@@ -240,7 +244,11 @@ final class AgentLogServer implements AutoCloseable {
         }
         String statefulSetName = segments[0];
         int instanceIndex = Integer.parseInt(segments[1]);
-        if (inUseVolumeKeys.get().contains(statefulSetName + "#" + instanceIndex)) {
+        // The owning tenant, if any, travels as ?tenant=<id> rather than a third path segment --
+        // the same convention the control plane's own tenant-scoped routes use -- since omitted
+        // unambiguously means the untenanted namespace, distinct from every real tenant id.
+        Optional<String> tenantId = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+        if (inUseVolumeKeys.get().contains(volumeKey(tenantId, statefulSetName, instanceIndex))) {
           respond(
               exchange,
               409,
@@ -251,7 +259,7 @@ final class AgentLogServer implements AutoCloseable {
                   + "] is held by a currently-supervised instance");
           return;
         }
-        volumeManager.destroy(statefulSetName, instanceIndex);
+        volumeManager.destroy(tenantId, statefulSetName, instanceIndex);
         respondJson(exchange, 200, Map.of("destroyed", true));
         return;
       }
@@ -262,6 +270,17 @@ final class AgentLogServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * The key shape {@code inUseVolumeKeys} (an {@code AgentMain}-supplied live view of every
+   * currently-supervised instance's own volumes) and this class's own {@code inUse}/409 checks
+   * must agree on -- tenant included, since two tenants may run an identically-named {@code
+   * statefulSetName} (see {@code VolumeHandle}'s own javadoc), so the bare name is not by itself a
+   * safe key here either.
+   */
+  static String volumeKey(Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    return tenantId.orElse("") + '\0' + statefulSetName + '#' + instanceIndex;
   }
 
   // ---- /logs/instances/{deploymentName}/{instanceIndex} ----

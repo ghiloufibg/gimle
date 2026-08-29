@@ -1,6 +1,6 @@
 import type { Page, StatefulSet, StatefulSetInstance, StatefulSetSpecInput } from "@/types";
 import type { StatefulSetsRepository } from "@/repositories/statefulsets";
-import { requestJson, requestOk, requestOkYaml } from "./apiClient";
+import { requestJson, requestOk, requestOkYaml, tenantQuery } from "./apiClient";
 
 // Wire shape -- mirrors ApiServer.java's statefulSetStatus()/handleStatefulSetsList serialization.
 // `instances[].observation` and `spec.tenantId` are both optional on the wire (an index can be
@@ -100,6 +100,10 @@ export class HttpStatefulSetsRepository implements StatefulSetsRepository {
     return { items: all.slice(start, end), nextCursor: end < all.length ? String(end) : null };
   }
 
+  // No known tenantId is available on a cache miss (the whole point of fetchOne is that the item
+  // isn't in the already-loaded list) and no route currently threads one in from its own URL, so
+  // this stays scoped to the untenanted namespace -- a tenanted statefulset reached this way still
+  // 404s.
   async fetchOne(name: string): Promise<StatefulSet> {
     const raw = await requestJson<RawStatefulSet>(
       "GET",
@@ -114,8 +118,8 @@ export class HttpStatefulSetsRepository implements StatefulSetsRepository {
     return this.fetchOne(spec.name);
   }
 
-  async remove(name: string): Promise<void> {
-    await requestOk("DELETE", `/statefulsets/${encodeURIComponent(name)}`);
+  async remove(name: string, tenantId?: string | null): Promise<void> {
+    await requestOk("DELETE", `/statefulsets/${encodeURIComponent(name)}${tenantQuery(tenantId)}`);
     this.cache = null;
   }
 }

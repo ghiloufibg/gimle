@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 653,
+    "totalRequirements": 656,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 530,
+    "notCoveredByAutomatedTest": 533,
     "releaseReadinessPercent": 18.8
   },
   "items": [
@@ -7185,6 +7185,39 @@
       "category": "CLI",
       "feature": "CLI Flag Errors Always Show Usage",
       "step": "Given a command like \"secret set default my-secret hunter2\" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-654",
+      "module": "gimle-mimir",
+      "category": "Multi-tenancy / State store",
+      "feature": "Tenant-scoped resource keying (compound (tenantId, name) store key)",
+      "step": "Given tenant A and tenant B each submit a Deployment named \"orders-service\"; When both are stored; Then each tenant's own GET resolves only its own spec, and the untenanted namespace sees neither.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-655",
+      "module": "gimle-os",
+      "category": "Multi-tenancy / Storage",
+      "feature": "Tenant-scoped StatefulSet persistent volume identity",
+      "step": "Given tenant A and tenant B each run a StatefulSet named \"db\" with a volume \"data\" on the same node; When both allocate; Then each tenant's volume lives at a distinct on-disk path and neither can see the other's data.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-656",
+      "module": "gimle-controlplane",
+      "category": "Multi-tenancy / Observability",
+      "feature": "Tenant-scoped heartbeat instance-observation matching and instance-log node resolution",
+      "step": "Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

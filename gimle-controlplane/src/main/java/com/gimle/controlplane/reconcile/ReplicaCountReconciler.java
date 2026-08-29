@@ -190,9 +190,10 @@ public final class ReplicaCountReconciler {
 
   private static boolean mentions(NodeHeartbeat heartbeat, InstanceAssignment assignment) {
     for (InstanceObservation observation : heartbeat.instances()) {
-      // No tenant field to join on -- see HealthReconciler's own findIn for why.
+      // tenantId included in the match -- see HealthReconciler's own findIn for why.
       if (observation.deploymentName().equals(assignment.deploymentName())
-          && observation.instanceIndex() == assignment.instanceIndex()) {
+          && observation.instanceIndex() == assignment.instanceIndex()
+          && observation.tenantId().equals(assignment.tenantId())) {
         return true;
       }
     }

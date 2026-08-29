@@ -335,6 +335,7 @@ public final class DaemonSetReconciler {
             obs ->
                 obs.deploymentName().equals(assignment.daemonSetName())
                     && obs.instanceIndex() == 0
+                    && obs.tenantId().equals(assignment.tenantId())
                     && obs.moduleId().equals(assignment.moduleId())
                     && obs.ready());
   }

@@ -59,11 +59,11 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
         Optional.of(SECRET_TENANT_ID),
         Duration.ofSeconds(30));
     Await.until(
-        () -> isActive(baseUrl, "greeter-provider-deployment"),
+        () -> isActive(baseUrl, "greeter-provider-deployment", Optional.of(SECRET_TENANT_ID)),
         Duration.ofSeconds(60),
         "greeter-provider-deployment should reach ACTIVE");
     Await.until(
-        () -> providerLogShowsTheSecret(baseUrl),
+        () -> providerLogShowsTheSecret(baseUrl, Optional.of(SECRET_TENANT_ID)),
         Duration.ofSeconds(30),
         "greeter-provider-deployment's own log should show the real secret value, served live by"
             + " its owning agent");
@@ -83,7 +83,7 @@ class ObservabilityIT extends GreeterSmokeClusterSupport {
     killWithDescendants(cluster.agentProcesses().get(0));
 
     Await.until(
-        () -> providerLogShowsTheSecret(baseUrl),
+        () -> providerLogShowsTheSecret(baseUrl, Optional.of(SECRET_TENANT_ID)),
         Duration.ofSeconds(30),
         "greeter-provider-deployment's own log should still show the real secret value after its"
             + " owning agent died, now served from Muninn's shipped history instead");

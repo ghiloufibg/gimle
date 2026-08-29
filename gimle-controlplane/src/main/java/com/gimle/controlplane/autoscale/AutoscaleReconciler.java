@@ -310,6 +310,7 @@ public final class AutoscaleReconciler {
               obs ->
                   obs.deploymentName().equals(spec.name())
                       && obs.instanceIndex() == assignment.instanceIndex()
+                      && obs.tenantId().equals(spec.tenantId())
                       && obs.ready())
           .findFirst()
           .ifPresent(result::add);

@@ -77,11 +77,11 @@ class StateStoreTest {
     DeploymentSpec spec = sampleDeployment("orders-service", 3);
 
     store.putDeployment(spec);
-    assertEquals(Optional.of(spec), store.getDeployment("orders-service"));
+    assertEquals(Optional.of(spec), store.getDeployment(Optional.empty(), "orders-service"));
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertEquals(Optional.of(spec), reloaded.getDeployment("orders-service"));
+    assertEquals(Optional.of(spec), reloaded.getDeployment(Optional.empty(), "orders-service"));
     assertEquals(List.of(spec), reloaded.listDeployments());
   }
 
@@ -100,25 +100,25 @@ class StateStoreTest {
             Optional.of("a".repeat(64)));
 
     store.putDeployment(spec);
-    assertEquals(Optional.of(spec), store.getDeployment("orders-service"));
+    assertEquals(Optional.of(spec), store.getDeployment(Optional.empty(), "orders-service"));
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
     assertEquals(
         Optional.of("a".repeat(64)),
-        reloaded.getDeployment("orders-service").orElseThrow().artifactSha256());
+        reloaded.getDeployment(Optional.empty(), "orders-service").orElseThrow().artifactSha256());
   }
 
   @Test
   void removed_deployment_is_gone_after_snapshot_restore() {
     StateStore store = new StateStore();
     store.putDeployment(sampleDeployment("orders-service", 1));
-    store.removeDeployment("orders-service");
+    store.removeDeployment(Optional.empty(), "orders-service");
 
-    assertTrue(store.getDeployment("orders-service").isEmpty());
+    assertTrue(store.getDeployment(Optional.empty(), "orders-service").isEmpty());
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertTrue(reloaded.getDeployment("orders-service").isEmpty());
+    assertTrue(reloaded.getDeployment(Optional.empty(), "orders-service").isEmpty());
   }
 
   @Test
@@ -128,11 +128,11 @@ class StateStoreTest {
         new ServiceSpec("orders", Optional.of("tenant-1"), Set.of("orders-service"), 8080, 9090);
 
     store.putService(spec);
-    assertEquals(Optional.of(spec), store.getService("orders"));
+    assertEquals(Optional.of(spec), store.getService(Optional.of("tenant-1"), "orders"));
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertEquals(Optional.of(spec), reloaded.getService("orders"));
+    assertEquals(Optional.of(spec), reloaded.getService(Optional.of("tenant-1"), "orders"));
     assertEquals(List.of(spec), reloaded.listServices());
   }
 
@@ -140,13 +140,86 @@ class StateStoreTest {
   void removed_service_is_gone_after_snapshot_restore() {
     StateStore store = new StateStore();
     store.putService(new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080));
-    store.removeService("orders");
+    store.removeService(Optional.empty(), "orders");
 
-    assertTrue(store.getService("orders").isEmpty());
+    assertTrue(store.getService(Optional.empty(), "orders").isEmpty());
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertTrue(reloaded.getService("orders").isEmpty());
+    assertTrue(reloaded.getService(Optional.empty(), "orders").isEmpty());
     assertTrue(reloaded.listServices().isEmpty());
+  }
+
+  /**
+   * The core cross-tenant isolation guarantee: two tenants sharing a bare Deployment name must
+   * never collide, overwrite each other's spec, or become visible to each other -- the whole point
+   * of the store's own {@code (tenantId, name)} compound key, not just an incidental side effect.
+   */
+  @Test
+  void two_tenants_with_an_identically_named_deployment_never_collide() {
+    StateStore store = new StateStore();
+    DeploymentSpec tenantASpec =
+        new DeploymentSpec(
+            "orders-service",
+            ORDERS,
+            "/var/gimle/artifacts/tenant-a-orders-1.0.0.jar",
+            3,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.of("tenant-a"));
+    DeploymentSpec tenantBSpec =
+        new DeploymentSpec(
+            "orders-service",
+            ORDERS,
+            "/var/gimle/artifacts/tenant-b-orders-2.0.0.jar",
+            5,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.of("tenant-b"));
+
+    store.putDeployment(tenantASpec);
+    store.putDeployment(tenantBSpec);
+
+    assertEquals(
+        Optional.of(tenantASpec), store.getDeployment(Optional.of("tenant-a"), "orders-service"));
+    assertEquals(
+        Optional.of(tenantBSpec), store.getDeployment(Optional.of("tenant-b"), "orders-service"));
+    assertTrue(store.getDeployment(Optional.empty(), "orders-service").isEmpty());
+    assertEquals(Set.of(tenantASpec, tenantBSpec), Set.copyOf(store.listDeployments()));
+
+    // Removing one tenant's copy must not touch the other's, and both must still be distinct
+    // after a snapshot round-trip -- not merely distinct in the live map.
+    store.removeDeployment(Optional.of("tenant-a"), "orders-service");
+    assertTrue(store.getDeployment(Optional.of("tenant-a"), "orders-service").isEmpty());
+    assertEquals(
+        Optional.of(tenantBSpec), store.getDeployment(Optional.of("tenant-b"), "orders-service"));
+
+    StateStore reloaded = new StateStore();
+    reloaded.restoreFromSnapshot(store.snapshot());
+    assertTrue(reloaded.getDeployment(Optional.of("tenant-a"), "orders-service").isEmpty());
+    assertEquals(
+        Optional.of(tenantBSpec),
+        reloaded.getDeployment(Optional.of("tenant-b"), "orders-service"));
+  }
+
+  /** The Service analogue of {@link #two_tenants_with_an_identically_named_deployment_never_collide}. */
+  @Test
+  void two_tenants_with_an_identically_named_service_never_collide() {
+    StateStore store = new StateStore();
+    ServiceSpec tenantASpec =
+        new ServiceSpec("web", Optional.of("tenant-a"), Set.of("orders-service"), 8080);
+    ServiceSpec tenantBSpec =
+        new ServiceSpec("web", Optional.of("tenant-b"), Set.of("billing-service"), 9090);
+
+    store.putService(tenantASpec);
+    store.putService(tenantBSpec);
+
+    assertEquals(Optional.of(tenantASpec), store.getService(Optional.of("tenant-a"), "web"));
+    assertEquals(Optional.of(tenantBSpec), store.getService(Optional.of("tenant-b"), "web"));
+    assertTrue(store.getService(Optional.empty(), "web").isEmpty());
+
+    store.removeService(Optional.of("tenant-a"), "web");
+    assertTrue(store.getService(Optional.of("tenant-a"), "web").isEmpty());
+    assertEquals(Optional.of(tenantBSpec), store.getService(Optional.of("tenant-b"), "web"));
   }
 
   @Test
@@ -173,11 +246,11 @@ class StateStoreTest {
             "orders-policy", "tenant-1", Optional.of(Set.of("orders-service")), Set.of("tenant-2"));
 
     store.putNetworkPolicy(spec);
-    assertEquals(Optional.of(spec), store.getNetworkPolicy("orders-policy"));
+    assertEquals(Optional.of(spec), store.getNetworkPolicy("tenant-1", "orders-policy"));
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertEquals(Optional.of(spec), reloaded.getNetworkPolicy("orders-policy"));
+    assertEquals(Optional.of(spec), reloaded.getNetworkPolicy("tenant-1", "orders-policy"));
     assertEquals(List.of(spec), reloaded.listNetworkPolicies());
   }
 
@@ -185,12 +258,12 @@ class StateStoreTest {
   void removed_network_policy_is_gone_after_snapshot_restore() {
     StateStore store = new StateStore();
     store.putNetworkPolicy(new NetworkPolicySpec("orders-policy", "tenant-1", Set.of("tenant-2")));
-    store.removeNetworkPolicy("orders-policy");
+    store.removeNetworkPolicy("tenant-1", "orders-policy");
 
-    assertTrue(store.getNetworkPolicy("orders-policy").isEmpty());
+    assertTrue(store.getNetworkPolicy("tenant-1", "orders-policy").isEmpty());
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertTrue(reloaded.getNetworkPolicy("orders-policy").isEmpty());
+    assertTrue(reloaded.getNetworkPolicy("tenant-1", "orders-policy").isEmpty());
     assertTrue(reloaded.listNetworkPolicies().isEmpty());
   }
 
@@ -205,17 +278,18 @@ class StateStoreTest {
     store.putAssignment(a1);
     store.putAssignment(other);
 
-    assertEquals(Set.of(a0, a1), Set.copyOf(store.listAssignmentsFor("orders-service")));
+    assertEquals(
+        Set.of(a0, a1), Set.copyOf(store.listAssignmentsFor(Optional.empty(), "orders-service")));
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
     assertEquals(Set.of(a0, a1, other), Set.copyOf(reloaded.listAssignments()));
 
-    reloaded.removeAssignment("orders-service", 0);
-    assertEquals(List.of(a1), reloaded.listAssignmentsFor("orders-service"));
+    reloaded.removeAssignment(Optional.empty(), "orders-service", 0);
+    assertEquals(List.of(a1), reloaded.listAssignmentsFor(Optional.empty(), "orders-service"));
     StateStore reloadedAgain = new StateStore();
     reloadedAgain.restoreFromSnapshot(reloaded.snapshot());
-    assertEquals(List.of(a1), reloadedAgain.listAssignmentsFor("orders-service"));
+    assertEquals(List.of(a1), reloadedAgain.listAssignmentsFor(Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -260,12 +334,16 @@ class StateStoreTest {
         new ReconcilerInstanceState("orders-service", 0, 2, 100L, 200L, true, false, 300L);
 
     store.putReconcilerInstanceState(state);
-    assertEquals(Optional.of(state), store.getReconcilerInstanceState("orders-service", 0));
+    assertEquals(
+        Optional.of(state),
+        store.getReconcilerInstanceState(Optional.empty(), "orders-service", 0));
     assertEquals(List.of(state), store.listReconcilerInstanceStates());
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertEquals(Optional.of(state), reloaded.getReconcilerInstanceState("orders-service", 0));
+    assertEquals(
+        Optional.of(state),
+        reloaded.getReconcilerInstanceState(Optional.empty(), "orders-service", 0));
   }
 
   @Test
@@ -274,12 +352,13 @@ class StateStoreTest {
     store.putReconcilerInstanceState(
         new ReconcilerInstanceState("orders-service", 0, 1, 100L, 200L, true, false, -1L));
 
-    store.removeReconcilerInstanceState("orders-service", 0);
-    assertTrue(store.getReconcilerInstanceState("orders-service", 0).isEmpty());
+    store.removeReconcilerInstanceState(Optional.empty(), "orders-service", 0);
+    assertTrue(store.getReconcilerInstanceState(Optional.empty(), "orders-service", 0).isEmpty());
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertTrue(reloaded.getReconcilerInstanceState("orders-service", 0).isEmpty());
+    assertTrue(
+        reloaded.getReconcilerInstanceState(Optional.empty(), "orders-service", 0).isEmpty());
   }
 
   @Test
@@ -295,7 +374,9 @@ class StateStoreTest {
     StateStore target = new StateStore();
     target.restoreFromSnapshot(snapshot);
 
-    assertEquals(Optional.of(state), target.getReconcilerInstanceState("orders-service", 0));
+    assertEquals(
+        Optional.of(state),
+        target.getReconcilerInstanceState(Optional.empty(), "orders-service", 0));
   }
 
   @Test
@@ -354,14 +435,17 @@ class StateStoreTest {
         new InstanceEvent(
             "evt-2", "orders-service", 0, InstanceEventKind.RESOLVED, "module resolved", 2_000L);
 
-    store.putInstanceEvent(first);
-    store.putInstanceEvent(second);
+    store.putInstanceEvent(Optional.empty(), first);
+    store.putInstanceEvent(Optional.empty(), second);
 
-    assertEquals(List.of(second, first), store.listInstanceEvents("orders-service", 0));
+    assertEquals(
+        List.of(second, first), store.listInstanceEvents(Optional.empty(), "orders-service", 0));
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertEquals(List.of(second, first), reloaded.listInstanceEvents("orders-service", 0));
+    assertEquals(
+        List.of(second, first),
+        reloaded.listInstanceEvents(Optional.empty(), "orders-service", 0));
   }
 
   @Test
@@ -377,12 +461,13 @@ class StateStoreTest {
             Optional.of("java.lang.IllegalStateException: boom"),
             3_000L);
 
-    store.putInstanceEvent(event);
+    store.putInstanceEvent(Optional.empty(), event);
 
-    assertEquals(List.of(event), store.listInstanceEvents("orders-service", 0));
+    assertEquals(List.of(event), store.listInstanceEvents(Optional.empty(), "orders-service", 0));
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertEquals(List.of(event), reloaded.listInstanceEvents("orders-service", 0));
+    assertEquals(
+        List.of(event), reloaded.listInstanceEvents(Optional.empty(), "orders-service", 0));
   }
 
   @Test
@@ -400,7 +485,7 @@ class StateStoreTest {
               1_000L + i));
     }
 
-    List<InstanceEvent> events = store.listInstanceEvents("orders-service", 0);
+    List<InstanceEvent> events = store.listInstanceEvents(Optional.empty(), "orders-service", 0);
     assertEquals(50, events.size());
     // Newest-first: the very first event (evt-0) was pruned, evt-50 is now first.
     assertEquals("evt-50", events.get(0).id());
@@ -408,14 +493,14 @@ class StateStoreTest {
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertEquals(50, reloaded.listInstanceEvents("orders-service", 0).size());
+    assertEquals(50, reloaded.listInstanceEvents(Optional.empty(), "orders-service", 0).size());
   }
 
   @Test
   void an_unknown_instance_has_no_events() {
     StateStore store = new StateStore();
 
-    assertTrue(store.listInstanceEvents("never-deployed", 0).isEmpty());
+    assertTrue(store.listInstanceEvents(Optional.empty(), "never-deployed", 0).isEmpty());
   }
 
   @Test
@@ -424,7 +509,7 @@ class StateStoreTest {
     InstanceEvent event =
         new InstanceEvent(
             "evt-1", "orders-service", 0, InstanceEventKind.ACTIVE, "module active", 1_000L);
-    store.putInstanceEvent(event);
+    store.putInstanceEvent(Optional.empty(), event);
 
     StateSnapshot snapshot = store.snapshot();
     assertEquals(List.of(event), snapshot.instanceEvents());
@@ -432,7 +517,7 @@ class StateStoreTest {
     StateStore target = new StateStore();
     target.restoreFromSnapshot(snapshot);
 
-    assertEquals(List.of(event), target.listInstanceEvents("orders-service", 0));
+    assertEquals(List.of(event), target.listInstanceEvents(Optional.empty(), "orders-service", 0));
   }
 
   private static AuditEvent auditEvent(
@@ -619,7 +704,7 @@ class StateStoreTest {
   void unknown_resources_return_empty_or_empty_collections() {
     StateStore store = new StateStore();
 
-    assertTrue(store.getDeployment("nope").isEmpty());
+    assertTrue(store.getDeployment(Optional.empty(), "nope").isEmpty());
     assertTrue(store.listDeployments().isEmpty());
     assertTrue(store.listAssignments().isEmpty());
     assertTrue(store.getNodeRegistration("nope").isEmpty());
@@ -763,15 +848,20 @@ class StateStoreTest {
 
     store.putControllerRevision(revision);
     assertEquals(
-        Optional.of(revision), store.getControllerRevision("Deployment", "orders-service", 1));
-    assertEquals(List.of(revision), store.listControllerRevisions("Deployment", "orders-service"));
+        Optional.of(revision),
+        store.getControllerRevision("Deployment", Optional.empty(), "orders-service", 1));
+    assertEquals(
+        List.of(revision),
+        store.listControllerRevisions("Deployment", Optional.empty(), "orders-service"));
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
     assertEquals(
-        Optional.of(revision), reloaded.getControllerRevision("Deployment", "orders-service", 1));
+        Optional.of(revision),
+        reloaded.getControllerRevision("Deployment", Optional.empty(), "orders-service", 1));
     assertEquals(
-        List.of(revision), reloaded.listControllerRevisions("Deployment", "orders-service"));
+        List.of(revision),
+        reloaded.listControllerRevisions("Deployment", Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -798,7 +888,8 @@ class StateStoreTest {
     store.putControllerRevision(second);
 
     assertEquals(
-        List.of(second, first), store.listControllerRevisions("Deployment", "orders-service"));
+        List.of(second, first),
+        store.listControllerRevisions("Deployment", Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -826,7 +917,7 @@ class StateStoreTest {
     assertEquals(
         OptionalInt.of(1),
         store
-            .getControllerRevision("Deployment", "orders-service", 2)
+            .getControllerRevision("Deployment", Optional.empty(), "orders-service", 2)
             .orElseThrow()
             .rollbackOfRevision());
   }
@@ -847,7 +938,7 @@ class StateStoreTest {
     }
 
     List<ControllerRevision> revisions =
-        store.listControllerRevisions("Deployment", "orders-service");
+        store.listControllerRevisions("Deployment", Optional.empty(), "orders-service");
     assertEquals(10, revisions.size());
     // Newest-first: revision 1 was pruned, revision 11 is now first.
     assertEquals(11, revisions.get(0).revision());
@@ -855,7 +946,9 @@ class StateStoreTest {
 
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
-    assertEquals(10, reloaded.listControllerRevisions("Deployment", "orders-service").size());
+    assertEquals(
+        10,
+        reloaded.listControllerRevisions("Deployment", Optional.empty(), "orders-service").size());
   }
 
   @Test
@@ -870,16 +963,20 @@ class StateStoreTest {
             1_000L,
             OptionalInt.empty()));
 
-    assertTrue(store.listControllerRevisions("StatefulSet", "shared-name").isEmpty());
-    assertEquals(1, store.listControllerRevisions("Deployment", "shared-name").size());
+    assertTrue(
+        store.listControllerRevisions("StatefulSet", Optional.empty(), "shared-name").isEmpty());
+    assertEquals(
+        1, store.listControllerRevisions("Deployment", Optional.empty(), "shared-name").size());
   }
 
   @Test
   void an_unknown_workload_has_no_revision_history() {
     StateStore store = new StateStore();
 
-    assertTrue(store.listControllerRevisions("Deployment", "never-deployed").isEmpty());
-    assertTrue(store.getControllerRevision("Deployment", "never-deployed", 1).isEmpty());
+    assertTrue(
+        store.listControllerRevisions("Deployment", Optional.empty(), "never-deployed").isEmpty());
+    assertTrue(
+        store.getControllerRevision("Deployment", Optional.empty(), "never-deployed", 1).isEmpty());
   }
 
   @Test
@@ -894,9 +991,10 @@ class StateStoreTest {
             1_000L,
             OptionalInt.empty()));
 
-    store.removeDeployment("orders-service");
+    store.removeDeployment(Optional.empty(), "orders-service");
 
-    assertTrue(store.listControllerRevisions("Deployment", "orders-service").isEmpty());
+    assertTrue(
+        store.listControllerRevisions("Deployment", Optional.empty(), "orders-service").isEmpty());
   }
 
   @Test
@@ -910,7 +1008,7 @@ class StateStoreTest {
             sampleDeployment("orders-service", 1),
             1_000L,
             OptionalInt.empty()));
-    store.removeDeployment("orders-service");
+    store.removeDeployment(Optional.empty(), "orders-service");
 
     // A brand-new Deployment reusing the same name -- its own first revision is numbered 1 again,
     // not a continuation of the deleted Deployment's history.
@@ -925,7 +1023,8 @@ class StateStoreTest {
     store.putControllerRevision(freshFirstRevision);
 
     assertEquals(
-        List.of(freshFirstRevision), store.listControllerRevisions("Deployment", "orders-service"));
+        List.of(freshFirstRevision),
+        store.listControllerRevisions("Deployment", Optional.empty(), "orders-service"));
   }
 
   @Test
@@ -940,9 +1039,10 @@ class StateStoreTest {
             1_000L,
             OptionalInt.empty()));
 
-    store.removeDaemonSetSpec("orders-agent");
+    store.removeDaemonSetSpec(Optional.empty(), "orders-agent");
 
-    assertTrue(store.listControllerRevisions("DaemonSet", "orders-agent").isEmpty());
+    assertTrue(
+        store.listControllerRevisions("DaemonSet", Optional.empty(), "orders-agent").isEmpty());
   }
 
   @Test
@@ -957,9 +1057,10 @@ class StateStoreTest {
             1_000L,
             OptionalInt.empty()));
 
-    store.removeStatefulSetSpec("orders-db");
+    store.removeStatefulSetSpec(Optional.empty(), "orders-db");
 
-    assertTrue(store.listControllerRevisions("StatefulSet", "orders-db").isEmpty());
+    assertTrue(
+        store.listControllerRevisions("StatefulSet", Optional.empty(), "orders-db").isEmpty());
   }
 
   @Test
@@ -981,6 +1082,8 @@ class StateStoreTest {
     StateStore target = new StateStore();
     target.restoreFromSnapshot(snapshot);
 
-    assertEquals(List.of(revision), target.listControllerRevisions("Deployment", "orders-service"));
+    assertEquals(
+        List.of(revision),
+        target.listControllerRevisions("Deployment", Optional.empty(), "orders-service"));
   }
 }

@@ -117,6 +117,7 @@ import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -2118,7 +2119,10 @@ public final class ApiServer implements AutoCloseable {
   private Optional<InstanceObservation> findObservationForJobRun(JobRun run) {
     return findObservation(
         run.nodeId(),
-        obs -> obs.deploymentName().equals(run.jobName()) && obs.instanceIndex() == run.attempt());
+        obs ->
+            obs.deploymentName().equals(run.jobName())
+                && obs.instanceIndex() == run.attempt()
+                && obs.tenantId().equals(run.tenantId()));
   }
 
   // ---- /cronjobs/{name}, /cronjobs, /cronjobs/{name}/trigger ----
@@ -2514,7 +2518,10 @@ public final class ApiServer implements AutoCloseable {
       DaemonSetAssignment assignment) {
     return findObservation(
         assignment.nodeId(),
-        obs -> obs.deploymentName().equals(assignment.daemonSetName()) && obs.instanceIndex() == 0);
+        obs ->
+            obs.deploymentName().equals(assignment.daemonSetName())
+                && obs.instanceIndex() == 0
+                && obs.tenantId().equals(assignment.tenantId()));
   }
 
   // ---- /statefulsets/{name}, /statefulsets ----
@@ -2757,7 +2764,8 @@ public final class ApiServer implements AutoCloseable {
         assignment.nodeId(),
         obs ->
             obs.deploymentName().equals(assignment.statefulSetName())
-                && obs.instanceIndex() == assignment.instanceIndex());
+                && obs.instanceIndex() == assignment.instanceIndex()
+                && obs.tenantId().equals(assignment.tenantId()));
   }
 
   private Map<String, Object> deploymentStatus(DeploymentSpec spec) {
@@ -3110,7 +3118,8 @@ public final class ApiServer implements AutoCloseable {
         assignment.nodeId(),
         obs ->
             obs.deploymentName().equals(assignment.deploymentName())
-                && obs.instanceIndex() == assignment.instanceIndex());
+                && obs.instanceIndex() == assignment.instanceIndex()
+                && obs.tenantId().equals(assignment.tenantId()));
   }
 
   /**
@@ -3642,7 +3651,8 @@ public final class ApiServer implements AutoCloseable {
         numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
         portsFromJson(map.get("ports")),
         numberField(map, "volumeUsageBytes", 0L).longValue(),
-        Optional.ofNullable((String) map.get("workerId")));
+        Optional.ofNullable((String) map.get("workerId")),
+        Optional.ofNullable((String) map.get("tenantId")));
   }
 
   /** {@code ports}, when present, is a vessel instance's own declared-port-name -> number map. */
@@ -5519,15 +5529,12 @@ public final class ApiServer implements AutoCloseable {
         for (Map<String, Object> volume : nodeVolumes) {
           String statefulSet = String.valueOf(volume.get("statefulSet"));
           int instanceIndex = ((Number) volume.get("instanceIndex")).intValue();
+          Optional<String> tenantId = Optional.ofNullable((String) volume.get("tenantId"));
           Map<String, Object> entry = new LinkedHashMap<>(volume);
           entry.put("nodeId", registration.nodeId());
-          // The agent's own /volumes inventory (AgentLogServer) reports statefulSet/instanceIndex
-          // only, no tenantId -- untenanted is this route's existing posture, not a regression
-          // introduced by tenant-scoping the store; extending the agent's own inventory shape to
-          // carry tenant identity is separate, agent-side follow-up work.
           entry.put(
               "attached",
-              isVolumeAttached(Optional.empty(), statefulSet, instanceIndex, registration.nodeId()));
+              isVolumeAttached(tenantId, statefulSet, instanceIndex, registration.nodeId()));
           volumes.add(entry);
         }
       }
@@ -5566,15 +5573,19 @@ public final class ApiServer implements AutoCloseable {
       String nodeId = segments[0];
       String statefulSetName = segments[1];
       int instanceIndex = Integer.parseInt(segments[2]);
+      // The owning tenant, if any, travels as ?tenant=<id> -- the same convention every other
+      // tenant-scoped route in this class uses -- since omitted unambiguously means the
+      // untenanted namespace, distinct from every real tenant id.
+      Optional<String> tenantId = Optional.ofNullable(parseQuery(exchange).get("tenant"));
       if (!requireAuthorized(
           exchange,
           ResourceKind.STATEFULSET,
           Verb.DELETE,
-          Optional.empty(),
+          tenantId,
           Optional.of(statefulSetName))) {
         return;
       }
-      if (isVolumeAttached(Optional.empty(), statefulSetName, instanceIndex, nodeId)) {
+      if (isVolumeAttached(tenantId, statefulSetName, instanceIndex, nodeId)) {
         respond(
             exchange,
             409,
@@ -5593,6 +5604,10 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 502, "node " + nodeId + " has no reachable agent address");
         return;
       }
+      String tenantQuery =
+          tenantId
+              .map(t -> "?tenant=" + URLEncoder.encode(t, StandardCharsets.UTF_8))
+              .orElse("");
       HttpRequest request =
           HttpRequest.newBuilder(
                   URI.create(
@@ -5601,7 +5616,8 @@ public final class ApiServer implements AutoCloseable {
                           + "/volumes/"
                           + statefulSetName
                           + "/"
-                          + instanceIndex))
+                          + instanceIndex
+                          + tenantQuery))
               .timeout(Duration.ofSeconds(10))
               .DELETE()
               .build();
@@ -5679,8 +5695,15 @@ public final class ApiServer implements AutoCloseable {
           tail.startsWith("nodes/")
               ? Optional.of(tail.substring("nodes/".length()))
               : Optional.empty();
-      if (!requireAuthorized(
-          exchange, ResourceKind.LOGS, Verb.READ, Optional.empty(), targetNodeId)) {
+      // An instance-log request is scoped to its own ?tenant=<id> (the same convention every
+      // other tenant-scoped route uses) so the RBAC check below -- and resolveInstanceNodeId's
+      // own lookup, further down -- both stay within the caller's own tenant rather than any
+      // tenant that happens to share the requested deploymentName.
+      Optional<String> tenantId =
+          tail.startsWith("instances/")
+              ? Optional.ofNullable(parseQuery(exchange).get("tenant"))
+              : Optional.empty();
+      if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, tenantId, targetNodeId)) {
         return;
       }
       if (tail.equals("controlplane")) {
@@ -5826,7 +5849,11 @@ public final class ApiServer implements AutoCloseable {
         subPath != null || muninnClient == null
             ? null
             : muninnInstanceLogsPath(deploymentName, instanceIndex, exchange);
-    String nodeId = resolveInstanceNodeId(deploymentName, instanceIndex);
+    // The owning tenant, if any, travels as ?tenant=<id> -- the same convention every other
+    // tenant-scoped route in this class uses -- and is what keeps this resolution (and the RBAC
+    // check above it) from crossing into a different tenant's identically-named workload.
+    Optional<String> tenantId = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    String nodeId = resolveInstanceNodeId(tenantId, deploymentName, instanceIndex);
     if (nodeId == null) {
       if (muninnFallbackPath != null) {
         proxyToMuninn(exchange, muninnFallbackPath);
@@ -5841,7 +5868,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Resolves {@code deploymentName}/{@code instanceIndex} to the node currently hosting it,
+   * Resolves {@code (tenantId, deploymentName, instanceIndex)} to the node currently hosting it,
    * regardless of which of the five workload kinds actually placed it -- {@code
    * storeClient.listAssignmentsFor} only ever holds Deployment-kind placements (it's populated
    * exclusively by {@code DeploymentReconciler}'s own bookkeeping, the same lookup {@code
@@ -5849,26 +5876,22 @@ public final class ApiServer implements AutoCloseable {
    * instance's log request 404'd here forever even while genuinely {@code ACTIVE} elsewhere. Tries
    * each kind's own assignment list in turn, the same shape {@link #handleEndpoints} already uses
    * to resolve a workload name across kinds -- first match wins, since a name is unique across all
-   * five kinds.
+   * five kinds within one tenant's own namespace (not globally -- every lookup here is scoped to
+   * {@code tenantId}, so two tenants' identically-named workload can never resolve into each
+   * other's node/logs).
    */
-  private String resolveInstanceNodeId(String deploymentName, int instanceIndex) {
+  private String resolveInstanceNodeId(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
     Optional<String> deployment =
-        storeClient.listAssignments().stream()
-            .filter(
-                a -> a.deploymentName().equals(deploymentName) && a.instanceIndex() == instanceIndex)
+        storeClient.listAssignmentsFor(tenantId, deploymentName).stream()
+            .filter(a -> a.instanceIndex() == instanceIndex)
             .map(InstanceAssignment::nodeId)
             .findFirst();
     if (deployment.isPresent()) {
       return deployment.get();
     }
     Optional<String> statefulSet =
-        storeClient.listStatefulSetAssignments().stream()
-            .filter(
-                a ->
-                    a.statefulSetName().equals(deploymentName)
-                        && a.instanceIndex() == instanceIndex)
-            .map(StatefulSetAssignment::nodeId)
-            .findFirst();
+        storeClient.getStatefulSetIndexNode(tenantId, deploymentName, instanceIndex);
     if (statefulSet.isPresent()) {
       return statefulSet.get();
     }
@@ -5877,16 +5900,15 @@ public final class ApiServer implements AutoCloseable {
     // the same way a Job's own attempt number must match below.
     if (instanceIndex == 0) {
       Optional<String> daemonSet =
-          storeClient.listDaemonSetAssignments().stream()
-              .filter(a -> a.daemonSetName().equals(deploymentName))
+          storeClient.listDaemonSetAssignmentsFor(tenantId, deploymentName).stream()
               .map(DaemonSetAssignment::nodeId)
               .findFirst();
       if (daemonSet.isPresent()) {
         return daemonSet.get();
       }
     }
-    return storeClient.listJobRuns().stream()
-        .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
+    return storeClient.listJobRunsFor(tenantId, deploymentName).stream()
+        .filter(run -> run.attempt() == instanceIndex)
         .map(JobRun::nodeId)
         .findFirst()
         .orElse(null);

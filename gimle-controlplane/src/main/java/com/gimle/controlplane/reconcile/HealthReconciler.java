@@ -315,13 +315,12 @@ public final class HealthReconciler {
   private static Optional<InstanceObservation> findIn(
       NodeHeartbeat heartbeat, InstanceAssignment assignment) {
     for (InstanceObservation observation : heartbeat.instances()) {
-      // No tenant field to join on here -- InstanceObservation predates per-tenant store scoping
-      // and crosses the agent/worker wire, which has no tenant concept of its own (see
-      // StateStore#putInstanceEvent's own javadoc for the identical InstanceEvent gap). A false
-      // match is possible only if two different tenants' own identically-named deployment somehow
-      // land the same instanceIndex on the very same node, which nothing here currently prevents.
+      // tenantId included in the match, not just (deploymentName, instanceIndex) -- see
+      // InstanceObservation's own javadoc for why: two different tenants' identically-named
+      // deployment can otherwise land the same instanceIndex on the very same node.
       if (observation.deploymentName().equals(assignment.deploymentName())
-          && observation.instanceIndex() == assignment.instanceIndex()) {
+          && observation.instanceIndex() == assignment.instanceIndex()
+          && observation.tenantId().equals(assignment.tenantId())) {
         return Optional.of(observation);
       }
     }

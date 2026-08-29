@@ -137,11 +137,13 @@ class AgentLogServerTest {
     LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     Path held =
         volumeManager.hostPath(
-            volumeManager.allocate("sessions", 0, "data", new VolumeRequest(64)));
+            volumeManager.allocate(
+                java.util.Optional.empty(), "sessions", 0, "data", new VolumeRequest(64)));
     Files.writeString(held.resolve("live.db"), "12345");
     Path orphan =
         volumeManager.hostPath(
-            volumeManager.allocate("sessions", 1, "data", new VolumeRequest(64)));
+            volumeManager.allocate(
+                java.util.Optional.empty(), "sessions", 1, "data", new VolumeRequest(64)));
     Files.writeString(orphan.resolve("old.db"), "123");
     server =
         new AgentLogServer(
@@ -149,7 +151,7 @@ class AgentLogServerTest {
             0,
             java.util.function.Function.identity(),
             volumeManager,
-            () -> Set.of("sessions#0"));
+            () -> Set.of(AgentLogServer.volumeKey(java.util.Optional.empty(), "sessions", 0)));
     server.start();
 
     List<Object> listed = getJsonArray("/volumes");

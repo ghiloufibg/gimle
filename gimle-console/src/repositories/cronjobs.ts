@@ -6,7 +6,7 @@ export interface CronJobsRepository {
   fetchPage(args: { cursor: string | null; pageSize: number }): Promise<Page<CronJob>>;
   fetchOne(name: string): Promise<CronJob>;
   create(spec: CronJobSpecInput): Promise<CronJob>;
-  remove(name: string): Promise<void>;
+  remove(name: string, tenantId?: string | null): Promise<void>;
   /** Fires immediately, bypassing the schedule -- returns the generated Job's name. */
   trigger(name: string): Promise<string>;
 }
@@ -25,7 +25,9 @@ export class MockCronJobsRepository implements CronJobsRepository {
     addCronJob(c);
     return delay(c);
   }
-  async remove(name: string) {
+  async remove(name: string, _tenantId?: string | null) {
+    // Fixture data is keyed by bare name only -- tenantId is accepted for interface parity with
+    // HttpCronJobsRepository but unused here.
     removeCronJob(name);
     return delay(undefined);
   }

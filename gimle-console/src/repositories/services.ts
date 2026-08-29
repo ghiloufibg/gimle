@@ -4,9 +4,9 @@ import { delay } from "./util";
 export interface ServicesRepository {
   fetchAll(): Promise<Service[]>;
   fetchOne(name: string): Promise<Service>;
-  fetchEndpoints(name: string): Promise<ServiceEndpoints>;
+  fetchEndpoints(name: string, tenantId?: string | null): Promise<ServiceEndpoints>;
   save(spec: Service): Promise<void>;
-  remove(name: string): Promise<void>;
+  remove(name: string, tenantId?: string | null): Promise<void>;
 }
 
 const mockServices: Service[] = [
@@ -45,7 +45,7 @@ export class MockServicesRepository implements ServicesRepository {
     return delay({ ...s, deploymentNames: [...s.deploymentNames] });
   }
 
-  async fetchEndpoints(name: string): Promise<ServiceEndpoints> {
+  async fetchEndpoints(name: string, _tenantId?: string | null): Promise<ServiceEndpoints> {
     const s = mockServices.find((x) => x.name === name);
     if (!s) throw new Error(`Service not found: ${name}`);
     return delay({
@@ -63,7 +63,7 @@ export class MockServicesRepository implements ServicesRepository {
     return delay(undefined);
   }
 
-  async remove(name: string): Promise<void> {
+  async remove(name: string, _tenantId?: string | null): Promise<void> {
     const i = mockServices.findIndex((x) => x.name === name);
     if (i >= 0) mockServices.splice(i, 1);
     delete mockEndpoints[name];
