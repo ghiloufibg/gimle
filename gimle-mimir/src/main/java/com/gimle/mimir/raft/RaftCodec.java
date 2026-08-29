@@ -931,8 +931,12 @@ public final class RaftCodec {
         out.writeUTF(nodeId);
       }
       out.writeInt(snapshot.instanceEvents().size());
-      for (InstanceEvent event : snapshot.instanceEvents()) {
-        DomainCodec.writeInstanceEvent(out, event);
+      for (Map.Entry<String, List<InstanceEvent>> e : snapshot.instanceEvents().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeInt(e.getValue().size());
+        for (InstanceEvent event : e.getValue()) {
+          DomainCodec.writeInstanceEvent(out, event);
+        }
       }
       out.writeInt(snapshot.auditEvents().size());
       for (AuditEvent event : snapshot.auditEvents()) {
@@ -1146,10 +1150,16 @@ public final class RaftCodec {
       for (int i = 0; i < cordonedCount; i++) {
         cordonedNodes.add(in.readUTF());
       }
-      List<InstanceEvent> instanceEvents = new ArrayList<>();
-      int instanceEventCount = in.readInt();
-      for (int i = 0; i < instanceEventCount; i++) {
-        instanceEvents.add(DomainCodec.readInstanceEvent(in));
+      Map<String, List<InstanceEvent>> instanceEvents = new LinkedHashMap<>();
+      int instanceEventKeyCount = in.readInt();
+      for (int i = 0; i < instanceEventKeyCount; i++) {
+        String key = in.readUTF();
+        int eventCount = in.readInt();
+        List<InstanceEvent> events = new ArrayList<>();
+        for (int j = 0; j < eventCount; j++) {
+          events.add(DomainCodec.readInstanceEvent(in));
+        }
+        instanceEvents.put(key, events);
       }
       List<AuditEvent> auditEvents = new ArrayList<>();
       int auditEventCount = in.readInt();

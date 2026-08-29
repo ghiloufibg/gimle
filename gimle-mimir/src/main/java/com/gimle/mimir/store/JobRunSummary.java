@@ -1,5 +1,7 @@
 package com.gimle.mimir.store;
 
+import java.util.Optional;
+
 /**
  * The last attempt's own detail, retained once a {@link com.gimle.mimir.manifest.JobSpec} reaches a
  * terminal {@link JobPhase} -- {@link JobRun} itself is removed at that same transition ({@code
@@ -11,7 +13,8 @@ package com.gimle.mimir.store;
  * json}'s own {@code currentRun} field needs to report back once a job is terminal, with none of
  * the scheduling-bookkeeping baggage a lingering {@link JobRun} would carry.
  */
-public record JobRunSummary(String jobName, int attempt, String nodeId, String reason) {
+public record JobRunSummary(
+    String jobName, int attempt, String nodeId, String reason, Optional<String> tenantId) {
 
   public JobRunSummary {
     if (jobName == null || jobName.isBlank()) {
@@ -26,5 +29,13 @@ public record JobRunSummary(String jobName, int attempt, String nodeId, String r
     if (reason == null || reason.isBlank()) {
       throw new IllegalArgumentException("reason must not be blank");
     }
+    if (tenantId == null) {
+      throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code tenantId} to {@code Optional.empty()} (untenanted). */
+  public JobRunSummary(String jobName, int attempt, String nodeId, String reason) {
+    this(jobName, attempt, nodeId, reason, Optional.empty());
   }
 }

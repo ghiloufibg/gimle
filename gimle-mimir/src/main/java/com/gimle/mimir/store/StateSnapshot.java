@@ -57,7 +57,11 @@ public record StateSnapshot(
     List<Account> accounts,
     List<ReconcilerInstanceState> reconcilerInstanceStates,
     Set<String> cordonedNodes,
-    List<InstanceEvent> instanceEvents,
+    // Keyed by the store's own tenant-scoped instance-events key (see StateStore#instanceEventsKey)
+    // rather than a flat List<InstanceEvent> -- InstanceEvent itself carries no tenantId (see
+    // StateStore#putInstanceEvent's own javadoc), so the tenant each list belongs to would
+    // otherwise be lost the moment every instance's events were flattened into one list.
+    Map<String, List<InstanceEvent>> instanceEvents,
     List<AuditEvent> auditEvents,
     List<ServiceSpec> services,
     List<NetworkPolicySpec> networkPolicies,
@@ -111,7 +115,11 @@ public record StateSnapshot(
     accounts = List.copyOf(accounts);
     reconcilerInstanceStates = List.copyOf(reconcilerInstanceStates);
     cordonedNodes = Set.copyOf(cordonedNodes);
-    instanceEvents = List.copyOf(instanceEvents);
+    // Deep-copied for the same reason rollingDaemonSetNodes/rollingIndices are above.
+    instanceEvents =
+        instanceEvents.entrySet().stream()
+            .collect(
+                Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> List.copyOf(e.getValue())));
     auditEvents = List.copyOf(auditEvents);
     services = List.copyOf(services);
     networkPolicies = List.copyOf(networkPolicies);

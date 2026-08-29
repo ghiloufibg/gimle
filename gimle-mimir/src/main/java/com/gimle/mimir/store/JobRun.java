@@ -3,6 +3,7 @@ package com.gimle.mimir.store;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.ModuleId;
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * The scheduler's placement decision for one attempt of a {@link com.gimle.mimir.manifest.JobSpec}
@@ -28,7 +29,8 @@ public record JobRun(
     String nodeId,
     ModuleId moduleId,
     String artifactPath,
-    Instant startedAt) {
+    Instant startedAt,
+    Optional<String> tenantId) {
 
   public JobRun {
     if (jobName == null || jobName.isBlank()) {
@@ -47,5 +49,19 @@ public record JobRun(
     if (startedAt == null) {
       throw new IllegalArgumentException("startedAt must not be null");
     }
+    if (tenantId == null) {
+      throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
+    }
+  }
+
+  /** Back-compat: defaults {@code tenantId} to {@code Optional.empty()} (untenanted). */
+  public JobRun(
+      String jobName,
+      int attempt,
+      String nodeId,
+      ModuleId moduleId,
+      String artifactPath,
+      Instant startedAt) {
+    this(jobName, attempt, nodeId, moduleId, artifactPath, startedAt, Optional.empty());
   }
 }

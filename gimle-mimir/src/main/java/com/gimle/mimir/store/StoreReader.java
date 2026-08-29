@@ -40,7 +40,7 @@ public interface StoreReader {
 
   Optional<Tenant> getTenant(String id);
 
-  Optional<DeploymentSpec> getDeployment(String name);
+  Optional<DeploymentSpec> getDeployment(Optional<String> tenantId, String name);
 
   /**
    * The compare-and-set precondition value for {@code ApiServer}'s deployment apply/delete/rollback
@@ -49,21 +49,21 @@ public interface StoreReader {
    * putDeployment} bumps it, every {@code removeDeployment} resets it, so a fresh {@code apply}
    * under the same name starts a new generation lineage rather than continuing the old one.
    */
-  long getDeploymentGeneration(String name);
+  long getDeploymentGeneration(Optional<String> tenantId, String name);
 
   List<DeploymentSpec> listDeployments();
 
-  Optional<ServiceSpec> getService(String name);
+  Optional<ServiceSpec> getService(Optional<String> tenantId, String name);
 
   List<ServiceSpec> listServices();
 
-  Optional<NetworkPolicySpec> getNetworkPolicy(String name);
+  Optional<NetworkPolicySpec> getNetworkPolicy(String tenantId, String name);
 
   List<NetworkPolicySpec> listNetworkPolicies();
 
-  List<InstanceAssignment> listAssignmentsFor(String deploymentName);
+  List<InstanceAssignment> listAssignmentsFor(Optional<String> tenantId, String deploymentName);
 
-  boolean isQuotaViolating(String deploymentName);
+  boolean isQuotaViolating(Optional<String> tenantId, String deploymentName);
 
   boolean isNodeCordoned(String nodeId);
 
@@ -80,51 +80,54 @@ public interface StoreReader {
 
   List<InstanceAssignment> listAssignments();
 
-  Optional<JobSpec> getJobSpec(String name);
+  Optional<JobSpec> getJobSpec(Optional<String> tenantId, String name);
 
   List<JobSpec> listJobSpecs();
 
-  List<JobRun> listJobRunsFor(String jobName);
+  List<JobRun> listJobRunsFor(Optional<String> tenantId, String jobName);
 
   List<JobRun> listJobRuns();
 
   /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
-  Optional<JobPhase> getJobPhase(String jobName);
+  Optional<JobPhase> getJobPhase(Optional<String> tenantId, String jobName);
 
   /**
    * Empty until the job reaches a terminal phase -- see {@code StateStore#jobRunSummaries}'s own
    * field javadoc.
    */
-  Optional<JobRunSummary> getJobRunSummary(String jobName);
+  Optional<JobRunSummary> getJobRunSummary(Optional<String> tenantId, String jobName);
 
-  Optional<CronJobSpec> getCronJobSpec(String name);
+  Optional<CronJobSpec> getCronJobSpec(Optional<String> tenantId, String name);
 
   List<CronJobSpec> listCronJobSpecs();
 
   /** Empty means "never fired yet" -- see {@code StateStore#cronJobLastSchedule}'s own javadoc. */
-  Optional<Instant> getCronJobLastSchedule(String name);
+  Optional<Instant> getCronJobLastSchedule(Optional<String> tenantId, String name);
 
-  Optional<DaemonSetSpec> getDaemonSetSpec(String name);
+  Optional<DaemonSetSpec> getDaemonSetSpec(Optional<String> tenantId, String name);
 
   List<DaemonSetSpec> listDaemonSetSpecs();
 
   List<DaemonSetAssignment> listDaemonSetAssignments();
 
-  List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName);
+  List<DaemonSetAssignment> listDaemonSetAssignmentsFor(
+      Optional<String> tenantId, String daemonSetName);
 
-  Set<String> getRollingDaemonSetNodes(String daemonSetName);
+  Set<String> getRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName);
 
-  Optional<StatefulSetSpec> getStatefulSetSpec(String name);
+  Optional<StatefulSetSpec> getStatefulSetSpec(Optional<String> tenantId, String name);
 
   List<StatefulSetSpec> listStatefulSetSpecs();
 
   List<StatefulSetAssignment> listStatefulSetAssignments();
 
-  List<StatefulSetAssignment> listStatefulSetAssignmentsFor(String statefulSetName);
+  List<StatefulSetAssignment> listStatefulSetAssignmentsFor(
+      Optional<String> tenantId, String statefulSetName);
 
-  Optional<Integer> getRollingStatefulSetIndex(String statefulSetName);
+  Optional<Integer> getRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName);
 
-  Optional<String> getStatefulSetIndexNode(String statefulSetName, int instanceIndex);
+  Optional<String> getStatefulSetIndexNode(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex);
 
   List<NodeRegistration> listNodeRegistrations();
 
@@ -144,11 +147,11 @@ public interface StoreReader {
 
   Optional<NodeRegistration> getNodeRegistration(String nodeId);
 
-  Optional<Integer> getEffectiveReplicas(String deploymentName);
+  Optional<Integer> getEffectiveReplicas(Optional<String> tenantId, String deploymentName);
 
-  Set<Integer> getRollingIndices(String deploymentName);
+  Set<Integer> getRollingIndices(Optional<String> tenantId, String deploymentName);
 
-  Map<Integer, Integer> getSurgeIndices(String deploymentName);
+  Map<Integer, Integer> getSurgeIndices(Optional<String> tenantId, String deploymentName);
 
   /**
    * Leader-local; a {@code StoreClient} implementation routes this through the current leader
@@ -158,11 +161,12 @@ public interface StoreReader {
   Optional<ObservedHeartbeat> getNodeHeartbeat(String nodeId);
 
   Optional<ReconcilerInstanceState> getReconcilerInstanceState(
-      String deploymentName, int instanceIndex);
+      Optional<String> tenantId, String deploymentName, int instanceIndex);
 
   List<ReconcilerInstanceState> listReconcilerInstanceStates();
 
-  List<InstanceEvent> listInstanceEvents(String deploymentName, int instanceIndex);
+  List<InstanceEvent> listInstanceEvents(
+      Optional<String> tenantId, String deploymentName, int instanceIndex);
 
   List<AuditEvent> listAuditEvents(
       Optional<String> principal,
@@ -171,19 +175,20 @@ public interface StoreReader {
       Optional<Long> since);
 
   /** Newest-first -- see {@code StateStore#listControllerRevisions}'s own javadoc. */
-  List<ControllerRevision> listControllerRevisions(String workloadKind, String name);
+  List<ControllerRevision> listControllerRevisions(
+      String workloadKind, Optional<String> tenantId, String name);
 
   Optional<ControllerRevision> getControllerRevision(
-      String workloadKind, String name, int revision);
+      String workloadKind, Optional<String> tenantId, String name, int revision);
 
   Optional<LimitRangeSpec> getLimitRange(String tenantId);
 
   List<LimitRangeSpec> listLimitRanges();
 
-  boolean isLimitRangeViolating(String deploymentName);
+  boolean isLimitRangeViolating(Optional<String> tenantId, String deploymentName);
 
   /**
    * Empty when not violating; present with {@link LimitRangeSpec#violation}'s own text otherwise.
    */
-  Optional<String> limitRangeViolationReason(String deploymentName);
+  Optional<String> limitRangeViolationReason(Optional<String> tenantId, String deploymentName);
 }

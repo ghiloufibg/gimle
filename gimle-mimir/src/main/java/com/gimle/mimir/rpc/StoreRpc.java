@@ -234,7 +234,7 @@ public sealed interface StoreRpc {
 
   record GetTenant(String id) implements Request {}
 
-  record GetDeployment(String name) implements Request {}
+  record GetDeployment(Optional<String> tenantId, String name) implements Request {}
 
   /**
    * The compare-and-set precondition read for {@code ApiServer}'s deployment apply/delete/rollback
@@ -243,15 +243,15 @@ public sealed interface StoreRpc {
    * causes a spurious, safe rejection at the actual CAS check inside {@code applyTo} (evaluated
    * against the true replicated state, not this read), never an incorrect write.
    */
-  record GetDeploymentGeneration(String name) implements Request {}
+  record GetDeploymentGeneration(Optional<String> tenantId, String name) implements Request {}
 
   record ListDeployments() implements Request {}
 
-  record GetService(String name) implements Request {}
+  record GetService(Optional<String> tenantId, String name) implements Request {}
 
   record ListServices() implements Request {}
 
-  record GetNetworkPolicy(String name) implements Request {}
+  record GetNetworkPolicy(String tenantId, String name) implements Request {}
 
   record ListNetworkPolicies() implements Request {}
 
@@ -259,14 +259,14 @@ public sealed interface StoreRpc {
 
   record ListLimitRanges() implements Request {}
 
-  record ListAssignmentsFor(String deploymentName) implements Request {}
+  record ListAssignmentsFor(Optional<String> tenantId, String deploymentName) implements Request {}
 
-  record IsQuotaViolating(String deploymentName) implements Request {}
+  record IsQuotaViolating(Optional<String> tenantId, String deploymentName) implements Request {}
 
-  record IsLimitRangeViolating(String deploymentName) implements Request {}
+  record IsLimitRangeViolating(Optional<String> tenantId, String deploymentName) implements Request {}
 
   /** Response reuses {@link StringResult} -- same shape as {@link GetStatefulSetIndexNode}'s. */
-  record GetLimitRangeViolationReason(String deploymentName) implements Request {}
+  record GetLimitRangeViolationReason(Optional<String> tenantId, String deploymentName) implements Request {}
 
   record IsNodeCordoned(String nodeId) implements Request {}
 
@@ -283,47 +283,47 @@ public sealed interface StoreRpc {
 
   record ListAssignments() implements Request {}
 
-  record GetJobSpec(String name) implements Request {}
+  record GetJobSpec(Optional<String> tenantId, String name) implements Request {}
 
   record ListJobSpecs() implements Request {}
 
-  record ListJobRunsFor(String jobName) implements Request {}
+  record ListJobRunsFor(Optional<String> tenantId, String jobName) implements Request {}
 
   record ListJobRuns() implements Request {}
 
   /** Empty means "not yet terminal" -- see {@code StateStore#jobPhases}'s own field javadoc. */
-  record GetJobPhase(String jobName) implements Request {}
+  record GetJobPhase(Optional<String> tenantId, String jobName) implements Request {}
 
-  record GetJobRunSummary(String jobName) implements Request {}
+  record GetJobRunSummary(Optional<String> tenantId, String jobName) implements Request {}
 
-  record GetCronJobSpec(String name) implements Request {}
+  record GetCronJobSpec(Optional<String> tenantId, String name) implements Request {}
 
   record ListCronJobSpecs() implements Request {}
 
   /** Empty means "never fired yet" -- see {@code StateStore#cronJobLastSchedule}'s own javadoc. */
-  record GetCronJobLastSchedule(String name) implements Request {}
+  record GetCronJobLastSchedule(Optional<String> tenantId, String name) implements Request {}
 
-  record GetDaemonSetSpec(String name) implements Request {}
+  record GetDaemonSetSpec(Optional<String> tenantId, String name) implements Request {}
 
   record ListDaemonSetSpecs() implements Request {}
 
   record ListDaemonSetAssignments() implements Request {}
 
-  record ListDaemonSetAssignmentsFor(String daemonSetName) implements Request {}
+  record ListDaemonSetAssignmentsFor(Optional<String> tenantId, String daemonSetName) implements Request {}
 
-  record ListRollingDaemonSetNodes(String daemonSetName) implements Request {}
+  record ListRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName) implements Request {}
 
-  record GetStatefulSetSpec(String name) implements Request {}
+  record GetStatefulSetSpec(Optional<String> tenantId, String name) implements Request {}
 
   record ListStatefulSetSpecs() implements Request {}
 
   record ListStatefulSetAssignments() implements Request {}
 
-  record ListStatefulSetAssignmentsFor(String statefulSetName) implements Request {}
+  record ListStatefulSetAssignmentsFor(Optional<String> tenantId, String statefulSetName) implements Request {}
 
-  record GetRollingStatefulSetIndex(String statefulSetName) implements Request {}
+  record GetRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName) implements Request {}
 
-  record GetStatefulSetIndexNode(String statefulSetName, int instanceIndex) implements Request {}
+  record GetStatefulSetIndexNode(Optional<String> tenantId, String statefulSetName, int instanceIndex) implements Request {}
 
   record ListNodeRegistrations() implements Request {}
 
@@ -343,17 +343,17 @@ public sealed interface StoreRpc {
 
   record GetNodeRegistration(String nodeId) implements Request {}
 
-  record GetEffectiveReplicas(String deploymentName) implements Request {}
+  record GetEffectiveReplicas(Optional<String> tenantId, String deploymentName) implements Request {}
 
-  record ListRollingIndices(String deploymentName) implements Request {}
+  record ListRollingIndices(Optional<String> tenantId, String deploymentName) implements Request {}
 
-  record ListSurgeIndices(String deploymentName) implements Request {}
+  record ListSurgeIndices(Optional<String> tenantId, String deploymentName) implements Request {}
 
-  record GetReconcilerInstanceState(String deploymentName, int instanceIndex) implements Request {}
+  record GetReconcilerInstanceState(Optional<String> tenantId, String deploymentName, int instanceIndex) implements Request {}
 
   record ListReconcilerInstanceStates() implements Request {}
 
-  record ListInstanceEvents(String deploymentName, int instanceIndex) implements Request {}
+  record ListInstanceEvents(Optional<String> tenantId, String deploymentName, int instanceIndex) implements Request {}
 
   /**
    * The answering node's own view of the cluster: its Raft id, whether it currently believes itself
@@ -378,9 +378,9 @@ public sealed interface StoreRpc {
       Optional<Long> since)
       implements Request {}
 
-  record ListControllerRevisions(String workloadKind, String name) implements Request {}
+  record ListControllerRevisions(String workloadKind, Optional<String> tenantId, String name) implements Request {}
 
-  record GetControllerRevision(String workloadKind, String name, int revision) implements Request {}
+  record GetControllerRevision(String workloadKind, Optional<String> tenantId, String name, int revision) implements Request {}
 
   // ---- responses ----
 

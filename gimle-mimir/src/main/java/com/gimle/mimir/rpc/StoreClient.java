@@ -160,9 +160,9 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
-  public Optional<DeploymentSpec> getDeployment(String name) {
+  public Optional<DeploymentSpec> getDeployment(Optional<String> tenantId, String name) {
     StoreRpc.DeploymentResult r =
-        (StoreRpc.DeploymentResult) sendRead(new StoreRpc.GetDeployment(name));
+        (StoreRpc.DeploymentResult) sendRead(new StoreRpc.GetDeployment(tenantId, name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -174,8 +174,9 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
    * unnecessary conflict response a caller can retry.
    */
   @Override
-  public long getDeploymentGeneration(String name) {
-    return ((StoreRpc.GenerationResult) sendRead(new StoreRpc.GetDeploymentGeneration(name)))
+  public long getDeploymentGeneration(Optional<String> tenantId, String name) {
+    return ((StoreRpc.GenerationResult)
+            sendRead(new StoreRpc.GetDeploymentGeneration(tenantId, name)))
         .value();
   }
 
@@ -183,8 +184,9 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.DeploymentListResult) sendRead(new StoreRpc.ListDeployments())).values();
   }
 
-  public Optional<ServiceSpec> getService(String name) {
-    StoreRpc.ServiceResult r = (StoreRpc.ServiceResult) sendRead(new StoreRpc.GetService(name));
+  public Optional<ServiceSpec> getService(Optional<String> tenantId, String name) {
+    StoreRpc.ServiceResult r =
+        (StoreRpc.ServiceResult) sendRead(new StoreRpc.GetService(tenantId, name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -192,9 +194,9 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.ServiceListResult) sendRead(new StoreRpc.ListServices())).values();
   }
 
-  public Optional<NetworkPolicySpec> getNetworkPolicy(String name) {
+  public Optional<NetworkPolicySpec> getNetworkPolicy(String tenantId, String name) {
     StoreRpc.NetworkPolicyResult r =
-        (StoreRpc.NetworkPolicyResult) sendRead(new StoreRpc.GetNetworkPolicy(name));
+        (StoreRpc.NetworkPolicyResult) sendRead(new StoreRpc.GetNetworkPolicy(tenantId, name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -213,24 +215,29 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.LimitRangeListResult) sendRead(new StoreRpc.ListLimitRanges())).values();
   }
 
-  public List<InstanceAssignment> listAssignmentsFor(String deploymentName) {
+  public List<InstanceAssignment> listAssignmentsFor(
+      Optional<String> tenantId, String deploymentName) {
     return ((StoreRpc.AssignmentListResult)
-            sendRead(new StoreRpc.ListAssignmentsFor(deploymentName)))
+            sendRead(new StoreRpc.ListAssignmentsFor(tenantId, deploymentName)))
         .values();
   }
 
-  public boolean isQuotaViolating(String deploymentName) {
-    return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsQuotaViolating(deploymentName))).value();
-  }
-
-  public boolean isLimitRangeViolating(String deploymentName) {
-    return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsLimitRangeViolating(deploymentName)))
+  public boolean isQuotaViolating(Optional<String> tenantId, String deploymentName) {
+    return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsQuotaViolating(tenantId, deploymentName)))
         .value();
   }
 
-  public Optional<String> limitRangeViolationReason(String deploymentName) {
+  public boolean isLimitRangeViolating(Optional<String> tenantId, String deploymentName) {
+    return ((StoreRpc.BoolResult)
+            sendRead(new StoreRpc.IsLimitRangeViolating(tenantId, deploymentName)))
+        .value();
+  }
+
+  public Optional<String> limitRangeViolationReason(
+      Optional<String> tenantId, String deploymentName) {
     StoreRpc.StringResult r =
-        (StoreRpc.StringResult) sendRead(new StoreRpc.GetLimitRangeViolationReason(deploymentName));
+        (StoreRpc.StringResult)
+            sendRead(new StoreRpc.GetLimitRangeViolationReason(tenantId, deploymentName));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -268,8 +275,9 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.AssignmentListResult) sendRead(new StoreRpc.ListAssignments())).values();
   }
 
-  public Optional<JobSpec> getJobSpec(String name) {
-    StoreRpc.JobSpecResult r = (StoreRpc.JobSpecResult) sendRead(new StoreRpc.GetJobSpec(name));
+  public Optional<JobSpec> getJobSpec(Optional<String> tenantId, String name) {
+    StoreRpc.JobSpecResult r =
+        (StoreRpc.JobSpecResult) sendRead(new StoreRpc.GetJobSpec(tenantId, name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -277,29 +285,30 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.JobSpecListResult) sendRead(new StoreRpc.ListJobSpecs())).values();
   }
 
-  public List<JobRun> listJobRunsFor(String jobName) {
-    return ((StoreRpc.JobRunListResult) sendRead(new StoreRpc.ListJobRunsFor(jobName))).values();
+  public List<JobRun> listJobRunsFor(Optional<String> tenantId, String jobName) {
+    return ((StoreRpc.JobRunListResult) sendRead(new StoreRpc.ListJobRunsFor(tenantId, jobName)))
+        .values();
   }
 
   public List<JobRun> listJobRuns() {
     return ((StoreRpc.JobRunListResult) sendRead(new StoreRpc.ListJobRuns())).values();
   }
 
-  public Optional<JobPhase> getJobPhase(String jobName) {
+  public Optional<JobPhase> getJobPhase(Optional<String> tenantId, String jobName) {
     StoreRpc.JobPhaseResult r =
-        (StoreRpc.JobPhaseResult) sendRead(new StoreRpc.GetJobPhase(jobName));
+        (StoreRpc.JobPhaseResult) sendRead(new StoreRpc.GetJobPhase(tenantId, jobName));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
-  public Optional<JobRunSummary> getJobRunSummary(String jobName) {
+  public Optional<JobRunSummary> getJobRunSummary(Optional<String> tenantId, String jobName) {
     StoreRpc.JobRunSummaryResult r =
-        (StoreRpc.JobRunSummaryResult) sendRead(new StoreRpc.GetJobRunSummary(jobName));
+        (StoreRpc.JobRunSummaryResult) sendRead(new StoreRpc.GetJobRunSummary(tenantId, jobName));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
-  public Optional<CronJobSpec> getCronJobSpec(String name) {
+  public Optional<CronJobSpec> getCronJobSpec(Optional<String> tenantId, String name) {
     StoreRpc.CronJobSpecResult r =
-        (StoreRpc.CronJobSpecResult) sendRead(new StoreRpc.GetCronJobSpec(name));
+        (StoreRpc.CronJobSpecResult) sendRead(new StoreRpc.GetCronJobSpec(tenantId, name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -307,15 +316,15 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.CronJobSpecListResult) sendRead(new StoreRpc.ListCronJobSpecs())).values();
   }
 
-  public Optional<Instant> getCronJobLastSchedule(String name) {
+  public Optional<Instant> getCronJobLastSchedule(Optional<String> tenantId, String name) {
     StoreRpc.InstantResult r =
-        (StoreRpc.InstantResult) sendRead(new StoreRpc.GetCronJobLastSchedule(name));
+        (StoreRpc.InstantResult) sendRead(new StoreRpc.GetCronJobLastSchedule(tenantId, name));
     return r.present() ? Optional.of(Instant.ofEpochMilli(r.epochMilli())) : Optional.empty();
   }
 
-  public Optional<DaemonSetSpec> getDaemonSetSpec(String name) {
+  public Optional<DaemonSetSpec> getDaemonSetSpec(Optional<String> tenantId, String name) {
     StoreRpc.DaemonSetSpecResult r =
-        (StoreRpc.DaemonSetSpecResult) sendRead(new StoreRpc.GetDaemonSetSpec(name));
+        (StoreRpc.DaemonSetSpecResult) sendRead(new StoreRpc.GetDaemonSetSpec(tenantId, name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -330,21 +339,23 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
-  public List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName) {
+  public List<DaemonSetAssignment> listDaemonSetAssignmentsFor(
+      Optional<String> tenantId, String daemonSetName) {
     return ((StoreRpc.DaemonSetAssignmentListResult)
-            sendRead(new StoreRpc.ListDaemonSetAssignmentsFor(daemonSetName)))
+            sendRead(new StoreRpc.ListDaemonSetAssignmentsFor(tenantId, daemonSetName)))
         .values();
   }
 
-  public Set<String> getRollingDaemonSetNodes(String daemonSetName) {
+  public Set<String> getRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName) {
     return Set.copyOf(
-        ((StoreRpc.StringSetResult) sendRead(new StoreRpc.ListRollingDaemonSetNodes(daemonSetName)))
+        ((StoreRpc.StringSetResult)
+                sendRead(new StoreRpc.ListRollingDaemonSetNodes(tenantId, daemonSetName)))
             .values());
   }
 
-  public Optional<StatefulSetSpec> getStatefulSetSpec(String name) {
+  public Optional<StatefulSetSpec> getStatefulSetSpec(Optional<String> tenantId, String name) {
     StoreRpc.StatefulSetSpecResult r =
-        (StoreRpc.StatefulSetSpecResult) sendRead(new StoreRpc.GetStatefulSetSpec(name));
+        (StoreRpc.StatefulSetSpecResult) sendRead(new StoreRpc.GetStatefulSetSpec(tenantId, name));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -359,22 +370,27 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
-  public List<StatefulSetAssignment> listStatefulSetAssignmentsFor(String statefulSetName) {
+  public List<StatefulSetAssignment> listStatefulSetAssignmentsFor(
+      Optional<String> tenantId, String statefulSetName) {
     return ((StoreRpc.StatefulSetAssignmentListResult)
-            sendRead(new StoreRpc.ListStatefulSetAssignmentsFor(statefulSetName)))
+            sendRead(new StoreRpc.ListStatefulSetAssignmentsFor(tenantId, statefulSetName)))
         .values();
   }
 
-  public Optional<Integer> getRollingStatefulSetIndex(String statefulSetName) {
+  public Optional<Integer> getRollingStatefulSetIndex(
+      Optional<String> tenantId, String statefulSetName) {
     StoreRpc.IntResult r =
-        (StoreRpc.IntResult) sendRead(new StoreRpc.GetRollingStatefulSetIndex(statefulSetName));
+        (StoreRpc.IntResult)
+            sendRead(new StoreRpc.GetRollingStatefulSetIndex(tenantId, statefulSetName));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
-  public Optional<String> getStatefulSetIndexNode(String statefulSetName, int instanceIndex) {
+  public Optional<String> getStatefulSetIndexNode(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex) {
     StoreRpc.StringResult r =
         (StoreRpc.StringResult)
-            sendRead(new StoreRpc.GetStatefulSetIndexNode(statefulSetName, instanceIndex));
+            sendRead(
+                new StoreRpc.GetStatefulSetIndexNode(tenantId, statefulSetName, instanceIndex));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -446,21 +462,23 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
-  public Optional<Integer> getEffectiveReplicas(String deploymentName) {
+  public Optional<Integer> getEffectiveReplicas(Optional<String> tenantId, String deploymentName) {
     StoreRpc.IntResult r =
-        (StoreRpc.IntResult) sendRead(new StoreRpc.GetEffectiveReplicas(deploymentName));
+        (StoreRpc.IntResult) sendRead(new StoreRpc.GetEffectiveReplicas(tenantId, deploymentName));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
-  public Set<Integer> getRollingIndices(String deploymentName) {
+  public Set<Integer> getRollingIndices(Optional<String> tenantId, String deploymentName) {
     return Set.copyOf(
-        ((StoreRpc.IntSetResult) sendRead(new StoreRpc.ListRollingIndices(deploymentName)))
+        ((StoreRpc.IntSetResult)
+                sendRead(new StoreRpc.ListRollingIndices(tenantId, deploymentName)))
             .values());
   }
 
-  public Map<Integer, Integer> getSurgeIndices(String deploymentName) {
+  public Map<Integer, Integer> getSurgeIndices(Optional<String> tenantId, String deploymentName) {
     StoreRpc.IntIntMapResult r =
-        (StoreRpc.IntIntMapResult) sendRead(new StoreRpc.ListSurgeIndices(deploymentName));
+        (StoreRpc.IntIntMapResult)
+            sendRead(new StoreRpc.ListSurgeIndices(tenantId, deploymentName));
     Map<Integer, Integer> result = new LinkedHashMap<>();
     for (int i = 0; i < r.surgeIndices().size(); i++) {
       result.put(r.surgeIndices().get(i), r.targetIndices().get(i));
@@ -469,10 +487,11 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   }
 
   public Optional<ReconcilerInstanceState> getReconcilerInstanceState(
-      String deploymentName, int instanceIndex) {
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
     StoreRpc.ReconcilerInstanceStateResult r =
         (StoreRpc.ReconcilerInstanceStateResult)
-            sendRead(new StoreRpc.GetReconcilerInstanceState(deploymentName, instanceIndex));
+            sendRead(
+                new StoreRpc.GetReconcilerInstanceState(tenantId, deploymentName, instanceIndex));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
@@ -482,9 +501,10 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
-  public List<InstanceEvent> listInstanceEvents(String deploymentName, int instanceIndex) {
+  public List<InstanceEvent> listInstanceEvents(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
     return ((StoreRpc.InstanceEventListResult)
-            sendRead(new StoreRpc.ListInstanceEvents(deploymentName, instanceIndex)))
+            sendRead(new StoreRpc.ListInstanceEvents(tenantId, deploymentName, instanceIndex)))
         .values();
   }
 
@@ -498,17 +518,18 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
-  public List<ControllerRevision> listControllerRevisions(String workloadKind, String name) {
+  public List<ControllerRevision> listControllerRevisions(
+      String workloadKind, Optional<String> tenantId, String name) {
     return ((StoreRpc.ControllerRevisionListResult)
-            sendRead(new StoreRpc.ListControllerRevisions(workloadKind, name)))
+            sendRead(new StoreRpc.ListControllerRevisions(workloadKind, tenantId, name)))
         .values();
   }
 
   public Optional<ControllerRevision> getControllerRevision(
-      String workloadKind, String name, int revision) {
+      String workloadKind, Optional<String> tenantId, String name, int revision) {
     StoreRpc.ControllerRevisionResult r =
         (StoreRpc.ControllerRevisionResult)
-            sendRead(new StoreRpc.GetControllerRevision(workloadKind, name, revision));
+            sendRead(new StoreRpc.GetControllerRevision(workloadKind, tenantId, name, revision));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 

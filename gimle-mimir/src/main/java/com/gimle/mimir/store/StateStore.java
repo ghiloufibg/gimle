@@ -185,20 +185,21 @@ public final class StateStore implements StoreReader {
   // ---- deployments ----
 
   public void putDeployment(DeploymentSpec spec) {
-    deployments.put(spec.name(), spec);
-    deploymentGenerations.merge(spec.name(), 1L, Long::sum);
+    String key = scopedKey(spec.tenantId(), spec.name());
+    deployments.put(key, spec);
+    deploymentGenerations.merge(key, 1L, Long::sum);
   }
 
-  public Optional<DeploymentSpec> getDeployment(String name) {
-    return Optional.ofNullable(deployments.get(name));
+  public Optional<DeploymentSpec> getDeployment(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(deployments.get(scopedKey(tenantId, name)));
   }
 
   /**
    * See {@link StoreReader#getDeploymentGeneration}'s own javadoc for the CAS contract this backs.
    */
   @Override
-  public long getDeploymentGeneration(String name) {
-    return deploymentGenerations.getOrDefault(name, 0L);
+  public long getDeploymentGeneration(Optional<String> tenantId, String name) {
+    return deploymentGenerations.getOrDefault(scopedKey(tenantId, name), 0L);
   }
 
   public List<DeploymentSpec> listDeployments() {
@@ -216,80 +217,84 @@ public final class StateStore implements StoreReader {
    * concurrent writers, clearing here is enough on its own to make a delete-then-recreate a clean
    * break -- no separate identity token is needed to protect against a race that can't happen.
    */
-  public void removeDeployment(String name) {
-    deployments.remove(name);
-    deploymentGenerations.remove(name);
-    clearAllRollingIndices(name);
-    clearAllSurgeIndices(name);
-    effectiveReplicas.remove(name);
-    controllerRevisions.remove(ControllerRevision.revisionKey("Deployment", name));
+  public void removeDeployment(Optional<String> tenantId, String name) {
+    String key = scopedKey(tenantId, name);
+    deployments.remove(key);
+    deploymentGenerations.remove(key);
+    clearAllRollingIndices(tenantId, name);
+    clearAllSurgeIndices(tenantId, name);
+    effectiveReplicas.remove(key);
+    controllerRevisions.remove(ControllerRevision.revisionKey("Deployment", tenantId, name));
   }
 
   // ---- services ----
 
   public void putService(ServiceSpec spec) {
-    services.put(spec.name(), spec);
+    services.put(scopedKey(spec.tenantId(), spec.name()), spec);
   }
 
-  public Optional<ServiceSpec> getService(String name) {
-    return Optional.ofNullable(services.get(name));
+  public Optional<ServiceSpec> getService(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(services.get(scopedKey(tenantId, name)));
   }
 
   public List<ServiceSpec> listServices() {
     return List.copyOf(services.values());
   }
 
-  public void removeService(String name) {
-    services.remove(name);
+  public void removeService(Optional<String> tenantId, String name) {
+    services.remove(scopedKey(tenantId, name));
   }
 
   // ---- network policies ----
 
   public void putNetworkPolicy(NetworkPolicySpec spec) {
-    networkPolicies.put(spec.name(), spec);
+    networkPolicies.put(scopedKey(spec.tenantId(), spec.name()), spec);
   }
 
-  public Optional<NetworkPolicySpec> getNetworkPolicy(String name) {
-    return Optional.ofNullable(networkPolicies.get(name));
+  public Optional<NetworkPolicySpec> getNetworkPolicy(String tenantId, String name) {
+    return Optional.ofNullable(networkPolicies.get(scopedKey(tenantId, name)));
   }
 
   public List<NetworkPolicySpec> listNetworkPolicies() {
     return List.copyOf(networkPolicies.values());
   }
 
-  public void removeNetworkPolicy(String name) {
-    networkPolicies.remove(name);
+  public void removeNetworkPolicy(String tenantId, String name) {
+    networkPolicies.remove(scopedKey(tenantId, name));
   }
 
   // ---- assignments ----
 
   public void putAssignment(InstanceAssignment assignment) {
     assignments.put(
-        assignmentKey(assignment.deploymentName(), assignment.instanceIndex()), assignment);
+        assignmentKey(
+            assignment.tenantId(), assignment.deploymentName(), assignment.instanceIndex()),
+        assignment);
   }
 
-  public void removeAssignment(String deploymentName, int instanceIndex) {
-    assignments.remove(assignmentKey(deploymentName, instanceIndex));
+  public void removeAssignment(Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    assignments.remove(assignmentKey(tenantId, deploymentName, instanceIndex));
   }
 
   public List<InstanceAssignment> listAssignments() {
     return List.copyOf(assignments.values());
   }
 
-  public List<InstanceAssignment> listAssignmentsFor(String deploymentName) {
+  public List<InstanceAssignment> listAssignmentsFor(
+      Optional<String> tenantId, String deploymentName) {
     return assignments.values().stream()
-        .filter(a -> a.deploymentName().equals(deploymentName))
+        .filter(a -> a.tenantId().equals(tenantId) && a.deploymentName().equals(deploymentName))
         .toList();
   }
 
   // ---- jobs ----
 
   public void putJobSpec(JobSpec spec) {
-    jobSpecs.put(spec.name(), spec);
+    jobSpecs.put(scopedKey(spec.tenantId(), spec.name()), spec);
   }
 
-  public Optional<JobSpec> getJobSpec(String name) {
-    return Optional.ofNullable(jobSpecs.get(name));
+  public Optional<JobSpec> getJobSpec(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(jobSpecs.get(scopedKey(tenantId, name)));
   }
 
   public List<JobSpec> listJobSpecs() {
@@ -303,60 +308,63 @@ public final class StateStore implements StoreReader {
    * gone -&gt; agent stops it" ordering {@code DeploymentReconciler} already relies on for {@code
    * InstanceAssignment}.
    */
-  public void removeJobSpec(String name) {
-    jobSpecs.remove(name);
-    jobPhases.remove(name);
-    jobRunSummaries.remove(name);
+  public void removeJobSpec(Optional<String> tenantId, String name) {
+    String key = scopedKey(tenantId, name);
+    jobSpecs.remove(key);
+    jobPhases.remove(key);
+    jobRunSummaries.remove(key);
   }
 
   // ---- job runs ----
 
   public void putJobRun(JobRun run) {
-    jobRuns.put(jobRunKey(run.jobName(), run.attempt()), run);
+    jobRuns.put(jobRunKey(run.tenantId(), run.jobName(), run.attempt()), run);
   }
 
-  public void removeJobRun(String jobName, int attempt) {
-    jobRuns.remove(jobRunKey(jobName, attempt));
+  public void removeJobRun(Optional<String> tenantId, String jobName, int attempt) {
+    jobRuns.remove(jobRunKey(tenantId, jobName, attempt));
   }
 
   public List<JobRun> listJobRuns() {
     return List.copyOf(jobRuns.values());
   }
 
-  public List<JobRun> listJobRunsFor(String jobName) {
-    return jobRuns.values().stream().filter(r -> r.jobName().equals(jobName)).toList();
+  public List<JobRun> listJobRunsFor(Optional<String> tenantId, String jobName) {
+    return jobRuns.values().stream()
+        .filter(r -> r.tenantId().equals(tenantId) && r.jobName().equals(jobName))
+        .toList();
   }
 
   // ---- job phase ----
 
-  public void putJobPhase(String jobName, JobPhase phase) {
-    jobPhases.put(jobName, phase);
+  public void putJobPhase(Optional<String> tenantId, String jobName, JobPhase phase) {
+    jobPhases.put(scopedKey(tenantId, jobName), phase);
   }
 
   /** Empty means "not yet terminal" -- see {@link #jobPhases}'s own field javadoc. */
-  public Optional<JobPhase> getJobPhase(String jobName) {
-    return Optional.ofNullable(jobPhases.get(jobName));
+  public Optional<JobPhase> getJobPhase(Optional<String> tenantId, String jobName) {
+    return Optional.ofNullable(jobPhases.get(scopedKey(tenantId, jobName)));
   }
 
   // ---- job run summary ----
 
   public void putJobRunSummary(JobRunSummary summary) {
-    jobRunSummaries.put(summary.jobName(), summary);
+    jobRunSummaries.put(scopedKey(summary.tenantId(), summary.jobName()), summary);
   }
 
   /** Empty until the job reaches a terminal phase -- see {@link #jobRunSummaries}'s own javadoc. */
-  public Optional<JobRunSummary> getJobRunSummary(String jobName) {
-    return Optional.ofNullable(jobRunSummaries.get(jobName));
+  public Optional<JobRunSummary> getJobRunSummary(Optional<String> tenantId, String jobName) {
+    return Optional.ofNullable(jobRunSummaries.get(scopedKey(tenantId, jobName)));
   }
 
   // ---- cronjobs ----
 
   public void putCronJobSpec(CronJobSpec spec) {
-    cronJobSpecs.put(spec.name(), spec);
+    cronJobSpecs.put(scopedKey(spec.tenantId(), spec.name()), spec);
   }
 
-  public Optional<CronJobSpec> getCronJobSpec(String name) {
-    return Optional.ofNullable(cronJobSpecs.get(name));
+  public Optional<CronJobSpec> getCronJobSpec(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(cronJobSpecs.get(scopedKey(tenantId, name)));
   }
 
   public List<CronJobSpec> listCronJobSpecs() {
@@ -370,30 +378,32 @@ public final class StateStore implements StoreReader {
    * independently, the same way undeploying a Deployment never retroactively touches instances a
    * since-removed autoscale policy once sized.
    */
-  public void removeCronJobSpec(String name) {
-    cronJobSpecs.remove(name);
-    cronJobLastSchedule.remove(name);
+  public void removeCronJobSpec(Optional<String> tenantId, String name) {
+    String key = scopedKey(tenantId, name);
+    cronJobSpecs.remove(key);
+    cronJobLastSchedule.remove(key);
   }
 
   // ---- cronjob last-schedule bookkeeping ----
 
-  public void putCronJobLastSchedule(String name, Instant lastScheduleTime) {
-    cronJobLastSchedule.put(name, lastScheduleTime);
+  public void putCronJobLastSchedule(
+      Optional<String> tenantId, String name, Instant lastScheduleTime) {
+    cronJobLastSchedule.put(scopedKey(tenantId, name), lastScheduleTime);
   }
 
   /** Empty means "never fired yet" -- see {@link #cronJobLastSchedule}'s own field javadoc. */
-  public Optional<Instant> getCronJobLastSchedule(String name) {
-    return Optional.ofNullable(cronJobLastSchedule.get(name));
+  public Optional<Instant> getCronJobLastSchedule(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(cronJobLastSchedule.get(scopedKey(tenantId, name)));
   }
 
   // ---- daemonsets ----
 
   public void putDaemonSetSpec(DaemonSetSpec spec) {
-    daemonSetSpecs.put(spec.name(), spec);
+    daemonSetSpecs.put(scopedKey(spec.tenantId(), spec.name()), spec);
   }
 
-  public Optional<DaemonSetSpec> getDaemonSetSpec(String name) {
-    return Optional.ofNullable(daemonSetSpecs.get(name));
+  public Optional<DaemonSetSpec> getDaemonSetSpec(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(daemonSetSpecs.get(scopedKey(tenantId, name)));
   }
 
   public List<DaemonSetSpec> listDaemonSetSpecs() {
@@ -409,30 +419,34 @@ public final class StateStore implements StoreReader {
    * {@link ControllerRevision} history, for the same delete-then-recreate reason {@link
    * #removeDeployment}'s own javadoc gives.
    */
-  public void removeDaemonSetSpec(String name) {
-    daemonSetSpecs.remove(name);
-    clearAllRollingDaemonSetNodes(name);
-    controllerRevisions.remove(ControllerRevision.revisionKey("DaemonSet", name));
+  public void removeDaemonSetSpec(Optional<String> tenantId, String name) {
+    daemonSetSpecs.remove(scopedKey(tenantId, name));
+    clearAllRollingDaemonSetNodes(tenantId, name);
+    controllerRevisions.remove(ControllerRevision.revisionKey("DaemonSet", tenantId, name));
   }
 
   // ---- daemonset assignments ----
 
   public void putDaemonSetAssignment(DaemonSetAssignment assignment) {
     daemonSetAssignments.put(
-        daemonSetAssignmentKey(assignment.daemonSetName(), assignment.nodeId()), assignment);
+        daemonSetAssignmentKey(
+            assignment.tenantId(), assignment.daemonSetName(), assignment.nodeId()),
+        assignment);
   }
 
-  public void removeDaemonSetAssignment(String daemonSetName, String nodeId) {
-    daemonSetAssignments.remove(daemonSetAssignmentKey(daemonSetName, nodeId));
+  public void removeDaemonSetAssignment(
+      Optional<String> tenantId, String daemonSetName, String nodeId) {
+    daemonSetAssignments.remove(daemonSetAssignmentKey(tenantId, daemonSetName, nodeId));
   }
 
   public List<DaemonSetAssignment> listDaemonSetAssignments() {
     return List.copyOf(daemonSetAssignments.values());
   }
 
-  public List<DaemonSetAssignment> listDaemonSetAssignmentsFor(String daemonSetName) {
+  public List<DaemonSetAssignment> listDaemonSetAssignmentsFor(
+      Optional<String> tenantId, String daemonSetName) {
     return daemonSetAssignments.values().stream()
-        .filter(a -> a.daemonSetName().equals(daemonSetName))
+        .filter(a -> a.tenantId().equals(tenantId) && a.daemonSetName().equals(daemonSetName))
         .toList();
   }
 
@@ -448,37 +462,39 @@ public final class StateStore implements StoreReader {
    * in-flight node -- an add/remove is then always a single small file write/delete, never a
    * read-modify-write of a shared file.
    */
-  public void addRollingDaemonSetNode(String daemonSetName, String nodeId) {
+  public void addRollingDaemonSetNode(Optional<String> tenantId, String daemonSetName, String nodeId) {
     rollingDaemonSetNodes
-        .computeIfAbsent(daemonSetName, key -> ConcurrentHashMap.newKeySet())
+        .computeIfAbsent(scopedKey(tenantId, daemonSetName), key -> ConcurrentHashMap.newKeySet())
         .add(nodeId);
   }
 
-  public void removeRollingDaemonSetNode(String daemonSetName, String nodeId) {
-    Set<String> nodes = rollingDaemonSetNodes.get(daemonSetName);
+  public void removeRollingDaemonSetNode(
+      Optional<String> tenantId, String daemonSetName, String nodeId) {
+    Set<String> nodes = rollingDaemonSetNodes.get(scopedKey(tenantId, daemonSetName));
     if (nodes != null) {
       nodes.remove(nodeId);
     }
   }
 
   /** Every node currently in flight for this DaemonSet's rollout; empty means none. */
-  public Set<String> getRollingDaemonSetNodes(String daemonSetName) {
-    return Set.copyOf(rollingDaemonSetNodes.getOrDefault(daemonSetName, Set.of()));
+  public Set<String> getRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName) {
+    return Set.copyOf(
+        rollingDaemonSetNodes.getOrDefault(scopedKey(tenantId, daemonSetName), Set.of()));
   }
 
-  private void clearAllRollingDaemonSetNodes(String daemonSetName) {
-    Set.copyOf(rollingDaemonSetNodes.getOrDefault(daemonSetName, Set.of()))
-        .forEach(nodeId -> removeRollingDaemonSetNode(daemonSetName, nodeId));
+  private void clearAllRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName) {
+    Set.copyOf(rollingDaemonSetNodes.getOrDefault(scopedKey(tenantId, daemonSetName), Set.of()))
+        .forEach(nodeId -> removeRollingDaemonSetNode(tenantId, daemonSetName, nodeId));
   }
 
   // ---- statefulsets ----
 
   public void putStatefulSetSpec(StatefulSetSpec spec) {
-    statefulSetSpecs.put(spec.name(), spec);
+    statefulSetSpecs.put(scopedKey(spec.tenantId(), spec.name()), spec);
   }
 
-  public Optional<StatefulSetSpec> getStatefulSetSpec(String name) {
-    return Optional.ofNullable(statefulSetSpecs.get(name));
+  public Optional<StatefulSetSpec> getStatefulSetSpec(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(statefulSetSpecs.get(scopedKey(tenantId, name)));
   }
 
   public List<StatefulSetSpec> listStatefulSetSpecs() {
@@ -496,31 +512,34 @@ public final class StateStore implements StoreReader {
    * clears this name's {@link ControllerRevision} history, for the same delete-then-recreate reason
    * {@link #removeDeployment}'s own javadoc gives.
    */
-  public void removeStatefulSetSpec(String name) {
-    statefulSetSpecs.remove(name);
-    clearRollingStatefulSetIndex(name);
-    controllerRevisions.remove(ControllerRevision.revisionKey("StatefulSet", name));
+  public void removeStatefulSetSpec(Optional<String> tenantId, String name) {
+    statefulSetSpecs.remove(scopedKey(tenantId, name));
+    clearRollingStatefulSetIndex(tenantId, name);
+    controllerRevisions.remove(ControllerRevision.revisionKey("StatefulSet", tenantId, name));
   }
 
   // ---- statefulset assignments ----
 
   public void putStatefulSetAssignment(StatefulSetAssignment assignment) {
     statefulSetAssignments.put(
-        statefulSetAssignmentKey(assignment.statefulSetName(), assignment.instanceIndex()),
+        statefulSetAssignmentKey(
+            assignment.tenantId(), assignment.statefulSetName(), assignment.instanceIndex()),
         assignment);
   }
 
-  public void removeStatefulSetAssignment(String statefulSetName, int instanceIndex) {
-    statefulSetAssignments.remove(statefulSetAssignmentKey(statefulSetName, instanceIndex));
+  public void removeStatefulSetAssignment(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    statefulSetAssignments.remove(statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex));
   }
 
   public List<StatefulSetAssignment> listStatefulSetAssignments() {
     return List.copyOf(statefulSetAssignments.values());
   }
 
-  public List<StatefulSetAssignment> listStatefulSetAssignmentsFor(String statefulSetName) {
+  public List<StatefulSetAssignment> listStatefulSetAssignmentsFor(
+      Optional<String> tenantId, String statefulSetName) {
     return statefulSetAssignments.values().stream()
-        .filter(a -> a.statefulSetName().equals(statefulSetName))
+        .filter(a -> a.tenantId().equals(tenantId) && a.statefulSetName().equals(statefulSetName))
         .toList();
   }
 
@@ -531,16 +550,18 @@ public final class StateStore implements StoreReader {
    * StateMutation.PutRollingStatefulSetIndex}'s own javadoc for why this one marker governs both
    * ordinary {@code OrderedReady} scale-up admission and rolling-update admission.
    */
-  public void putRollingStatefulSetIndex(String statefulSetName, int instanceIndex) {
-    rollingStatefulSetIndices.put(statefulSetName, instanceIndex);
+  public void putRollingStatefulSetIndex(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    rollingStatefulSetIndices.put(scopedKey(tenantId, statefulSetName), instanceIndex);
   }
 
-  public void clearRollingStatefulSetIndex(String statefulSetName) {
-    rollingStatefulSetIndices.remove(statefulSetName);
+  public void clearRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName) {
+    rollingStatefulSetIndices.remove(scopedKey(tenantId, statefulSetName));
   }
 
-  public Optional<Integer> getRollingStatefulSetIndex(String statefulSetName) {
-    return Optional.ofNullable(rollingStatefulSetIndices.get(statefulSetName));
+  public Optional<Integer> getRollingStatefulSetIndex(
+      Optional<String> tenantId, String statefulSetName) {
+    return Optional.ofNullable(rollingStatefulSetIndices.get(scopedKey(tenantId, statefulSetName)));
   }
 
   // ---- statefulset sticky node-binding bookkeeping ----
@@ -551,18 +572,22 @@ public final class StateStore implements StoreReader {
    * {@code Scheduler}'s {@code stickyNodeId} input, and left untouched by an ordinary assignment
    * removal.
    */
-  public void putStatefulSetIndexNode(String statefulSetName, int instanceIndex, String nodeId) {
-    statefulSetIndexNodes.put(statefulSetAssignmentKey(statefulSetName, instanceIndex), nodeId);
+  public void putStatefulSetIndexNode(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex, String nodeId) {
+    statefulSetIndexNodes.put(
+        statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex), nodeId);
   }
 
   /** Fired only on genuinely permanent index removal -- see the field's own javadoc. */
-  public void removeStatefulSetIndexNode(String statefulSetName, int instanceIndex) {
-    statefulSetIndexNodes.remove(statefulSetAssignmentKey(statefulSetName, instanceIndex));
+  public void removeStatefulSetIndexNode(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    statefulSetIndexNodes.remove(statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex));
   }
 
-  public Optional<String> getStatefulSetIndexNode(String statefulSetName, int instanceIndex) {
+  public Optional<String> getStatefulSetIndexNode(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex) {
     return Optional.ofNullable(
-        statefulSetIndexNodes.get(statefulSetAssignmentKey(statefulSetName, instanceIndex)));
+        statefulSetIndexNodes.get(statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex)));
   }
 
   // ---- rolling-update bookkeeping ----
@@ -576,27 +601,28 @@ public final class StateStore implements StoreReader {
    * rather than one file holding every in-flight index -- an add/remove is then always a single
    * small file write/delete, never a read-modify-write of a shared file.
    */
-  public void addRollingIndex(String deploymentName, int instanceIndex) {
+  public void addRollingIndex(Optional<String> tenantId, String deploymentName, int instanceIndex) {
     rollingIndices
-        .computeIfAbsent(deploymentName, key -> ConcurrentHashMap.newKeySet())
+        .computeIfAbsent(scopedKey(tenantId, deploymentName), key -> ConcurrentHashMap.newKeySet())
         .add(instanceIndex);
   }
 
-  public void removeRollingIndex(String deploymentName, int instanceIndex) {
-    Set<Integer> indices = rollingIndices.get(deploymentName);
+  public void removeRollingIndex(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    Set<Integer> indices = rollingIndices.get(scopedKey(tenantId, deploymentName));
     if (indices != null) {
       indices.remove(instanceIndex);
     }
   }
 
   /** Every instance index currently in flight for this deployment's rollout; empty means none. */
-  public Set<Integer> getRollingIndices(String deploymentName) {
-    return Set.copyOf(rollingIndices.getOrDefault(deploymentName, Set.of()));
+  public Set<Integer> getRollingIndices(Optional<String> tenantId, String deploymentName) {
+    return Set.copyOf(rollingIndices.getOrDefault(scopedKey(tenantId, deploymentName), Set.of()));
   }
 
-  private void clearAllRollingIndices(String deploymentName) {
-    Set.copyOf(rollingIndices.getOrDefault(deploymentName, Set.of()))
-        .forEach(index -> removeRollingIndex(deploymentName, index));
+  private void clearAllRollingIndices(Optional<String> tenantId, String deploymentName) {
+    Set.copyOf(rollingIndices.getOrDefault(scopedKey(tenantId, deploymentName), Set.of()))
+        .forEach(index -> removeRollingIndex(tenantId, deploymentName, index));
   }
 
   // ---- surge bookkeeping ----
@@ -610,14 +636,15 @@ public final class StateStore implements StoreReader {
    * already established, under its own subdirectory so the two bookkeeping kinds never collide on a
    * shared index number.
    */
-  public void addSurgeIndex(String deploymentName, int surgeIndex, int targetIndex) {
+  public void addSurgeIndex(
+      Optional<String> tenantId, String deploymentName, int surgeIndex, int targetIndex) {
     surgeIndices
-        .computeIfAbsent(deploymentName, key -> new ConcurrentHashMap<>())
+        .computeIfAbsent(scopedKey(tenantId, deploymentName), key -> new ConcurrentHashMap<>())
         .put(surgeIndex, targetIndex);
   }
 
-  public void removeSurgeIndex(String deploymentName, int surgeIndex) {
-    Map<Integer, Integer> indices = surgeIndices.get(deploymentName);
+  public void removeSurgeIndex(Optional<String> tenantId, String deploymentName, int surgeIndex) {
+    Map<Integer, Integer> indices = surgeIndices.get(scopedKey(tenantId, deploymentName));
     if (indices != null) {
       indices.remove(surgeIndex);
     }
@@ -627,13 +654,13 @@ public final class StateStore implements StoreReader {
    * Every surge slot currently in flight for this deployment, keyed by surgeIndex; empty means
    * none.
    */
-  public Map<Integer, Integer> getSurgeIndices(String deploymentName) {
-    return Map.copyOf(surgeIndices.getOrDefault(deploymentName, Map.of()));
+  public Map<Integer, Integer> getSurgeIndices(Optional<String> tenantId, String deploymentName) {
+    return Map.copyOf(surgeIndices.getOrDefault(scopedKey(tenantId, deploymentName), Map.of()));
   }
 
-  private void clearAllSurgeIndices(String deploymentName) {
-    Set.copyOf(surgeIndices.getOrDefault(deploymentName, Map.of()).keySet())
-        .forEach(surgeIndex -> removeSurgeIndex(deploymentName, surgeIndex));
+  private void clearAllSurgeIndices(Optional<String> tenantId, String deploymentName) {
+    Set.copyOf(surgeIndices.getOrDefault(scopedKey(tenantId, deploymentName), Map.of()).keySet())
+        .forEach(surgeIndex -> removeSurgeIndex(tenantId, deploymentName, surgeIndex));
   }
 
   // ---- autoscaling bookkeeping ----
@@ -643,12 +670,12 @@ public final class StateStore implements StoreReader {
    * com.gimle.controlplane.reconcile.DeploymentReconciler} in place of {@code
    * DeploymentSpec#replicas()} whenever a deployment carries an {@code autoscale} policy.
    */
-  public void putEffectiveReplicas(String deploymentName, int replicas) {
-    effectiveReplicas.put(deploymentName, replicas);
+  public void putEffectiveReplicas(Optional<String> tenantId, String deploymentName, int replicas) {
+    effectiveReplicas.put(scopedKey(tenantId, deploymentName), replicas);
   }
 
-  public Optional<Integer> getEffectiveReplicas(String deploymentName) {
-    return Optional.ofNullable(effectiveReplicas.get(deploymentName));
+  public Optional<Integer> getEffectiveReplicas(Optional<String> tenantId, String deploymentName) {
+    return Optional.ofNullable(effectiveReplicas.get(scopedKey(tenantId, deploymentName)));
   }
 
   // ---- node registrations ----
@@ -777,16 +804,17 @@ public final class StateStore implements StoreReader {
    * -- a level-triggered flag, not an event, so a deployment whose tenant's quota is retroactively
    * raised again clears automatically on the next tick without any special-cased "resolved" path.
    */
-  public void putQuotaViolation(String deploymentName, boolean violating) {
+  public void putQuotaViolation(Optional<String> tenantId, String deploymentName, boolean violating) {
+    String key = scopedKey(tenantId, deploymentName);
     if (!violating) {
-      quotaViolations.remove(deploymentName);
+      quotaViolations.remove(key);
       return;
     }
-    quotaViolations.put(deploymentName, Boolean.TRUE);
+    quotaViolations.put(key, Boolean.TRUE);
   }
 
-  public boolean isQuotaViolating(String deploymentName) {
-    return quotaViolations.getOrDefault(deploymentName, Boolean.FALSE);
+  public boolean isQuotaViolating(Optional<String> tenantId, String deploymentName) {
+    return quotaViolations.getOrDefault(scopedKey(tenantId, deploymentName), Boolean.FALSE);
   }
 
   // ---- node cordon bookkeeping ----
@@ -973,17 +1001,19 @@ public final class StateStore implements StoreReader {
    */
   public void putReconcilerInstanceState(ReconcilerInstanceState state) {
     reconcilerInstanceStates.put(
-        reconcilerStateKey(state.deploymentName(), state.instanceIndex()), state);
+        reconcilerStateKey(state.tenantId(), state.deploymentName(), state.instanceIndex()),
+        state);
   }
 
   public Optional<ReconcilerInstanceState> getReconcilerInstanceState(
-      String deploymentName, int instanceIndex) {
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
     return Optional.ofNullable(
-        reconcilerInstanceStates.get(reconcilerStateKey(deploymentName, instanceIndex)));
+        reconcilerInstanceStates.get(reconcilerStateKey(tenantId, deploymentName, instanceIndex)));
   }
 
-  public void removeReconcilerInstanceState(String deploymentName, int instanceIndex) {
-    reconcilerInstanceStates.remove(reconcilerStateKey(deploymentName, instanceIndex));
+  public void removeReconcilerInstanceState(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    reconcilerInstanceStates.remove(reconcilerStateKey(tenantId, deploymentName, instanceIndex));
   }
 
   public List<ReconcilerInstanceState> listReconcilerInstanceStates() {
@@ -999,8 +1029,8 @@ public final class StateStore implements StoreReader {
    * committed {@code AppendInstanceEvent} entries in the same order ends up with identical pruning
    * decisions, not a separate non-replicated cleanup pass.
    */
-  public void putInstanceEvent(InstanceEvent event) {
-    String key = instanceEventsKey(event.deploymentName(), event.instanceIndex());
+  public void putInstanceEvent(Optional<String> tenantId, InstanceEvent event) {
+    String key = instanceEventsKey(tenantId, event.deploymentName(), event.instanceIndex());
     instanceEvents.compute(
         key,
         (k, existing) -> {
@@ -1014,9 +1044,11 @@ public final class StateStore implements StoreReader {
   }
 
   /** Newest-first -- the natural read order for a timeline, matching {@code /logs}' own tail. */
-  public List<InstanceEvent> listInstanceEvents(String deploymentName, int instanceIndex) {
+  public List<InstanceEvent> listInstanceEvents(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
     List<InstanceEvent> events =
-        instanceEvents.getOrDefault(instanceEventsKey(deploymentName, instanceIndex), List.of());
+        instanceEvents.getOrDefault(
+            instanceEventsKey(tenantId, deploymentName, instanceIndex), List.of());
     List<InstanceEvent> reversed = new ArrayList<>(events);
     Collections.reverse(reversed);
     return List.copyOf(reversed);
@@ -1074,7 +1106,9 @@ public final class StateStore implements StoreReader {
    * the currently-live revision is by construction never the oldest one being pruned.
    */
   public void putControllerRevision(ControllerRevision revision) {
-    String key = ControllerRevision.revisionKey(revision.workloadKind(), revision.name());
+    String key =
+        ControllerRevision.revisionKey(
+            revision.workloadKind(), revision.spec().tenantId(), revision.name());
     controllerRevisions.compute(
         key,
         (k, existing) -> {
@@ -1089,19 +1123,20 @@ public final class StateStore implements StoreReader {
   }
 
   /** Newest-first, matching {@link #listInstanceEvents}'s own timeline read order. */
-  public List<ControllerRevision> listControllerRevisions(String workloadKind, String name) {
+  public List<ControllerRevision> listControllerRevisions(
+      String workloadKind, Optional<String> tenantId, String name) {
     List<ControllerRevision> revisions =
         controllerRevisions.getOrDefault(
-            ControllerRevision.revisionKey(workloadKind, name), List.of());
+            ControllerRevision.revisionKey(workloadKind, tenantId, name), List.of());
     List<ControllerRevision> reversed = new ArrayList<>(revisions);
     Collections.reverse(reversed);
     return List.copyOf(reversed);
   }
 
   public Optional<ControllerRevision> getControllerRevision(
-      String workloadKind, String name, int revision) {
+      String workloadKind, Optional<String> tenantId, String name, int revision) {
     return controllerRevisions
-        .getOrDefault(ControllerRevision.revisionKey(workloadKind, name), List.of())
+        .getOrDefault(ControllerRevision.revisionKey(workloadKind, tenantId, name), List.of())
         .stream()
         .filter(r -> r.revision() == revision)
         .findFirst();
@@ -1137,20 +1172,23 @@ public final class StateStore implements StoreReader {
    * why from the tenant's current range and the deployment's own manifest. A blank {@code reason}
    * clears the violation, matching {@code putQuotaViolation(name, false)}'s own convention.
    */
-  public void putLimitRangeViolation(String deploymentName, String reason) {
+  public void putLimitRangeViolation(
+      Optional<String> tenantId, String deploymentName, String reason) {
+    String key = scopedKey(tenantId, deploymentName);
     if (reason == null || reason.isBlank()) {
-      limitRangeViolations.remove(deploymentName);
+      limitRangeViolations.remove(key);
       return;
     }
-    limitRangeViolations.put(deploymentName, reason);
+    limitRangeViolations.put(key, reason);
   }
 
-  public boolean isLimitRangeViolating(String deploymentName) {
-    return limitRangeViolations.containsKey(deploymentName);
+  public boolean isLimitRangeViolating(Optional<String> tenantId, String deploymentName) {
+    return limitRangeViolations.containsKey(scopedKey(tenantId, deploymentName));
   }
 
-  public Optional<String> limitRangeViolationReason(String deploymentName) {
-    return Optional.ofNullable(limitRangeViolations.get(deploymentName));
+  public Optional<String> limitRangeViolationReason(
+      Optional<String> tenantId, String deploymentName) {
+    return Optional.ofNullable(limitRangeViolations.get(scopedKey(tenantId, deploymentName)));
   }
 
   // ---- full-state snapshot ----
@@ -1198,7 +1236,7 @@ public final class StateStore implements StoreReader {
             .filter(Map.Entry::getValue)
             .map(Map.Entry::getKey)
             .collect(Collectors.toUnmodifiableSet()),
-        instanceEvents.values().stream().flatMap(List::stream).toList(),
+        Map.copyOf(instanceEvents),
         auditEventsSnapshotOrder(),
         List.copyOf(services.values()),
         List.copyOf(networkPolicies.values()),
@@ -1241,47 +1279,48 @@ public final class StateStore implements StoreReader {
    * behind to catch up via ordinary log replay.
    */
   public void restoreFromSnapshot(StateSnapshot snapshot) {
-    List.copyOf(deployments.keySet()).forEach(this::removeDeployment);
-    List.copyOf(services.keySet()).forEach(this::removeService);
-    List.copyOf(networkPolicies.keySet()).forEach(this::removeNetworkPolicy);
-    List.copyOf(limitRanges.keySet()).forEach(this::removeLimitRange);
-    List.copyOf(limitRangeViolations.keySet()).forEach(name -> putLimitRangeViolation(name, null));
-    List.copyOf(assignments.values())
-        .forEach(a -> removeAssignment(a.deploymentName(), a.instanceIndex()));
-    List.copyOf(jobRuns.values()).forEach(r -> removeJobRun(r.jobName(), r.attempt()));
-    List.copyOf(jobSpecs.keySet()).forEach(this::removeJobSpec);
-    List.copyOf(cronJobSpecs.keySet()).forEach(this::removeCronJobSpec);
-    List.copyOf(daemonSetAssignments.values())
-        .forEach(a -> removeDaemonSetAssignment(a.daemonSetName(), a.nodeId()));
-    List.copyOf(daemonSetSpecs.keySet()).forEach(this::removeDaemonSetSpec);
-    List.copyOf(statefulSetAssignments.values())
-        .forEach(a -> removeStatefulSetAssignment(a.statefulSetName(), a.instanceIndex()));
-    List.copyOf(statefulSetSpecs.keySet()).forEach(this::removeStatefulSetSpec);
-    List.copyOf(statefulSetIndexNodes.keySet())
-        .forEach(
-            key -> {
-              int hash = key.lastIndexOf('#');
-              removeStatefulSetIndexNode(
-                  key.substring(0, hash), Integer.parseInt(key.substring(hash + 1)));
-            });
-    List.copyOf(nodeRegistrations.keySet()).forEach(this::removeNodeRegistration);
-    List.copyOf(tenants.keySet()).forEach(this::removeTenant);
-    List.copyOf(quotaViolations.keySet()).forEach(name -> putQuotaViolation(name, false));
-    List.copyOf(nodeCordons.keySet()).forEach(nodeId -> putNodeCordon(nodeId, false));
-    List.copyOf(nodeTaints.entrySet())
-        .forEach(
-            e ->
-                List.copyOf(e.getValue())
-                    .forEach(tenantId -> putNodeTaint(e.getKey(), tenantId, false)));
-    List.copyOf(revokedCertificateSerials.keySet())
-        .forEach(serial -> putCertificateRevocation(serial, false));
-    List.copyOf(workloadTokens.keySet()).forEach(this::removeWorkloadToken);
-    List.copyOf(configEntries.values()).forEach(e -> removeConfigEntry(e.tenantId(), e.key()));
-    List.copyOf(roles.keySet()).forEach(this::removeRole);
-    List.copyOf(roleBindings.keySet()).forEach(this::removeRoleBinding);
-    List.copyOf(accounts.keySet()).forEach(this::removeAccount);
-    List.copyOf(reconcilerInstanceStates.values())
-        .forEach(s -> removeReconcilerInstanceState(s.deploymentName(), s.instanceIndex()));
+    // A full wipe of every map this store holds, rather than iterating each resource kind's own
+    // keys and calling its public per-key remove -- the tenant-scoped compound keys most of these
+    // maps now use can't be un-parsed back into (tenantId, name) the way the old flat-string keys
+    // briefly could, and there is no need to: every one of these maps is about to be repopulated
+    // wholesale from the snapshot's own lists below, so an individual remove's side effects (e.g.
+    // removeDeployment's own ControllerRevision cleanup) would be immediately redundant with the
+    // clears already happening here.
+    deployments.clear();
+    deploymentGenerations.clear();
+    services.clear();
+    networkPolicies.clear();
+    limitRanges.clear();
+    limitRangeViolations.clear();
+    assignments.clear();
+    jobRuns.clear();
+    jobSpecs.clear();
+    jobPhases.clear();
+    jobRunSummaries.clear();
+    cronJobSpecs.clear();
+    cronJobLastSchedule.clear();
+    daemonSetAssignments.clear();
+    daemonSetSpecs.clear();
+    rollingDaemonSetNodes.clear();
+    statefulSetAssignments.clear();
+    statefulSetSpecs.clear();
+    statefulSetIndexNodes.clear();
+    rollingStatefulSetIndices.clear();
+    nodeRegistrations.clear();
+    tenants.clear();
+    quotaViolations.clear();
+    nodeCordons.clear();
+    nodeTaints.clear();
+    revokedCertificateSerials.clear();
+    workloadTokens.clear();
+    configEntries.clear();
+    roles.clear();
+    roleBindings.clear();
+    accounts.clear();
+    reconcilerInstanceStates.clear();
+    rollingIndices.clear();
+    surgeIndices.clear();
+    effectiveReplicas.clear();
     clearAllInstanceEvents();
     clearAllAuditEvents();
     clearAllControllerRevisions();
@@ -1296,44 +1335,41 @@ public final class StateStore implements StoreReader {
     snapshot.assignments().forEach(this::putAssignment);
     snapshot.jobSpecs().forEach(this::putJobSpec);
     snapshot.jobRuns().forEach(this::putJobRun);
-    snapshot.jobPhases().forEach(this::putJobPhase);
+    snapshot
+        .jobPhases()
+        .forEach((key, phase) -> jobPhases.put(key, phase));
     snapshot.jobRunSummaries().forEach(this::putJobRunSummary);
     snapshot.cronJobSpecs().forEach(this::putCronJobSpec);
-    snapshot.cronJobLastSchedule().forEach(this::putCronJobLastSchedule);
+    snapshot
+        .cronJobLastSchedule()
+        .forEach((key, lastScheduleTime) -> cronJobLastSchedule.put(key, lastScheduleTime));
     snapshot.daemonSetSpecs().forEach(this::putDaemonSetSpec);
     snapshot.daemonSetAssignments().forEach(this::putDaemonSetAssignment);
     snapshot
         .rollingDaemonSetNodes()
-        .forEach(
-            (daemonSetName, nodeIds) ->
-                nodeIds.forEach(nodeId -> addRollingDaemonSetNode(daemonSetName, nodeId)));
+        .forEach((key, nodeIds) -> rollingDaemonSetNodes.put(key, ConcurrentHashMap.newKeySet(nodeIds)));
     snapshot.statefulSetSpecs().forEach(this::putStatefulSetSpec);
     snapshot.statefulSetAssignments().forEach(this::putStatefulSetAssignment);
-    snapshot.rollingStatefulSetIndices().forEach(this::putRollingStatefulSetIndex);
+    snapshot
+        .rollingStatefulSetIndices()
+        .forEach((key, index) -> rollingStatefulSetIndices.put(key, index));
     snapshot
         .statefulSetIndexNodes()
-        .forEach(
-            (key, nodeId) -> {
-              int hash = key.lastIndexOf('#');
-              putStatefulSetIndexNode(
-                  key.substring(0, hash), Integer.parseInt(key.substring(hash + 1)), nodeId);
-            });
+        .forEach((key, nodeId) -> statefulSetIndexNodes.put(key, nodeId));
     snapshot.nodeRegistrations().forEach(this::putNodeRegistration);
     snapshot
         .rollingIndices()
-        .forEach(
-            (deploymentName, indices) ->
-                indices.forEach(index -> addRollingIndex(deploymentName, index)));
+        .forEach((key, indices) -> rollingIndices.put(key, ConcurrentHashMap.newKeySet(indices)));
     snapshot
         .surgeIndices()
-        .forEach(
-            (deploymentName, indices) ->
-                indices.forEach(
-                    (surgeIndex, targetIndex) ->
-                        addSurgeIndex(deploymentName, surgeIndex, targetIndex)));
-    snapshot.effectiveReplicas().forEach(this::putEffectiveReplicas);
+        .forEach((key, indices) -> surgeIndices.put(key, new ConcurrentHashMap<>(indices)));
+    snapshot
+        .effectiveReplicas()
+        .forEach((key, replicas) -> effectiveReplicas.put(key, replicas));
     snapshot.tenants().forEach(this::putTenant);
-    snapshot.quotaViolatingDeployments().forEach(name -> putQuotaViolation(name, true));
+    snapshot
+        .quotaViolatingDeployments()
+        .forEach(key -> quotaViolations.put(key, Boolean.TRUE));
     snapshot.cordonedNodes().forEach(nodeId -> putNodeCordon(nodeId, true));
     snapshot
         .nodeTaints()
@@ -1347,10 +1383,11 @@ public final class StateStore implements StoreReader {
     snapshot.roleBindings().forEach(this::putRoleBinding);
     snapshot.accounts().forEach(this::putAccount);
     snapshot.reconcilerInstanceStates().forEach(this::putReconcilerInstanceState);
-    // Oldest-first per instance, matching how putInstanceEvent's own pruning expects to see them
-    // -- StateSnapshot#instanceEvents preserves that order (see snapshot() above), and replaying
-    // in the same order here reproduces identical per-instance retention-cap pruning decisions.
-    snapshot.instanceEvents().forEach(this::putInstanceEvent);
+    // A direct bulk put rather than replaying through putInstanceEvent one event at a time --
+    // StateSnapshot#instanceEvents is already keyed and ordered (oldest-first) exactly the way
+    // this store's own instanceEvents field is, retention-cap-pruned by whichever replica took
+    // the snapshot, so there is no pruning decision left to reproduce here.
+    instanceEvents.putAll(snapshot.instanceEvents());
     // Same reasoning, cluster-wide: StateSnapshot#auditEvents is oldest-first (see
     // auditEventsSnapshotOrder() above), reproducing identical MAX_AUDIT_EVENTS pruning on replay.
     snapshot.auditEvents().forEach(this::putAuditEvent);
@@ -1360,7 +1397,9 @@ public final class StateStore implements StoreReader {
     // reasoning as the instanceEvents/auditEvents replay just above.
     snapshot.controllerRevisions().forEach(this::putControllerRevision);
     snapshot.limitRanges().forEach(this::putLimitRange);
-    snapshot.limitRangeViolations().forEach(this::putLimitRangeViolation);
+    snapshot
+        .limitRangeViolations()
+        .forEach((key, reason) -> limitRangeViolations.put(key, reason));
   }
 
   /**
@@ -1384,28 +1423,52 @@ public final class StateStore implements StoreReader {
     controllerRevisions.clear();
   }
 
-  private static String jobRunKey(String jobName, int attempt) {
-    return jobName + "#" + attempt;
+  /**
+   * The store's canonical per-tenant identity for a named resource: an absent {@code tenantId} is
+   * its own single untenanted namespace (unchanged from before per-tenant scoping existed -- two
+   * untenanted resources still can't share a name), while a present one scopes {@code name} within
+   * that tenant only, so a tenanted "api" and a different tenant's own "api" now occupy distinct
+   * keys entirely rather than colliding in a single flat namespace. {@code '\0'} is the delimiter:
+   * it can never appear in an operator-supplied name or tenant id (both are validated elsewhere to
+   * be printable identifiers), so no real (tenantId, name) pair can ever collide across the split.
+   */
+  private static String scopedKey(Optional<String> tenantId, String name) {
+    return tenantId.orElse("") + '\0' + name;
   }
 
-  private static String daemonSetAssignmentKey(String daemonSetName, String nodeId) {
-    return daemonSetName + "#" + nodeId;
+  /** {@link #scopedKey}'s counterpart for a resource kind ({@link NetworkPolicySpec}) whose own
+   * tenant scoping is mandatory rather than optional. */
+  private static String scopedKey(String tenantId, String name) {
+    return tenantId + '\0' + name;
   }
 
-  private static String statefulSetAssignmentKey(String statefulSetName, int instanceIndex) {
-    return statefulSetName + "#" + instanceIndex;
+  private static String jobRunKey(Optional<String> tenantId, String jobName, int attempt) {
+    return scopedKey(tenantId, jobName) + "#" + attempt;
   }
 
-  private static String assignmentKey(String deploymentName, int instanceIndex) {
-    return deploymentName + "#" + instanceIndex;
+  private static String daemonSetAssignmentKey(
+      Optional<String> tenantId, String daemonSetName, String nodeId) {
+    return scopedKey(tenantId, daemonSetName) + "#" + nodeId;
   }
 
-  private static String reconcilerStateKey(String deploymentName, int instanceIndex) {
-    return deploymentName + "#" + instanceIndex;
+  private static String statefulSetAssignmentKey(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+    return scopedKey(tenantId, statefulSetName) + "#" + instanceIndex;
   }
 
-  private static String instanceEventsKey(String deploymentName, int instanceIndex) {
-    return deploymentName + "#" + instanceIndex;
+  private static String assignmentKey(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    return scopedKey(tenantId, deploymentName) + "#" + instanceIndex;
+  }
+
+  private static String reconcilerStateKey(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    return scopedKey(tenantId, deploymentName) + "#" + instanceIndex;
+  }
+
+  private static String instanceEventsKey(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    return scopedKey(tenantId, deploymentName) + "#" + instanceIndex;
   }
 
   private static String configKey(String tenantId, String key) {
