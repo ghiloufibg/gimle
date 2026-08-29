@@ -904,7 +904,7 @@ public final class AndvariServer implements AutoCloseable {
       if (InstanceAssignment.UNSPECIFIED_MODULE.equals(assigned)) {
         assigned =
             storeClient
-                .getDeployment(assignment.deploymentName())
+                .getDeployment(assignment.tenantId(), assignment.deploymentName())
                 .map(DeploymentSpec::moduleId)
                 .orElse(assigned);
       }

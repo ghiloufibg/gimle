@@ -86,7 +86,8 @@ public final class AutoscaleReconciler {
   }
 
   private void reconcileDeployment(DeploymentSpec spec, AutoscalePolicy policy) {
-    int currentEffective = store.getEffectiveReplicas(spec.name()).orElse(spec.replicas());
+    int currentEffective =
+        store.getEffectiveReplicas(spec.tenantId(), spec.name()).orElse(spec.replicas());
 
     ModuleDescriptor descriptor;
     try {
@@ -101,19 +102,19 @@ public final class AutoscaleReconciler {
           spec.name(),
           spec.artifactPath(),
           e.getMessage());
-      putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
+      putEffectiveReplicas(spec, clamp(currentEffective, policy));
       return;
     }
     long cpuRequestMillicores = descriptor.resourceRequest().cpuMillicores();
     if (cpuRequestMillicores <= 0) {
-      putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
+      putEffectiveReplicas(spec, clamp(currentEffective, policy));
       return;
     }
 
-    List<InstanceObservation> readyObservations = readyInstanceObservations(spec.name());
+    List<InstanceObservation> readyObservations = readyInstanceObservations(spec);
     if (readyObservations.isEmpty()) {
       // No signal yet (nothing ready/reporting): hold the current count rather than guessing.
-      putEffectiveReplicas(spec.name(), clamp(currentEffective, policy));
+      putEffectiveReplicas(spec, clamp(currentEffective, policy));
       return;
     }
 
@@ -203,7 +204,7 @@ public final class AutoscaleReconciler {
           currentEffective,
           nextEffective);
     }
-    putEffectiveReplicas(spec.name(), nextEffective);
+    putEffectiveReplicas(spec, nextEffective);
   }
 
   private static double errorRatePercent(InstanceObservation obs) {
@@ -279,25 +280,26 @@ public final class AutoscaleReconciler {
    * unchanged, only the redundant re-proposal of an already-correct value is skipped. An absent
    * stored value (a deployment's very first tick) always proposes, seeding it exactly once.
    */
-  private void putEffectiveReplicas(String deploymentName, int replicas) {
+  private void putEffectiveReplicas(DeploymentSpec spec, int replicas) {
     boolean alreadyCorrect =
         store
-            .getEffectiveReplicas(deploymentName)
+            .getEffectiveReplicas(spec.tenantId(), spec.name())
             .map(current -> current == replicas)
             .orElse(false);
     if (alreadyCorrect) {
       return;
     }
-    mutations.propose(new StateMutation.PutEffectiveReplicas(deploymentName, replicas));
+    mutations.propose(
+        new StateMutation.PutEffectiveReplicas(spec.tenantId(), spec.name(), replicas));
   }
 
   private static int clamp(int value, AutoscalePolicy policy) {
     return Math.max(policy.minReplicas(), Math.min(policy.maxReplicas(), value));
   }
 
-  private List<InstanceObservation> readyInstanceObservations(String deploymentName) {
+  private List<InstanceObservation> readyInstanceObservations(DeploymentSpec spec) {
     List<InstanceObservation> result = new ArrayList<>();
-    for (InstanceAssignment assignment : store.listAssignmentsFor(deploymentName)) {
+    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {
       store
           .getNodeHeartbeat(assignment.nodeId())
           .map(ObservedHeartbeat::heartbeat)
@@ -306,7 +308,7 @@ public final class AutoscaleReconciler {
           .stream()
           .filter(
               obs ->
-                  obs.deploymentName().equals(deploymentName)
+                  obs.deploymentName().equals(spec.name())
                       && obs.instanceIndex() == assignment.instanceIndex()
                       && obs.ready())
           .findFirst()

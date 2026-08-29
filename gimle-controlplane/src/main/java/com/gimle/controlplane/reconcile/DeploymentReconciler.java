@@ -112,9 +112,12 @@ public final class DeploymentReconciler {
   }
 
   public void reconcileOnce() {
-    Set<String> deploymentNames = new HashSet<>();
+    // Tenant-scoped identity (not the bare name alone): two different tenants' own identically-
+    // named Deployment are distinct desired-state entries, so an assignment must match both to
+    // count as current.
+    Set<Map.Entry<Optional<String>, String>> deploymentIdentities = new HashSet<>();
     for (DeploymentSpec spec : store.listDeployments()) {
-      deploymentNames.add(spec.name());
+      deploymentIdentities.add(Map.entry(spec.tenantId(), spec.name()));
     }
 
     // A deployment no longer in desired state: every one of its assignments is stale. One batch
@@ -122,10 +125,11 @@ public final class DeploymentReconciler {
     // them back before the per-deployment passes run.
     List<StateMutation> staleAssignmentRemovals = new ArrayList<>();
     for (InstanceAssignment assignment : store.listAssignments()) {
-      if (!deploymentNames.contains(assignment.deploymentName())) {
+      if (!deploymentIdentities.contains(
+          Map.entry(assignment.tenantId(), assignment.deploymentName()))) {
         staleAssignmentRemovals.add(
             new StateMutation.RemoveAssignment(
-                assignment.deploymentName(), assignment.instanceIndex()));
+                assignment.tenantId(), assignment.deploymentName(), assignment.instanceIndex()));
       }
     }
     mutations.proposeAll(staleAssignmentRemovals);
@@ -147,7 +151,7 @@ public final class DeploymentReconciler {
     // The autoscaler's effective count stands in for the user-submitted replicas whenever a
     // policy is present; absent a policy (or absent any computed value yet), the submitted count
     // is exactly what's used, unchanged from before autoscaling existed.
-    int replicas = store.getEffectiveReplicas(spec.name()).orElse(spec.replicas());
+    int replicas = store.getEffectiveReplicas(spec.tenantId(), spec.name()).orElse(spec.replicas());
 
     reclaimStaleAssignments(spec, replicas);
 
@@ -157,7 +161,7 @@ public final class DeploymentReconciler {
     // Re-read: scale-down and/or the rolling-update/surge steps above may have just removed or
     // added an entry.
     Set<Integer> existingIndices = new HashSet<>();
-    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
+    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {
       existingIndices.add(assignment.instanceIndex());
     }
 
@@ -185,12 +189,12 @@ public final class DeploymentReconciler {
    * reclaims that one on a later tick once it's no longer excluded.
    */
   private void reclaimStaleAssignments(DeploymentSpec spec, int replicas) {
-    Map<Integer, Integer> surgeIndicesBeforeThisTick = store.getSurgeIndices(spec.name());
+    Map<Integer, Integer> surgeIndicesBeforeThisTick = store.getSurgeIndices(spec.tenantId(), spec.name());
     List<StateMutation> removals = new ArrayList<>();
-    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
+    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {
       if (assignment.instanceIndex() >= replicas
           && !surgeIndicesBeforeThisTick.containsKey(assignment.instanceIndex())) {
-        removals.add(new StateMutation.RemoveAssignment(spec.name(), assignment.instanceIndex()));
+        removals.add(new StateMutation.RemoveAssignment(spec.tenantId(), spec.name(), assignment.instanceIndex()));
       }
     }
     mutations.proposeAll(removals);
@@ -259,7 +263,7 @@ public final class DeploymentReconciler {
   private void recordArtifactFailure(
       DeploymentSpec spec, List<Integer> blockedIndices, String message, String cause) {
     for (int index : blockedIndices) {
-      recordTransitionFailure(spec.name(), index, message, Optional.of(cause));
+      recordTransitionFailure(spec, index, message, Optional.of(cause));
     }
   }
 
@@ -271,8 +275,8 @@ public final class DeploymentReconciler {
    * restart-budget-exhausted event, with no record of *why* a replica was never placed at all.
    */
   private void recordTransitionFailure(
-      String deploymentName, int index, String message, Optional<String> cause) {
-    List<InstanceEvent> existing = store.listInstanceEvents(deploymentName, index);
+      DeploymentSpec spec, int index, String message, Optional<String> cause) {
+    List<InstanceEvent> existing = store.listInstanceEvents(spec.tenantId(), spec.name(), index);
     if (!existing.isEmpty()
         && existing.get(0).kind() == InstanceEventKind.TRANSITION_FAILED
         && existing.get(0).message().equals(message)) {
@@ -280,9 +284,10 @@ public final class DeploymentReconciler {
     }
     mutations.propose(
         new StateMutation.AppendInstanceEvent(
+            spec.tenantId(),
             new InstanceEvent(
                 UUID.randomUUID().toString(),
-                deploymentName,
+                spec.name(),
                 index,
                 InstanceEventKind.TRANSITION_FAILED,
                 message,
@@ -306,7 +311,8 @@ public final class DeploymentReconciler {
     List<StateMutation> placements = new ArrayList<>();
     for (int index : toPlace) {
       try {
-        List<NodeCandidate> candidates = buildCandidates(spec.name(), placedThisTick);
+        List<NodeCandidate> candidates =
+            buildCandidates(spec.tenantId(), spec.name(), placedThisTick);
         String nodeId =
             scheduler.place(
                 spec.name(),
@@ -332,7 +338,7 @@ public final class DeploymentReconciler {
         // recordArtifactFailure's identical message check is, so a still-unplaceable replica
         // doesn't mint a fresh event every retry tick.
         log.warn("could not place {} instance {}: {}", spec.name(), index, e.getMessage());
-        recordTransitionFailure(spec.name(), index, e.getMessage(), Optional.empty());
+        recordTransitionFailure(spec, index, e.getMessage(), Optional.empty());
       }
     }
     mutations.proposeAll(placements);
@@ -364,7 +370,7 @@ public final class DeploymentReconciler {
    */
   private void handleRollingUpdate(DeploymentSpec spec, int replicas) {
     int maxUnavailable = spec.effectiveDisruptionBudget().maxUnavailable();
-    Set<Integer> inFlight = new HashSet<>(store.getRollingIndices(spec.name()));
+    Set<Integer> inFlight = new HashSet<>(store.getRollingIndices(spec.tenantId(), spec.name()));
     // Accumulated for one flush at method end: nothing in this method reads its own proposals
     // back from the store (the in-flight set is tracked locally), and handleSurge's own reads run
     // only after this method has returned -- so one batch per tick replaces up to
@@ -373,11 +379,11 @@ public final class DeploymentReconciler {
 
     for (int index : Set.copyOf(inFlight)) {
       Optional<InstanceAssignment> current =
-          store.listAssignmentsFor(spec.name()).stream()
+          store.listAssignmentsFor(spec.tenantId(), spec.name()).stream()
               .filter(a -> a.instanceIndex() == index)
               .findFirst();
       if (current.isPresent() && isReady(current.get())) {
-        changes.add(new StateMutation.RemoveRollingIndex(spec.name(), index));
+        changes.add(new StateMutation.RemoveRollingIndex(spec.tenantId(), spec.name(), index));
         inFlight.remove(index);
       } else if (current.isEmpty() && index >= replicas) {
         // The scale-down race: replicas shrank below this index while its old assignment was
@@ -387,10 +393,10 @@ public final class DeploymentReconciler {
         // clear it, since that's also the ordinary "removed old assignment, replacement not
         // placed yet" state every in-progress migration passes through on its way to becoming
         // ready.
-        changes.add(new StateMutation.RemoveRollingIndex(spec.name(), index));
+        changes.add(new StateMutation.RemoveRollingIndex(spec.tenantId(), spec.name(), index));
         inFlight.remove(index);
       } else if (store
-          .getReconcilerInstanceState(spec.name(), index)
+          .getReconcilerInstanceState(spec.tenantId(), spec.name(), index)
           .map(ReconcilerInstanceState::permanentlyFailed)
           .orElse(false)) {
         // HealthReconciler exhausted this index's restart budget and will never touch it again
@@ -401,7 +407,7 @@ public final class DeploymentReconciler {
         // rollback for it, no matter how many ticks pass. Clearing it doesn't touch the
         // instance itself (still whatever HealthReconciler left it as) -- it just stops one broken
         // index from wedging the entire deployment.
-        mutations.propose(new StateMutation.RemoveRollingIndex(spec.name(), index));
+        mutations.propose(new StateMutation.RemoveRollingIndex(spec.tenantId(), spec.name(), index));
         inFlight.remove(index);
         log.warn(
             "deployment {} instance {} gave up retrying after exhausting its restart budget;"
@@ -422,15 +428,15 @@ public final class DeploymentReconciler {
     // maxUnavailable and maxSurge are independent budgets, but the same mismatched index must
     // never be migrated by both at once.
     Set<Integer> excluded = new HashSet<>(inFlight);
-    excluded.addAll(store.getSurgeIndices(spec.name()).values());
+    excluded.addAll(store.getSurgeIndices(spec.tenantId(), spec.name()).values());
     mismatchedAssignments(spec, excluded).stream()
         .limit(maxUnavailable - inFlight.size())
         .forEach(
             mismatched -> {
               changes.add(
-                  new StateMutation.RemoveAssignment(spec.name(), mismatched.instanceIndex()));
+                  new StateMutation.RemoveAssignment(spec.tenantId(), spec.name(), mismatched.instanceIndex()));
               changes.add(
-                  new StateMutation.AddRollingIndex(spec.name(), mismatched.instanceIndex()));
+                  new StateMutation.AddRollingIndex(spec.tenantId(), spec.name(), mismatched.instanceIndex()));
               log.info(
                   "deployment {} instance {} is on an old module version; rolling it forward",
                   spec.name(),
@@ -459,7 +465,7 @@ public final class DeploymentReconciler {
    */
   private List<InstanceAssignment> mismatchedAssignments(
       DeploymentSpec spec, Set<Integer> excludedIndices) {
-    return store.listAssignmentsFor(spec.name()).stream()
+    return store.listAssignmentsFor(spec.tenantId(), spec.name()).stream()
         .filter(assignment -> !assignment.moduleId().equals(InstanceAssignment.UNSPECIFIED_MODULE))
         .filter(assignment -> isStale(assignment, spec))
         .filter(assignment -> !excludedIndices.contains(assignment.instanceIndex()))
@@ -491,7 +497,7 @@ public final class DeploymentReconciler {
    */
   private void handleSurge(DeploymentSpec spec, int replicas) {
     int maxSurge = spec.effectiveDisruptionBudget().maxSurge();
-    Map<Integer, Integer> inFlight = new HashMap<>(store.getSurgeIndices(spec.name()));
+    Map<Integer, Integer> inFlight = new HashMap<>(store.getSurgeIndices(spec.tenantId(), spec.name()));
     // Flushed as one batch *before* the mismatch scan below, not at method end: a promotion's
     // PutAssignment is what stops its target index from still looking mismatched, so deferring it
     // past the scan would start a pointless second surge for an index just promoted.
@@ -505,19 +511,19 @@ public final class DeploymentReconciler {
         // than promote into an index that no longer exists. The surge assignment itself, now
         // untracked, is reclaimed by reconcileDeployment's own scale-down sweep on a later tick
         // once it's no longer excluded from it.
-        settlements.add(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
+        settlements.add(new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
         continue;
       }
       if (store
-          .getReconcilerInstanceState(spec.name(), surgeIndex)
+          .getReconcilerInstanceState(spec.tenantId(), spec.name(), surgeIndex)
           .map(ReconcilerInstanceState::permanentlyFailed)
           .orElse(false)) {
         // The surge instance itself exhausted its restart budget and HealthReconciler will never
         // touch it again -- same reasoning as handleRollingUpdate's own equivalent check: without
         // this, a broken surge candidate holds its maxSurge slot forever, since it can never become
         // ready and promote, and nothing else here ever reconsiders it.
-        mutations.propose(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
+        mutations.propose(new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
         log.warn(
             "deployment {} surge candidate at index {} (target {}) gave up retrying; freeing the"
@@ -528,7 +534,7 @@ public final class DeploymentReconciler {
         continue;
       }
       Optional<InstanceAssignment> surgeAssignment =
-          store.listAssignmentsFor(spec.name()).stream()
+          store.listAssignmentsFor(spec.tenantId(), spec.name()).stream()
               .filter(a -> a.instanceIndex() == surgeIndex)
               .findFirst();
       if (surgeAssignment.isPresent() && isReady(surgeAssignment.get())) {
@@ -549,9 +555,10 @@ public final class DeploymentReconciler {
                     healthy.nodeId(),
                     healthy.moduleId(),
                     healthy.artifactPath(),
-                    OptionalInt.of(surgeIndex))));
-        settlements.add(new StateMutation.RemoveAssignment(spec.name(), surgeIndex));
-        settlements.add(new StateMutation.RemoveSurgeIndex(spec.name(), surgeIndex));
+                    OptionalInt.of(surgeIndex),
+                    spec.tenantId())));
+        settlements.add(new StateMutation.RemoveAssignment(spec.tenantId(), spec.name(), surgeIndex));
+        settlements.add(new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
       }
       // Otherwise: still waiting for the surge instance to report ready.
@@ -562,10 +569,10 @@ public final class DeploymentReconciler {
       return;
     }
 
-    Set<Integer> rollingInFlight = store.getRollingIndices(spec.name());
+    Set<Integer> rollingInFlight = store.getRollingIndices(spec.tenantId(), spec.name());
     Set<Integer> claimedTargets = new HashSet<>(inFlight.values());
     Set<Integer> takenSyntheticIndices = new HashSet<>(inFlight.keySet());
-    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.name())) {
+    for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {
       takenSyntheticIndices.add(assignment.instanceIndex());
     }
 
@@ -584,7 +591,7 @@ public final class DeploymentReconciler {
               takenSyntheticIndices.add(surgeIndex);
               newSurges.add(
                   new StateMutation.AddSurgeIndex(
-                      spec.name(), surgeIndex, mismatched.instanceIndex()));
+                      spec.tenantId(), spec.name(), surgeIndex, mismatched.instanceIndex()));
               log.info(
                   "deployment {} instance {} is on an old module version; surging a replacement at"
                       + " index {} ahead of removing it",
@@ -651,7 +658,7 @@ public final class DeploymentReconciler {
   private List<Integer> indicesNeedingPlacement(
       DeploymentSpec spec, int replicas, Set<Integer> existingIndices) {
     List<Integer> indices = new ArrayList<>(missingIndices(replicas, existingIndices));
-    for (int surgeIndex : store.getSurgeIndices(spec.name()).keySet()) {
+    for (int surgeIndex : store.getSurgeIndices(spec.tenantId(), spec.name()).keySet()) {
       if (!existingIndices.contains(surgeIndex)) {
         indices.add(surgeIndex);
       }
@@ -666,10 +673,11 @@ public final class DeploymentReconciler {
    * across a single multi-replica placement batch.
    */
   private List<NodeCandidate> buildCandidates(
-      String deploymentName, Set<String> alsoRunningThisDeployment) {
+      Optional<String> tenantId, String deploymentName, Set<String> alsoRunningThisDeployment) {
     Set<String> nodesAlreadyRunningThisDeployment = new HashSet<>(alsoRunningThisDeployment);
     for (InstanceAssignment assignment : store.listAssignments()) {
-      if (assignment.deploymentName().equals(deploymentName)) {
+      if (assignment.tenantId().equals(tenantId)
+          && assignment.deploymentName().equals(deploymentName)) {
         nodesAlreadyRunningThisDeployment.add(assignment.nodeId());
       }
     }

@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -143,9 +144,11 @@ public final class StatefulSetReconciler {
   }
 
   public void reconcileOnce() {
-    Set<String> statefulSetNames = new HashSet<>();
+    // Tenant-scoped identity, not the bare name alone -- see DeploymentReconciler's own identical
+    // sweep for why.
+    Set<Map.Entry<Optional<String>, String>> statefulSetIdentities = new HashSet<>();
     for (StatefulSetSpec spec : store.listStatefulSetSpecs()) {
-      statefulSetNames.add(spec.name());
+      statefulSetIdentities.add(Map.entry(spec.tenantId(), spec.name()));
     }
 
     // A statefulset no longer in desired state: every one of its assignments is stale, and every
@@ -153,13 +156,14 @@ public final class StatefulSetReconciler {
     // that could ever place this index again.
     List<StateMutation> staleRemovals = new ArrayList<>();
     for (StatefulSetAssignment assignment : store.listStatefulSetAssignments()) {
-      if (!statefulSetNames.contains(assignment.statefulSetName())) {
+      if (!statefulSetIdentities.contains(
+          Map.entry(assignment.tenantId(), assignment.statefulSetName()))) {
         staleRemovals.add(
             new StateMutation.RemoveStatefulSetAssignment(
-                assignment.statefulSetName(), assignment.instanceIndex()));
+                assignment.tenantId(), assignment.statefulSetName(), assignment.instanceIndex()));
         staleRemovals.add(
             new StateMutation.RemoveStatefulSetIndexNode(
-                assignment.statefulSetName(), assignment.instanceIndex()));
+                assignment.tenantId(), assignment.statefulSetName(), assignment.instanceIndex()));
       }
     }
     mutations.proposeAll(staleRemovals);
@@ -211,7 +215,8 @@ public final class StatefulSetReconciler {
     handleRollingUpdate(spec, descriptor);
 
     // Re-read: handleRollingUpdate above may have just removed an entry.
-    List<StatefulSetAssignment> existing = store.listStatefulSetAssignmentsFor(spec.name());
+    List<StatefulSetAssignment> existing =
+        store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name());
 
     // OrderedReady (Kubernetes StatefulSet's own default): scan indices low to high, stopping at
     // the first one that isn't both present and ready. Placing that one missing index (if any) and
@@ -233,7 +238,8 @@ public final class StatefulSetReconciler {
             spec.name(),
             index,
             assignment.get().nodeId());
-        mutations.propose(new StateMutation.RemoveStatefulSetAssignment(spec.name(), index));
+        mutations.propose(
+            new StateMutation.RemoveStatefulSetAssignment(spec.tenantId(), spec.name(), index));
         return; // one destructive step per tick -- see class javadoc.
       }
       if (!isReady(assignment.get())) {
@@ -249,7 +255,7 @@ public final class StatefulSetReconciler {
    */
   private boolean scaleDownOneIndexIfNeeded(StatefulSetSpec spec) {
     Optional<StatefulSetAssignment> toRemove =
-        store.listStatefulSetAssignmentsFor(spec.name()).stream()
+        store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
             .filter(a -> a.instanceIndex() >= spec.replicas())
             .max(Comparator.comparingInt(StatefulSetAssignment::instanceIndex));
     if (toRemove.isEmpty()) {
@@ -258,22 +264,25 @@ public final class StatefulSetReconciler {
     StatefulSetAssignment assignment = toRemove.get();
     List<StateMutation> removal = new ArrayList<>();
     removal.add(
-        new StateMutation.RemoveStatefulSetAssignment(spec.name(), assignment.instanceIndex()));
+        new StateMutation.RemoveStatefulSetAssignment(
+            spec.tenantId(), spec.name(), assignment.instanceIndex()));
     removal.add(
-        new StateMutation.RemoveStatefulSetIndexNode(spec.name(), assignment.instanceIndex()));
+        new StateMutation.RemoveStatefulSetIndexNode(
+            spec.tenantId(), spec.name(), assignment.instanceIndex()));
     if (store
-        .getRollingStatefulSetIndex(spec.name())
+        .getRollingStatefulSetIndex(spec.tenantId(), spec.name())
         .equals(Optional.of(assignment.instanceIndex()))) {
-      removal.add(new StateMutation.ClearRollingStatefulSetIndex(spec.name()));
+      removal.add(new StateMutation.ClearRollingStatefulSetIndex(spec.tenantId(), spec.name()));
     }
     mutations.proposeAll(removal);
     return true;
   }
 
   private void placeIndex(StatefulSetSpec spec, ModuleDescriptor descriptor, int index) {
-    Optional<String> stickyNodeId = store.getStatefulSetIndexNode(spec.name(), index);
+    Optional<String> stickyNodeId =
+        store.getStatefulSetIndexNode(spec.tenantId(), spec.name(), index);
     try {
-      List<NodeCandidate> candidates = buildCandidates(spec.name());
+      List<NodeCandidate> candidates = buildCandidates(spec.tenantId(), spec.name());
       String nodeId =
           scheduler.place(
               spec.name(),
@@ -293,8 +302,14 @@ public final class StatefulSetReconciler {
           List.of(
               new StateMutation.PutStatefulSetAssignment(
                   new StatefulSetAssignment(
-                      spec.name(), index, nodeId, spec.moduleId(), spec.artifactPath())),
-              new StateMutation.PutStatefulSetIndexNode(spec.name(), index, nodeId)));
+                      spec.name(),
+                      index,
+                      nodeId,
+                      spec.moduleId(),
+                      spec.artifactPath(),
+                      spec.tenantId())),
+              new StateMutation.PutStatefulSetIndexNode(
+                  spec.tenantId(), spec.name(), index, nodeId)));
     } catch (GimleSchedulingException e) {
       // Left unplaced; the next tick retries from the same full snapshot -- matches every other
       // reconciler's "a missed placement this tick is indistinguishable from a retried one"
@@ -314,20 +329,21 @@ public final class StatefulSetReconciler {
    * OrderedReady scan re-places it with the current spec's {@code moduleId} on that same node.
    */
   private void handleRollingUpdate(StatefulSetSpec spec, ModuleDescriptor descriptor) {
-    Optional<Integer> rollingIndex = store.getRollingStatefulSetIndex(spec.name());
+    Optional<Integer> rollingIndex = store.getRollingStatefulSetIndex(spec.tenantId(), spec.name());
     if (rollingIndex.isPresent()) {
       int index = rollingIndex.get();
       Optional<StatefulSetAssignment> current =
-          store.listStatefulSetAssignmentsFor(spec.name()).stream()
+          store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
               .filter(a -> a.instanceIndex() == index)
               .findFirst();
       if (current.isPresent() && isReady(current.get())) {
-        mutations.propose(new StateMutation.ClearRollingStatefulSetIndex(spec.name()));
+        mutations.propose(
+            new StateMutation.ClearRollingStatefulSetIndex(spec.tenantId(), spec.name()));
       }
       return;
     }
 
-    store.listStatefulSetAssignmentsFor(spec.name()).stream()
+    store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
         .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
         .min(Comparator.comparingInt(StatefulSetAssignment::instanceIndex))
         .ifPresent(
@@ -335,9 +351,9 @@ public final class StatefulSetReconciler {
               mutations.proposeAll(
                   List.of(
                       new StateMutation.RemoveStatefulSetAssignment(
-                          spec.name(), mismatched.instanceIndex()),
+                          spec.tenantId(), spec.name(), mismatched.instanceIndex()),
                       new StateMutation.PutRollingStatefulSetIndex(
-                          spec.name(), mismatched.instanceIndex())));
+                          spec.tenantId(), spec.name(), mismatched.instanceIndex())));
               log.info(
                   "statefulset {} index {} is on an old module version; rolling it forward",
                   spec.name(),
@@ -369,10 +385,11 @@ public final class StatefulSetReconciler {
    * Mirrors {@link DeploymentReconciler#buildCandidates} exactly, built from {@link
    * StatefulSetAssignment}s.
    */
-  private List<NodeCandidate> buildCandidates(String statefulSetName) {
+  private List<NodeCandidate> buildCandidates(Optional<String> tenantId, String statefulSetName) {
     Set<String> nodesAlreadyRunningThisStatefulSet = new HashSet<>();
     for (StatefulSetAssignment assignment : store.listStatefulSetAssignments()) {
-      if (assignment.statefulSetName().equals(statefulSetName)) {
+      if (assignment.tenantId().equals(tenantId)
+          && assignment.statefulSetName().equals(statefulSetName)) {
         nodesAlreadyRunningThisStatefulSet.add(assignment.nodeId());
       }
     }

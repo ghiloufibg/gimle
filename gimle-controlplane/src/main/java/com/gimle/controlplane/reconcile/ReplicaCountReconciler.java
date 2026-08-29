@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -105,7 +106,8 @@ public final class ReplicaCountReconciler {
     Instant now = clock.instant();
     Set<String> currentKeys = new HashSet<>();
     for (InstanceAssignment assignment : store.listAssignments()) {
-      currentKeys.add(key(assignment.deploymentName(), assignment.instanceIndex()));
+      currentKeys.add(
+          key(assignment.tenantId(), assignment.deploymentName(), assignment.instanceIndex()));
       try {
         reconcileAssignment(assignment, now);
       } catch (RuntimeException e) {
@@ -124,7 +126,8 @@ public final class ReplicaCountReconciler {
     // grace-period bookkeeping behind.
     for (ReconcilerInstanceState state : store.listReconcilerInstanceStates()) {
       if (state.firstSeenMissingAtEpochMilli() != ReconcilerInstanceState.ABSENT
-          && !currentKeys.contains(key(state.deploymentName(), state.instanceIndex()))) {
+          && !currentKeys.contains(
+              key(state.tenantId(), state.deploymentName(), state.instanceIndex()))) {
         try {
           save(withFirstSeenMissing(state, ReconcilerInstanceState.ABSENT));
         } catch (RuntimeException e) {
@@ -167,7 +170,7 @@ public final class ReplicaCountReconciler {
       mutations.proposeAll(
           List.of(
               new StateMutation.RemoveAssignment(
-                  assignment.deploymentName(), assignment.instanceIndex()),
+                  assignment.tenantId(), assignment.deploymentName(), assignment.instanceIndex()),
               saveMutation(withFirstSeenMissing(persisted, ReconcilerInstanceState.ABSENT))));
     }
   }
@@ -187,6 +190,7 @@ public final class ReplicaCountReconciler {
 
   private static boolean mentions(NodeHeartbeat heartbeat, InstanceAssignment assignment) {
     for (InstanceObservation observation : heartbeat.instances()) {
+      // No tenant field to join on -- see HealthReconciler's own findIn for why.
       if (observation.deploymentName().equals(assignment.deploymentName())
           && observation.instanceIndex() == assignment.instanceIndex()) {
         return true;
@@ -212,7 +216,8 @@ public final class ReplicaCountReconciler {
         state.nextAllowedAttemptEpochMilli(),
         state.pendingRetry(),
         state.permanentlyFailed(),
-        firstSeenMissingAtEpochMilli);
+        firstSeenMissingAtEpochMilli,
+        state.tenantId());
   }
 
   private void save(ReconcilerInstanceState state) {
@@ -222,14 +227,15 @@ public final class ReplicaCountReconciler {
   private static StateMutation saveMutation(ReconcilerInstanceState state) {
     if (state.isEmpty()) {
       return new StateMutation.RemoveReconcilerInstanceState(
-          state.deploymentName(), state.instanceIndex());
+          state.tenantId(), state.deploymentName(), state.instanceIndex());
     }
     return new StateMutation.PutReconcilerInstanceState(state);
   }
 
   private ReconcilerInstanceState currentState(InstanceAssignment assignment) {
     return store
-        .getReconcilerInstanceState(assignment.deploymentName(), assignment.instanceIndex())
+        .getReconcilerInstanceState(
+            assignment.tenantId(), assignment.deploymentName(), assignment.instanceIndex())
         .orElseGet(() -> emptyState(assignment));
   }
 
@@ -242,10 +248,11 @@ public final class ReplicaCountReconciler {
         ReconcilerInstanceState.ABSENT,
         false,
         false,
-        ReconcilerInstanceState.ABSENT);
+        ReconcilerInstanceState.ABSENT,
+        assignment.tenantId());
   }
 
-  private static String key(String deploymentName, int instanceIndex) {
-    return deploymentName + "#" + instanceIndex;
+  private static String key(Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    return tenantId.orElse("") + '\0' + deploymentName + "#" + instanceIndex;
   }
 }

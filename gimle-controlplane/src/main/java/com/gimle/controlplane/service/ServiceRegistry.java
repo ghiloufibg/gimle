@@ -50,8 +50,8 @@ public final class ServiceRegistry {
     mutations.propose(new StateMutation.PutService(spec));
   }
 
-  public Optional<ServiceSpec> get(String name) {
-    return store.getService(name);
+  public Optional<ServiceSpec> get(Optional<String> tenantId, String name) {
+    return store.getService(tenantId, name);
   }
 
   public List<ServiceSpec> list() {
@@ -59,17 +59,22 @@ public final class ServiceRegistry {
   }
 
   /** Removes both the spec and whatever endpoint set was last computed for it. */
-  public void remove(String name) {
-    mutations.propose(new StateMutation.RemoveService(name));
-    endpoints.remove(name);
+  public void remove(Optional<String> tenantId, String name) {
+    mutations.propose(new StateMutation.RemoveService(tenantId, name));
+    endpoints.remove(endpointsKey(tenantId, name));
   }
 
-  public void putEndpoints(String name, List<ServiceEndpoint> value) {
-    endpoints.put(name, List.copyOf(value));
+  public void putEndpoints(Optional<String> tenantId, String name, List<ServiceEndpoint> value) {
+    endpoints.put(endpointsKey(tenantId, name), List.copyOf(value));
   }
 
   /** Empty for a name never reconciled yet -- not distinguished from "reconciled, found none". */
-  public List<ServiceEndpoint> getEndpoints(String name) {
-    return endpoints.getOrDefault(name, List.of());
+  public List<ServiceEndpoint> getEndpoints(Optional<String> tenantId, String name) {
+    return endpoints.getOrDefault(endpointsKey(tenantId, name), List.of());
+  }
+
+  /** Tenant-scoped the same way {@code StateStore}'s own internal keys are -- see its javadoc. */
+  private static String endpointsKey(Optional<String> tenantId, String name) {
+    return tenantId.orElse("") + '\0' + name;
   }
 }

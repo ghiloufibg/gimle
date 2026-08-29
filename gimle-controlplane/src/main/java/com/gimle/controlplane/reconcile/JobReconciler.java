@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -137,17 +138,19 @@ public final class JobReconciler {
   }
 
   public void reconcileOnce() {
-    Set<String> jobNames = new HashSet<>();
+    // Tenant-scoped identity, not the bare name alone -- see DeploymentReconciler's own identical
+    // sweep for why.
+    Set<Map.Entry<Optional<String>, String>> jobIdentities = new HashSet<>();
     for (JobSpec spec : store.listJobSpecs()) {
-      jobNames.add(spec.name());
+      jobIdentities.add(Map.entry(spec.tenantId(), spec.name()));
     }
 
     // A job no longer in desired state: every one of its runs is stale. One batch for the whole
     // sweep -- the removals are independent and nothing below reads them back first.
     List<StateMutation> staleRuns = new ArrayList<>();
     for (JobRun run : store.listJobRuns()) {
-      if (!jobNames.contains(run.jobName())) {
-        staleRuns.add(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+      if (!jobIdentities.contains(Map.entry(run.tenantId(), run.jobName()))) {
+        staleRuns.add(new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt()));
       }
     }
     mutations.proposeAll(staleRuns);
@@ -165,11 +168,11 @@ public final class JobReconciler {
   }
 
   private void reconcileJob(JobSpec spec) {
-    if (store.getJobPhase(spec.name()).isPresent()) {
+    if (store.getJobPhase(spec.tenantId(), spec.name()).isPresent()) {
       return; // already SUCCEEDED or FAILED -- terminal, nothing more to do
     }
 
-    List<JobRun> runs = store.listJobRunsFor(spec.name());
+    List<JobRun> runs = store.listJobRunsFor(spec.tenantId(), spec.name());
     // Convergence from an arbitrary starting state: exactly one run should exist per non-terminal
     // job. More than one here means a prior tick crashed between placing a retry and removing its
     // predecessor (see placeAttempt's own ordering note) -- only the highest-numbered attempt is
@@ -179,7 +182,8 @@ public final class JobReconciler {
     List<StateMutation> duplicates = new ArrayList<>();
     for (JobRun run : runs) {
       if (current.isEmpty() || run.attempt() != current.get().attempt()) {
-        duplicates.add(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+        duplicates.add(
+            new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt()));
       }
     }
     mutations.proposeAll(duplicates);
@@ -209,10 +213,11 @@ public final class JobReconciler {
           "exceeded activeDeadline of " + spec.activeDeadline().get() + " across all attempts";
       mutations.proposeAll(
           List.of(
-              new StateMutation.RemoveJobRun(run.jobName(), run.attempt()),
+              new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt()),
               new StateMutation.PutJobRunSummary(
-                  new JobRunSummary(run.jobName(), run.attempt(), run.nodeId(), reason)),
-              new StateMutation.PutJobPhase(spec.name(), JobPhase.FAILED)));
+                  new JobRunSummary(
+                      run.jobName(), run.attempt(), run.nodeId(), reason, run.tenantId())),
+              new StateMutation.PutJobPhase(spec.tenantId(), spec.name(), JobPhase.FAILED)));
       return;
     }
 
@@ -241,11 +246,15 @@ public final class JobReconciler {
     if ("COMPLETED".equals(state)) {
       mutations.proposeAll(
           List.of(
-              new StateMutation.PutJobPhase(spec.name(), JobPhase.SUCCEEDED),
+              new StateMutation.PutJobPhase(spec.tenantId(), spec.name(), JobPhase.SUCCEEDED),
               new StateMutation.PutJobRunSummary(
                   new JobRunSummary(
-                      run.jobName(), run.attempt(), run.nodeId(), "job completed successfully")),
-              new StateMutation.RemoveJobRun(run.jobName(), run.attempt())));
+                      run.jobName(),
+                      run.attempt(),
+                      run.nodeId(),
+                      "job completed successfully",
+                      run.tenantId())),
+              new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt())));
       return;
     }
     if (!"FAILED".equals(state)) {
@@ -269,10 +278,11 @@ public final class JobReconciler {
       String reason = "exhausted backoffLimit of " + spec.backoffLimit() + " attempts";
       mutations.proposeAll(
           List.of(
-              new StateMutation.PutJobPhase(spec.name(), JobPhase.FAILED),
+              new StateMutation.PutJobPhase(spec.tenantId(), spec.name(), JobPhase.FAILED),
               new StateMutation.PutJobRunSummary(
-                  new JobRunSummary(run.jobName(), run.attempt(), run.nodeId(), reason)),
-              new StateMutation.RemoveJobRun(run.jobName(), run.attempt())));
+                  new JobRunSummary(
+                      run.jobName(), run.attempt(), run.nodeId(), reason, run.tenantId())),
+              new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt())));
       return;
     }
     // The retry placement and the failed attempt's removal commit as one batch, so no crash can
@@ -281,7 +291,7 @@ public final class JobReconciler {
     // its own, unchanged. startedAt carries forward -- see JobRun's own javadoc.
     List<StateMutation> retry = new ArrayList<>();
     planPlacement(spec, nextAttempt, run.startedAt()).ifPresent(retry::add);
-    retry.add(new StateMutation.RemoveJobRun(run.jobName(), run.attempt()));
+    retry.add(new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt()));
     mutations.proposeAll(retry);
   }
 
@@ -318,7 +328,7 @@ public final class JobReconciler {
     ModuleDescriptor descriptor = artifact.descriptor();
 
     try {
-      List<NodeCandidate> candidates = buildCandidates(spec.name());
+      List<NodeCandidate> candidates = buildCandidates(spec.tenantId(), spec.name());
       String nodeId =
           scheduler.place(
               spec.name(),
@@ -337,7 +347,8 @@ public final class JobReconciler {
                   nodeId,
                   spec.moduleId(),
                   spec.artifactPath(),
-                  activeSince)));
+                  activeSince,
+                  spec.tenantId())));
     } catch (GimleSchedulingException e) {
       // Left unplaced; the next tick retries from the same full snapshot -- the same
       // level-triggered "a missed placement is indistinguishable from one being retried" property
@@ -371,10 +382,10 @@ public final class JobReconciler {
    * Mirrors {@link DeploymentReconciler#buildCandidates} exactly, built from {@link JobRun}s
    * instead of {@link InstanceAssignment}s.
    */
-  private List<NodeCandidate> buildCandidates(String jobName) {
+  private List<NodeCandidate> buildCandidates(Optional<String> tenantId, String jobName) {
     Set<String> nodesAlreadyRunningThisJob = new HashSet<>();
     for (JobRun run : store.listJobRuns()) {
-      if (run.jobName().equals(jobName)) {
+      if (run.tenantId().equals(tenantId) && run.jobName().equals(jobName)) {
         nodesAlreadyRunningThisJob.add(run.nodeId());
       }
     }
