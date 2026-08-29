@@ -53,9 +53,10 @@ import org.slf4j.LoggerFactory;
  * gimle.transport.protocol=tls} system property (plus {@code gimle.tls.certFile}/{@code
  * keyFile}/{@code caFile}) every other TLS-capable listener in this codebase reads via {@link
  * TransportProtocol#fromConfig()}/{@link TlsSettings#fromConfig()}. The agent supervising this
- * instance's worker JVM already forwards an operator's own {@code -D} flags onto every worker it
- * spawns, so a gateway instance picks this up the same way {@code gimle-fabric}'s own in-worker
- * listener already does, with no new switch needed.
+ * instance's worker JVM forwards its own already-resolved {@code gimle.transport.protocol}/{@code
+ * gimle.tls.certFile}/{@code keyFile}/{@code caFile} onto every worker it spawns (see {@code
+ * AgentMain.stableWorkerFlags()}), so a gateway instance picks this up the same way {@code
+ * gimle-fabric}'s own in-worker listener already does, with no new switch needed.
  */
 public final class GatewayHooks implements ModuleLifecycleHooks {
 

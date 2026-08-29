@@ -1857,13 +1857,13 @@
       "feature": "Worker JVM process spawn and command-line construction",
       "category": "Worker Supervision",
       "status": "Active",
-      "statusNote": "",
+      "statusNote": "Fixed (NET-5): stableWorkerFlags() never forwarded gimle.transport.protocol/gimle.tls.certFile/keyFile/caFile to a spawned worker, so a live-cluster QA pass against a real transport: mtls cluster found every worker JVM (gimle-gateway's HttpsServer termination, gimle-fabric's cross-machine FabricServer/FabricClient) silently resolved PLAINTEXT regardless of the cluster's declared posture. A new workerTlsFlags() helper now forwards this agent's own already-resolved TransportProtocol/TlsSettings the same way gimle.fabric.defaultDenyCrossTenant is already forwarded; empty (no behavior change) in plaintext mode.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module descriptor with a resource limit and a node id",
-      "otherTestCoverage": "`AgentMainTest#the_spawned_command_carries_the_manifests_limit_not_its_request`, `#the_spawned_command_always_carries_exit_on_out_of_memory_error`, `#the_spawned_command_always_suppresses_the_startup_banner`, `#the_spawned_command_always_forces_json_console_logging`, `#the_spawned_command_forwards_the_default_deny_cross_tenant_flag`, `#prepare_resource_limit_hands_the_limiter_the_descriptors_limit_not_its_request`",
+      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a module descriptor with a resource limit and a node id. This fix's own TLS-forwarding behavior is likewise unverified end to end -- today's mtls/minimal-mtls topologies are single-node, so no scenario exercises a gateway or cross-machine fabric call under TLS; a follow-up extending an mTLS topology to 2 nodes with such a scenario would close this gap and NET-5's own lack of regression coverage together.",
+      "otherTestCoverage": "`AgentMainTest#the_spawned_command_carries_the_manifests_limit_not_its_request`, `#the_spawned_command_always_carries_exit_on_out_of_memory_error`, `#the_spawned_command_always_suppresses_the_startup_banner`, `#the_spawned_command_always_forces_json_console_logging`, `#the_spawned_command_forwards_the_default_deny_cross_tenant_flag`, `#the_spawned_command_omits_tls_flags_in_plaintext_mode`, `#the_spawned_command_forwards_this_agents_own_tls_material_when_tls_is_enabled`, `#prepare_resource_limit_hands_the_limiter_the_descriptors_limit_not_its_request`",
       "sourceLocations": [
-        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`buildWorkerCommand`, `prepareResourceLimit`, `startInstance`)"
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`buildWorkerCommand`, `stableWorkerFlags`, `workerTlsFlags`, `prepareResourceLimit`, `startInstance`)"
       ]
     },
     {

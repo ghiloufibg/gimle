@@ -1123,7 +1123,7 @@
       "module": "gimle-agent",
       "category": "Worker Supervision",
       "feature": "Worker JVM process spawn and command-line construction",
-      "step": "Given a module descriptor with a resource limit and a node id When AgentMain.buildWorkerCommand constructs the command Then it always includes -XX:+ExitOnOutOfMemoryError, -Dgimle.log.root scoped per-worker, -XX:ErrorFile scoped per-worker, -Dgimle.banner.enabled=false, -Dgimle.log.console=json And it uses the descriptor's LIMIT (not its request) for the resource limiter's -Xmx/-XX:ActiveProcessorCount flags",
+      "step": "Given a module descriptor with a resource limit and a node id When AgentMain.buildWorkerCommand constructs the command Then it always includes -XX:+ExitOnOutOfMemoryError, -Dgimle.log.root scoped per-worker, -XX:ErrorFile scoped per-worker, -Dgimle.banner.enabled=false, -Dgimle.log.console=json And it uses the descriptor's LIMIT (not its request) for the resource limiter's -Xmx/-XX:ActiveProcessorCount flags And when this node's own transport protocol is TLS, it also forwards gimle.transport.protocol, gimle.tls.certFile, gimle.tls.keyFile, and gimle.tls.caFile verbatim; when plaintext, it forwards none of them",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

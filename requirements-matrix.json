@@ -1972,18 +1972,19 @@
       "module": "gimle-agent",
       "feature": "Worker JVM process spawn and command-line construction",
       "category": "Worker Supervision",
-      "userStory": "As the platform, I want the agent to build a fully-formed worker JVM command line (leak-detection JFR flag, `-XX:+ExitOnOutOfMemoryError`, scoped log root, `-XX:ErrorFile`, ResourceLimiter flags, banner suppression, forced JSON console logging) and spawn it via ProcessBuilder, so that every worker this agent supervises is consistently instrumented and crash-classifiable.",
-      "statusDetail": "Complete",
+      "userStory": "As the platform, I want the agent to build a fully-formed worker JVM command line (leak-detection JFR flag, `-XX:+ExitOnOutOfMemoryError`, scoped log root, `-XX:ErrorFile`, ResourceLimiter flags, banner suppression, forced JSON console logging, and -- when this node runs under `gimle.transport.protocol=tls` -- its own already-resolved `gimle.transport.protocol`/`gimle.tls.certFile`/`keyFile`/`caFile`) and spawn it via ProcessBuilder, so that every worker this agent supervises is consistently instrumented, crash-classifiable, and carries the same node identity for anything it terminates or dials on the wire.",
+      "statusDetail": "Fixed (NET-5): a live-cluster QA pass against a real transport: mtls cluster found that `stableWorkerFlags()` forwarded only `gimle.fabric.defaultDenyCrossTenant`/`gimle.banner.enabled`/`gimle.log.console` to a spawned worker -- never `gimle.transport.protocol` or `gimle.tls.certFile`/`keyFile`/`caFile`. Since `TransportProtocol.fromConfig()`/`TlsSettings.fromConfig()` only ever read JVM system properties, which don't cross a `ProcessBuilder` spawn boundary, every worker JVM always resolved PLAINTEXT regardless of the cluster's real posture -- confirmed via `ps aux` showing zero TLS flags on live worker command lines, `gimle-gateway`'s own HttpsServer termination silently serving plaintext, and a live cross-worker `gimle-fabric` call succeeding over an unencrypted channel on the same nominally-mTLS cluster. `stableWorkerFlags()` now also forwards this agent's own already-resolved transport posture via a new `workerTlsFlags()` helper -- empty in plaintext mode, a zero-behavior-change no-op there -- mirroring the existing `gimle.fabric.defaultDenyCrossTenant` forwarding pattern. Safe unconditionally when TLS is on: `bootstrapCertificateIfNeeded` already runs to completion earlier in `main()`, before any worker is ever spawned, so the cert/key files `TlsSettings.fromConfig()` validates are guaranteed to exist.",
       "confidence": "High",
       "sourceLocations": [
-        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`buildWorkerCommand`, `prepareResourceLimit`, `startInstance`)"
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`buildWorkerCommand`, `stableWorkerFlags`, `workerTlsFlags`, `prepareResourceLimit`, `startInstance`)"
       ],
-      "testCoverageDetail": "`AgentMainTest#the_spawned_command_carries_the_manifests_limit_not_its_request`, `#the_spawned_command_always_carries_exit_on_out_of_memory_error`, `#the_spawned_command_always_suppresses_the_startup_banner`, `#the_spawned_command_always_forces_json_console_logging`, `#the_spawned_command_forwards_the_default_deny_cross_tenant_flag`, `#prepare_resource_limit_hands_the_limiter_the_descriptors_limit_not_its_request`",
+      "testCoverageDetail": "`AgentMainTest#the_spawned_command_carries_the_manifests_limit_not_its_request`, `#the_spawned_command_always_carries_exit_on_out_of_memory_error`, `#the_spawned_command_always_suppresses_the_startup_banner`, `#the_spawned_command_always_forces_json_console_logging`, `#the_spawned_command_forwards_the_default_deny_cross_tenant_flag`, `#the_spawned_command_omits_tls_flags_in_plaintext_mode`, `#the_spawned_command_forwards_this_agents_own_tls_material_when_tls_is_enabled`, `#prepare_resource_limit_hands_the_limiter_the_descriptors_limit_not_its_request`",
       "gherkinSteps": [
         "Given a module descriptor with a resource limit and a node id",
         "When AgentMain.buildWorkerCommand constructs the command",
         "Then it always includes -XX:+ExitOnOutOfMemoryError, -Dgimle.log.root scoped per-worker, -XX:ErrorFile scoped per-worker, -Dgimle.banner.enabled=false, -Dgimle.log.console=json",
-        "And it uses the descriptor's LIMIT (not its request) for the resource limiter's -Xmx/-XX:ActiveProcessorCount flags"
+        "And it uses the descriptor's LIMIT (not its request) for the resource limiter's -Xmx/-XX:ActiveProcessorCount flags",
+        "And when this node's own transport protocol is TLS, it also forwards gimle.transport.protocol, gimle.tls.certFile, gimle.tls.keyFile, and gimle.tls.caFile verbatim; when plaintext, it forwards none of them"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

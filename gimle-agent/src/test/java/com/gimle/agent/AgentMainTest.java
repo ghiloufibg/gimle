@@ -38,6 +38,7 @@ import java.util.OptionalInt;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Regression: {@link AgentMain#prepareResourceLimit} must hand the limiter the manifest's resource
@@ -182,6 +183,86 @@ class AgentMainTest {
       } else {
         System.setProperty(property, previous);
       }
+    }
+  }
+
+  @Test
+  void the_spawned_command_omits_tls_flags_in_plaintext_mode() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    String property = "gimle.transport.protocol";
+    String previous = System.getProperty(property);
+    try {
+      System.clearProperty(property);
+      List<String> command = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
+      assertTrue(
+          command.stream().noneMatch(flag -> flag.startsWith("-Dgimle.transport.protocol")),
+          "expected no transport.protocol flag in plaintext mode; command=" + command);
+      assertTrue(
+          command.stream().noneMatch(flag -> flag.startsWith("-Dgimle.tls.")),
+          "expected no TLS flags in plaintext mode; command=" + command);
+    } finally {
+      restoreProperty(property, previous);
+    }
+  }
+
+  @Test
+  void the_spawned_command_forwards_this_agents_own_tls_material_when_tls_is_enabled(
+      @TempDir Path tempDir) throws IOException {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    // TlsSettings only checks Files.isRegularFile, never parses PEM content, so empty files are
+    // enough here -- no need to mint real certificate material from gimle-pki for this test.
+    Path certFile = Files.createFile(tempDir.resolve("node.crt"));
+    Path keyFile = Files.createFile(tempDir.resolve("node.key"));
+    Path caFile = Files.createFile(tempDir.resolve("ca.crt"));
+    String previousProtocol = System.getProperty("gimle.transport.protocol");
+    String previousCert = System.getProperty("gimle.tls.certFile");
+    String previousKey = System.getProperty("gimle.tls.keyFile");
+    String previousCa = System.getProperty("gimle.tls.caFile");
+    try {
+      System.setProperty("gimle.transport.protocol", "tls");
+      System.setProperty("gimle.tls.certFile", certFile.toString());
+      System.setProperty("gimle.tls.keyFile", keyFile.toString());
+      System.setProperty("gimle.tls.caFile", caFile.toString());
+
+      List<String> command = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
+
+      assertTrue(
+          command.contains("-Dgimle.transport.protocol=tls"),
+          "expected the transport protocol forwarded verbatim; command=" + command);
+      assertTrue(
+          command.contains("-Dgimle.tls.certFile=" + certFile),
+          "expected the cert file path forwarded verbatim; command=" + command);
+      assertTrue(
+          command.contains("-Dgimle.tls.keyFile=" + keyFile),
+          "expected the key file path forwarded verbatim; command=" + command);
+      assertTrue(
+          command.contains("-Dgimle.tls.caFile=" + caFile),
+          "expected the CA file path forwarded verbatim; command=" + command);
+    } finally {
+      restoreProperty("gimle.transport.protocol", previousProtocol);
+      restoreProperty("gimle.tls.certFile", previousCert);
+      restoreProperty("gimle.tls.keyFile", previousKey);
+      restoreProperty("gimle.tls.caFile", previousCa);
+    }
+  }
+
+  private static void restoreProperty(String key, String previous) {
+    if (previous == null) {
+      System.clearProperty(key);
+    } else {
+      System.setProperty(key, previous);
     }
   }
 

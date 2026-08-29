@@ -2470,38 +2470,69 @@ public final class AgentMain {
   /**
    * The subset of every worker's flags that never vary with which worker it is -- excludes {@code
    * -Dgimle.log.root}/{@code -XX:ErrorFile} (both derived from {@code workerLogRoot}, unique per
-   * worker) and {@code resourceLimiter.jvmFlags(handle)} (unique per worker's resource limit).
-   * {@link SleipnirCache}'s cache key is computed from exactly this list plus the classpath --
-   * extracted here rather than duplicated there so the key and the real command can never silently
-   * drift apart.
+   * worker) and {@code resourceLimiter.jvmFlags(handle)} (unique per worker's resource limit). TLS
+   * material belongs here too, not in either excluded category: it's this node's identity, the same
+   * for every worker this agent ever spawns, not per-instance. {@link SleipnirCache}'s cache key is
+   * computed from exactly this list plus the classpath -- extracted here rather than duplicated
+   * there so the key and the real command can never silently drift apart.
    */
   static List<String> stableWorkerFlags() {
+    List<String> flags =
+        new ArrayList<>(
+            List.of(
+                LEAK_DETECTION_JFR_FLAG,
+                // Makes an OOM exit unambiguous (exit code 3, HotSpot's own code for this flag)
+                // rather than indistinguishable from any other unexpected exit --
+                // WorkerProcessSupervisor's crash classification depends on this being set on
+                // every worker, unconditionally.
+                "-XX:+ExitOnOutOfMemoryError",
+                // Forwarded unconditionally (defaulting to this agent's own unset-property
+                // "false") rather than only when explicitly set, so every worker this agent
+                // spawns gets an explicit, consistent value instead of silently inheriting
+                // whatever WorkerMain's own default happens to be.
+                "-Dgimle.fabric.defaultDenyCrossTenant="
+                    + System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"),
+                // A worker starts once per module instance, not once per node/replica lifecycle
+                // like every other process role -- printing GimleBanner's ASCII-art banner on
+                // every one of those spawns would just be log noise at scale, so this agent
+                // unconditionally suppresses it for every worker it spawns. WorkerMain still
+                // prints when run directly (its own default stays enabled).
+                "-Dgimle.banner.enabled=false",
+                // ConsoleLogEncoder defaults to colored text now (see its own javadoc), which is
+                // exactly wrong for a piped subprocess: WorkerProcessSupervisor.drainOutput
+                // JSON-sniffs this worker's raw stdout to tell a structured line (already
+                // captured by its own PlatformFileAppender, so safe to skip) apart from
+                // unstructured output worth capturing separately. Forced explicitly here rather
+                // than left to a tty-detection guess, so the sniffing stays correct by
+                // construction.
+                "-Dgimle.log.console=json"));
+    flags.addAll(workerTlsFlags());
+    return List.copyOf(flags);
+  }
+
+  /**
+   * Forwards this agent's own already-resolved transport posture onto every worker it spawns.
+   * {@link TransportProtocol#fromConfig()}/{@link TlsSettings#fromConfig()} read {@code -D} system
+   * properties that don't cross a {@code ProcessBuilder} spawn boundary -- a worker is a separate
+   * child JVM, not a thread -- so without this, a worker JVM (hosting the gateway module's
+   * TLS-terminating {@code HttpsServer} and {@code gimle-fabric}'s cross-machine {@code
+   * FabricServer}/{@code FabricClient}) always resolves {@link TransportProtocol#PLAINTEXT}
+   * regardless of the cluster's real posture. Empty in plaintext mode, the common case -- a
+   * zero-behavior-change no-op there. Safe to call unconditionally when TLS is on: by the time this
+   * agent ever spawns a worker, {@link #bootstrapCertificateIfNeeded} has already run to
+   * completion, so {@code gimle.tls.certFile}/{@code keyFile} are guaranteed to exist on disk,
+   * which is exactly what {@link TlsSettings#fromConfig()} validates.
+   */
+  private static List<String> workerTlsFlags() {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      return List.of();
+    }
+    TlsSettings settings = TlsSettings.fromConfig();
     return List.of(
-        LEAK_DETECTION_JFR_FLAG,
-        // Makes an OOM exit unambiguous (exit code 3, HotSpot's own code for this flag) rather than
-        // indistinguishable from any other unexpected exit -- WorkerProcessSupervisor's crash
-        // classification depends on this being set on every worker, unconditionally.
-        "-XX:+ExitOnOutOfMemoryError",
-        // Forwarded unconditionally (defaulting to this agent's own unset-property "false") rather
-        // than only when explicitly set, so every worker this agent spawns gets an explicit,
-        // consistent value instead of silently inheriting whatever WorkerMain's own default happens
-        // to be.
-        "-Dgimle.fabric.defaultDenyCrossTenant="
-            + System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"),
-        // A worker starts once per module instance, not once per node/replica lifecycle like every
-        // other process role -- printing GimleBanner's ASCII-art banner on every one of those
-        // spawns
-        // would just be log noise at scale, so this agent unconditionally suppresses it for every
-        // worker it spawns. WorkerMain still prints when run directly (its own default stays
-        // enabled).
-        "-Dgimle.banner.enabled=false",
-        // ConsoleLogEncoder defaults to colored text now (see its own javadoc), which is exactly
-        // wrong for a piped subprocess: WorkerProcessSupervisor.drainOutput JSON-sniffs this
-        // worker's raw stdout to tell a structured line (already captured by its own
-        // PlatformFileAppender, so safe to skip) apart from unstructured output worth capturing
-        // separately. Forced explicitly here rather than left to a tty-detection guess, so the
-        // sniffing stays correct by construction.
-        "-Dgimle.log.console=json");
+        "-Dgimle.transport.protocol=tls",
+        "-Dgimle.tls.certFile=" + settings.certFile(),
+        "-Dgimle.tls.keyFile=" + settings.keyFile(),
+        "-Dgimle.tls.caFile=" + settings.caFile());
   }
 
   static List<String> buildWorkerCommand(
