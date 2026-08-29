@@ -12920,7 +12920,7 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/TenantQuery.java`"
       ],
-      "testCoverageDetail": "`StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`",
+      "testCoverageDetail": "`StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`, `#two_tenants_with_an_identically_named_network_policy_never_collide`",
       "gherkinSteps": [
         "Given tenant A and tenant B each submit a Deployment named \"orders-service\"; When both are stored; Then each tenant's own GET resolves only its own spec, and the untenanted namespace sees neither."
       ],

@@ -225,6 +225,34 @@ class StateStoreTest {
     assertEquals(Optional.of(tenantBSpec), store.getService(Optional.of("tenant-b"), "web"));
   }
 
+  /**
+   * The NetworkPolicy analogue of {@link
+   * #two_tenants_with_an_identically_named_deployment_never_collide} -- structurally guaranteed
+   * here since {@link NetworkPolicySpec#tenantId} is mandatory rather than optional, but asserted
+   * explicitly so the guarantee is verified for every resource kind {@code scopedKey} covers, not
+   * just the two already under test.
+   */
+  @Test
+  void two_tenants_with_an_identically_named_network_policy_never_collide() {
+    StateStore store = new StateStore();
+    NetworkPolicySpec tenantASpec =
+        new NetworkPolicySpec(
+            "default-deny", "tenant-a", Optional.of(Set.of("orders-service")), Set.of("tenant-x"));
+    NetworkPolicySpec tenantBSpec =
+        new NetworkPolicySpec(
+            "default-deny", "tenant-b", Optional.of(Set.of("billing-service")), Set.of("tenant-y"));
+
+    store.putNetworkPolicy(tenantASpec);
+    store.putNetworkPolicy(tenantBSpec);
+
+    assertEquals(Optional.of(tenantASpec), store.getNetworkPolicy("tenant-a", "default-deny"));
+    assertEquals(Optional.of(tenantBSpec), store.getNetworkPolicy("tenant-b", "default-deny"));
+
+    store.removeNetworkPolicy("tenant-a", "default-deny");
+    assertTrue(store.getNetworkPolicy("tenant-a", "default-deny").isEmpty());
+    assertEquals(Optional.of(tenantBSpec), store.getNetworkPolicy("tenant-b", "default-deny"));
+  }
+
   @Test
   void certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke() {
     StateStore store = new StateStore();

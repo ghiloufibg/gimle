@@ -11303,7 +11303,7 @@
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this yet. To close: extend an existing multi-tenant .feature file (or add one) whose Given/When/Then submits an identically-named Deployment under two different tenants against a real cluster and asserts each tenant's own GET/DELETE resolves only its own spec.",
-      "otherTestCoverage": "`StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`",
+      "otherTestCoverage": "`StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`, `#two_tenants_with_an_identically_named_network_policy_never_collide`",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`",
