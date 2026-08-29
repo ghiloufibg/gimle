@@ -119,8 +119,8 @@ public final class TenantUsage {
   /**
    * One workload's own contribution: {@code resourceRequest * committedInstances}, {@code
    * committedInstances} meaning different things per kind -- see {@link WorkloadResourceProfile}'s
-   * own javadoc for why. Empty for a kind {@link WorkloadResourceProfile#of} has nothing to size
-   * (a CronJobSpec) -- it is not itself a resource consumer.
+   * own javadoc for why. Empty for a kind {@link WorkloadResourceProfile#of} has nothing to size (a
+   * CronJobSpec) -- it is not itself a resource consumer.
    */
   public static Usage contributionOf(
       StoreReader store, ArtifactResolver artifactResolver, WorkloadSpec spec) {
@@ -135,7 +135,8 @@ public final class TenantUsage {
       // charged the same resource request its own reconciler actually schedules against, not
       // silently read as zero usage because a direct ModuleArtifactReader/VesselArtifacts read
       // can't resolve it -- see this class's own javadoc.
-      descriptor = artifactResolver.resolve(p.artifactPath(), p.moduleId(), p.vessel()).descriptor();
+      descriptor =
+          artifactResolver.resolve(p.artifactPath(), p.moduleId(), p.vessel()).descriptor();
     } catch (RuntimeException e) {
       return new Usage(0, 0, 0);
     }

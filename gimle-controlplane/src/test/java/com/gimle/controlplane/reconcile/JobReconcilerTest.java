@@ -140,8 +140,7 @@ class JobReconcilerTest {
     reconciler.reconcileOnce();
 
     assertEquals(
-        Optional.of(JobPhase.SUCCEEDED),
-        store.getJobPhase(Optional.empty(), "nightly-cleanup"));
+        Optional.of(JobPhase.SUCCEEDED), store.getJobPhase(Optional.empty(), "nightly-cleanup"));
     assertTrue(store.listJobRunsFor(Optional.empty(), "nightly-cleanup").isEmpty());
     JobRunSummary summary =
         store.getJobRunSummary(Optional.empty(), "nightly-cleanup").orElseThrow();

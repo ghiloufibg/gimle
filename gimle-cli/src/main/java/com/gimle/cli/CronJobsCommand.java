@@ -72,7 +72,8 @@ public final class CronJobsCommand {
       throw new CliException("missing cronjob name/id");
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/cronjobs/" + name + "/trigger", args.subList(1, args.size()));
+    String path =
+        TenantQuery.appendTo("/cronjobs/" + name + "/trigger", args.subList(1, args.size()));
     String responseBody = client.expectSuccess(client.post(path, ""));
     Map<String, Object> body;
     try {

@@ -2269,8 +2269,10 @@ abstract class GreeterSmokeClusterSupport {
     return daemonSetStatus(baseUrl, name, Optional.empty());
   }
 
-  /** Like {@link #daemonSetStatus(String, String)}, but for a tenant-scoped DaemonSet -- see
-   * {@link #providerLogShowsTheSecret(String, Optional)}'s own javadoc for why this is needed. */
+  /**
+   * Like {@link #daemonSetStatus(String, String)}, but for a tenant-scoped DaemonSet -- see {@link
+   * #providerLogShowsTheSecret(String, Optional)}'s own javadoc for why this is needed.
+   */
   Map<String, Object> daemonSetStatus(String baseUrl, String name, Optional<String> tenantId)
       throws Exception {
     HttpResponse<String> response =
@@ -2795,10 +2797,7 @@ abstract class GreeterSmokeClusterSupport {
   Map<String, Object> deploymentStatus(
       String baseUrl, String deploymentName, Optional<String> tenantId) {
     String url =
-        baseUrl
-            + "/deployments/"
-            + deploymentName
-            + tenantId.map(id -> "?tenant=" + id).orElse("");
+        baseUrl + "/deployments/" + deploymentName + tenantId.map(id -> "?tenant=" + id).orElse("");
     Optional<HttpResponse<String>> response = tryGet(url);
     if (response.isEmpty() || response.get().statusCode() != 200) {
       return Map.of("instances", List.of());
@@ -2852,11 +2851,14 @@ abstract class GreeterSmokeClusterSupport {
    */
   boolean instanceLogContains(
       String baseUrl, String deploymentName, int instanceIndex, String category, String text) {
-    return instanceLogContains(baseUrl, deploymentName, instanceIndex, category, text, Optional.empty());
+    return instanceLogContains(
+        baseUrl, deploymentName, instanceIndex, category, text, Optional.empty());
   }
 
-  /** Like {@link #instanceLogContains}, but for a tenant-scoped deployment -- see {@link
-   * #providerLogShowsTheSecret(String, Optional)}'s own javadoc for why. */
+  /**
+   * Like {@link #instanceLogContains}, but for a tenant-scoped deployment -- see {@link
+   * #providerLogShowsTheSecret(String, Optional)}'s own javadoc for why.
+   */
   boolean instanceLogContains(
       String baseUrl,
       String deploymentName,

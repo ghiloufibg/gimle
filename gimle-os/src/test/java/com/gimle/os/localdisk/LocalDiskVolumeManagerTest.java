@@ -253,7 +253,11 @@ class LocalDiskVolumeManagerTest {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
     VolumeHandle neverAllocated =
         new VolumeHandle(
-            NO_TENANT, "orders-statefulset", 5, "data", new VolumeRequest(1024, ReclaimPolicy.DELETE));
+            NO_TENANT,
+            "orders-statefulset",
+            5,
+            "data",
+            new VolumeRequest(1024, ReclaimPolicy.DELETE));
 
     manager.release(neverAllocated); // must not throw
   }

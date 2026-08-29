@@ -69,8 +69,7 @@ public final class QuotaReconciler {
         // One workload's usage computation failing (e.g. an unresolvable artifact reference) must
         // never abort the rest of this tick's usage accumulation -- the next tick retries from the
         // same full snapshot.
-        log.warn(
-            "quota usage accumulation for {} failed: {}", spec.name(), e.getMessage(), e);
+        log.warn("quota usage accumulation for {} failed: {}", spec.name(), e.getMessage(), e);
       }
     }
 

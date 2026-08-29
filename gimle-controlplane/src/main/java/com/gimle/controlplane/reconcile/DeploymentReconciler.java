@@ -189,12 +189,15 @@ public final class DeploymentReconciler {
    * reclaims that one on a later tick once it's no longer excluded.
    */
   private void reclaimStaleAssignments(DeploymentSpec spec, int replicas) {
-    Map<Integer, Integer> surgeIndicesBeforeThisTick = store.getSurgeIndices(spec.tenantId(), spec.name());
+    Map<Integer, Integer> surgeIndicesBeforeThisTick =
+        store.getSurgeIndices(spec.tenantId(), spec.name());
     List<StateMutation> removals = new ArrayList<>();
     for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {
       if (assignment.instanceIndex() >= replicas
           && !surgeIndicesBeforeThisTick.containsKey(assignment.instanceIndex())) {
-        removals.add(new StateMutation.RemoveAssignment(spec.tenantId(), spec.name(), assignment.instanceIndex()));
+        removals.add(
+            new StateMutation.RemoveAssignment(
+                spec.tenantId(), spec.name(), assignment.instanceIndex()));
       }
     }
     mutations.proposeAll(removals);
@@ -327,7 +330,13 @@ public final class DeploymentReconciler {
         placements.add(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
-                    spec.name(), index, nodeId, spec.moduleId(), spec.artifactPath())));
+                    spec.name(),
+                    index,
+                    nodeId,
+                    spec.moduleId(),
+                    spec.artifactPath(),
+                    OptionalInt.empty(),
+                    spec.tenantId())));
       } catch (GimleSchedulingException e) {
         // Left unplaced; the next tick retries from the same full snapshot, no special-cased
         // retry bookkeeping needed -- this is what "level-triggered, converge from any snapshot"
@@ -407,7 +416,8 @@ public final class DeploymentReconciler {
         // rollback for it, no matter how many ticks pass. Clearing it doesn't touch the
         // instance itself (still whatever HealthReconciler left it as) -- it just stops one broken
         // index from wedging the entire deployment.
-        mutations.propose(new StateMutation.RemoveRollingIndex(spec.tenantId(), spec.name(), index));
+        mutations.propose(
+            new StateMutation.RemoveRollingIndex(spec.tenantId(), spec.name(), index));
         inFlight.remove(index);
         log.warn(
             "deployment {} instance {} gave up retrying after exhausting its restart budget;"
@@ -434,9 +444,11 @@ public final class DeploymentReconciler {
         .forEach(
             mismatched -> {
               changes.add(
-                  new StateMutation.RemoveAssignment(spec.tenantId(), spec.name(), mismatched.instanceIndex()));
+                  new StateMutation.RemoveAssignment(
+                      spec.tenantId(), spec.name(), mismatched.instanceIndex()));
               changes.add(
-                  new StateMutation.AddRollingIndex(spec.tenantId(), spec.name(), mismatched.instanceIndex()));
+                  new StateMutation.AddRollingIndex(
+                      spec.tenantId(), spec.name(), mismatched.instanceIndex()));
               log.info(
                   "deployment {} instance {} is on an old module version; rolling it forward",
                   spec.name(),
@@ -497,7 +509,8 @@ public final class DeploymentReconciler {
    */
   private void handleSurge(DeploymentSpec spec, int replicas) {
     int maxSurge = spec.effectiveDisruptionBudget().maxSurge();
-    Map<Integer, Integer> inFlight = new HashMap<>(store.getSurgeIndices(spec.tenantId(), spec.name()));
+    Map<Integer, Integer> inFlight =
+        new HashMap<>(store.getSurgeIndices(spec.tenantId(), spec.name()));
     // Flushed as one batch *before* the mismatch scan below, not at method end: a promotion's
     // PutAssignment is what stops its target index from still looking mismatched, so deferring it
     // past the scan would start a pointless second surge for an index just promoted.
@@ -511,7 +524,8 @@ public final class DeploymentReconciler {
         // than promote into an index that no longer exists. The surge assignment itself, now
         // untracked, is reclaimed by reconcileDeployment's own scale-down sweep on a later tick
         // once it's no longer excluded from it.
-        settlements.add(new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
+        settlements.add(
+            new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
         continue;
       }
@@ -523,7 +537,8 @@ public final class DeploymentReconciler {
         // touch it again -- same reasoning as handleRollingUpdate's own equivalent check: without
         // this, a broken surge candidate holds its maxSurge slot forever, since it can never become
         // ready and promote, and nothing else here ever reconsiders it.
-        mutations.propose(new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
+        mutations.propose(
+            new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
         log.warn(
             "deployment {} surge candidate at index {} (target {}) gave up retrying; freeing the"
@@ -557,8 +572,10 @@ public final class DeploymentReconciler {
                     healthy.artifactPath(),
                     OptionalInt.of(surgeIndex),
                     spec.tenantId())));
-        settlements.add(new StateMutation.RemoveAssignment(spec.tenantId(), spec.name(), surgeIndex));
-        settlements.add(new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
+        settlements.add(
+            new StateMutation.RemoveAssignment(spec.tenantId(), spec.name(), surgeIndex));
+        settlements.add(
+            new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
         inFlight.remove(surgeIndex);
       }
       // Otherwise: still waiting for the surge instance to report ready.

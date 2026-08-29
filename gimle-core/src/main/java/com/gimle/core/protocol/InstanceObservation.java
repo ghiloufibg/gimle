@@ -45,9 +45,9 @@ import java.util.Optional;
  * reads every other field from. Without it, a heartbeat match keyed on {@code (deploymentName,
  * instanceIndex)} alone cannot tell two different tenants' identically-named workload apart if a
  * scheduler placement (nothing prevents this once names are tenant-scoped, not globally unique)
- * ever lands both on the very same node -- every {@code *Reconciler}/{@code ServiceEndpointResolver}
- * match against this record's own {@code deploymentName}/{@code instanceIndex} also checks {@code
- * tenantId} for exactly this reason.
+ * ever lands both on the very same node -- every {@code *Reconciler}/{@code
+ * ServiceEndpointResolver} match against this record's own {@code deploymentName}/{@code
+ * instanceIndex} also checks {@code tenantId} for exactly this reason.
  */
 public record InstanceObservation(
     String deploymentName,

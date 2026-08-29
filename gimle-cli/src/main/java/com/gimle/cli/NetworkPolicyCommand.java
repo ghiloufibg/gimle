@@ -50,9 +50,9 @@ public final class NetworkPolicyCommand {
   /**
    * Unlike every other by-name resource here, a NetworkPolicy has no untenanted namespace to fall
    * back to (its own {@code tenantId} is never optional -- see this class's own javadoc), so the
-   * control plane rejects a GET/DELETE with no {@code ?tenant=} outright. Caught here instead,
-   * with a clearer message than the API's own 400 -- the same "fail fast, locally" posture {@link
-   * #set} already takes for its own required {@code --tenant}.
+   * control plane rejects a GET/DELETE with no {@code ?tenant=} outright. Caught here instead, with
+   * a clearer message than the API's own 400 -- the same "fail fast, locally" posture {@link #set}
+   * already takes for its own required {@code --tenant}.
    */
   private static String requireTenantScopedPath(String path, List<String> argsAfterName) {
     String withTenant = TenantQuery.appendTo(path, argsAfterName);

@@ -40,7 +40,10 @@ public final class WorkloadResourceProfile {
   private WorkloadResourceProfile() {}
 
   public record Profile(
-      String artifactPath, ModuleId moduleId, Optional<VesselSpec> vessel, int committedInstances) {}
+      String artifactPath,
+      ModuleId moduleId,
+      Optional<VesselSpec> vessel,
+      int committedInstances) {}
 
   public static Optional<Profile> of(WorkloadSpec spec, StoreReader store) {
     return switch (spec) {
@@ -50,7 +53,8 @@ public final class WorkloadResourceProfile {
       case StatefulSetSpec s ->
           Optional.of(new Profile(s.artifactPath(), s.moduleId(), s.vessel(), s.replicas()));
       case JobSpec s ->
-          // At most one non-terminal JobRun ever exists at a time per JobSpec -- see JobReconciler's
+          // At most one non-terminal JobRun ever exists at a time per JobSpec -- see
+          // JobReconciler's
           // own convergence invariant -- so a Job always commits exactly one instance's worth of
           // resources while it's running, regardless of backoffLimit (a retry replaces the prior
           // attempt, it never runs alongside it).
@@ -58,7 +62,10 @@ public final class WorkloadResourceProfile {
       case DaemonSetSpec s ->
           Optional.of(
               new Profile(
-                  s.artifactPath(), s.moduleId(), s.vessel(), store.listNodeRegistrations().size()));
+                  s.artifactPath(),
+                  s.moduleId(),
+                  s.vessel(),
+                  store.listNodeRegistrations().size()));
       case CronJobSpec ignored -> Optional.empty();
     };
   }

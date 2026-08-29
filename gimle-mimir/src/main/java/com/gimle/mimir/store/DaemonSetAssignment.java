@@ -7,8 +7,8 @@ import java.util.Optional;
 /**
  * A {@link com.gimle.mimir.manifest.DaemonSetSpec}'s placement decision for one node -- the
  * DaemonSet-kind counterpart to {@link InstanceAssignment}, with {@code nodeId} playing {@code
- * instanceIndex}'s own role as the natural key (store key: tenant-scoped {@code daemonSetName +
- * "#" + nodeId}): there is no separate integer index to assign, the node itself already uniquely
+ * instanceIndex}'s own role as the natural key (store key: tenant-scoped {@code daemonSetName + "#"
+ * + nodeId}): there is no separate integer index to assign, the node itself already uniquely
  * identifies which "slot" this is. {@code moduleId}/{@code artifactPath} serve the identical
  * rolling-update purpose {@link InstanceAssignment}'s own fields do -- what {@code
  * DaemonSetReconciler} compares against the spec's current {@code moduleId} to detect a version

@@ -384,7 +384,8 @@ public final class ApiServer implements AutoCloseable {
             List.of(new LimitRangePlugin(), new TenantQuotaPlugin(this.artifactResolver)));
     this.deploymentAdmissionChain =
         new AdmissionChain<>(
-            List.of(new PolicyConfigPlugin(), new ConfigMapRefsPlugin(), new SecretMapRefsPlugin()));
+            List.of(
+                new PolicyConfigPlugin(), new ConfigMapRefsPlugin(), new SecretMapRefsPlugin()));
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     seedReservedSystemTenantIfAbsent();
@@ -741,6 +742,7 @@ public final class ApiServer implements AutoCloseable {
         "missing deployment name",
         "deployment",
         this::resolveDeploymentNameOrHandleSubRoute,
+        name -> findTenantByName(storeClient.listDeployments(), name),
         this::handlePutDeployment,
         this::handleGetDeployment,
         this::handleDeleteDeployment);
@@ -765,7 +767,7 @@ public final class ApiServer implements AutoCloseable {
       return Optional.of(name);
     }
     String action = tail.substring(slash + 1);
-    Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    Optional<String> tenant = workloadTenantHint(exchange);
     switch (action) {
       case "revisions" -> {
         if (requireAuthorized(
@@ -844,6 +846,22 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * Resolves the tenant a bare {@code name} is actually stored under, for GET/DELETE by name (and
+   * for a PUT's own re-tenanting guard) -- {@code Optional.empty()} if no such resource exists
+   * under any tenant. Never a caller-declared {@code ?tenant=}: with per-tenant store keys, a
+   * caller can no longer be trusted to say which tenant's resource it means (that's exactly the
+   * authorization decision {@link #requireAuthorized} makes right after this), so this searches
+   * across every tenant for a spec named {@code name}, the same {@code
+   * resolveTenantForWorkloadName} shape {@code /endpoints/{name}} uses for the same reason. Each
+   * {@code handle{Deployment,Job, CronJob,DaemonSet,StatefulSet}} call site supplies its own
+   * kind-specific lookup.
+   */
+  @FunctionalInterface
+  private interface TenantLookup {
+    Optional<String> lookup(String name);
+  }
+
+  /**
    * Shared by every {@code handle{Deployment,Job,CronJob,DaemonSet,StatefulSet}} singleton-
    * resource handler above and below: resolves the resource name via {@code nameResolver},
    * authorizes and dispatches PUT/GET/DELETE to the three per-kind handlers, and applies the one
@@ -855,17 +873,12 @@ public final class ApiServer implements AutoCloseable {
    * <p>PUT parses the submitted manifest here, before authorizing -- the only way to know which
    * tenant to check a write against is to look at what the write itself declares, the same
    * body-before-authorize order {@code handleConfigEntry}'s PUT already uses for its own {@code
-   * encrypted}-flag-dependent resource kind. Since every resource kind here is now stored under a
-   * {@code (tenantId, name)} key rather than a bare name (see {@code StateStore}'s own tenant
-   * scoping), a PUT can never "steal" a different tenant's same-named resource by overwrite the way
-   * a flat namespace once allowed -- it always targets the submitted tenant's own key, creating a
-   * distinct resource rather than colliding with one under a different tenant. That's also why
-   * GET/DELETE need a {@code ?tenant=} query parameter (parsed as {@code tenantHint} below) rather
-   * than the server inferring the owning tenant the way it used to when a bare name was globally
-   * unique: with per-tenant names, the caller must say which tenant's resource it means, exactly
-   * like naming a namespace to address a Kubernetes resource. Omitting it addresses the untenanted
-   * namespace, not "any tenant" -- the same "no tenantId" meaning {@link DeploymentSpec}'s own
-   * javadoc already establishes for an untenanted resource.
+   * encrypted}-flag-dependent resource kind. GET/DELETE instead resolve the tenant to authorize
+   * against from {@code existingTenant} -- the resource's own currently stored tenant, found by
+   * bare-name search across every tenant -- never a caller-declared hint: a scoped-permission
+   * caller must not be able to fish for a different tenant's same-named resource by guessing at
+   * one, and a caller reading/deleting a resource it already knows the name of has no manifest of
+   * its own to read a tenant claim from anyway.
    */
   private void dispatchResourceRequest(
       HttpExchange exchange,
@@ -873,6 +886,7 @@ public final class ApiServer implements AutoCloseable {
       String missingNameMessage,
       String requestNoun,
       ResourceNameResolver nameResolver,
+      TenantLookup existingTenant,
       PutResourceAction put,
       ResourceAction get,
       ResourceAction delete) {
@@ -886,7 +900,6 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, missingNameMessage);
         return;
       }
-      Optional<String> tenantHint = Optional.ofNullable(parseQuery(exchange).get("tenant"));
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
           ParsedManifest parsed = ManifestParser.parse(exchange.getRequestBody());
@@ -934,13 +947,15 @@ public final class ApiServer implements AutoCloseable {
           }
         }
         case "GET" -> {
-          if (requireAuthorized(exchange, kind, Verb.READ, tenantHint)) {
-            get.run(exchange, tenantHint, name);
+          Optional<String> tenant = existingTenant.lookup(name);
+          if (requireAuthorized(exchange, kind, Verb.READ, tenant)) {
+            get.run(exchange, tenant, name);
           }
         }
         case "DELETE" -> {
-          if (requireAuthorized(exchange, kind, Verb.DELETE, tenantHint)) {
-            delete.run(exchange, tenantHint, name);
+          Optional<String> tenant = existingTenant.lookup(name);
+          if (requireAuthorized(exchange, kind, Verb.DELETE, tenant)) {
+            delete.run(exchange, tenant, name);
           }
         }
         default -> respond(exchange, 405, "method not allowed");
@@ -1970,6 +1985,7 @@ public final class ApiServer implements AutoCloseable {
         "missing job name",
         "job",
         ex -> Optional.of(pathSegmentAfter(ex, "/jobs/")),
+        name -> findTenantByName(storeClient.listJobSpecs(), name),
         this::handlePutJob,
         this::handleGetJob,
         this::handleDeleteJob);
@@ -2002,7 +2018,8 @@ public final class ApiServer implements AutoCloseable {
       return AuditOutcome.REJECTED;
     }
     JobSpec spec = withArtifactSha256(parsedSpec, admitted.sha256());
-    Optional<JobSpec> allowed = admitWorkload(exchange, ResourceKind.JOB, spec, admitted.artifact());
+    Optional<JobSpec> allowed =
+        admitWorkload(exchange, ResourceKind.JOB, spec, admitted.artifact());
     if (allowed.isEmpty()) {
       return AuditOutcome.REJECTED;
     }
@@ -2134,6 +2151,7 @@ public final class ApiServer implements AutoCloseable {
         "missing cronjob name",
         "cronjob",
         this::resolveCronJobNameOrHandleSubRoute,
+        name -> findTenantByName(storeClient.listCronJobSpecs(), name),
         this::handlePutCronJob,
         this::handleGetCronJob,
         this::handleDeleteCronJob);
@@ -2148,7 +2166,8 @@ public final class ApiServer implements AutoCloseable {
    * every other resource kind's does; a present, non-blank second segment is handled entirely here,
    * returning {@code Optional.empty()} to tell the caller "already handled, skip the ordinary
    * dispatch." The sub-route's tenant is the caller-declared {@code ?tenant=} hint, same as {@link
-   * #resolveDeploymentNameOrHandleSubRoute}'s own -- see {@link #dispatchResourceRequest}'s javadoc.
+   * #resolveDeploymentNameOrHandleSubRoute}'s own -- see {@link #dispatchResourceRequest}'s
+   * javadoc.
    */
   private Optional<String> resolveCronJobNameOrHandleSubRoute(HttpExchange exchange)
       throws IOException {
@@ -2163,7 +2182,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 404, "unknown cronjob endpoint: " + action);
       return Optional.empty();
     }
-    Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    Optional<String> tenant = workloadTenantHint(exchange);
     if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, tenant)) {
       handleCronJobTrigger(exchange, tenant, name);
     }
@@ -2215,8 +2234,8 @@ public final class ApiServer implements AutoCloseable {
    * still-running previous firing -- distinguishable from "doesn't exist" so a caller isn't left
    * guessing which happened.
    */
-  private void handleCronJobTrigger(
-      HttpExchange exchange, Optional<String> tenantHint, String name) throws IOException {
+  private void handleCronJobTrigger(HttpExchange exchange, Optional<String> tenantHint, String name)
+      throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
       respond(exchange, 405, "method not allowed");
       return;
@@ -2294,6 +2313,7 @@ public final class ApiServer implements AutoCloseable {
         "missing daemonset name",
         "daemonset",
         this::resolveDaemonSetNameOrHandleSubRoute,
+        name -> findTenantByName(storeClient.listDaemonSetSpecs(), name),
         this::handlePutDaemonSet,
         this::handleGetDaemonSet,
         this::handleDeleteDaemonSet);
@@ -2309,7 +2329,7 @@ public final class ApiServer implements AutoCloseable {
       return Optional.of(name);
     }
     String action = tail.substring(slash + 1);
-    Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    Optional<String> tenant = workloadTenantHint(exchange);
     switch (action) {
       case "revisions" -> {
         if (requireAuthorized(
@@ -2362,8 +2382,7 @@ public final class ApiServer implements AutoCloseable {
       return AuditOutcome.REJECTED;
     }
     spec = allowed.get();
-    Optional<DaemonSetSpec> previous =
-        storeClient.getDaemonSetSpec(parsedSpec.tenantId(), name);
+    Optional<DaemonSetSpec> previous = storeClient.getDaemonSetSpec(parsedSpec.tenantId(), name);
     if (previous.isEmpty() || daemonSetContentChanged(previous.get(), spec)) {
       storeClient.propose(
           new StateMutation.AppendControllerRevision(
@@ -2533,6 +2552,7 @@ public final class ApiServer implements AutoCloseable {
         "missing statefulset name",
         "statefulset",
         this::resolveStatefulSetNameOrHandleSubRoute,
+        name -> findTenantByName(storeClient.listStatefulSetSpecs(), name),
         this::handlePutStatefulSet,
         this::handleGetStatefulSet,
         this::handleDeleteStatefulSet);
@@ -2548,7 +2568,7 @@ public final class ApiServer implements AutoCloseable {
       return Optional.of(name);
     }
     String action = tail.substring(slash + 1);
-    Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    Optional<String> tenant = workloadTenantHint(exchange);
     switch (action) {
       case "revisions" -> {
         if (requireAuthorized(
@@ -2681,8 +2701,8 @@ public final class ApiServer implements AutoCloseable {
         spec.vessel());
   }
 
-  private void handleGetStatefulSet(
-      HttpExchange exchange, Optional<String> tenantHint, String name) throws IOException {
+  private void handleGetStatefulSet(HttpExchange exchange, Optional<String> tenantHint, String name)
+      throws IOException {
     Optional<StatefulSetSpec> spec = storeClient.getStatefulSetSpec(tenantHint, name);
     if (spec.isEmpty()) {
       respond(exchange, 404, "no such statefulset: " + name);
@@ -2924,10 +2944,9 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "missing workload name");
         return;
       }
-      // A caller-declared ?tenant= hint, same convention as dispatchResourceRequest's own (see
-      // its javadoc): with per-tenant names, a bare workload name alone can no longer resolve
-      // which tenant's spec store to check across any of the four kinds tried below.
-      Optional<String> tenantHint = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      // Unlike every other workload route, never a caller-declared ?tenant= -- see
+      // resolveTenantForWorkloadName's own javadoc for why this route resolves it instead.
+      Optional<String> tenantHint = resolveTenantForWorkloadName(name);
       Optional<DeploymentSpec> deployment = storeClient.getDeployment(tenantHint, name);
       if (deployment.isPresent()) {
         if (authorizeEndpointsRead(
@@ -2968,6 +2987,47 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * The tenant of whichever Deployment/Job/DaemonSet/StatefulSet spec is named {@code name} --
+   * unlike every other workload route's own {@code ?tenant=} hint, {@code /endpoints/{name}} never
+   * takes a caller-declared one: this route predates per-tenant store keys as a bare-name
+   * convenience lookup (an operator, or a {@code gimle:nodes} caller that only ever knows the name
+   * of what it's running, never which tenant owns it), and it stays one here, resolving across
+   * every tenant instead. That guess is never trusted as an access decision by itself -- {@link
+   * #authorizeEndpointsRead} downstream independently re-checks the resolved tenant against the
+   * caller's real RBAC grant (or, for a node, its own real assignment), so guessing the wrong
+   * tenant under a same-named collision only ever costs an honest 403, never a cross-tenant read.
+   */
+  private Optional<String> resolveTenantForWorkloadName(String name) {
+    Optional<String> deployment = findTenantByName(storeClient.listDeployments(), name);
+    if (deployment.isPresent()) {
+      return deployment;
+    }
+    Optional<String> job = findTenantByName(storeClient.listJobSpecs(), name);
+    if (job.isPresent()) {
+      return job;
+    }
+    Optional<String> daemonSet = findTenantByName(storeClient.listDaemonSetSpecs(), name);
+    if (daemonSet.isPresent()) {
+      return daemonSet;
+    }
+    return findTenantByName(storeClient.listStatefulSetSpecs(), name);
+  }
+
+  /**
+   * The tenant of whichever spec in {@code specs} is named {@code name} -- {@link Optional#empty()}
+   * if none is, collapsing "no such resource" and "found, but genuinely untenanted" into the one
+   * answer every {@link TenantLookup}/{@link #resolveTenantForWorkloadName} caller already treats
+   * identically (a caller must declare a real tenant grant to read/delete either).
+   */
+  private static Optional<String> findTenantByName(
+      List<? extends WorkloadSpec> specs, String name) {
+    return specs.stream()
+        .filter(s -> s.name().equals(name))
+        .findFirst()
+        .flatMap(WorkloadSpec::tenantId);
+  }
+
+  /**
    * Before the ordinary {@link #requireAuthorized} RBAC walk: a {@code gimle:nodes} caller takes
    * the node-tenant-scoping path instead -- permitted only if {@link
    * Authorizer#isTenantAssignedToNode} says this node currently has an active assignment for {@code
@@ -2995,7 +3055,8 @@ public final class ApiServer implements AutoCloseable {
 
   private List<Map<String, Object>> deploymentEndpoints(DeploymentSpec spec) {
     List<Map<String, Object>> endpoints = new ArrayList<>();
-    for (InstanceAssignment assignment : storeClient.listAssignmentsFor(spec.tenantId(), spec.name())) {
+    for (InstanceAssignment assignment :
+        storeClient.listAssignmentsFor(spec.tenantId(), spec.name())) {
       endpoints.add(
           endpointEntry(
               assignment.nodeId(), assignment.instanceIndex(), findObservation(assignment)));
@@ -3397,8 +3458,8 @@ public final class ApiServer implements AutoCloseable {
    * InstanceEvent} carries no {@code tenantId} of its own (it predates per-tenant store scoping and
    * crosses the agent/worker wire, neither of which otherwise needs to know about tenancy), so the
    * tenant to key this event's timeline under is joined from whichever live {@link
-   * InstanceAssignment} currently matches this (deploymentName, instanceIndex) pair -- the same join
-   * {@link #handleAssignments} already does in the opposite direction. Untenanted (rather than
+   * InstanceAssignment} currently matches this (deploymentName, instanceIndex) pair -- the same
+   * join {@link #handleAssignments} already does in the opposite direction. Untenanted (rather than
    * rejected) if no matching assignment is found, e.g. a final lifecycle event arriving just after
    * the assignment itself was already torn down.
    */
@@ -3424,8 +3485,7 @@ public final class ApiServer implements AutoCloseable {
         storeClient.listAssignments().stream()
             .filter(
                 a ->
-                    a.deploymentName().equals(deploymentName)
-                        && a.instanceIndex() == instanceIndex)
+                    a.deploymentName().equals(deploymentName) && a.instanceIndex() == instanceIndex)
             .map(InstanceAssignment::tenantId)
             .findFirst()
             .orElse(Optional.empty());
@@ -3690,6 +3750,7 @@ public final class ApiServer implements AutoCloseable {
       map.put("volumeUsageBytes", obs.volumeUsageBytes());
     }
     obs.workerId().ifPresent(id -> map.put("workerId", id));
+    obs.tenantId().ifPresent(id -> map.put("tenantId", id));
     return map;
   }
 
@@ -5573,10 +5634,9 @@ public final class ApiServer implements AutoCloseable {
       String nodeId = segments[0];
       String statefulSetName = segments[1];
       int instanceIndex = Integer.parseInt(segments[2]);
-      // The owning tenant, if any, travels as ?tenant=<id> -- the same convention every other
-      // tenant-scoped route in this class uses -- since omitted unambiguously means the
-      // untenanted namespace, distinct from every real tenant id.
-      Optional<String> tenantId = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      // The owning tenant, if any, travels as ?tenant=<id> -- see workloadTenantHint's own
+      // javadoc for why an omitted one resolves to the default tenant rather than untenanted.
+      Optional<String> tenantId = workloadTenantHint(exchange);
       if (!requireAuthorized(
           exchange,
           ResourceKind.STATEFULSET,
@@ -5605,9 +5665,7 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       String tenantQuery =
-          tenantId
-              .map(t -> "?tenant=" + URLEncoder.encode(t, StandardCharsets.UTF_8))
-              .orElse("");
+          tenantId.map(t -> "?tenant=" + URLEncoder.encode(t, StandardCharsets.UTF_8)).orElse("");
       HttpRequest request =
           HttpRequest.newBuilder(
                   URI.create(
@@ -5700,9 +5758,7 @@ public final class ApiServer implements AutoCloseable {
       // own lookup, further down -- both stay within the caller's own tenant rather than any
       // tenant that happens to share the requested deploymentName.
       Optional<String> tenantId =
-          tail.startsWith("instances/")
-              ? Optional.ofNullable(parseQuery(exchange).get("tenant"))
-              : Optional.empty();
+          tail.startsWith("instances/") ? workloadTenantHint(exchange) : Optional.empty();
       if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, tenantId, targetNodeId)) {
         return;
       }
@@ -5852,7 +5908,7 @@ public final class ApiServer implements AutoCloseable {
     // The owning tenant, if any, travels as ?tenant=<id> -- the same convention every other
     // tenant-scoped route in this class uses -- and is what keeps this resolution (and the RBAC
     // check above it) from crossing into a different tenant's identically-named workload.
-    Optional<String> tenantId = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    Optional<String> tenantId = workloadTenantHint(exchange);
     String nodeId = resolveInstanceNodeId(tenantId, deploymentName, instanceIndex);
     if (nodeId == null) {
       if (muninnFallbackPath != null) {
@@ -5891,7 +5947,10 @@ public final class ApiServer implements AutoCloseable {
       return deployment.get();
     }
     Optional<String> statefulSet =
-        storeClient.getStatefulSetIndexNode(tenantId, deploymentName, instanceIndex);
+        storeClient.listStatefulSetAssignmentsFor(tenantId, deploymentName).stream()
+            .filter(a -> a.instanceIndex() == instanceIndex)
+            .map(StatefulSetAssignment::nodeId)
+            .findFirst();
     if (statefulSet.isPresent()) {
       return statefulSet.get();
     }
@@ -6156,6 +6215,25 @@ public final class ApiServer implements AutoCloseable {
       result.put(key, value);
     }
     return result;
+  }
+
+  /**
+   * The caller-declared {@code ?tenant=} hint for a route addressing a Deployment/Job/CronJob/
+   * DaemonSet/StatefulSet (or something scoped to one, like {@code /endpoints/*}, {@code
+   * /volumes/*}, or an instance-log route) -- everywhere else in this class {@code ?tenant=} is
+   * read with {@link #parseQuery}'s bare {@code Optional.ofNullable(...)}, but these five workload
+   * kinds are different: {@code ManifestFields#parseTenantId} resolves a manifest's own omitted
+   * {@code tenantId} to {@link Tenant#DEFAULT_TENANT_ID}, never {@code Optional.empty()}, so a real
+   * PUT through this API can never create a workload actually keyed under the untenanted namespace.
+   * Defaulting a caller's omitted {@code ?tenant=} to that same {@code default} tenant (Kubernetes'
+   * own convention for an omitted {@code --namespace}) is what makes {@code GET}/{@code DELETE}
+   * able to find what an equally tenant-omitting {@code PUT} actually wrote; defaulting it to
+   * {@code Optional.empty()} instead -- as every other resource kind's own bare {@code ?tenant=}
+   * read still correctly does, since those kinds have no such manifest-side default -- would
+   * address a namespace no such workload can ever land in.
+   */
+  private static Optional<String> workloadTenantHint(HttpExchange exchange) {
+    return Optional.of(parseQuery(exchange).getOrDefault("tenant", Tenant.DEFAULT_TENANT_ID));
   }
 
   // ---- /bootstrap/csr, /bootstrap/csr/{id}[/approve], /bootstrap/tokens ----

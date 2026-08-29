@@ -112,8 +112,7 @@ public final class CronJobReconciler {
     // with the generated JobSpec when there is one -- an advance can no longer land while its
     // firing is lost to a crash in between.
     List<StateMutation> firing = new ArrayList<>();
-    firing.add(
-        new StateMutation.PutCronJobLastSchedule(spec.tenantId(), spec.name(), due.get()));
+    firing.add(new StateMutation.PutCronJobLastSchedule(spec.tenantId(), spec.name(), due.get()));
 
     if (spec.startingDeadline().isPresent()
         && Duration.between(due.get(), now).compareTo(spec.startingDeadline().get()) > 0) {

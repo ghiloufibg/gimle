@@ -213,7 +213,8 @@ public final class DaemonSetReconciler {
     // javadoc's own "Placement safety" note for why that case waits instead.
     Instant now = clock.instant();
     List<StateMutation> evictions = new ArrayList<>();
-    for (DaemonSetAssignment assignment : store.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
+    for (DaemonSetAssignment assignment :
+        store.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
       if (eligibleNodeIds.contains(assignment.nodeId())) {
         continue;
       }
@@ -227,7 +228,9 @@ public final class DaemonSetReconciler {
           spec.name(),
           assignment.nodeId(),
           ineligibilityReason(assignment.nodeId(), now));
-      evictions.add(new StateMutation.RemoveDaemonSetAssignment(spec.tenantId(), spec.name(), assignment.nodeId()));
+      evictions.add(
+          new StateMutation.RemoveDaemonSetAssignment(
+              spec.tenantId(), spec.name(), assignment.nodeId()));
     }
     // Flushed before handleRollingUpdate runs -- its own assignment scans must see these.
     mutations.proposeAll(evictions);
@@ -236,7 +239,8 @@ public final class DaemonSetReconciler {
 
     // Re-read: scale-down and/or the rolling-update step above may have just removed an entry.
     Set<String> assignedNodeIds = new HashSet<>();
-    for (DaemonSetAssignment assignment : store.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
+    for (DaemonSetAssignment assignment :
+        store.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
       assignedNodeIds.add(assignment.nodeId());
     }
 
@@ -249,7 +253,8 @@ public final class DaemonSetReconciler {
       }
       placements.add(
           new StateMutation.PutDaemonSetAssignment(
-              new DaemonSetAssignment(spec.name(), nodeId, spec.moduleId(), spec.artifactPath(), spec.tenantId())));
+              new DaemonSetAssignment(
+                  spec.name(), nodeId, spec.moduleId(), spec.artifactPath(), spec.tenantId())));
     }
     mutations.proposeAll(placements);
   }
@@ -268,7 +273,8 @@ public final class DaemonSetReconciler {
   private void handleRollingUpdate(
       DaemonSetSpec spec, ModuleDescriptor descriptor, Set<String> eligibleNodeIds) {
     int maxUnavailable = spec.effectiveDisruptionBudget().maxUnavailable();
-    Set<String> inFlight = new HashSet<>(store.getRollingDaemonSetNodes(spec.tenantId(), spec.name()));
+    Set<String> inFlight =
+        new HashSet<>(store.getRollingDaemonSetNodes(spec.tenantId(), spec.name()));
     // Accumulated for one flush at method end: the in-flight set is tracked locally, nothing here
     // reads its own proposals back, and the caller's re-read runs only after this returns.
     List<StateMutation> changes = new ArrayList<>();
@@ -279,13 +285,15 @@ public final class DaemonSetReconciler {
               .filter(a -> a.nodeId().equals(nodeId))
               .findFirst();
       if (current.isPresent() && isReady(current.get())) {
-        changes.add(new StateMutation.RemoveRollingDaemonSetNode(spec.tenantId(), spec.name(), nodeId));
+        changes.add(
+            new StateMutation.RemoveRollingDaemonSetNode(spec.tenantId(), spec.name(), nodeId));
         inFlight.remove(nodeId);
       } else if (current.isEmpty() && !eligibleNodeIds.contains(nodeId)) {
         // The scale-down race, node-keyed equivalent of DeploymentReconciler's own: the node fell
         // out of eligibility (cordoned, removed, relabeled) while its old assignment was already
         // removed for migration, so a replacement will now never come.
-        changes.add(new StateMutation.RemoveRollingDaemonSetNode(spec.tenantId(), spec.name(), nodeId));
+        changes.add(
+            new StateMutation.RemoveRollingDaemonSetNode(spec.tenantId(), spec.name(), nodeId));
         inFlight.remove(nodeId);
       }
     }
@@ -303,9 +311,11 @@ public final class DaemonSetReconciler {
         .forEach(
             mismatched -> {
               changes.add(
-                  new StateMutation.RemoveDaemonSetAssignment(spec.tenantId(), spec.name(), mismatched.nodeId()));
+                  new StateMutation.RemoveDaemonSetAssignment(
+                      spec.tenantId(), spec.name(), mismatched.nodeId()));
               changes.add(
-                  new StateMutation.AddRollingDaemonSetNode(spec.tenantId(), spec.name(), mismatched.nodeId()));
+                  new StateMutation.AddRollingDaemonSetNode(
+                      spec.tenantId(), spec.name(), mismatched.nodeId()));
               log.info(
                   "daemonset {} node {} is on an old module version; rolling it forward",
                   spec.name(),

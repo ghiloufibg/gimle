@@ -25,6 +25,7 @@ import com.gimle.mimir.store.StatefulSetAssignment;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
@@ -342,7 +343,8 @@ class AuthorizerTest {
             "node-1",
             moduleId,
             "/var/gimle/artifacts/batch-1.0.0.jar",
-            Instant.now()));
+            Instant.now(),
+            Optional.of("acme")));
     Authorizer authorizer = new Authorizer(store);
 
     assertTrue(authorizer.isTenantAssignedToNode("node-1", "acme"));
@@ -362,7 +364,11 @@ class AuthorizerTest {
             Optional.empty()));
     store.putDaemonSetAssignment(
         new DaemonSetAssignment(
-            "gimle-gateway", "node-1", moduleId, "/var/gimle/artifacts/gateway-1.0.0.jar"));
+            "gimle-gateway",
+            "node-1",
+            moduleId,
+            "/var/gimle/artifacts/gateway-1.0.0.jar",
+            Optional.of("acme")));
     Authorizer authorizer = new Authorizer(store);
 
     assertTrue(authorizer.isTenantAssignedToNode("node-1", "acme"));
@@ -383,7 +389,12 @@ class AuthorizerTest {
             Optional.empty()));
     store.putStatefulSetAssignment(
         new StatefulSetAssignment(
-            "sessions", 0, "node-1", moduleId, "/var/gimle/artifacts/sessions-1.0.0.jar"));
+            "sessions",
+            0,
+            "node-1",
+            moduleId,
+            "/var/gimle/artifacts/sessions-1.0.0.jar",
+            Optional.of("acme")));
     Authorizer authorizer = new Authorizer(store);
 
     assertTrue(authorizer.isTenantAssignedToNode("node-1", "acme"));
@@ -510,6 +521,14 @@ class AuthorizerTest {
             PlacementConstraints.NONE,
             Optional.empty(),
             Optional.of(tenantId)));
-    store.putAssignment(new InstanceAssignment("dep-" + tenantId, 0, nodeId));
+    store.putAssignment(
+        new InstanceAssignment(
+            "dep-" + tenantId,
+            0,
+            nodeId,
+            moduleId,
+            "/var/gimle/artifacts/orders-1.0.0.jar",
+            OptionalInt.empty(),
+            Optional.of(tenantId)));
   }
 }

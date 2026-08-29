@@ -21,7 +21,10 @@ class RaftLogTest {
   @TempDir Path tempDir;
 
   private static LogEntry entry(long term, long index) {
-    return new LogEntry(term, index, new StateMutation.RemoveDeployment("deployment-" + index, 0));
+    return new LogEntry(
+        term,
+        index,
+        new StateMutation.RemoveDeployment(Optional.empty(), "deployment-" + index, 0));
   }
 
   /** Every field empty/default -- a base other tests build on by overriding just what they need. */
@@ -55,7 +58,7 @@ class RaftLogTest {
         List.of(), // accounts
         List.of(), // reconcilerInstanceStates
         Set.of(), // cordonedNodes
-        List.of(), // instanceEvents
+        Map.of(), // instanceEvents
         List.of(), // auditEvents
         List.of(), // services
         List.of(), // networkPolicies

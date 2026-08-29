@@ -272,7 +272,8 @@ public final class StateStore implements StoreReader {
         assignment);
   }
 
-  public void removeAssignment(Optional<String> tenantId, String deploymentName, int instanceIndex) {
+  public void removeAssignment(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
     assignments.remove(assignmentKey(tenantId, deploymentName, instanceIndex));
   }
 
@@ -462,7 +463,8 @@ public final class StateStore implements StoreReader {
    * in-flight node -- an add/remove is then always a single small file write/delete, never a
    * read-modify-write of a shared file.
    */
-  public void addRollingDaemonSetNode(Optional<String> tenantId, String daemonSetName, String nodeId) {
+  public void addRollingDaemonSetNode(
+      Optional<String> tenantId, String daemonSetName, String nodeId) {
     rollingDaemonSetNodes
         .computeIfAbsent(scopedKey(tenantId, daemonSetName), key -> ConcurrentHashMap.newKeySet())
         .add(nodeId);
@@ -529,7 +531,8 @@ public final class StateStore implements StoreReader {
 
   public void removeStatefulSetAssignment(
       Optional<String> tenantId, String statefulSetName, int instanceIndex) {
-    statefulSetAssignments.remove(statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex));
+    statefulSetAssignments.remove(
+        statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex));
   }
 
   public List<StatefulSetAssignment> listStatefulSetAssignments() {
@@ -581,13 +584,15 @@ public final class StateStore implements StoreReader {
   /** Fired only on genuinely permanent index removal -- see the field's own javadoc. */
   public void removeStatefulSetIndexNode(
       Optional<String> tenantId, String statefulSetName, int instanceIndex) {
-    statefulSetIndexNodes.remove(statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex));
+    statefulSetIndexNodes.remove(
+        statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex));
   }
 
   public Optional<String> getStatefulSetIndexNode(
       Optional<String> tenantId, String statefulSetName, int instanceIndex) {
     return Optional.ofNullable(
-        statefulSetIndexNodes.get(statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex)));
+        statefulSetIndexNodes.get(
+            statefulSetAssignmentKey(tenantId, statefulSetName, instanceIndex)));
   }
 
   // ---- rolling-update bookkeeping ----
@@ -804,7 +809,8 @@ public final class StateStore implements StoreReader {
    * -- a level-triggered flag, not an event, so a deployment whose tenant's quota is retroactively
    * raised again clears automatically on the next tick without any special-cased "resolved" path.
    */
-  public void putQuotaViolation(Optional<String> tenantId, String deploymentName, boolean violating) {
+  public void putQuotaViolation(
+      Optional<String> tenantId, String deploymentName, boolean violating) {
     String key = scopedKey(tenantId, deploymentName);
     if (!violating) {
       quotaViolations.remove(key);
@@ -1001,8 +1007,7 @@ public final class StateStore implements StoreReader {
    */
   public void putReconcilerInstanceState(ReconcilerInstanceState state) {
     reconcilerInstanceStates.put(
-        reconcilerStateKey(state.tenantId(), state.deploymentName(), state.instanceIndex()),
-        state);
+        reconcilerStateKey(state.tenantId(), state.deploymentName(), state.instanceIndex()), state);
   }
 
   public Optional<ReconcilerInstanceState> getReconcilerInstanceState(
@@ -1335,9 +1340,7 @@ public final class StateStore implements StoreReader {
     snapshot.assignments().forEach(this::putAssignment);
     snapshot.jobSpecs().forEach(this::putJobSpec);
     snapshot.jobRuns().forEach(this::putJobRun);
-    snapshot
-        .jobPhases()
-        .forEach((key, phase) -> jobPhases.put(key, phase));
+    snapshot.jobPhases().forEach((key, phase) -> jobPhases.put(key, phase));
     snapshot.jobRunSummaries().forEach(this::putJobRunSummary);
     snapshot.cronJobSpecs().forEach(this::putCronJobSpec);
     snapshot
@@ -1347,7 +1350,12 @@ public final class StateStore implements StoreReader {
     snapshot.daemonSetAssignments().forEach(this::putDaemonSetAssignment);
     snapshot
         .rollingDaemonSetNodes()
-        .forEach((key, nodeIds) -> rollingDaemonSetNodes.put(key, ConcurrentHashMap.newKeySet(nodeIds)));
+        .forEach(
+            (key, nodeIds) -> {
+              Set<String> set = ConcurrentHashMap.newKeySet();
+              set.addAll(nodeIds);
+              rollingDaemonSetNodes.put(key, set);
+            });
     snapshot.statefulSetSpecs().forEach(this::putStatefulSetSpec);
     snapshot.statefulSetAssignments().forEach(this::putStatefulSetAssignment);
     snapshot
@@ -1359,17 +1367,18 @@ public final class StateStore implements StoreReader {
     snapshot.nodeRegistrations().forEach(this::putNodeRegistration);
     snapshot
         .rollingIndices()
-        .forEach((key, indices) -> rollingIndices.put(key, ConcurrentHashMap.newKeySet(indices)));
+        .forEach(
+            (key, indices) -> {
+              Set<Integer> set = ConcurrentHashMap.newKeySet();
+              set.addAll(indices);
+              rollingIndices.put(key, set);
+            });
     snapshot
         .surgeIndices()
         .forEach((key, indices) -> surgeIndices.put(key, new ConcurrentHashMap<>(indices)));
-    snapshot
-        .effectiveReplicas()
-        .forEach((key, replicas) -> effectiveReplicas.put(key, replicas));
+    snapshot.effectiveReplicas().forEach((key, replicas) -> effectiveReplicas.put(key, replicas));
     snapshot.tenants().forEach(this::putTenant);
-    snapshot
-        .quotaViolatingDeployments()
-        .forEach(key -> quotaViolations.put(key, Boolean.TRUE));
+    snapshot.quotaViolatingDeployments().forEach(key -> quotaViolations.put(key, Boolean.TRUE));
     snapshot.cordonedNodes().forEach(nodeId -> putNodeCordon(nodeId, true));
     snapshot
         .nodeTaints()
@@ -1397,9 +1406,7 @@ public final class StateStore implements StoreReader {
     // reasoning as the instanceEvents/auditEvents replay just above.
     snapshot.controllerRevisions().forEach(this::putControllerRevision);
     snapshot.limitRanges().forEach(this::putLimitRange);
-    snapshot
-        .limitRangeViolations()
-        .forEach((key, reason) -> limitRangeViolations.put(key, reason));
+    snapshot.limitRangeViolations().forEach((key, reason) -> limitRangeViolations.put(key, reason));
   }
 
   /**
@@ -1436,8 +1443,10 @@ public final class StateStore implements StoreReader {
     return tenantId.orElse("") + '\0' + name;
   }
 
-  /** {@link #scopedKey}'s counterpart for a resource kind ({@link NetworkPolicySpec}) whose own
-   * tenant scoping is mandatory rather than optional. */
+  /**
+   * {@link #scopedKey}'s counterpart for a resource kind ({@link NetworkPolicySpec}) whose own
+   * tenant scoping is mandatory rather than optional.
+   */
   private static String scopedKey(String tenantId, String name) {
     return tenantId + '\0' + name;
   }

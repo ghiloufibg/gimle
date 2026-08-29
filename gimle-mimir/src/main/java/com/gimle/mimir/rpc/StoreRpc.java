@@ -263,10 +263,12 @@ public sealed interface StoreRpc {
 
   record IsQuotaViolating(Optional<String> tenantId, String deploymentName) implements Request {}
 
-  record IsLimitRangeViolating(Optional<String> tenantId, String deploymentName) implements Request {}
+  record IsLimitRangeViolating(Optional<String> tenantId, String deploymentName)
+      implements Request {}
 
   /** Response reuses {@link StringResult} -- same shape as {@link GetStatefulSetIndexNode}'s. */
-  record GetLimitRangeViolationReason(Optional<String> tenantId, String deploymentName) implements Request {}
+  record GetLimitRangeViolationReason(Optional<String> tenantId, String deploymentName)
+      implements Request {}
 
   record IsNodeCordoned(String nodeId) implements Request {}
 
@@ -309,9 +311,11 @@ public sealed interface StoreRpc {
 
   record ListDaemonSetAssignments() implements Request {}
 
-  record ListDaemonSetAssignmentsFor(Optional<String> tenantId, String daemonSetName) implements Request {}
+  record ListDaemonSetAssignmentsFor(Optional<String> tenantId, String daemonSetName)
+      implements Request {}
 
-  record ListRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName) implements Request {}
+  record ListRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName)
+      implements Request {}
 
   record GetStatefulSetSpec(Optional<String> tenantId, String name) implements Request {}
 
@@ -319,11 +323,14 @@ public sealed interface StoreRpc {
 
   record ListStatefulSetAssignments() implements Request {}
 
-  record ListStatefulSetAssignmentsFor(Optional<String> tenantId, String statefulSetName) implements Request {}
+  record ListStatefulSetAssignmentsFor(Optional<String> tenantId, String statefulSetName)
+      implements Request {}
 
-  record GetRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName) implements Request {}
+  record GetRollingStatefulSetIndex(Optional<String> tenantId, String statefulSetName)
+      implements Request {}
 
-  record GetStatefulSetIndexNode(Optional<String> tenantId, String statefulSetName, int instanceIndex) implements Request {}
+  record GetStatefulSetIndexNode(
+      Optional<String> tenantId, String statefulSetName, int instanceIndex) implements Request {}
 
   record ListNodeRegistrations() implements Request {}
 
@@ -343,17 +350,20 @@ public sealed interface StoreRpc {
 
   record GetNodeRegistration(String nodeId) implements Request {}
 
-  record GetEffectiveReplicas(Optional<String> tenantId, String deploymentName) implements Request {}
+  record GetEffectiveReplicas(Optional<String> tenantId, String deploymentName)
+      implements Request {}
 
   record ListRollingIndices(Optional<String> tenantId, String deploymentName) implements Request {}
 
   record ListSurgeIndices(Optional<String> tenantId, String deploymentName) implements Request {}
 
-  record GetReconcilerInstanceState(Optional<String> tenantId, String deploymentName, int instanceIndex) implements Request {}
+  record GetReconcilerInstanceState(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) implements Request {}
 
   record ListReconcilerInstanceStates() implements Request {}
 
-  record ListInstanceEvents(Optional<String> tenantId, String deploymentName, int instanceIndex) implements Request {}
+  record ListInstanceEvents(Optional<String> tenantId, String deploymentName, int instanceIndex)
+      implements Request {}
 
   /**
    * The answering node's own view of the cluster: its Raft id, whether it currently believes itself
@@ -378,9 +388,12 @@ public sealed interface StoreRpc {
       Optional<Long> since)
       implements Request {}
 
-  record ListControllerRevisions(String workloadKind, Optional<String> tenantId, String name) implements Request {}
+  record ListControllerRevisions(String workloadKind, Optional<String> tenantId, String name)
+      implements Request {}
 
-  record GetControllerRevision(String workloadKind, Optional<String> tenantId, String name, int revision) implements Request {}
+  record GetControllerRevision(
+      String workloadKind, Optional<String> tenantId, String name, int revision)
+      implements Request {}
 
   // ---- responses ----
 

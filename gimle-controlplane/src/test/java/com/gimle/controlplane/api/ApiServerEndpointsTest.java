@@ -13,6 +13,7 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
@@ -34,6 +35,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,14 +97,22 @@ class ApiServerEndpointsTest {
                     moduleId,
                     "/artifacts/billing.jar",
                     1,
-                    PlacementConstraints.NONE),
+                    PlacementConstraints.NONE,
+                    Optional.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID)),
                 0));
     inProcessStore
         .client()
         .propose(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
-                    "billing-api", 0, "node-1", moduleId, "/artifacts/billing.jar")));
+                    "billing-api",
+                    0,
+                    "node-1",
+                    moduleId,
+                    "/artifacts/billing.jar",
+                    OptionalInt.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
     inProcessStore
         .client()
         .propose(
@@ -128,7 +138,10 @@ class ApiServerEndpointsTest {
                         0L,
                         0L,
                         0.0,
-                        Map.of("HTTP_PORT", 54321)))));
+                        Map.of("HTTP_PORT", 54321),
+                        0L,
+                        Optional.empty(),
+                        Optional.of(Tenant.DEFAULT_TENANT_ID)))));
 
     HttpResponse<String> response =
         client.send(
@@ -155,14 +168,26 @@ class ApiServerEndpointsTest {
         .propose(
             new StateMutation.PutDeployment(
                 new DeploymentSpec(
-                    "greeter", moduleId, "/artifacts/greeter.jar", 1, PlacementConstraints.NONE),
+                    "greeter",
+                    moduleId,
+                    "/artifacts/greeter.jar",
+                    1,
+                    PlacementConstraints.NONE,
+                    Optional.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID)),
                 0));
     inProcessStore
         .client()
         .propose(
             new StateMutation.PutAssignment(
                 new InstanceAssignment(
-                    "greeter", 0, "node-2", moduleId, "/artifacts/greeter.jar")));
+                    "greeter",
+                    0,
+                    "node-2",
+                    moduleId,
+                    "/artifacts/greeter.jar",
+                    OptionalInt.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
 
     HttpResponse<String> response =
         client.send(
@@ -219,7 +244,7 @@ class ApiServerEndpointsTest {
                     PlacementConstraints.NONE,
                     Optional.empty(),
                     3,
-                    Optional.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID),
                     Optional.empty())));
     inProcessStore
         .client()
@@ -231,7 +256,8 @@ class ApiServerEndpointsTest {
                     "node-3",
                     moduleId,
                     "/artifacts/cleanup.jar",
-                    Instant.now())));
+                    Instant.now(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
 
     HttpResponse<String> response =
         client.send(
@@ -260,14 +286,18 @@ class ApiServerEndpointsTest {
                     moduleId,
                     "/artifacts/node-exporter.jar",
                     PlacementConstraints.NONE,
-                    Optional.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID),
                     Optional.empty())));
     inProcessStore
         .client()
         .propose(
             new StateMutation.PutDaemonSetAssignment(
                 new DaemonSetAssignment(
-                    "node-exporter", "node-4", moduleId, "/artifacts/node-exporter.jar")));
+                    "node-exporter",
+                    "node-4",
+                    moduleId,
+                    "/artifacts/node-exporter.jar",
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
 
     HttpResponse<String> response =
         client.send(
@@ -297,14 +327,19 @@ class ApiServerEndpointsTest {
                     "/artifacts/ledger.jar",
                     1,
                     PlacementConstraints.NONE,
-                    Optional.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID),
                     Optional.empty())));
     inProcessStore
         .client()
         .propose(
             new StateMutation.PutStatefulSetAssignment(
                 new StatefulSetAssignment(
-                    "ledger", 0, "node-5", moduleId, "/artifacts/ledger.jar")));
+                    "ledger",
+                    0,
+                    "node-5",
+                    moduleId,
+                    "/artifacts/ledger.jar",
+                    Optional.of(Tenant.DEFAULT_TENANT_ID))));
 
     HttpResponse<String> response =
         client.send(

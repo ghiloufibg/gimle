@@ -12,6 +12,7 @@ import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.FafnirCrypto;
 import com.gimle.fafnir.FafnirServer;
 import com.gimle.mimir.raft.RaftLog;
@@ -32,6 +33,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -200,7 +203,15 @@ class DeploymentsCommandTest {
     assertEquals(
         0, run("apply", "-f", manifest.toString(), "--server", serverAddress), errBuffer::toString);
 
-    store.putAssignment(new InstanceAssignment("billing", 0, "node-a"));
+    store.putAssignment(
+        new InstanceAssignment(
+            "billing",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
     ModuleId moduleId = new ModuleId("com.gimle.fixture.limitrange", Version.parse("1.0.0"));
     store.putNodeHeartbeat(
         new NodeHeartbeat(
@@ -208,7 +219,21 @@ class DeploymentsCommandTest {
             new ResourceUsageSnapshot(1000L, 0, 1000, 0),
             List.of(
                 new InstanceObservation(
-                    "billing", 0, moduleId, "FAILED", true, false, 0.0, 0, 0L, 0L, 0.0))));
+                    "billing",
+                    0,
+                    moduleId,
+                    "FAILED",
+                    true,
+                    false,
+                    0.0,
+                    0,
+                    0L,
+                    0L,
+                    0.0,
+                    Map.of(),
+                    0L,
+                    Optional.empty(),
+                    Optional.of(Tenant.DEFAULT_TENANT_ID)))));
 
     outBuffer.reset();
     assertEquals(0, run("get", "deployments", "--server", serverAddress));

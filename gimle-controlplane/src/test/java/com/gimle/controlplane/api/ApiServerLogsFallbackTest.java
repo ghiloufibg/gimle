@@ -10,6 +10,7 @@ import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.StateStore;
@@ -248,7 +249,8 @@ class ApiServerLogsFallbackTest {
             0,
             "node-a",
             new ModuleId("com.example.orders", Version.parse("1.0.0")),
-            "/artifacts/orders.jar"));
+            "/artifacts/orders.jar",
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
 
     HttpResponse<String> response = send("/logs/instances/orders-statefulset/0");
 
@@ -271,7 +273,8 @@ class ApiServerLogsFallbackTest {
             "flag-cache-daemonset",
             "node-a",
             new ModuleId("com.example.flagcache", Version.parse("1.0.0")),
-            "/artifacts/flag-cache.jar"));
+            "/artifacts/flag-cache.jar",
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
 
     // A DaemonSet instance's own index is always 0 -- see DaemonSetAssignment's own javadoc.
     HttpResponse<String> response = send("/logs/instances/flag-cache-daemonset/0");
@@ -297,7 +300,8 @@ class ApiServerLogsFallbackTest {
             "node-a",
             new ModuleId("com.example.reporting", Version.parse("1.0.0")),
             "/artifacts/reporting.jar",
-            Instant.now()));
+            Instant.now(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
 
     // A Job run's own "index" is its attempt number.
     HttpResponse<String> response = send("/logs/instances/orders-report-job/0");

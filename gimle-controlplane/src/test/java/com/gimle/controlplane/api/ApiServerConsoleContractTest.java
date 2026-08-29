@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.Tenant;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -15,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -136,7 +138,10 @@ class ApiServerConsoleContractTest {
     // contract test only needs the field to be present once violating, not a real reconciler tick.
     inProcessStore
         .store()
-        .putLimitRangeViolation("orders-service", "request memory 16Mi below minimum 32Mi");
+        .putLimitRangeViolation(
+            Optional.of(Tenant.DEFAULT_TENANT_ID),
+            "orders-service",
+            "request memory 16Mi below minimum 32Mi");
 
     HttpResponse<String> get =
         send(

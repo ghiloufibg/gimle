@@ -68,13 +68,15 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.RemoveServer r -> handleRemoveServer(r);
       case StoreRpc.ListAccounts r -> new StoreRpc.AccountListResult(store.listAccounts());
       case StoreRpc.GetTenant r -> tenantResult(store.getTenant(r.id()));
-      case StoreRpc.GetDeployment r -> deploymentResult(store.getDeployment(r.tenantId(), r.name()));
+      case StoreRpc.GetDeployment r ->
+          deploymentResult(store.getDeployment(r.tenantId(), r.name()));
       case StoreRpc.GetDeploymentGeneration r ->
           new StoreRpc.GenerationResult(store.getDeploymentGeneration(r.tenantId(), r.name()));
       case StoreRpc.ListDeployments r -> new StoreRpc.DeploymentListResult(store.listDeployments());
       case StoreRpc.GetService r -> serviceResult(store.getService(r.tenantId(), r.name()));
       case StoreRpc.ListServices r -> new StoreRpc.ServiceListResult(store.listServices());
-      case StoreRpc.GetNetworkPolicy r -> networkPolicyResult(store.getNetworkPolicy(r.tenantId(), r.name()));
+      case StoreRpc.GetNetworkPolicy r ->
+          networkPolicyResult(store.getNetworkPolicy(r.tenantId(), r.name()));
       case StoreRpc.ListNetworkPolicies r ->
           new StoreRpc.NetworkPolicyListResult(store.listNetworkPolicies());
       case StoreRpc.GetLimitRange r -> limitRangeResult(store.getLimitRange(r.tenantId()));
@@ -107,8 +109,10 @@ public final class StoreNode implements StoreRpcHandler {
           new StoreRpc.JobRunListResult(store.listJobRunsFor(r.tenantId(), r.jobName()));
       case StoreRpc.ListJobRuns r -> new StoreRpc.JobRunListResult(store.listJobRuns());
       case StoreRpc.GetJobPhase r -> jobPhaseResult(store.getJobPhase(r.tenantId(), r.jobName()));
-      case StoreRpc.GetJobRunSummary r -> jobRunSummaryResult(store.getJobRunSummary(r.tenantId(), r.jobName()));
-      case StoreRpc.GetCronJobSpec r -> cronJobSpecResult(store.getCronJobSpec(r.tenantId(), r.name()));
+      case StoreRpc.GetJobRunSummary r ->
+          jobRunSummaryResult(store.getJobRunSummary(r.tenantId(), r.jobName()));
+      case StoreRpc.GetCronJobSpec r ->
+          cronJobSpecResult(store.getCronJobSpec(r.tenantId(), r.name()));
       case StoreRpc.ListCronJobSpecs r ->
           new StoreRpc.CronJobSpecListResult(store.listCronJobSpecs());
       case StoreRpc.GetCronJobLastSchedule r ->
@@ -138,8 +142,7 @@ public final class StoreNode implements StoreRpcHandler {
           intResult(store.getRollingStatefulSetIndex(r.tenantId(), r.statefulSetName()));
       case StoreRpc.GetStatefulSetIndexNode r ->
           stringResult(
-              store.getStatefulSetIndexNode(
-                  r.tenantId(), r.statefulSetName(), r.instanceIndex()));
+              store.getStatefulSetIndexNode(r.tenantId(), r.statefulSetName(), r.instanceIndex()));
       case StoreRpc.ListNodeRegistrations r ->
           new StoreRpc.NodeRegistrationListResult(store.listNodeRegistrations());
       case StoreRpc.ListTenants r -> new StoreRpc.TenantListResult(store.listTenants());
@@ -164,7 +167,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListConfigEntriesForLinearizable r -> handleListConfigEntriesForLinearizable(r);
       case StoreRpc.GetReconcilerInstanceState r ->
           reconcilerInstanceStateResult(
-              store.getReconcilerInstanceState(r.tenantId(), r.deploymentName(), r.instanceIndex()));
+              store.getReconcilerInstanceState(
+                  r.tenantId(), r.deploymentName(), r.instanceIndex()));
       case StoreRpc.ListReconcilerInstanceStates r ->
           new StoreRpc.ReconcilerInstanceStateListResult(store.listReconcilerInstanceStates());
       case StoreRpc.ListInstanceEvents r ->

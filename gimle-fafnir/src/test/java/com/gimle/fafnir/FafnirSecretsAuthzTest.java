@@ -23,6 +23,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -420,7 +421,15 @@ class FafnirSecretsAuthzTest {
             PlacementConstraints.NONE,
             Optional.empty(),
             Optional.of(tenantId)));
-    store.putAssignment(new InstanceAssignment("dep-" + tenantId, 0, nodeId));
+    store.putAssignment(
+        new InstanceAssignment(
+            "dep-" + tenantId,
+            0,
+            nodeId,
+            moduleId,
+            "/var/gimle/artifacts/orders-1.0.0.jar",
+            OptionalInt.empty(),
+            Optional.of(tenantId)));
   }
 
   private static void grantSecretReadAndWrite(StateStore store, String username) {

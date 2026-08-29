@@ -152,10 +152,7 @@ class GatewayFabricRouteIT extends GreeterSmokeClusterSupport {
             + " edge-labeled node");
     assertTrue(
         daemonSetHasNodeAssignment(
-            baseUrl,
-            "gimle-gateway",
-            EDGE_NODE_ID,
-            Optional.of(Tenant.RESERVED_SYSTEM_TENANT_ID)));
+            baseUrl, "gimle-gateway", EDGE_NODE_ID, Optional.of(Tenant.RESERVED_SYSTEM_TENANT_ID)));
 
     Await.until(
         () ->

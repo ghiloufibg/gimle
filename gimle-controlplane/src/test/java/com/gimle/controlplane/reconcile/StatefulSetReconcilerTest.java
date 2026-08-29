@@ -213,8 +213,7 @@ class StatefulSetReconcilerTest {
           store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
       current.forEach(a -> reportReady(store, a));
     }
-    assertEquals(
-        3, store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").size());
+    assertEquals(3, store.listStatefulSetAssignmentsFor(Optional.empty(), "orders").size());
 
     store.putStatefulSetSpec(statefulSet("orders", jar, 1));
     reconciler.reconcileOnce();
@@ -244,8 +243,7 @@ class StatefulSetReconcilerTest {
     reconciler.reconcileOnce();
     reportReady(
         store,
-        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0)
-            .orElseThrow());
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow());
     reconciler.reconcileOnce();
     StatefulSetAssignment index1 =
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).orElseThrow();

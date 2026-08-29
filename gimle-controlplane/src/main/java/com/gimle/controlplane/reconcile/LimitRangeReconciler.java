@@ -96,7 +96,8 @@ public final class LimitRangeReconciler {
             reason.get());
       }
       mutations.propose(
-          new StateMutation.PutLimitRangeViolation(spec.tenantId(), spec.name(), reason.orElse("")));
+          new StateMutation.PutLimitRangeViolation(
+              spec.tenantId(), spec.name(), reason.orElse("")));
     }
   }
 

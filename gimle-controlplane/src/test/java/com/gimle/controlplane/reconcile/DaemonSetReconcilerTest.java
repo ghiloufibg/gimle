@@ -168,14 +168,12 @@ class DaemonSetReconcilerTest {
     store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
     registerNode(store, "node-a");
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
-    assertEquals(
-        1, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
+    assertEquals(1, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
 
     store.removeDaemonSetSpec(Optional.empty(), "node-exporter");
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(
-        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
+    assertTrue(store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
     assertTrue(store.listDaemonSetAssignments().isEmpty());
   }
 
@@ -197,8 +195,7 @@ class DaemonSetReconcilerTest {
 
     new DaemonSetReconciler(store, scheduler).reconcileOnce();
 
-    assertTrue(
-        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
+    assertTrue(store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").isEmpty());
   }
 
   @Test
@@ -255,8 +252,7 @@ class DaemonSetReconcilerTest {
     List<DaemonSetAssignment> midRollout =
         store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(2, midRollout.size());
-    long onNewVersion =
-        midRollout.stream().filter(a -> a.moduleId().equals(v2.moduleId())).count();
+    long onNewVersion = midRollout.stream().filter(a -> a.moduleId().equals(v2.moduleId())).count();
     assertEquals(1, onNewVersion, "exactly one node should have rolled forward so far");
 
     // The rolled node hasn't reported ready yet -- another tick must not start a second rollout.
@@ -301,8 +297,7 @@ class DaemonSetReconcilerTest {
             placementGracePeriod,
             clock);
     reconciler.reconcileOnce();
-    assertEquals(
-        2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
+    assertEquals(2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
 
     // node-a stops heartbeating (a partition, not a real failure): past nodeDarkTimeout, so it's
     // no longer a placement candidate, but still well within the combined grace window.
@@ -353,8 +348,7 @@ class DaemonSetReconcilerTest {
             placementGracePeriod,
             clock);
     reconciler.reconcileOnce();
-    assertEquals(
-        2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
+    assertEquals(2, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
 
     store.putNodeCordon("node-a", true);
     reconciler.reconcileOnce();

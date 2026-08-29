@@ -905,13 +905,14 @@ class ApiServerAuthzTest {
   }
 
   /**
-   * The re-tenanting guard: a PUT that would move an existing resource into a different tenant
-   * needs write access under both the tenant it is being moved into <em>and</em> the tenant it
-   * currently belongs to -- otherwise a permission scoped to one tenant could reach across the
-   * boundary and claim a resource out of another tenant it was never granted any access to.
+   * A same-named resource under a different tenant is a wholly independent one, not the same
+   * resource "moved" -- each lives under its own {@code (tenantId, name)} store key (see {@code
+   * StateStore}'s own tenant scoping), so a write scoped to one tenant is sufficient by itself to
+   * create or update that tenant's own "shared", regardless of what any other tenant's identically-
+   * named "shared" holds, and never touches it.
    */
   @Test
-  void a_write_permission_scoped_to_one_tenant_cannot_reclaim_another_tenants_deployment()
+  void a_write_permission_scoped_to_one_tenant_creates_its_own_independent_same_named_deployment()
       throws Exception {
     CertificateAuthority ca =
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
@@ -941,10 +942,10 @@ class ApiServerAuthzTest {
       String cookie = login(client, baseUrl, "acme-writer", "pw");
 
       Path jar = buildFixtureJar("com.gimle.fixture.authz.reclaim");
-      // acme-writer holds DEPLOYMENT:WRITE:acme but not :beta -- resubmitting "shared" under
-      // acme must not succeed just because the *new* tenant is one it's authorized for.
+      // acme-writer holds DEPLOYMENT:WRITE:acme but not :beta -- that alone is sufficient to
+      // create acme's own "shared", since it's a distinct store key from beta's.
       assertEquals(
-          403,
+          200,
           putDeployment(
               client,
               baseUrl,
@@ -956,6 +957,9 @@ class ApiServerAuthzTest {
       assertEquals(
           Optional.of("beta"),
           store.getDeployment(Optional.of("beta"), "shared").flatMap(DeploymentSpec::tenantId));
+      assertEquals(
+          Optional.of("acme"),
+          store.getDeployment(Optional.of("acme"), "shared").flatMap(DeploymentSpec::tenantId));
     }
   }
 
@@ -1097,14 +1101,35 @@ class ApiServerAuthzTest {
               jar,
               "gimle-system"),
           "deployment");
-      assertEquals(200, operatorPutJob(operatorClient, baseUrl, "sys-job", "gimle-system"), "job");
       assertEquals(
           200,
-          operatorPutDaemonSet(operatorClient, baseUrl, "sys-ds", "gimle-system"),
+          operatorPutJob(
+              operatorClient,
+              baseUrl,
+              "sys-job",
+              "com.gimle.fixture.authz.operator",
+              jar,
+              "gimle-system"),
+          "job");
+      assertEquals(
+          200,
+          operatorPutDaemonSet(
+              operatorClient,
+              baseUrl,
+              "sys-ds",
+              "com.gimle.fixture.authz.operator",
+              jar,
+              "gimle-system"),
           "daemonset");
       assertEquals(
           200,
-          operatorPutStatefulSet(operatorClient, baseUrl, "sys-sts", "gimle-system"),
+          operatorPutStatefulSet(
+              operatorClient,
+              baseUrl,
+              "sys-sts",
+              "com.gimle.fixture.authz.operator",
+              jar,
+              "gimle-system"),
           "statefulset");
       assertEquals(
           200, operatorPutCronJob(operatorClient, baseUrl, "sys-cj", "gimle-system"), "cronjob");
@@ -1178,14 +1203,37 @@ class ApiServerAuthzTest {
         .statusCode();
   }
 
+  /**
+   * Unlike {@link #putJob}'s own {@link #jobYaml} (fine for an unenforceable, e.g. {@code default},
+   * tenant -- {@link com.gimle.controlplane.admission.TenantQuotaPlugin} never reads its bogus
+   * artifact path at all there), {@code gimle-system} is a real, quota-enforced tenant, so this
+   * needs a real, readable jar the same way {@link #operatorPutDeployment} already does -- an
+   * unreadable path would otherwise reject with 409 before ever reaching the RBAC decision this
+   * test exists to exercise.
+   */
   private static int operatorPutJob(
-      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      HttpClient operatorClient,
+      String baseUrl,
+      String name,
+      String moduleName,
+      Path jar,
+      String tenantId)
       throws IOException, InterruptedException {
+    String yaml =
+        """
+        kind: Job
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        backoffLimit: 3
+        tenantId: %s
+        """
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantId);
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(baseUrl + "/jobs/" + name))
-            .PUT(
-                HttpRequest.BodyPublishers.ofString(
-                    jobYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
             .build();
     return operatorClient
         .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
@@ -1221,14 +1269,32 @@ class ApiServerAuthzTest {
         .statusCode();
   }
 
+  /**
+   * Like {@link #operatorPutJob}, {@code gimle-system} is a real, quota-enforced tenant, so this
+   * needs a real, readable jar rather than {@link #daemonSetYaml}'s own bogus artifact path.
+   */
   private static int operatorPutDaemonSet(
-      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      HttpClient operatorClient,
+      String baseUrl,
+      String name,
+      String moduleName,
+      Path jar,
+      String tenantId)
       throws IOException, InterruptedException {
+    String yaml =
+        """
+        kind: DaemonSet
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        tenantId: %s
+        """
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantId);
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/" + name))
-            .PUT(
-                HttpRequest.BodyPublishers.ofString(
-                    daemonSetYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
             .build();
     return operatorClient
         .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
@@ -1263,14 +1329,33 @@ class ApiServerAuthzTest {
         .statusCode();
   }
 
+  /**
+   * Like {@link #operatorPutJob}, {@code gimle-system} is a real, quota-enforced tenant, so this
+   * needs a real, readable jar rather than {@link #statefulSetYaml}'s own bogus artifact path.
+   */
   private static int operatorPutStatefulSet(
-      HttpClient operatorClient, String baseUrl, String name, String tenantId)
+      HttpClient operatorClient,
+      String baseUrl,
+      String name,
+      String moduleName,
+      Path jar,
+      String tenantId)
       throws IOException, InterruptedException {
+    String yaml =
+        """
+        kind: StatefulSet
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        tenantId: %s
+        """
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantId);
     HttpRequest request =
         HttpRequest.newBuilder(URI.create(baseUrl + "/statefulsets/" + name))
-            .PUT(
-                HttpRequest.BodyPublishers.ofString(
-                    statefulSetYaml(name, Optional.of(tenantId)), StandardCharsets.UTF_8))
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
             .build();
     return operatorClient
         .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))

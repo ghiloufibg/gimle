@@ -34,9 +34,11 @@ public final class ScenarioWorld {
 
   final Map<String, DeployedModule> deployments = new LinkedHashMap<>();
 
-  /** A created NetworkPolicy's own {@code name -> tenantId}, remembered so a later step can
-   * address it via {@code ?tenant=} without the Gherkin sentence itself needing to repeat the
-   * tenant every time it references the policy by name. */
+  /**
+   * A created NetworkPolicy's own {@code name -> tenantId}, remembered so a later step can address
+   * it via {@code ?tenant=} without the Gherkin sentence itself needing to repeat the tenant every
+   * time it references the policy by name.
+   */
   final Map<String, String> networkPolicyTenants = new LinkedHashMap<>();
 
   final List<String> statefulSets = new ArrayList<>();

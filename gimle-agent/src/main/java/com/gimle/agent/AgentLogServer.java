@@ -274,8 +274,8 @@ final class AgentLogServer implements AutoCloseable {
 
   /**
    * The key shape {@code inUseVolumeKeys} (an {@code AgentMain}-supplied live view of every
-   * currently-supervised instance's own volumes) and this class's own {@code inUse}/409 checks
-   * must agree on -- tenant included, since two tenants may run an identically-named {@code
+   * currently-supervised instance's own volumes) and this class's own {@code inUse}/409 checks must
+   * agree on -- tenant included, since two tenants may run an identically-named {@code
    * statefulSetName} (see {@code VolumeHandle}'s own javadoc), so the bare name is not by itself a
    * safe key here either.
    */

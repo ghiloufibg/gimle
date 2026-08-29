@@ -97,7 +97,7 @@ class TenantQuotaPluginTest {
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
 
     assertEquals(
-        "deployment over-quota would push tenant tight past its resource quota",
+        "workload over-quota would push tenant tight past its resource quota",
         assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
@@ -137,7 +137,7 @@ class TenantQuotaPluginTest {
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
 
     assertEquals(
-        "deployment surging would push tenant surge-tight past its resource quota",
+        "workload surging would push tenant surge-tight past its resource quota",
         assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 

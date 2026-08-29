@@ -201,7 +201,10 @@ class StateStoreTest {
         reloaded.getDeployment(Optional.of("tenant-b"), "orders-service"));
   }
 
-  /** The Service analogue of {@link #two_tenants_with_an_identically_named_deployment_never_collide}. */
+  /**
+   * The Service analogue of {@link
+   * #two_tenants_with_an_identically_named_deployment_never_collide}.
+   */
   @Test
   void two_tenants_with_an_identically_named_service_never_collide() {
     StateStore store = new StateStore();
@@ -444,8 +447,7 @@ class StateStoreTest {
     StateStore reloaded = new StateStore();
     reloaded.restoreFromSnapshot(store.snapshot());
     assertEquals(
-        List.of(second, first),
-        reloaded.listInstanceEvents(Optional.empty(), "orders-service", 0));
+        List.of(second, first), reloaded.listInstanceEvents(Optional.empty(), "orders-service", 0));
   }
 
   @Test
@@ -476,6 +478,7 @@ class StateStoreTest {
     // 51 events, one over the 50-per-instance retention cap.
     for (int i = 0; i < 51; i++) {
       store.putInstanceEvent(
+          Optional.empty(),
           new InstanceEvent(
               "evt-" + i,
               "orders-service",
@@ -512,7 +515,8 @@ class StateStoreTest {
     store.putInstanceEvent(Optional.empty(), event);
 
     StateSnapshot snapshot = store.snapshot();
-    assertEquals(List.of(event), snapshot.instanceEvents());
+    assertEquals(
+        List.of(event), snapshot.instanceEvents().values().stream().flatMap(List::stream).toList());
 
     StateStore target = new StateStore();
     target.restoreFromSnapshot(snapshot);
