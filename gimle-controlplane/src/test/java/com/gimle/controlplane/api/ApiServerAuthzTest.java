@@ -317,14 +317,16 @@ class ApiServerAuthzTest {
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(200, tenants.statusCode());
 
-      // 5. Logout tells the browser to drop the cookie (Max-Age=0) -- it does not revoke the
-      // token server-side (documented, deliberate: the whole point of a stateless signed token is
-      // needing no revocation list). A request presenting no cookie at all afterward is
-      // unauthenticated, same as before any login ever happened.
+      // 5. Logout tells the browser to drop the cookie (Max-Age=0) *and* revokes the token
+      // server-side: the same cookie value, replayed afterward, is rejected even though its HMAC
+      // signature still verifies and it has not hit its ordinary 12-hour expiry -- otherwise a
+      // captured/stolen token would keep working for the rest of its natural lifetime regardless
+      // of the user's own logout.
       HttpResponse<String> logout =
           client.send(
               HttpRequest.newBuilder(URI.create(baseUrl + "/auth/logout"))
                   .POST(HttpRequest.BodyPublishers.noBody())
+                  .header("Cookie", sessionCookie)
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(200, logout.statusCode());
@@ -335,6 +337,18 @@ class ApiServerAuthzTest {
               HttpRequest.newBuilder(URI.create(baseUrl + "/auth/session")).GET().build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(401, afterLogout.statusCode());
+
+      // The old, already-issued cookie itself is now rejected server-side, not just absent from
+      // this fresh request -- the actual proof logout revoked it rather than merely telling this
+      // one client to forget it.
+      HttpResponse<String> replayedOldCookie =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/auth/session"))
+                  .header("Cookie", sessionCookie)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(401, replayedOldCookie.statusCode());
     }
   }
 

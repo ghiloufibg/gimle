@@ -348,7 +348,8 @@ class RaftCodecTest {
             Map.of("node-1", Set.of("tenant-1", "tenant-2")),
             List.of(
                 new WorkloadHealthState(
-                    "StatefulSet", "orders", "0", 2, 100L, 200L, true, false, Optional.empty())));
+                    "StatefulSet", "orders", "0", 2, 100L, 200L, true, false, Optional.empty())),
+            Map.of("alice", 42_000L));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -385,6 +386,8 @@ class RaftCodecTest {
     assertEquals(snapshot.workloadTokens(), decoded.workloadTokens());
     assertEquals(snapshot.jobRunSummaries(), decoded.jobRunSummaries());
     assertEquals(snapshot.nodeTaints(), decoded.nodeTaints());
+    assertEquals(
+        snapshot.sessionRevokedBeforeEpochMilli(), decoded.sessionRevokedBeforeEpochMilli());
   }
 
   @Test

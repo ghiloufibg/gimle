@@ -487,6 +487,23 @@ public sealed interface StateMutation extends RaftLogPayload {
   }
 
   /**
+   * Advances one username's session "revoked before" watermark -- {@code
+   * ApiServer#handleAuthLogout} proposes this for whichever username the logged-out cookie verified
+   * to, and {@code ApiServer#resolvePrincipal} rejects any session cookie for that username issued
+   * at or before it, even though its HMAC signature still verifies. {@code revokedBeforeEpochMilli}
+   * is stamped once by the proposing replica and carried in the mutation, the same determinism
+   * reasoning {@link PutWorkloadToken#mintedAtEpochMilli} documents for its own wall-clock stamp.
+   */
+  record PutSessionRevocation(String username, long revokedBeforeEpochMilli)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putSessionRevocation(username, revokedBeforeEpochMilli);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
    * Replaces one {@code deploymentName#nodeId} key's live workload-identity token record. {@code
    * mintedAtEpochMilli} is stamped once by the minting replica and carried in the mutation, so the
    * opportunistic expired-entry sweep it drives inside {@code StateStore#putWorkloadToken} makes

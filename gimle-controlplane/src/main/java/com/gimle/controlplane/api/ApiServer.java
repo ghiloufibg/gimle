@@ -5240,6 +5240,19 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
+      // Revokes server-side, not just the client-side cookie: whichever username the presented
+      // cookie verifies to gets its "revoked before" watermark advanced to now, so the very token
+      // being logged out (and any other still-outstanding token for that same username) is
+      // rejected by resolvePrincipal's own session-cookie check from this instant on, rather than
+      // staying usable for the rest of its ordinary 12-hour lifetime. A missing or already-invalid
+      // cookie has no username to revoke and is left alone -- there is nothing to undo.
+      sessionCookie(exchange)
+          .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
+          .ifPresent(
+              session ->
+                  storeClient.propose(
+                      new StateMutation.PutSessionRevocation(
+                          session.username(), System.currentTimeMillis())));
       exchange.getResponseHeaders().add("Set-Cookie", sessionCookieHeader("", 0));
       respond(exchange, 200, "ok");
     } catch (IOException e) {
@@ -6974,7 +6987,19 @@ public final class ApiServer implements AutoCloseable {
     }
     return sessionCookie(exchange)
         .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
-        .map(username -> new Principal(username, Set.of()));
+        .filter(session -> !isSessionRevoked(session))
+        .map(session -> new Principal(session.username(), Set.of()));
+  }
+
+  /**
+   * Mirrors the certificate-serial revocation check above for a different credential type: a
+   * session token otherwise verifies purely by its own HMAC signature (see {@code SessionTokens}'s
+   * own javadoc), so this is the one server-side check standing between a logged- out token and
+   * continued access -- {@code handleAuthLogout} is this watermark's only writer.
+   */
+  private boolean isSessionRevoked(SessionTokens.VerifiedSession session) {
+    return session.issuedAtEpochMilli()
+        <= storeClient.getSessionRevokedBeforeEpochMilli(session.username());
   }
 
   /** Lowercase hex, the form {@code openssl x509 -serial} prints -- what operators paste back. */

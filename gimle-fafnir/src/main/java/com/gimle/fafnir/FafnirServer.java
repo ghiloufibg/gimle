@@ -1134,7 +1134,19 @@ public final class FafnirServer implements AutoCloseable {
     }
     return sessionCookie(exchange)
         .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
-        .map(username -> new Principal(username, Set.of()));
+        .filter(session -> !isSessionRevoked(session))
+        .map(session -> new Principal(session.username(), Set.of()));
+  }
+
+  /**
+   * Mirrors {@code ApiServer#isSessionRevoked} for this process's own independent console session
+   * cookie: a session token otherwise verifies purely by its own HMAC signature (see {@code
+   * SessionTokens}'s own javadoc), so this is the one server-side check standing between a logged-
+   * out token and continued access -- {@link #handleAuthLogout} is this watermark's only writer.
+   */
+  private boolean isSessionRevoked(SessionTokens.VerifiedSession session) {
+    return session.issuedAtEpochMilli()
+        <= crypto.storeClient().getSessionRevokedBeforeEpochMilli(session.username());
   }
 
   // ---- /auth/login, /auth/logout, /auth/session, /status ----
@@ -1207,6 +1219,17 @@ public final class FafnirServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
+      // Revokes server-side, not just the client-side cookie -- see ApiServer#handleAuthLogout's
+      // own javadoc for the full reasoning, identical here.
+      sessionCookie(exchange)
+          .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
+          .ifPresent(
+              session ->
+                  crypto
+                      .storeClient()
+                      .propose(
+                          new StateMutation.PutSessionRevocation(
+                              session.username(), System.currentTimeMillis())));
       exchange.getResponseHeaders().add("Set-Cookie", sessionCookieHeader("", 0));
       respond(exchange, 200, "ok");
     } catch (IOException e) {

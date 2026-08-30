@@ -134,6 +134,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_NODE_TAINT = 61;
   private static final byte MUT_PUT_WORKLOAD_HEALTH_STATE = 62;
   private static final byte MUT_REMOVE_WORKLOAD_HEALTH_STATE = 63;
+  private static final byte MUT_PUT_SESSION_REVOCATION = 64;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -571,6 +572,11 @@ public final class RaftCodec {
         out.writeUTF(m.serialNumber());
         out.writeBoolean(m.revoked());
       }
+      case StateMutation.PutSessionRevocation m -> {
+        out.writeByte(MUT_PUT_SESSION_REVOCATION);
+        out.writeUTF(m.username());
+        out.writeLong(m.revokedBeforeEpochMilli());
+      }
       case StateMutation.PutWorkloadToken m -> {
         out.writeByte(MUT_PUT_WORKLOAD_TOKEN);
         DomainCodec.writeWorkloadTokenRecord(out, m.record());
@@ -825,6 +831,8 @@ public final class RaftCodec {
           new StateMutation.PutNodeTaint(in.readUTF(), in.readUTF(), in.readBoolean());
       case MUT_PUT_CERTIFICATE_REVOCATION ->
           new StateMutation.PutCertificateRevocation(in.readUTF(), in.readBoolean());
+      case MUT_PUT_SESSION_REVOCATION ->
+          new StateMutation.PutSessionRevocation(in.readUTF(), in.readLong());
       case MUT_PUT_WORKLOAD_TOKEN ->
           new StateMutation.PutWorkloadToken(
               DomainCodec.readWorkloadTokenRecord(in), in.readLong());
@@ -1123,6 +1131,11 @@ public final class RaftCodec {
       for (WorkloadHealthState state : snapshot.workloadHealthStates()) {
         DomainCodec.writeWorkloadHealthState(out, state);
       }
+      out.writeInt(snapshot.sessionRevokedBeforeEpochMilli().size());
+      for (Map.Entry<String, Long> e : snapshot.sessionRevokedBeforeEpochMilli().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeLong(e.getValue());
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1363,6 +1376,11 @@ public final class RaftCodec {
       for (int i = 0; i < workloadHealthStateCount; i++) {
         workloadHealthStates.add(DomainCodec.readWorkloadHealthState(in));
       }
+      Map<String, Long> sessionRevokedBeforeEpochMilli = new LinkedHashMap<>();
+      int sessionRevocationCount = in.readInt();
+      for (int i = 0; i < sessionRevocationCount; i++) {
+        sessionRevokedBeforeEpochMilli.put(in.readUTF(), in.readLong());
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1402,7 +1420,8 @@ public final class RaftCodec {
           revokedCertificateSerials,
           workloadTokens,
           nodeTaints,
-          workloadHealthStates);
+          workloadHealthStates,
+          sessionRevokedBeforeEpochMilli);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

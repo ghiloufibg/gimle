@@ -81,6 +81,7 @@ public sealed interface StoreRpc {
           GetNodeTaints,
           IsCertificateRevoked,
           ListRevokedCertificateSerials,
+          GetSessionRevokedBeforeEpochMilli,
           GetWorkloadToken,
           ListAssignments,
           GetJobSpec,
@@ -285,6 +286,11 @@ public sealed interface StoreRpc {
   record IsCertificateRevoked(String serialNumber) implements Request {}
 
   record ListRevokedCertificateSerials() implements Request {}
+
+  /**
+   * Response reuses {@link GenerationResult} -- same shape as {@link GetDeploymentGeneration}'s.
+   */
+  record GetSessionRevokedBeforeEpochMilli(String username) implements Request {}
 
   record GetWorkloadToken(String key) implements Request {}
 

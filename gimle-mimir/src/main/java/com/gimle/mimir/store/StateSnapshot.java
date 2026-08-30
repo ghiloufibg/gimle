@@ -71,7 +71,11 @@ public record StateSnapshot(
     Set<String> revokedCertificateSerials,
     List<WorkloadTokenRecord> workloadTokens,
     Map<String, Set<String>> nodeTaints,
-    List<WorkloadHealthState> workloadHealthStates) {
+    List<WorkloadHealthState> workloadHealthStates,
+    // Console session revocation: username -> the epoch-milli watermark set by that user's last
+    // logout. A session token issued at or before its own username's watermark is rejected even
+    // though its HMAC signature still verifies -- see StateStore#putSessionRevocation's javadoc.
+    Map<String, Long> sessionRevokedBeforeEpochMilli) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -135,5 +139,6 @@ public record StateSnapshot(
             .collect(
                 Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
     workloadHealthStates = List.copyOf(workloadHealthStates);
+    sessionRevokedBeforeEpochMilli = Map.copyOf(sessionRevokedBeforeEpochMilli);
   }
 }
