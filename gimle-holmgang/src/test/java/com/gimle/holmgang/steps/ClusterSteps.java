@@ -41,6 +41,20 @@ public final class ClusterSteps {
     world.cluster().store(storeIndex).restart();
   }
 
+  @When("control plane {int} is restarted")
+  public void controlPlaneIsRestarted(final int controlPlaneIndex) {
+    world.cluster().controlPlane(controlPlaneIndex).restart();
+  }
+
+  @Then("within {int}s the control plane is serving")
+  public void theControlPlaneIsServing(final int seconds) {
+    world
+        .cluster()
+        .when()
+        .probe("the control plane is serving", () -> world.cluster().api().isServing())
+        .await(Duration.ofSeconds(seconds));
+  }
+
   @When("a new store node joins the cluster")
   public void aNewStoreNodeJoinsTheCluster() {
     world.cluster().addStore();

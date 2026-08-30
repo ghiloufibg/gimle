@@ -41,6 +41,14 @@ public final class ScenarioWorld {
    */
   final Map<String, String> networkPolicyTenants = new LinkedHashMap<>();
 
+  /** One custom resource a scenario applied, remembered so cleanup can delete it. */
+  public record AppliedCustomResource(String kindName, String name, Optional<String> tenantId) {}
+
+  /** Instances first, then definitions -- a definition with live instances refuses deletion. */
+  final List<AppliedCustomResource> customResources = new ArrayList<>();
+
+  final List<String> kindDefinitions = new ArrayList<>();
+
   final List<String> statefulSets = new ArrayList<>();
   final List<String> tenants = new ArrayList<>();
   final List<String> cordonedNodes = new ArrayList<>();

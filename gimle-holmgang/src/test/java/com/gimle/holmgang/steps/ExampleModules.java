@@ -14,7 +14,8 @@ final class ExampleModules {
       Map.of(
           "greeter-provider", "com.gimle.examples.greeter.provider",
           "greeter-consumer", "com.gimle.examples.greeter.consumer",
-          "greeter-load-generator", "com.gimle.examples.greeter.loadgen");
+          "greeter-load-generator", "com.gimle.examples.greeter.loadgen",
+          "greeting-operator", "com.gimle.examples.greeting.operator");
 
   private ExampleModules() {}
 

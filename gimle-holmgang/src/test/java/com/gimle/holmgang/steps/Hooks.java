@@ -96,6 +96,16 @@ public final class Hooks {
     for (final String statefulSet : List.copyOf(world.statefulSets)) {
       bestEffort(() -> cluster.api().deleteStatefulSet(statefulSet));
     }
+    for (final ScenarioWorld.AppliedCustomResource resource : List.copyOf(world.customResources)) {
+      bestEffort(
+          () ->
+              cluster
+                  .api()
+                  .deleteCustomResource(resource.kindName(), resource.name(), resource.tenantId()));
+    }
+    for (final String kindName : List.copyOf(world.kindDefinitions)) {
+      bestEffort(() -> cluster.api().deleteKindDefinition(kindName));
+    }
   }
 
   private static void bestEffort(final Runnable cleanup) {
