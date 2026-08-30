@@ -689,6 +689,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-677 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | Complete | Yes |
 | GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | Authorization | Complete | Yes |
 | GIMLE-679 | Gateway route table reloads on a config change without a restart | Networking | Complete | Yes |
+| GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | Worker Supervision | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3023,6 +3024,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a caller tenant permitted by the current NetworkPolicy with an already-open, long-lived connection through Bifrost; When that tenant is removed from the allow list (or a new deny policy is added) and the next poll tick runs; Then the already-open connection is closed within that same tick.
   Given an open connection to a service with no applicable policy change; When repeated poll ticks run; Then the connection is never closed.
+  ```
+
+#### GIMLE-681 — Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath
+
+- **Category**: Worker Supervision
+- **User story**: As an operator editing a Vessel workload's manifest -- a new env var, a changed port, an added volume mount, a tweaked probe, an adjusted resource request/limit -- I want the agent to detect that its vessel: block changed and restart the already-running process with the new configuration, so an edit I actually deployed takes effect instead of being silently discarded on every poll.
+- **Status**: Fixed. requiresVesselReplacement only compared assigned.moduleId() and assigned.artifactPath() against the currently-supervised vessel's own AssignedInstance -- copied verbatim from requiresReplacement, the analogous check for module hosting, where those two fields are in fact sufficient because a module's entire runtime config (probes, resource limits, lifecycle hooks) comes from the artifact's own bundled gimle-module.yaml, re-read whenever artifactPath changes. A Vessel has no gimle-module.yaml: its entire runtime config -- env (including port allocations), args, jvmFlags, files (volume/config/secret mounts), probes, resourceRequest/resourceLimit -- lives directly in the workload manifest's own vessel: block, carried on the wire as AssignedInstance.vessel(). Since requiresVesselReplacement never compared that field, any such edit was never detected, and the running process was left running its stale configuration indefinitely -- not merely until the next real restart, since SupervisedVessel.assigned was never reassigned to the freshly-polled value on a poll that didn't trigger replacement, so the drift was genuinely discarded every tick. Fixed by extending requiresVesselReplacement to additionally compare assigned.vessel() against the existing instance's own vessel() -- VesselSpec and everything nested inside it (VesselFileMount, VesselProbes, the VesselEnvValue sealed-interface implementations, ResourceSpec) are records, so structural equals() already does the right thing with no field-by-field comparison needed. Once a vessel() change is detected, the existing reconcileVesselAssignment restart path (stopVesselInstance followed by startVesselInstance) already picks up the freshly-polled assigned/vessel spec correctly, since startVesselInstance is called with the current assigned parameter, not the stale supervised instance's own copy -- no further change was needed there. requiresReplacement (the module-hosting analogue) was left unchanged: confirmed by reading ModuleDescriptor/ModuleDescriptorParser that a module's resourceRequest/resourceLimit/healthProbes/lifecycleHooksClass/volumes all come from the artifact's own gimle-module.yaml rather than from AssignedInstance, so artifactPath changing already covers every case a vessel: block would otherwise miss.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`requiresVesselReplacement`, `reconcileVesselAssignment`)
+- **Test coverage**: `AgentMainTest#a_vessel_env_var_change_at_the_same_key_requires_replacement`, `#a_vessel_probe_change_at_the_same_key_requires_replacement`, `#an_unchanged_vessel_assignment_at_the_same_key_never_requires_replacement` (guards against over-triggering a restart on every poll tick when nothing actually changed), and `#requires_replacement_for_module_hosting_ignores_vessel_and_is_unaffected` (confirms requiresReplacement's own moduleId/artifactPath-only comparison is untouched by this change, even when a vessel() value is present on the AssignedInstance). Full gimle-agent module suite re-verified.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Vessel instance already running under a fixed key with a given vessel: configuration; When the control plane's assignment for that key is re-polled with the same moduleId/artifactPath but an edited vessel: block (env, args, jvmFlags, files, probes, or resource request/limit); Then the agent detects the drift and restarts the process with the new configuration.
+  Given a Vessel instance already running under a fixed key; When the control plane's assignment for that key is re-polled with an identical vessel: block; Then the agent does not restart the process.
+  Given a hosted-module instance already running under a fixed key; When its assignment is re-polled with an unrelated vessel() value present but the same moduleId/artifactPath; Then requiresReplacement still returns false, since module runtime config comes from the artifact's own gimle-module.yaml rather than from vessel().
   ```
 
 ### gimle-mimir
