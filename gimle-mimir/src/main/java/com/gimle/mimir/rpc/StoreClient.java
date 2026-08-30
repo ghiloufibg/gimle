@@ -10,6 +10,8 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -213,6 +215,42 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   public List<LimitRangeSpec> listLimitRanges() {
     return ((StoreRpc.LimitRangeListResult) sendRead(new StoreRpc.ListLimitRanges())).values();
+  }
+
+  @Override
+  public List<KindDefinitionSpec> listKindDefinitions() {
+    return ((StoreRpc.KindDefinitionListResult) sendRead(new StoreRpc.ListKindDefinitions()))
+        .values();
+  }
+
+  @Override
+  public Optional<KindDefinitionSpec> getKindDefinition(String kindName) {
+    StoreRpc.KindDefinitionResult r =
+        (StoreRpc.KindDefinitionResult) sendRead(new StoreRpc.GetKindDefinition(kindName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  @Override
+  public List<CustomResource> listCustomResources(String kindName) {
+    return ((StoreRpc.CustomResourceListResult)
+            sendRead(new StoreRpc.ListCustomResources(kindName)))
+        .values();
+  }
+
+  @Override
+  public List<CustomResource> listCustomResourcesFor(String kindName, Optional<String> tenantId) {
+    return ((StoreRpc.CustomResourceListResult)
+            sendRead(new StoreRpc.ListCustomResourcesFor(kindName, tenantId)))
+        .values();
+  }
+
+  @Override
+  public Optional<CustomResource> getCustomResource(
+      String kindName, Optional<String> tenantId, String name) {
+    StoreRpc.CustomResourceResult r =
+        (StoreRpc.CustomResourceResult)
+            sendRead(new StoreRpc.GetCustomResource(kindName, tenantId, name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
   public List<InstanceAssignment> listAssignmentsFor(

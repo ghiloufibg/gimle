@@ -11,6 +11,8 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -176,6 +178,19 @@ public final class StoreCodec {
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
   private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
   private static final byte TAG_GET_NODE_TAINTS = 121;
+
+  // ---- custom kinds (Galdr) ----
+  // 122-127 exhaust the signed byte's non-negative range; the tag space then continues into its
+  // negative half (readByte is signed, so -128..-1 are 128 more perfectly valid tag values).
+  private static final byte TAG_LIST_KIND_DEFINITIONS = 122;
+  private static final byte TAG_GET_KIND_DEFINITION = 123;
+  private static final byte TAG_LIST_CUSTOM_RESOURCES = 124;
+  private static final byte TAG_LIST_CUSTOM_RESOURCES_FOR = 125;
+  private static final byte TAG_GET_CUSTOM_RESOURCE = 126;
+  private static final byte TAG_KIND_DEFINITION_RESULT = 127;
+  private static final byte TAG_KIND_DEFINITION_LIST_RESULT = -128;
+  private static final byte TAG_CUSTOM_RESOURCE_RESULT = -127;
+  private static final byte TAG_CUSTOM_RESOURCE_LIST_RESULT = -126;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -458,6 +473,26 @@ public final class StoreCodec {
           out.writeUTF(v.name());
           out.writeInt(v.revision());
         }
+        case StoreRpc.ListKindDefinitions v -> out.writeByte(TAG_LIST_KIND_DEFINITIONS);
+        case StoreRpc.GetKindDefinition v -> {
+          out.writeByte(TAG_GET_KIND_DEFINITION);
+          out.writeUTF(v.kindName());
+        }
+        case StoreRpc.ListCustomResources v -> {
+          out.writeByte(TAG_LIST_CUSTOM_RESOURCES);
+          out.writeUTF(v.kindName());
+        }
+        case StoreRpc.ListCustomResourcesFor v -> {
+          out.writeByte(TAG_LIST_CUSTOM_RESOURCES_FOR);
+          out.writeUTF(v.kindName());
+          DomainCodec.writeOptionalString(out, v.tenantId());
+        }
+        case StoreRpc.GetCustomResource v -> {
+          out.writeByte(TAG_GET_CUSTOM_RESOURCE);
+          out.writeUTF(v.kindName());
+          DomainCodec.writeOptionalString(out, v.tenantId());
+          out.writeUTF(v.name());
+        }
         case StoreRpc.Status v -> out.writeByte(TAG_STATUS);
         case StoreRpc.AddServer v -> {
           out.writeByte(TAG_ADD_SERVER);
@@ -656,6 +691,34 @@ public final class StoreCodec {
           out.writeInt(v.values().size());
           for (String value : v.values()) {
             out.writeUTF(value);
+          }
+        }
+        case StoreRpc.KindDefinitionResult v -> {
+          out.writeByte(TAG_KIND_DEFINITION_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeKindDefinitionSpec(out, v.value());
+          }
+        }
+        case StoreRpc.KindDefinitionListResult v -> {
+          out.writeByte(TAG_KIND_DEFINITION_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (KindDefinitionSpec definition : v.values()) {
+            DomainCodec.writeKindDefinitionSpec(out, definition);
+          }
+        }
+        case StoreRpc.CustomResourceResult v -> {
+          out.writeByte(TAG_CUSTOM_RESOURCE_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeCustomResource(out, v.value());
+          }
+        }
+        case StoreRpc.CustomResourceListResult v -> {
+          out.writeByte(TAG_CUSTOM_RESOURCE_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (CustomResource resource : v.values()) {
+            DomainCodec.writeCustomResource(out, resource);
           }
         }
         case StoreRpc.StatusResult v -> {
@@ -952,6 +1015,16 @@ public final class StoreCodec {
         case TAG_GET_CONTROLLER_REVISION ->
             new StoreRpc.GetControllerRevision(
                 in.readUTF(), DomainCodec.readOptionalString(in), in.readUTF(), in.readInt());
+        case TAG_LIST_KIND_DEFINITIONS -> new StoreRpc.ListKindDefinitions();
+        case TAG_GET_KIND_DEFINITION -> new StoreRpc.GetKindDefinition(in.readUTF());
+        case TAG_LIST_CUSTOM_RESOURCES -> new StoreRpc.ListCustomResources(in.readUTF());
+        case TAG_LIST_CUSTOM_RESOURCES_FOR ->
+            new StoreRpc.ListCustomResourcesFor(in.readUTF(), DomainCodec.readOptionalString(in));
+        case TAG_GET_CUSTOM_RESOURCE -> {
+          String kindName = in.readUTF();
+          yield new StoreRpc.GetCustomResource(
+              kindName, DomainCodec.readOptionalString(in), in.readUTF());
+        }
         case TAG_STATUS -> new StoreRpc.Status();
         case TAG_OK -> new StoreRpc.Ok();
         case TAG_NOT_LEADER -> new StoreRpc.NotLeader(in.readUTF());
@@ -1266,6 +1339,32 @@ public final class StoreCodec {
           boolean present = in.readBoolean();
           yield new StoreRpc.ControllerRevisionResult(
               present, present ? DomainCodec.readControllerRevision(in) : null);
+        }
+        case TAG_KIND_DEFINITION_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.KindDefinitionResult(
+              present, present ? DomainCodec.readKindDefinitionSpec(in) : null);
+        }
+        case TAG_KIND_DEFINITION_LIST_RESULT -> {
+          int count = in.readInt();
+          List<KindDefinitionSpec> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readKindDefinitionSpec(in));
+          }
+          yield new StoreRpc.KindDefinitionListResult(values);
+        }
+        case TAG_CUSTOM_RESOURCE_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.CustomResourceResult(
+              present, present ? DomainCodec.readCustomResource(in) : null);
+        }
+        case TAG_CUSTOM_RESOURCE_LIST_RESULT -> {
+          int count = in.readInt();
+          List<CustomResource> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readCustomResource(in));
+          }
+          yield new StoreRpc.CustomResourceListResult(values);
         }
         default -> throw new IllegalArgumentException("unknown StoreRpc tag: " + tag);
       };

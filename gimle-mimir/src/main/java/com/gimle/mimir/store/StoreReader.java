@@ -8,6 +8,8 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -191,4 +193,17 @@ public interface StoreReader {
    * Empty when not violating; present with {@link LimitRangeSpec#violation}'s own text otherwise.
    */
   Optional<String> limitRangeViolationReason(Optional<String> tenantId, String deploymentName);
+
+  List<KindDefinitionSpec> listKindDefinitions();
+
+  /** {@code kindName} is always the stored, prefixed form ({@code custom.Greeting}). */
+  Optional<KindDefinitionSpec> getKindDefinition(String kindName);
+
+  /** Every stored instance of {@code kindName}, across all tenants -- callers tenant-filter. */
+  List<CustomResource> listCustomResources(String kindName);
+
+  List<CustomResource> listCustomResourcesFor(String kindName, Optional<String> tenantId);
+
+  Optional<CustomResource> getCustomResource(
+      String kindName, Optional<String> tenantId, String name);
 }

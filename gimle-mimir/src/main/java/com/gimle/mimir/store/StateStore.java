@@ -9,6 +9,8 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -112,6 +114,8 @@ public final class StateStore implements StoreReader {
   private final Map<String, ReconcilerInstanceState> reconcilerInstanceStates =
       new ConcurrentHashMap<>();
   private final Map<String, LimitRangeSpec> limitRanges = new ConcurrentHashMap<>();
+  private final Map<String, KindDefinitionSpec> kindDefinitions = new ConcurrentHashMap<>();
+  private final Map<String, CustomResource> customResources = new ConcurrentHashMap<>();
 
   /** Keyed by deployment name; absence means not violating. The value is the violation reason. */
   private final Map<String, String> limitRangeViolations = new ConcurrentHashMap<>();
@@ -1196,6 +1200,112 @@ public final class StateStore implements StoreReader {
     return Optional.ofNullable(limitRangeViolations.get(scopedKey(tenantId, deploymentName)));
   }
 
+  // ---- custom-kind definitions ----
+
+  /**
+   * Stores {@code spec} with a store-assigned generation of current + 1, ignoring whatever
+   * generation the proposer's copy carried -- the same lineage discipline {@link #putDeployment}'s
+   * own generation merge follows, so every replica assigns the identical value under Raft's
+   * strict-order replay.
+   */
+  public void putKindDefinition(KindDefinitionSpec spec) {
+    long next = getKindDefinitionGeneration(spec.kindName()) + 1;
+    kindDefinitions.put(spec.kindName(), spec.withGeneration(next));
+  }
+
+  public Optional<KindDefinitionSpec> getKindDefinition(String kindName) {
+    return Optional.ofNullable(kindDefinitions.get(kindName));
+  }
+
+  /** 0 for a kind never defined or since removed -- the compare-and-set precondition value. */
+  public long getKindDefinitionGeneration(String kindName) {
+    KindDefinitionSpec existing = kindDefinitions.get(kindName);
+    return existing == null ? 0L : existing.generation();
+  }
+
+  public List<KindDefinitionSpec> listKindDefinitions() {
+    return List.copyOf(kindDefinitions.values());
+  }
+
+  /**
+   * Removes only the definition itself -- {@code StateMutation.RemoveKindDefinition} refuses to
+   * ever reach here while instances of the kind exist, so a stored instance can never be orphaned
+   * with no schema to validate or display it.
+   */
+  public void removeKindDefinition(String kindName) {
+    kindDefinitions.remove(kindName);
+  }
+
+  // ---- custom resources ----
+
+  /**
+   * Stores {@code resource}'s spec with a store-assigned generation of current + 1, preserving any
+   * status an operator already reported -- a spec update must never stomp the operator's own
+   * last-reported status, which travels only through {@link #putCustomResourceStatus}. A brand-new
+   * resource starts with the proposer's own (typically empty) status bytes.
+   */
+  public void putCustomResource(CustomResource resource) {
+    String key = customResourceKey(resource.kindName(), resource.tenantId(), resource.name());
+    CustomResource existing = customResources.get(key);
+    long next = (existing == null ? 0L : existing.generation()) + 1;
+    byte[] status = existing == null ? resource.statusJson() : existing.statusJson();
+    customResources.put(
+        key,
+        new CustomResource(
+            resource.kindName(),
+            resource.name(),
+            resource.tenantId(),
+            resource.specJson(),
+            status,
+            next));
+  }
+
+  public Optional<CustomResource> getCustomResource(
+      String kindName, Optional<String> tenantId, String name) {
+    return Optional.ofNullable(customResources.get(customResourceKey(kindName, tenantId, name)));
+  }
+
+  /** 0 for an instance that has never existed or was removed -- the CAS precondition value. */
+  public long getCustomResourceGeneration(String kindName, Optional<String> tenantId, String name) {
+    CustomResource existing = customResources.get(customResourceKey(kindName, tenantId, name));
+    return existing == null ? 0L : existing.generation();
+  }
+
+  public List<CustomResource> listCustomResources(String kindName) {
+    return customResources.values().stream().filter(r -> r.kindName().equals(kindName)).toList();
+  }
+
+  public List<CustomResource> listCustomResourcesFor(String kindName, Optional<String> tenantId) {
+    return customResources.values().stream()
+        .filter(r -> r.kindName().equals(kindName) && r.tenantId().equals(tenantId))
+        .toList();
+  }
+
+  public void removeCustomResource(String kindName, Optional<String> tenantId, String name) {
+    customResources.remove(customResourceKey(kindName, tenantId, name));
+  }
+
+  /**
+   * Replaces only the status sub-document, never bumping the generation -- status is last-write-
+   * wins, and an operator's {@code observedGeneration} claim lives inside the JSON it reports, not
+   * in the store's own lineage counter. A status for an instance that no longer exists is silently
+   * dropped: the instance was deleted out from under a level-triggered operator mid-tick, and its
+   * next pass will observe the absence and stop reporting.
+   */
+  public void putCustomResourceStatus(
+      String kindName, Optional<String> tenantId, String name, byte[] statusJson) {
+    customResources.computeIfPresent(
+        customResourceKey(kindName, tenantId, name),
+        (key, existing) ->
+            new CustomResource(
+                existing.kindName(),
+                existing.name(),
+                existing.tenantId(),
+                existing.specJson(),
+                statusJson,
+                existing.generation()));
+  }
+
   // ---- full-state snapshot ----
 
   /**
@@ -1250,7 +1360,9 @@ public final class StateStore implements StoreReader {
         Map.copyOf(limitRangeViolations),
         Set.copyOf(revokedCertificateSerials.keySet()),
         List.copyOf(workloadTokens.values()),
-        nodeTaintsSnapshot());
+        nodeTaintsSnapshot(),
+        List.copyOf(kindDefinitions.values()),
+        List.copyOf(customResources.values()));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1326,6 +1438,8 @@ public final class StateStore implements StoreReader {
     rollingIndices.clear();
     surgeIndices.clear();
     effectiveReplicas.clear();
+    kindDefinitions.clear();
+    customResources.clear();
     clearAllInstanceEvents();
     clearAllAuditEvents();
     clearAllControllerRevisions();
@@ -1407,6 +1521,20 @@ public final class StateStore implements StoreReader {
     snapshot.controllerRevisions().forEach(this::putControllerRevision);
     snapshot.limitRanges().forEach(this::putLimitRange);
     snapshot.limitRangeViolations().forEach((key, reason) -> limitRangeViolations.put(key, reason));
+    // Direct raw puts rather than replaying through putKindDefinition/putCustomResource -- both of
+    // those assign generation = current + 1, which from this replica's just-wiped starting point
+    // would restart every lineage at 1 instead of the true accumulated value the rest of the
+    // cluster holds, the same trap the deploymentGenerations stomp above closes.
+    snapshot
+        .kindDefinitions()
+        .forEach(definition -> kindDefinitions.put(definition.kindName(), definition));
+    snapshot
+        .customResources()
+        .forEach(
+            resource ->
+                customResources.put(
+                    customResourceKey(resource.kindName(), resource.tenantId(), resource.name()),
+                    resource));
   }
 
   /**
@@ -1482,5 +1610,14 @@ public final class StateStore implements StoreReader {
 
   private static String configKey(String tenantId, String key) {
     return tenantId + "#" + key;
+  }
+
+  /**
+   * {@link #scopedKey}'s pattern with the kind name prepended -- one flat map serves every custom
+   * kind, so the key must carry the kind alongside the tenant/name pair. A kind name may contain
+   * dots but never {@code '\0'}, the same reasoning that makes the scoped-key delimiter safe.
+   */
+  private static String customResourceKey(String kindName, Optional<String> tenantId, String name) {
+    return kindName + '\0' + scopedKey(tenantId, name);
   }
 }

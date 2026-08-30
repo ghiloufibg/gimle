@@ -9,6 +9,8 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -126,6 +128,11 @@ public sealed interface StoreRpc {
           ListLimitRanges,
           IsLimitRangeViolating,
           GetLimitRangeViolationReason,
+          ListKindDefinitions,
+          GetKindDefinition,
+          ListCustomResources,
+          ListCustomResourcesFor,
+          GetCustomResource,
           Status {}
 
   sealed interface Response extends StoreRpc
@@ -182,6 +189,10 @@ public sealed interface StoreRpc {
           ControllerRevisionResult,
           LimitRangeResult,
           LimitRangeListResult,
+          KindDefinitionResult,
+          KindDefinitionListResult,
+          CustomResourceResult,
+          CustomResourceListResult,
           StatusResult {}
 
   // ---- leader-only requests (writes, plus the one leader-local read) ----
@@ -373,6 +384,18 @@ public sealed interface StoreRpc {
    * the answer out of a {@link NotLeader} redirect. A plain node-local read, served by any node;
    * the answer is that node's view, which mid-election may briefly name no leader.
    */
+  record ListKindDefinitions() implements Request {}
+
+  /** {@code kindName} is always the stored, prefixed form ({@code custom.Greeting}). */
+  record GetKindDefinition(String kindName) implements Request {}
+
+  record ListCustomResources(String kindName) implements Request {}
+
+  record ListCustomResourcesFor(String kindName, Optional<String> tenantId) implements Request {}
+
+  record GetCustomResource(String kindName, Optional<String> tenantId, String name)
+      implements Request {}
+
   record Status() implements Request {}
 
   /**
@@ -556,6 +579,14 @@ public sealed interface StoreRpc {
   record LimitRangeResult(boolean present, LimitRangeSpec value) implements Response {}
 
   record LimitRangeListResult(List<LimitRangeSpec> values) implements Response {}
+
+  record KindDefinitionResult(boolean present, KindDefinitionSpec value) implements Response {}
+
+  record KindDefinitionListResult(List<KindDefinitionSpec> values) implements Response {}
+
+  record CustomResourceResult(boolean present, CustomResource value) implements Response {}
+
+  record CustomResourceListResult(List<CustomResource> values) implements Response {}
 
   /**
    * {@code leaderId} is {@code ""} when the answering node has no current leader hint (a

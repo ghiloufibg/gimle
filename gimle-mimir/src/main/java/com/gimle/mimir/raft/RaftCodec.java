@@ -10,6 +10,8 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -131,6 +133,11 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_WORKLOAD_TOKEN = 59;
   private static final byte MUT_PUT_JOB_RUN_SUMMARY = 60;
   private static final byte MUT_PUT_NODE_TAINT = 61;
+  private static final byte MUT_PUT_KIND_DEFINITION = 62;
+  private static final byte MUT_REMOVE_KIND_DEFINITION = 63;
+  private static final byte MUT_PUT_CUSTOM_RESOURCE = 64;
+  private static final byte MUT_REMOVE_CUSTOM_RESOURCE = 65;
+  private static final byte MUT_PUT_CUSTOM_RESOURCE_STATUS = 66;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -693,6 +700,33 @@ public final class RaftCodec {
         out.writeUTF(m.statefulSetName());
         out.writeInt(m.instanceIndex());
       }
+      case StateMutation.PutKindDefinition m -> {
+        out.writeByte(MUT_PUT_KIND_DEFINITION);
+        DomainCodec.writeKindDefinitionSpec(out, m.spec());
+        out.writeLong(m.expectedGeneration());
+      }
+      case StateMutation.RemoveKindDefinition m -> {
+        out.writeByte(MUT_REMOVE_KIND_DEFINITION);
+        out.writeUTF(m.kindName());
+      }
+      case StateMutation.PutCustomResource m -> {
+        out.writeByte(MUT_PUT_CUSTOM_RESOURCE);
+        DomainCodec.writeCustomResource(out, m.resource());
+        out.writeLong(m.expectedGeneration());
+      }
+      case StateMutation.RemoveCustomResource m -> {
+        out.writeByte(MUT_REMOVE_CUSTOM_RESOURCE);
+        out.writeUTF(m.kindName());
+        DomainCodec.writeOptionalString(out, m.tenantId());
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutCustomResourceStatus m -> {
+        out.writeByte(MUT_PUT_CUSTOM_RESOURCE_STATUS);
+        out.writeUTF(m.kindName());
+        DomainCodec.writeOptionalString(out, m.tenantId());
+        out.writeUTF(m.name());
+        DomainCodec.writeBytes(out, m.statusJson());
+      }
     }
   }
 
@@ -900,6 +934,27 @@ public final class RaftCodec {
         String statefulSetName = in.readUTF();
         yield new StateMutation.RemoveStatefulSetIndexNode(tenantId, statefulSetName, in.readInt());
       }
+      case MUT_PUT_KIND_DEFINITION -> {
+        KindDefinitionSpec spec = DomainCodec.readKindDefinitionSpec(in);
+        yield new StateMutation.PutKindDefinition(spec, in.readLong());
+      }
+      case MUT_REMOVE_KIND_DEFINITION -> new StateMutation.RemoveKindDefinition(in.readUTF());
+      case MUT_PUT_CUSTOM_RESOURCE -> {
+        CustomResource resource = DomainCodec.readCustomResource(in);
+        yield new StateMutation.PutCustomResource(resource, in.readLong());
+      }
+      case MUT_REMOVE_CUSTOM_RESOURCE -> {
+        String kindName = in.readUTF();
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.RemoveCustomResource(kindName, tenantId, in.readUTF());
+      }
+      case MUT_PUT_CUSTOM_RESOURCE_STATUS -> {
+        String kindName = in.readUTF();
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String name = in.readUTF();
+        yield new StateMutation.PutCustomResourceStatus(
+            kindName, tenantId, name, DomainCodec.readBytes(in));
+      }
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -1095,6 +1150,14 @@ public final class RaftCodec {
         for (String tenantId : e.getValue()) {
           out.writeUTF(tenantId);
         }
+      }
+      out.writeInt(snapshot.kindDefinitions().size());
+      for (KindDefinitionSpec definition : snapshot.kindDefinitions()) {
+        DomainCodec.writeKindDefinitionSpec(out, definition);
+      }
+      out.writeInt(snapshot.customResources().size());
+      for (CustomResource resource : snapshot.customResources()) {
+        DomainCodec.writeCustomResource(out, resource);
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -1331,6 +1394,16 @@ public final class RaftCodec {
         }
         nodeTaints.put(nodeId, tenantIds);
       }
+      List<KindDefinitionSpec> kindDefinitions = new ArrayList<>();
+      int kindDefinitionCount = in.readInt();
+      for (int i = 0; i < kindDefinitionCount; i++) {
+        kindDefinitions.add(DomainCodec.readKindDefinitionSpec(in));
+      }
+      List<CustomResource> customResources = new ArrayList<>();
+      int customResourceCount = in.readInt();
+      for (int i = 0; i < customResourceCount; i++) {
+        customResources.add(DomainCodec.readCustomResource(in));
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1369,7 +1442,9 @@ public final class RaftCodec {
           limitRangeViolations,
           revokedCertificateSerials,
           workloadTokens,
-          nodeTaints);
+          nodeTaints,
+          kindDefinitions,
+          customResources);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

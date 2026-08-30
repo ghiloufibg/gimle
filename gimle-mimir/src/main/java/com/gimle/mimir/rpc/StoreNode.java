@@ -6,6 +6,8 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -90,6 +92,17 @@ public final class StoreNode implements StoreRpcHandler {
           new StoreRpc.BoolResult(store.isLimitRangeViolating(r.tenantId(), r.deploymentName()));
       case StoreRpc.GetLimitRangeViolationReason r ->
           stringResult(store.limitRangeViolationReason(r.tenantId(), r.deploymentName()));
+      case StoreRpc.ListKindDefinitions r ->
+          new StoreRpc.KindDefinitionListResult(store.listKindDefinitions());
+      case StoreRpc.GetKindDefinition r ->
+          kindDefinitionResult(store.getKindDefinition(r.kindName()));
+      case StoreRpc.ListCustomResources r ->
+          new StoreRpc.CustomResourceListResult(store.listCustomResources(r.kindName()));
+      case StoreRpc.ListCustomResourcesFor r ->
+          new StoreRpc.CustomResourceListResult(
+              store.listCustomResourcesFor(r.kindName(), r.tenantId()));
+      case StoreRpc.GetCustomResource r ->
+          customResourceResult(store.getCustomResource(r.kindName(), r.tenantId(), r.name()));
       case StoreRpc.IsNodeCordoned r -> new StoreRpc.BoolResult(store.isNodeCordoned(r.nodeId()));
       case StoreRpc.GetNodeTaints r ->
           new StoreRpc.StringSetResult(List.copyOf(store.getNodeTaints(r.nodeId())));
@@ -326,6 +339,20 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.LimitRangeResult(true, v))
         .orElseGet(() -> new StoreRpc.LimitRangeResult(false, null));
+  }
+
+  private static StoreRpc.KindDefinitionResult kindDefinitionResult(
+      Optional<KindDefinitionSpec> value) {
+    return value
+        .map(v -> new StoreRpc.KindDefinitionResult(true, v))
+        .orElseGet(() -> new StoreRpc.KindDefinitionResult(false, null));
+  }
+
+  private static StoreRpc.CustomResourceResult customResourceResult(
+      Optional<CustomResource> value) {
+    return value
+        .map(v -> new StoreRpc.CustomResourceResult(true, v))
+        .orElseGet(() -> new StoreRpc.CustomResourceResult(false, null));
   }
 
   private static StoreRpc.JobSpecResult jobSpecResult(Optional<JobSpec> value) {

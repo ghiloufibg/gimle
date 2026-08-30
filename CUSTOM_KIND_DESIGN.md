@@ -231,7 +231,10 @@ each other, checked for collision at definition admission.
 The store learns two generic shapes and stays otherwise ignorant. This is the design's central
 economy: *the marginal storage cost of a user-defined kind is zero*.
 
-New domain records (gimle-core, wire-transferable like `NetworkPolicyRule`):
+New domain records (implemented in `com.gimle.mimir.galdr`, alongside the schema model and
+validator — the `gimle-mimir.authz` precedent: both `gimle-mimir` and `gimle-controlplane` reach
+them with no dependency cycle, and nothing outside those two processes ever handles these records;
+the CLI and the agent relay only ever carry the JSON bytes):
 
 ```java
 // The definition: schema stored as its parsed model, not re-parsed YAML

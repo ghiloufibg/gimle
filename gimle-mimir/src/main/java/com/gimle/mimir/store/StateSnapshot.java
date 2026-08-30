@@ -8,6 +8,8 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -70,7 +72,9 @@ public record StateSnapshot(
     Map<String, String> limitRangeViolations,
     Set<String> revokedCertificateSerials,
     List<WorkloadTokenRecord> workloadTokens,
-    Map<String, Set<String>> nodeTaints) {
+    Map<String, Set<String>> nodeTaints,
+    List<KindDefinitionSpec> kindDefinitions,
+    List<CustomResource> customResources) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -133,5 +137,7 @@ public record StateSnapshot(
         nodeTaints.entrySet().stream()
             .collect(
                 Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
+    kindDefinitions = List.copyOf(kindDefinitions);
+    customResources = List.copyOf(customResources);
   }
 }

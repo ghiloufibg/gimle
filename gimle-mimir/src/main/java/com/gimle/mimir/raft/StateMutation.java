@@ -7,6 +7,8 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -661,6 +663,104 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeReconcilerInstanceState(tenantId, deploymentName, instanceIndex);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * Generation-guarded exactly like {@link PutDeployment} -- see its javadoc for the CAS contract.
+   * The stored generation is store-assigned (current + 1); the proposer's {@code spec.generation()}
+   * is carried only for the record and never trusted.
+   */
+  record PutKindDefinition(KindDefinitionSpec spec, long expectedGeneration)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      long current = store.getKindDefinitionGeneration(spec.kindName());
+      if (current != expectedGeneration) {
+        return MutationOutcome.rejected(
+            "kind definition '"
+                + spec.kindName()
+                + "' is at generation "
+                + current
+                + ", expected "
+                + expectedGeneration);
+      }
+      store.putKindDefinition(spec);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * Refused while any instance of the kind still exists -- the store-level half of a
+   * defense-in-depth pair with the API server's own 409, so no replay or alternate caller can ever
+   * orphan stored instances with no schema left to validate or display them.
+   */
+  record RemoveKindDefinition(String kindName) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      int instanceCount = store.listCustomResources(kindName).size();
+      if (instanceCount > 0) {
+        return MutationOutcome.rejected(
+            "kind '"
+                + kindName
+                + "' still has "
+                + instanceCount
+                + " instance(s) -- delete them first");
+      }
+      store.removeKindDefinition(kindName);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * Generation-guarded exactly like {@link PutDeployment} -- a lost race surfaces to the client as
+   * a 409, never a silent overwrite. The store bumps the generation itself and preserves any
+   * already-reported status; see {@code StateStore#putCustomResource}.
+   */
+  record PutCustomResource(CustomResource resource, long expectedGeneration)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      long current =
+          store.getCustomResourceGeneration(
+              resource.kindName(), resource.tenantId(), resource.name());
+      if (current != expectedGeneration) {
+        return MutationOutcome.rejected(
+            "resource '"
+                + resource.kindName()
+                + "/"
+                + resource.name()
+                + "' is at generation "
+                + current
+                + ", expected "
+                + expectedGeneration);
+      }
+      store.putCustomResource(resource);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  record RemoveCustomResource(String kindName, Optional<String> tenantId, String name)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.removeCustomResource(kindName, tenantId, name);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * Last-write-wins and never bumps the generation -- operators embed {@code observedGeneration} in
+   * the status JSON itself, and a stale status self-corrects on the operator's next level-triggered
+   * pass. See {@code StateStore#putCustomResourceStatus}.
+   */
+  record PutCustomResourceStatus(
+      String kindName, Optional<String> tenantId, String name, byte[] statusJson)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putCustomResourceStatus(kindName, tenantId, name, statusJson);
       return MutationOutcome.accepted();
     }
   }
