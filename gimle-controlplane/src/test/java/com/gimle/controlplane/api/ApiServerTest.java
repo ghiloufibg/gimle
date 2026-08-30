@@ -588,6 +588,39 @@ class ApiServerTest {
     assertFalse(status.containsKey("lastScheduleTime"), "never fired yet");
   }
 
+  /**
+   * A CronJobSpec has nothing of its own to charge against quota/limit-range (see {@code
+   * WorkloadResourceProfile}'s own javadoc), so the one real effect of running it through {@code
+   * admitWorkload} is {@code TenantQuotaPlugin}'s "unknown tenantId" check -- CronJob shouldn't be
+   * the one workload kind that lets a nonexistent tenant through where Deployment/Job/DaemonSet/
+   * StatefulSet all reject it.
+   */
+  @Test
+  void put_a_cronjob_for_an_unknown_tenant_is_rejected() throws Exception {
+    String yaml =
+        """
+        kind: CronJob
+        name: nightly-cleanup
+        schedule: "0 2 * * *"
+        jobTemplate:
+          module:
+            name: com.gimle.example.cleanup
+            version: 1.0.0
+          artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+          backoffLimit: 3
+        tenantId: does-not-exist
+        """;
+
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString(yaml))
+                .build());
+
+    assertEquals(409, put.statusCode());
+    assertTrue(put.body().contains("unknown tenantId"), put.body());
+  }
+
   @Test
   void put_a_cronjob_with_a_deployment_kind_manifest_is_rejected() throws Exception {
     HttpResponse<String> put =

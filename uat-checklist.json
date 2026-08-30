@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 657,
+    "totalRequirements": 658,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 534,
+    "notCoveredByAutomatedTest": 535,
     "releaseReadinessPercent": 18.7
   },
   "items": [
@@ -7229,6 +7229,17 @@
       "category": "Multi-tenancy / Authorization",
       "feature": "Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup",
       "step": "Given tenant \"acme\" and tenant \"default\" each have their own deployment named \"shared-name\"; When a caller GETs /deployments/shared-name?tenant=acme; Then the acme deployment is returned, never default's. Given the same two deployments; When a caller DELETEs /deployments/shared-name?tenant=acme; Then only acme's copy is removed and default's copy still exists afterward.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-658",
+      "module": "gimle-controlplane",
+      "category": "Admission / Multi-tenancy",
+      "feature": "CronJob-generated Jobs run through tenant quota/limit-range admission",
+      "step": "Given tenant \"tight\" has a quota too small for the CronJob's own jobTemplate; When a scheduled firing comes due; Then no JobSpec is materialized, but cronJobLastSchedule still advances so the firing is never retried. Given a CronJob manifest names a tenantId that does not exist; When it is PUT; Then admission rejects it with 409, the same as a directly-submitted Deployment/Job/DaemonSet/StatefulSet would be.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

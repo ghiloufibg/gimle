@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.ConcurrencyPolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
@@ -332,6 +334,52 @@ class CronJobReconcilerTest {
     assertEquals(
         Instant.parse("2026-01-01T00:01:00Z"),
         store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow());
+  }
+
+  /**
+   * The generated {@link JobSpec} is a real, chargeable workload even though the {@link
+   * CronJobSpec} itself is not (see {@code WorkloadResourceProfile}'s own javadoc) -- a tenant
+   * cannot bypass quota enforcement simply by wrapping an over-sized Job in a CronJob.
+   */
+  @Test
+  void a_firing_that_would_exceed_its_tenants_quota_is_skipped_like_a_missed_firing() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    store.putTenant(new Tenant("tight", new ResourceQuota(1, 1, 1)));
+    Path jar = buildFixtureJar();
+    CronJobSpec spec = tenantedCronJob("nightly-cleanup", jar, "tight");
+    store.putCronJobSpec(spec);
+    CronJobReconciler reconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+    reconciler.reconcileOnce(); // establishes the baseline, fires nothing yet
+
+    clock.advance(Duration.ofMinutes(1));
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        generatedJobsFor(store, "nightly-cleanup").isEmpty(),
+        "an over-quota firing must never materialize a JobSpec");
+    assertEquals(
+        Instant.parse("2026-01-01T00:01:00Z"),
+        store.getCronJobLastSchedule(Optional.of("tight"), "nightly-cleanup").orElseThrow(),
+        "a rejected firing is still recorded as scheduled, the same as a missed one");
+  }
+
+  private CronJobSpec tenantedCronJob(String name, Path jar, String tenantId) {
+    JobTemplate template =
+        new JobTemplate(
+            new ModuleId(jar.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0")),
+            jar.toAbsolutePath().toString(),
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            6);
+    return new CronJobSpec(
+        name,
+        "* * * * *",
+        template,
+        Optional.empty(),
+        ConcurrencyPolicy.ALLOW,
+        Optional.of(tenantId));
   }
 
   @Test

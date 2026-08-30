@@ -1,11 +1,19 @@
 package com.gimle.controlplane.reconcile;
 
+import com.gimle.controlplane.admission.AdmissionChain;
+import com.gimle.controlplane.admission.AdmissionDecision;
+import com.gimle.controlplane.admission.LimitRangePlugin;
+import com.gimle.controlplane.admission.TenantQuotaPlugin;
 import com.gimle.controlplane.andvari.ArtifactResolver;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Verb;
+import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.vessel.VesselSpec;
 import com.gimle.mimir.cron.CronSchedule;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.JobSpec;
+import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.StateStore;
@@ -45,6 +53,16 @@ import org.slf4j.LoggerFactory;
  * cronJobLastSchedule} -- a manual trigger is a one-off action independent of the schedule, not a
  * scheduled firing standing in for one (matching {@code kubectl create job --from=cronjob/x}'s own
  * behavior, which never advances the CronJob controller's own state either).
+ *
+ * <p>Every generated {@link JobSpec} runs through the identical {@link
+ * com.gimle.controlplane.admission.LimitRangePlugin}/{@link
+ * com.gimle.controlplane.admission.TenantQuotaPlugin} chain {@code ApiServer.handlePutJob} applies
+ * to a directly-submitted Job -- see {@link
+ * com.gimle.controlplane.admission.WorkloadResourceProfile}'s own javadoc for why a {@link
+ * CronJobSpec} itself has nothing to charge, but each firing it produces is a real, chargeable Job.
+ * A rejected firing is treated exactly like a missed one (logged, {@code cronJobLastSchedule} still
+ * advances so it isn't retried every tick) rather than failing the whole reconcile pass -- the same
+ * tolerant posture {@link #readArtifactSha256} already had for an unreadable artifact.
  */
 public final class CronJobReconciler {
 
@@ -54,6 +72,7 @@ public final class CronJobReconciler {
   private final MutationSink mutations;
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
+  private final AdmissionChain<WorkloadSpec> workloadAdmissionChain;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public CronJobReconciler(StateStore store) {
@@ -75,6 +94,9 @@ public final class CronJobReconciler {
     this.mutations = mutations;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
+    this.workloadAdmissionChain =
+        new AdmissionChain<>(
+            List.of(new LimitRangePlugin(), new TenantQuotaPlugin(artifactResolver)));
   }
 
   public void reconcileOnce() {
@@ -185,8 +207,8 @@ public final class CronJobReconciler {
       }
     }
 
-    Optional<String> artifactSha256 =
-        readArtifactSha256(
+    Optional<ModuleArtifact> artifact =
+        resolveArtifactIfPossible(
             spec.jobTemplate().artifactPath(),
             spec.jobTemplate().moduleId(),
             spec.jobTemplate().vessel());
@@ -200,25 +222,39 @@ public final class CronJobReconciler {
             spec.jobTemplate().activeDeadline(),
             spec.jobTemplate().backoffLimit(),
             spec.tenantId(),
-            artifactSha256,
+            artifact.map(ModuleArtifact::sha256),
             spec.jobTemplate().vessel());
-    planned.add(new StateMutation.PutJobSpec(job));
-    return Optional.of(new Firing(jobName, List.copyOf(planned)));
+    AdmissionDecision<WorkloadSpec> decision =
+        workloadAdmissionChain.admit(ResourceKind.JOB, Verb.WRITE, job, store, artifact);
+    return switch (decision) {
+      case AdmissionDecision.Reject<WorkloadSpec> reject -> {
+        log.warn("cronjob {} firing at {} skipped: {}", spec.name(), firingTime, reject.reason());
+        yield Optional.empty();
+      }
+      case AdmissionDecision.Allow<WorkloadSpec> allow -> {
+        planned.add(new StateMutation.PutJobSpec((JobSpec) allow.spec()));
+        yield Optional.of(new Firing(jobName, List.copyOf(planned)));
+      }
+    };
   }
 
   /**
    * The digest is never trusted from the manifest -- recomputed at firing time the same way {@code
    * ApiServer}'s own {@code handlePutJob} recomputes it at admission. An unreadable artifact does
-   * not block the firing (unlike a directly-submitted Job, nothing has accepted a client's request
-   * that must be answered synchronously here) -- {@code JobReconciler}'s own {@code placeAttempt}
-   * will simply find the artifact unreadable and retry next tick, the same outcome a missing
-   * hash-check would produce anyway. {@code vessel} is threaded through so a vessel-hosted
-   * jobTemplate reads its jar the same vessel-aware way every other reconciler does.
+   * not block the firing directly (unlike a directly-submitted Job, nothing has accepted a client's
+   * request that must be answered synchronously here) -- but for an <em>enforceable</em> tenant,
+   * {@link TenantQuotaPlugin}/{@link LimitRangePlugin} both reject an unreadable artifact outright
+   * (they have no way to verify quota/limit-range against it), so the firing is skipped the same
+   * way a genuine over-quota firing is. For an untenanted or unenforceable CronJob, both plugins
+   * allow it straight through regardless, and {@code JobReconciler}'s own {@code placeAttempt}
+   * simply finds the artifact unreadable and retries next tick. {@code vessel} is threaded through
+   * so a vessel-hosted jobTemplate reads its jar the same vessel-aware way every other reconciler
+   * does.
    */
-  private Optional<String> readArtifactSha256(
+  private Optional<ModuleArtifact> resolveArtifactIfPossible(
       String artifactPath, ModuleId moduleId, Optional<VesselSpec> vessel) {
     try {
-      return Optional.of(artifactResolver.resolve(artifactPath, moduleId, vessel).sha256());
+      return Optional.of(artifactResolver.resolve(artifactPath, moduleId, vessel));
     } catch (RuntimeException e) {
       return Optional.empty();
     }

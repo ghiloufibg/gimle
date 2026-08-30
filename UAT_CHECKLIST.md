@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 657
+- **Total requirements**: 658
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 534
+- **Not covered by automated test**: 535
 - **Release-readiness (automated coverage)**: 18.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 60 | 35 | 25 | 58.3% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 80 | 14 | 66 | 17.5% |
+| gimle-controlplane | 81 | 14 | 67 | 17.3% |
 | gimle-fafnir | 26 | 11 | 15 | 42.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -881,6 +881,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-246 | Tenant resource quota admission check | Given tenant T's quota is nearly exhausted; When a submission with maxCommittedInstances (replicas+maxSurge) would exceed it; Then admission rejects with 409. | Yes |
+| [ ] | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | Given tenant "tight" has a quota too small for the CronJob's own jobTemplate; When a scheduled firing comes due; Then no JobSpec is materialized, but cronJobLastSchedule still advances so the firing is never retried. Given a CronJob manifest names a tenantId that does not exist; When it is PUT; Then admission rejects it with 409, the same as a directly-submitted Deployment/Job/DaemonSet/StatefulSet would be. | No |
 
 #### Admission Control
 

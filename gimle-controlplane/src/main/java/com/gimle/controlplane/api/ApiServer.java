@@ -129,6 +129,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -371,14 +372,19 @@ public final class ApiServer implements AutoCloseable {
       SecretKey sessionSigningKey)
       throws IOException {
     this.storeClient = storeClient;
-    this.cronJobReconciler = new CronJobReconciler(storeClient, storeClient);
+    this.artifactResolver =
+        artifactResolver == null ? ArtifactResolver.localOnly() : artifactResolver;
+    // Must share this same resolver (not ArtifactResolver.localOnly()) -- otherwise a CronJob
+    // whose jobTemplate names a registry coordinate could never resolve it, and every one of its
+    // firings would fail the tenant-quota admission check below with "artifact unreadable" even
+    // though the coordinate is perfectly resolvable through the configured registry.
+    this.cronJobReconciler =
+        new CronJobReconciler(storeClient, storeClient, Clock.systemUTC(), this.artifactResolver);
     this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
     this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient, storeClient);
     this.configMapStore = new ConfigMapStore(storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
-    this.artifactResolver =
-        artifactResolver == null ? ArtifactResolver.localOnly() : artifactResolver;
     this.workloadAdmissionChain =
         new AdmissionChain<>(
             List.of(new LimitRangePlugin(), new TenantQuotaPlugin(this.artifactResolver)));
@@ -1285,13 +1291,13 @@ public final class ApiServer implements AutoCloseable {
 
   /**
    * Runs {@link #workloadAdmissionChain} (quota/limit-range) against any placeable workload kind's
-   * PUT, shared by every {@code handlePut{Deployment,Job,DaemonSet,StatefulSet}} handler -- writing
-   * the {@code 409} rejection response itself and returning {@link Optional#empty()} on reject, so
-   * each caller's own switch only ever has to handle the success path. The unchecked cast back to
-   * {@code T} is safe in practice (no plugin in this chain ever returns a spec of a different
-   * concrete type than it received -- see {@link AdmissionDecision.Allow}'s own javadoc for why
-   * that's even possible in principle), and is exactly the "single well-named, documented helper"
-   * case for absorbing it in one place rather than at every call site.
+   * PUT, shared by every {@code handlePut{Deployment,Job,DaemonSet,StatefulSet,CronJob}} handler --
+   * writing the {@code 409} rejection response itself and returning {@link Optional#empty()} on
+   * reject, so each caller's own switch only ever has to handle the success path. The unchecked
+   * cast back to {@code T} is safe in practice (no plugin in this chain ever returns a spec of a
+   * different concrete type than it received -- see {@link AdmissionDecision.Allow}'s own javadoc
+   * for why that's even possible in principle), and is exactly the "single well-named, documented
+   * helper" case for absorbing it in one place rather than at every call site.
    */
   @SuppressWarnings("unchecked")
   private <T extends WorkloadSpec> Optional<T> admitWorkload(
@@ -2225,7 +2231,18 @@ public final class ApiServer implements AutoCloseable {
           "manifest name '" + spec.name() + "' does not match URL path '" + name + "'");
       return AuditOutcome.REJECTED;
     }
-    storeClient.propose(new StateMutation.PutCronJobSpec(spec));
+    // A CronJobSpec itself has nothing to charge against quota/limit-range (see
+    // WorkloadResourceProfile's own javadoc -- each firing's generated JobSpec is what's actually
+    // chargeable, and CronJobReconciler runs this identical chain against it), so this call's only
+    // real effect here is TenantQuotaPlugin's own "unknown tenantId" check -- but every other
+    // handlePut{Deployment,Job,DaemonSet,StatefulSet} runs it too, and CronJob shouldn't be the one
+    // exception that lets a nonexistent tenant through.
+    Optional<CronJobSpec> allowed =
+        admitWorkload(exchange, ResourceKind.JOB, spec, Optional.empty());
+    if (allowed.isEmpty()) {
+      return AuditOutcome.REJECTED;
+    }
+    storeClient.propose(new StateMutation.PutCronJobSpec(allowed.get()));
     attachWarnings(exchange, warnings, "cronjob", name);
     respond(exchange, 200, "ok");
     return AuditOutcome.APPLIED;

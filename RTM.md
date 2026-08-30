@@ -672,6 +672,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-655 | Tenant-scoped StatefulSet persistent volume identity | New | Not Covered | — |
 | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | New | Not Covered | — |
 | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | New | Not Covered | — |
+| GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3851,6 +3852,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
 
+#### GIMLE-658 — CronJob-generated Jobs run through tenant quota/limit-range admission
+
+- **Category**: Admission / Multi-tenancy
+- **Status**: New  _(New requirement: closes the last workload-kind gap in FUNC-01's tenant-quota-bypass thread -- CronJob-generated Jobs and the CronJobSpec's own unknown-tenant check now run through the same admission chain every other workload kind already does.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario firing a CronJob against a tenant already at its quota ceiling and asserting the firing is skipped rather than materializing an over-quota Job.
+- **Other test coverage (non-Holmgang, informational only)**: `CronJobReconcilerTest#a_firing_that_would_exceed_its_tenants_quota_is_skipped_like_a_missed_firing`; `ApiServerTest#put_a_cronjob_for_an_unknown_tenant_is_rejected`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -6958,7 +6968,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**534 of 657 requirements are Not Covered.**
+**535 of 658 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -6970,6 +6980,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-275 | gimle-controlplane | Per-deployment and per-instance metrics rollup | API Server / Observability | Covered within `ApiServerConsoleContractTest`/`ApiServerTest` |
 | GIMLE-247 | gimle-controlplane | Organization-specific policy-as-data admission (`policy.maxReplicasPerDeployment`) | Admission / Config | `PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed` |
 | GIMLE-245 | gimle-controlplane | Admission chain extension point | Admission / Internal-Infra | `AdmissionChainTest` — `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated` |
+| GIMLE-658 | gimle-controlplane | CronJob-generated Jobs run through tenant quota/limit-range admission | Admission / Multi-tenancy | `CronJobReconcilerTest#a_firing_that_would_exceed_its_tenants_quota_is_skipped_like_a_missed_firing`; `ApiServerTest#put_a_cronjob_for_an_unknown_tenant_is_rejected`. |
 | GIMLE-607 | gimle-controlplane | Admission-time rejection of a manifest/artifact module-identity mismatch | Admission Control | `ApiServerTest` deployment/rollback admission cases exercise the shared admissionArtifact path with a fixture jar whose embedded module name matches the manifest; `ApiServerAuthzTest`'s putDeployment/operatorPutDeployment helpers were corrected to declare the fixture jar's real embedded module name. |
 | GIMLE-652 | gimle-mimir | Deleting a Workload Clears Its Revision History | Application Platform | `StateStoreTest` (revision-history clearing on delete, for all three workload kinds), `ApiServerDeploymentRollbackTest`/`ApiServerStatefulSetDaemonSetRollbackTest` (delete-then-recreate revision reset) |
 | GIMLE-297 | gimle-andvari | Immutable, content-addressed artifact store | Artifact Registry | `ArtifactStoreTest` — `an_identical_re_push_is_idempotent`, `a_differing_re_push_is_a_conflict_and_the_stored_bytes_are_untouched`; `AndvariServerTest` — `a_differing_re_push_is_refused_as_immutable`, `an_identical_re_push_is_idempotent` |
