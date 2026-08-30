@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
@@ -505,6 +506,51 @@ class GimleCliTest {
   }
 
   @Test
+  void secret_undelete_then_get_restores_the_same_version_and_value() throws Exception {
+    createTenant("acme");
+    run("secret", "set", "acme", "temp", "--value", "x");
+    run("secret", "delete", "acme", "temp");
+
+    outBuffer.reset();
+    int undeleteExit = run("secret", "undelete", "acme", "temp");
+    assertEquals(0, undeleteExit, stderr());
+    assertTrue(stdout().contains("secrets/acme/temp undeleted (version 1)"));
+
+    outBuffer.reset();
+    int getExit = run("secret", "get", "acme", "temp");
+    assertEquals(0, getExit, stderr());
+    assertTrue(stdout().contains("x"));
+  }
+
+  @Test
+  void secret_undelete_with_an_explicit_version_restores_that_older_version() throws Exception {
+    createTenant("acme");
+    run("secret", "set", "acme", "db-password", "--value", "v1");
+    run("secret", "set", "acme", "db-password", "--value", "v2");
+    run("secret", "delete", "acme", "db-password");
+
+    outBuffer.reset();
+    int undeleteExit = run("secret", "undelete", "acme", "db-password", "--version", "1");
+    assertEquals(0, undeleteExit, stderr());
+    assertTrue(stdout().contains("secrets/acme/db-password undeleted (version 1)"));
+
+    outBuffer.reset();
+    int getExit = run("secret", "get", "acme", "db-password");
+    assertEquals(0, getExit, stderr());
+    assertTrue(stdout().contains("v1"));
+  }
+
+  @Test
+  void secret_undelete_of_a_hard_deleted_secret_fails_rather_than_reviving_it() throws Exception {
+    createTenant("acme");
+    run("secret", "set", "acme", "temp", "--value", "x");
+    run("secret", "delete", "acme", "temp", "--destroy");
+
+    int undeleteExit = run("secret", "undelete", "acme", "temp");
+    assertEquals(1, undeleteExit);
+  }
+
+  @Test
   void secret_rotate_key_returns_an_incrementing_active_key_id() throws Exception {
     int firstExit = run("-o", "json", "secret", "rotate-key");
     assertEquals(0, firstExit, stderr());
@@ -654,10 +700,38 @@ class GimleCliTest {
     assertTrue(stdout().contains("\"tenantScope\":\"acme\""));
 
     int deleteExit = run("delete", "role", "deployment-reader");
-    assertEquals(0, deleteExit);
+    assertEquals(0, deleteExit, errBuffer::toString);
     outBuffer.reset();
     int getAfterDeleteExit = run("get", "role", "deployment-reader");
     assertEquals(1, getAfterDeleteExit);
+  }
+
+  @Test
+  void deleting_a_role_cascades_to_every_rolebinding_that_named_it() throws Exception {
+    // FUNC-24 regression: roleName is a plain string resolved by name at authorize-time, not an
+    // immutable ID -- a binding left behind after its Role is deleted would silently reactivate
+    // the moment anyone later PUTs a new Role under the same name.
+    assertEquals(
+        0, run("set", "role", "reviewer", "--permission", "deployment:read"), errBuffer::toString);
+    assertEquals(
+        0,
+        run("set", "rolebinding", "b1", "--subject", "user:alice", "--role", "reviewer"),
+        errBuffer::toString);
+    assertEquals(
+        0,
+        run("set", "rolebinding", "b2", "--subject", "group:reviewers", "--role", "reviewer"),
+        errBuffer::toString);
+
+    outBuffer.reset();
+    int deleteExit = run("delete", "role", "reviewer");
+    assertEquals(0, deleteExit);
+    String out = stdout();
+    // The operator is told which bindings were revoked, not left to discover it later.
+    assertTrue(out.contains("b1"), out);
+    assertTrue(out.contains("b2"), out);
+
+    assertEquals(1, run("get", "rolebinding", "b1"));
+    assertEquals(1, run("get", "rolebinding", "b2"));
   }
 
   @Test
@@ -1440,6 +1514,69 @@ class GimleCliTest {
     assertEquals(1, exit);
     assertTrue(stderr().contains("could not read manifest file"), stderr());
     assertTrue(stderr().contains("is a directory"), stderr());
+  }
+
+  @Test
+  void apply_with_more_than_one_file_flag_is_rejected_not_silently_applying_only_the_first()
+      throws Exception {
+    // FUNC-44 regression: the original forward-scan implementation returned the first -f it saw
+    // and never looked further, so a second -f silently vanished with no warning.
+    Path first = writeManifest("first-service", 1);
+    Path second = writeManifest("second-service", 1);
+
+    int exit = run("apply", "-f", first.toString(), "-f", second.toString());
+
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("exactly one"), stderr());
+    outBuffer.reset();
+    // Neither manifest was ever applied -- rejected before any request was made.
+    assertEquals(0, run("get", "deployments"));
+    assertFalse(stdout().contains("first-service"), stdout());
+    assertFalse(stdout().contains("second-service"), stdout());
+  }
+
+  // ---- a single-resource CLI verb rejects more than one name/id rather than silently keeping
+  // only the first (FUNC-44) ----
+
+  @Test
+  void deleting_a_tenant_with_more_than_one_positional_argument_is_rejected() {
+    assertEquals(
+        0,
+        run(
+            "set",
+            "tenant",
+            "acme",
+            "--max-memory-bytes",
+            "1",
+            "--max-cpu-millicores",
+            "1",
+            "--max-instances",
+            "1"),
+        errBuffer::toString);
+
+    int exitCode = run("delete", "tenant", "acme", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments"), stderr());
+    outBuffer.reset();
+    // Rejected before any request was made -- "acme" was never actually deleted.
+    assertEquals(0, run("get", "tenant", "acme"));
+  }
+
+  @Test
+  void getting_a_tenant_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("get", "tenant", "acme", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments"), stderr());
+  }
+
+  @Test
+  void cordoning_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("cordon", "node-1", "node-2");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments"), stderr());
   }
 
   // ---- -h/--help scopes to wherever it appears in the argument list ----

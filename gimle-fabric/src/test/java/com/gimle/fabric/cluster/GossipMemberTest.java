@@ -1,10 +1,8 @@
 package com.gimle.fabric.cluster;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
@@ -84,12 +82,41 @@ class GossipMemberTest {
 
   @Test
   @Timeout(15)
-  void multiple_unreachable_seeds_throw_gimle_cluster_exception() throws IOException {
+  void several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined()
+      throws IOException {
+    // FUNC-43: join() used to throw GimleClusterException here, and nothing anywhere caught it --
+    // a routine startup networking blip with >=1 configured seeds would crash the caller outright.
+    // It must never throw at all now: every seed unreachable, whether there's one or several, is
+    // the same unresolvable-at-join-time ambiguity, handled the same way (see join()'s own
+    // javadoc).
     GossipMember a = newMember("node-a");
     a.start();
     InetSocketAddress seed1 = new InetSocketAddress("127.0.0.1", 1);
     InetSocketAddress seed2 = new InetSocketAddress("127.0.0.1", 2);
-    assertThrows(GimleClusterException.class, () -> a.join(List.of(seed1, seed2)));
+    a.join(List.of(seed1, seed2));
+    assertEquals(MemberStatus.ALIVE, a.memberState("node-a").orElseThrow().status());
+  }
+
+  @Test
+  @Timeout(20)
+  void a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers() throws Exception {
+    // The actual gap JOIN_ATTEMPTS's own javadoc used to admit: node-a is not started at all
+    // during node-b's entire join() budget, so every attempt genuinely fails and join() returns
+    // having found nobody -- distinct from join_retries_recover_once_a_transiently_unreachable_
+    // seed_starts_receiving above, which recovers *within* a single join() call. Without
+    // retrySeedsIfIsolated running on every later tick, node-b would stay isolated forever even
+    // once node-a starts.
+    GossipMember a = newMember("node-a");
+    GossipMember b = newMember("node-b");
+    b.start();
+
+    b.join(List.of(a.self().gossipAddress()));
+    assertTrue(
+        !isAlive(b, "node-a"), "the seed genuinely wasn't up yet during join()'s own budget");
+
+    a.start(); // the seed recovers only after join() already gave up
+
+    Await.until(() -> isAlive(a, "node-b") && isAlive(b, "node-a"), Duration.ofSeconds(5));
   }
 
   @Test
@@ -211,6 +238,69 @@ class GossipMemberTest {
     // test ever exercises a circuit breaker.
     Await.until(() -> catalogOnA.endpointsFor(export).isEmpty(), Duration.ofSeconds(5));
     assertTrue(catalogOnA.endpointsForInterface(export.interfaceName()).isEmpty());
+  }
+
+  @Test
+  @Timeout(30)
+  void anti_entropy_sync_recovers_a_catalog_entry_that_fell_out_of_the_piggyback_window()
+      throws Exception {
+    // A short antiEntropyInterval so a real SyncRequest/SyncResponse round trip fires within the
+    // test's own timeout, without needing to wait out the multi-second production default.
+    GossipConfig config =
+        new GossipConfig(
+            Duration.ofMillis(50),
+            Duration.ofMillis(40),
+            Duration.ofMillis(200),
+            2,
+            6,
+            Duration.ofMillis(150),
+            Duration.ofSeconds(30));
+
+    GossipMember a = newMember("node-a", config);
+    GossipMember b = newMember("node-b", config);
+
+    ServiceExport early = new ServiceExport("com.gimle.example.Early", Version.parse("1.0.0"));
+    ModuleId module = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+
+    ServiceCatalog catalogOnA = new ServiceCatalog();
+    a.attachCatalog(catalogOnA);
+
+    // Register "early" first, then churn enough further registrations that it falls out of the
+    // default 8-entry recent-delta piggyback window entirely before node-b ever joins -- so node-b
+    // can never learn of it via ordinary piggyback traffic, no matter how long it gossips.
+    catalogOnA.localRegister(
+        a.self(), "worker-early", module, early, Optional.empty(), new InetSocketAddress(9000));
+    for (int i = 0; i < 10; i++) {
+      ServiceExport churn =
+          new ServiceExport("com.gimle.example.Churn" + i, Version.parse("1.0.0"));
+      catalogOnA.localRegister(
+          a.self(),
+          "worker-" + i,
+          module,
+          churn,
+          Optional.empty(),
+          new InetSocketAddress(9100 + i));
+    }
+
+    ServiceCatalog catalogOnB = new ServiceCatalog();
+    b.attachCatalog(catalogOnB);
+
+    a.start();
+    b.start();
+    b.join(List.of(a.self().gossipAddress()));
+
+    // node-b converges on node-a's membership via ordinary gossip well before anti-entropy could
+    // possibly be involved -- but "early" never rides the bounded piggyback window (it fell out
+    // before node-b ever joined), so it must still be missing at this point.
+    Await.until(
+        () -> b.memberState("node-a").map(s -> s.status() == MemberStatus.ALIVE).orElse(false),
+        Duration.ofSeconds(5));
+    assertTrue(catalogOnB.endpointsFor(early).isEmpty());
+
+    // Only the periodic anti-entropy SyncRequest/SyncResponse exchange can now teach node-b about
+    // "early": ordinary piggyback traffic never carries it again once it's fallen out of the top-8
+    // window, no matter how many more protocol periods elapse.
+    Await.until(() -> !catalogOnB.endpointsFor(early).isEmpty(), Duration.ofSeconds(10));
   }
 
   @Test

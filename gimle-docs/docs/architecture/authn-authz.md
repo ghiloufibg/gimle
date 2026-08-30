@@ -148,7 +148,14 @@ subject, so a legitimately re-issued certificate for the same identity is untouc
 reversible (`gimle cert unrevoke`), and `gimle cert revocations` lists the current set.
 
 `Roles`/`RoleBindings`/`Accounts` are ordinary Raft-replicated resources — new
-`StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, nothing special-cased.
+`StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, with one deliberate
+exception: deleting a `Role` cascades to every `RoleBinding` naming it, atomically, as part of the
+same `StateMutation`. `RoleBinding.roleName` is a plain string resolved by name at authorize-time,
+not an immutable ID, so a binding left behind after its Role is deleted would otherwise sit inert
+only until someone later creates a *new*, unrelated `Role` under that same name — at which point it
+would silently reactivate with whatever permissions the new Role grants. `gimle delete role <name>`
+reports exactly which bindings it cascaded, and each one gets its own audit event alongside the
+Role deletion's own.
 
 ### The reserved `gimle-system` tenant
 

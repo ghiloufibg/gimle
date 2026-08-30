@@ -317,14 +317,16 @@ class ApiServerAuthzTest {
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(200, tenants.statusCode());
 
-      // 5. Logout tells the browser to drop the cookie (Max-Age=0) -- it does not revoke the
-      // token server-side (documented, deliberate: the whole point of a stateless signed token is
-      // needing no revocation list). A request presenting no cookie at all afterward is
-      // unauthenticated, same as before any login ever happened.
+      // 5. Logout tells the browser to drop the cookie (Max-Age=0) *and* revokes the token
+      // server-side: the same cookie value, replayed afterward, is rejected even though its HMAC
+      // signature still verifies and it has not hit its ordinary 12-hour expiry -- otherwise a
+      // captured/stolen token would keep working for the rest of its natural lifetime regardless
+      // of the user's own logout.
       HttpResponse<String> logout =
           client.send(
               HttpRequest.newBuilder(URI.create(baseUrl + "/auth/logout"))
                   .POST(HttpRequest.BodyPublishers.noBody())
+                  .header("Cookie", sessionCookie)
                   .build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(200, logout.statusCode());
@@ -335,6 +337,18 @@ class ApiServerAuthzTest {
               HttpRequest.newBuilder(URI.create(baseUrl + "/auth/session")).GET().build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(401, afterLogout.statusCode());
+
+      // The old, already-issued cookie itself is now rejected server-side, not just absent from
+      // this fresh request -- the actual proof logout revoked it rather than merely telling this
+      // one client to forget it.
+      HttpResponse<String> replayedOldCookie =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/auth/session"))
+                  .header("Cookie", sessionCookie)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(401, replayedOldCookie.statusCode());
     }
   }
 
@@ -552,6 +566,86 @@ class ApiServerAuthzTest {
       assertEquals(200, deleteConfig(client, baseUrl, writerCookie, "tenant-1", "k1"));
       assertEquals(3, listAuditEvents(store).size());
       assertEquals("DELETE", listAuditEvents(store).get(0).verb());
+    }
+  }
+
+  /**
+   * FUNC-24 regression: deleting a Role used to leave every {@code RoleBinding} naming it dangling
+   * -- a silent-reactivation trap the moment a new Role was later created under the same name,
+   * since {@code RoleBinding.roleName} is a plain string, not an immutable ID. {@code
+   * StateMutation.RemoveRole} now cascades the removal atomically (covered directly against the
+   * store in {@code StateStoreTest}/{@code AuthorizerTest}); this pins the HTTP-layer half: the
+   * response reports exactly which bindings were revoked, and each cascaded removal gets its own
+   * audit event attributed to the caller who deleted the Role.
+   */
+  @Test
+  void deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("admin", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "role-admin",
+            java.util.Set.of(
+                Permission.unscoped(ResourceKind.ROLE, Verb.WRITE),
+                Permission.unscoped(ResourceKind.ROLE, Verb.DELETE))));
+    store.putRoleBinding(
+        new RoleBinding("admin-binding", RoleBinding.userSubject("admin"), "role-admin"));
+    store.putRole(
+        new Role(
+            "reviewer", java.util.Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ))));
+    store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("alice"), "reviewer"));
+    store.putRoleBinding(new RoleBinding("b2", RoleBinding.groupSubject("reviewers"), "reviewer"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "admin", "pw");
+
+      HttpRequest deleteRequest =
+          HttpRequest.newBuilder(URI.create(baseUrl + "/roles/reviewer"))
+              .header("Cookie", cookie)
+              .DELETE()
+              .build();
+      HttpResponse<String> response =
+          client.send(deleteRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, response.statusCode());
+      Map<String, Object> responseBody = Json.asObject(Json.parse(response.body()));
+      List<Object> removedRoleBindings = Json.asArray(responseBody.get("removedRoleBindings"));
+      assertEquals(java.util.Set.of("b1", "b2"), java.util.Set.copyOf(removedRoleBindings));
+
+      // The store itself reflects the cascade, not just the response body.
+      assertTrue(store.getRole("reviewer").isEmpty());
+      assertTrue(store.getRoleBinding("b1").isEmpty());
+      assertTrue(store.getRoleBinding("b2").isEmpty());
+
+      // Every audit event attributes to "admin" -- the caller who deleted the Role -- including
+      // the two cascaded ROLE_BINDING removals, not just the ROLE:DELETE decision itself.
+      List<AuditEvent> events = listAuditEvents(store);
+      assertEquals(3, events.size());
+      assertTrue(events.stream().allMatch(e -> e.principal().equals("admin")));
+      assertEquals(1, events.stream().filter(e -> e.resourceKind().equals("ROLE")).count());
+      List<AuditEvent> bindingEvents =
+          events.stream().filter(e -> e.resourceKind().equals("ROLE_BINDING")).toList();
+      assertEquals(2, bindingEvents.size());
+      assertTrue(bindingEvents.stream().allMatch(AuditEvent::allowed));
+      assertTrue(bindingEvents.stream().allMatch(e -> e.verb().equals("DELETE")));
+      assertEquals(
+          java.util.Set.of("b1", "b2"),
+          bindingEvents.stream()
+              .map(e -> e.targetId().orElseThrow())
+              .collect(java.util.stream.Collectors.toSet()));
     }
   }
 

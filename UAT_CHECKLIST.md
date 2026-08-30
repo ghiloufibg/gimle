@@ -6,28 +6,28 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 664
+- **Total requirements**: 679
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 538
-- **Release-readiness (automated coverage)**: 19.0%
+- **Not covered by automated test**: 553
+- **Release-readiness (automated coverage)**: 18.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 44 | 15 | 29 | 34.1% |
+| gimle-core | 45 | 15 | 30 | 33.3% |
 | gimle-module | 26 | 12 | 14 | 46.2% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
-| gimle-worker | 22 | 2 | 20 | 9.1% |
-| gimle-agent | 46 | 6 | 40 | 13.0% |
-| gimle-mimir | 61 | 36 | 25 | 59.0% |
-| gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 82 | 15 | 67 | 18.3% |
-| gimle-fafnir | 26 | 11 | 15 | 42.3% |
+| gimle-worker | 23 | 2 | 21 | 8.7% |
+| gimle-agent | 47 | 6 | 41 | 12.8% |
+| gimle-mimir | 62 | 36 | 26 | 58.1% |
+| gimle-fabric | 35 | 1 | 34 | 2.9% |
+| gimle-controlplane | 87 | 15 | 72 | 17.2% |
+| gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
-| gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 30 | 0 | 30 | 0.0% |
+| gimle-gateway | 17 | 0 | 17 | 0.0% |
+| gimle-cli | 31 | 0 | 31 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 34 | 0 | 34 | 0.0% |
@@ -199,6 +199,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-011 | RBAC domain model (resources, verbs, permissions, roles, bindings) | Given Permission scoped to (DEPLOYMENT,WRITE,tenant="acme"), When covers(DEPLOYMENT,WRITE,Optional.of("acme")), Then true; a different tenant, false. | Yes |
 | [ ] | GIMLE-012 | Built-in cluster-admin role and operator/node certificate groups | Given BuiltinRoles.CLUSTER_ADMIN, When inspected, Then contains one unscoped Permission for every (ResourceKind,Verb) combination. | Yes |
 | [ ] | GIMLE-615 | Per-tenant built-in role templates (tenant-view/edit/admin) | Given a RoleBinding to tenant-edit:acme, When its subject writes a deployment under tenant acme, Then it is allowed, and denied for any other tenant. Given a RoleBinding to tenant-view:acme, When its subject reads tenant acme's secrets, Then it is denied. Given a RoleBinding to tenant-view:acme, When its subject GETs /deployments, Then the response is 200 listing exactly tenant acme's deployments -- never another tenant's or an untenanted one, and never a 403. | No |
+
+#### Security / session management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-667 | Console session logout revokes the session token server-side, not just the client-side cookie | Given a console user logged in with a valid session cookie; When they log out and then replay the exact same old cookie; Then the server rejects it (401, or the plaintext anonymous carve-out) even though the cookie's own HMAC signature still verifies and it has not yet hit its ordinary expiry. Given a session token issued after a username's own revocation watermark; When it is presented; Then it is still accepted normally. | No |
 
 #### Self-Healing
 
@@ -429,6 +435,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-089 | Module-tier self-healing — restart on repeated liveness failure with backoff and budget exhaustion | Given a module's consecutive liveness failures reach livenessFailureThreshold (3) When restartModule() runs Then it stops (drains + uninstalls), re-registers the artifact, resolves, and starts it again And only one restart is ever in flight per module at a time Given the module recovers and stays stable past stableUptimeThreshold (10s) Then RestartTracker.recordSuccess() resets the backoff budget for the next failure cycle Given the module never recovers and the restart budget (5 attempts / 60s window) is exhausted Then controller.forceFailed(id, "restart budget exhausted") is called, escalating to FAILED And onModuleRestartBudgetExhausted is invoked, logging that the worker itself needs restarting | Yes |
 
+#### Worker runtime / health
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-666 | A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event | Given a module manifest naming a health.liveness class that does not exist; When the module transitions to Active; Then the instance is forced to FAILED with a durable TransitionFailed event, not left ACTIVE with a silently-missing probe loop. Given a module manifest naming a valid liveness probe class; When the module transitions to Active; Then it reaches and remains ACTIVE with its probe loop registered normally. | No |
+
 ### gimle-agent
 
 #### Cgroup Management
@@ -513,6 +525,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-626 | Bifrost locality-preferred forwarding and ClientIP session affinity | Given a Service with one backend on the proxy's own node and one remote, When a caller connects repeatedly, Then every connection is served by the same-node backend until it disappears, after which remote backends serve. Given a Service declaring sessionAffinity, When one caller connects repeatedly, Then every connection lands on the same backend. | No |
+
+#### Networking / policy enforcement
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-668 | A NetworkPolicy change closes an already-open Bifrost connection, not just future ones | Given a caller tenant permitted by the current NetworkPolicy with an already-open, long-lived connection through Bifrost; When that tenant is removed from the allow list (or a new deny policy is added) and the next poll tick runs; Then the already-open connection is closed within that same tick. Given an open connection to a service with no applicable policy change; When repeated poll ticks run; Then the connection is never closed. | No |
 
 #### Networking/Security
 
@@ -634,6 +652,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-652 | Deleting a Workload Clears Its Revision History | Given a Deployment/StatefulSet/DaemonSet with an existing revision history; When it is deleted and a new workload is created under the same name; Then the new workload's first revision is numbered 1, and rolling back to a revision number that existed before the delete returns 404. | No |
+
+#### Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked. Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated. Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event. | No |
 
 #### Config
 
@@ -823,6 +847,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-184 | Locality-Aware Load Balancing with Spillover | Given several same-machine endpoints saturated and a remote endpoint with spare capacity; When lookup selects a candidate; Then the remote tier is admitted; when a same-machine endpoint is idle, remote is never consulted. | No |
 | [ ] | GIMLE-185 | Least-Outstanding-Requests Selection | Given two candidates, one busier; When select is called; Then the less-loaded candidate is chosen; ties round-robin. | No |
 
+#### Networking / Cluster membership
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-676 | Background gossip rejoin after a seed-list join startup blip | Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running. Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry. | No |
+
 #### Networking / Multi-tenancy
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -849,6 +879,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-194 | Inbound Call Dispatch with Bounded Concurrency | Given a target module with a bounded ModuleWorkExecutor; When more concurrent inbound calls arrive than allowed; Then extra calls queue; ModuleContext's in-flight counter reflects real inbound calls. | No |
 | [ ] | GIMLE-195 | Distributed Trace Propagation Across Fabric Hops | Given a caller with an active span and baggage; When it invokes a remote service; Then the callee starts a child span parented on the caller's real span, observing the same baggage. | No |
 | [ ] | GIMLE-196 | Fabric Transport over Mutual TLS with Hot Cert Reload | Given fabric configured for mTLS; When a cross-machine invocation is made; Then it succeeds over TLS; a client trusting a different CA is rejected; reload lets a fresh connection succeed without restart. | No |
+
+#### Service fabric / gossip membership
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-672 | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Given two gossip members with diverging service catalogs (a missed piggyback update); When anti-entropy sync runs; Then both catalogs converge to the same full state, paginated the same way membership state already is. Given a node that restarts with an empty catalog; When it rejoins the cluster; Then anti-entropy sync repopulates its catalog to match the cluster's current state. | No |
 
 ### gimle-controlplane
 
@@ -943,6 +979,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-264 | CONFIG/SECRET resource-kind separation on one underlying store | Given a caller has CONFIG:WRITE but not SECRET:WRITE; When PUT /config/{tenant}/{key} with encrypted=true; Then the write is rejected because it routes authorization through ResourceKind.SECRET. | No |
 
+#### Config / ConfigMap
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-673 | Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps | Given a plain config key written and overwritten several times; When GET .../versions is called; Then every version ever stamped is listed oldest-first, each with its own value. Given a config key with multiple versions; When POST .../rollback names an earlier version; Then that version's content becomes current as a brand-new version, and every other version's own data is left untouched. Given a config key deleted and later recreated; When a new version is written; Then its version number continues counting up from the ledger's own highest, never restarting at 1. Given an encrypted config entry; When it is written or deleted; Then no version is stamped -- versioning covers only the plaintext path. | No |
+
 #### Configuration Management
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1005,6 +1047,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready. | No |
 
+#### Multi-tenancy / Self-healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-675 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be. Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node. Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false. | No |
+
 #### Networking / Services
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1016,6 +1064,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-242 | Reconciler-leader election via non-replicated lease | Given multiple ApiServer replicas share one store cluster; When each replica's leaseTick runs; Then only the lease-holder executes the reconcile tick. | No |
+
+#### Reconcilers / self-healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-669 | Node-death instance eviction is throttled against the deployment's own DisruptionBudget | Given a deployment with DisruptionBudget maxUnavailable N and more than N replicas gone stale on a dead node past their grace period; When the reconciler ticks; Then at most N of them are released for re-placement this tick, the rest deferred to a later tick. Given a deployment assignment deferred by an exhausted disruption budget; When a later tick has budget again; Then it is released without having to wait out a fresh grace period. | No |
 
 #### Reconciliation
 
@@ -1143,11 +1197,23 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-631 | StatefulSet/DaemonSet machine-level self-healing on node death | Given a StatefulSet index assigned to a node that has gone dark past nodeDarkTimeout + placementGracePeriod, When the reconciler ticks, Then that index's assignment is released while its sticky node binding survives, and the next tick re-places it on the same node once its heartbeat is fresh again. Given a StatefulSet index assigned to a node merely dark within the grace period, When the reconciler ticks, Then the assignment is left untouched -- a transient partition never relocates sticky data. Given a DaemonSet assignment evicted because its node fell out of eligibility, When the eviction is logged, Then the log line names the specific reason (heartbeat loss, cordon, or a placement-requirement mismatch), not just that an eviction happened. | No |
 
+#### Self-healing / Resilience
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-674 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck. Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node. Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again. | No |
+
 #### Storage / Operations
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-621 | Cluster-wide volume operator surface (/volumes API + CLI) | Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage. Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it. | No |
+
+#### Workloads / CronJob
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-670 | CronJob prunes its own terminal generated Jobs to configurable successful/failed history limits | Given a CronJob with default history limits and more firings than those limits allow; When the reconciler ticks after each firing is marked terminal; Then only the configured number of most-recent successful and failed Jobs remain, oldest excess pruned. Given an operator lowers a CronJob's history limit below its currently accumulated terminal Job count; When the reconciler next ticks; Then it prunes down to the new, lower limit. | No |
 
 ### gimle-fafnir
 
@@ -1197,6 +1263,18 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-294 | Muninn metrics/traces shipping | Given -Dgimle.fafnir.muninnEndpoint is set; When FafnirMain starts; Then a MuninnShipper periodically ships this replica's metrics and traces. | No |
+
+#### Secrets / CLI parity
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-677 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0. Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure. Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed. | No |
+
+#### Secrets / Fafnir
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-671 | A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version | Given a Secret soft-deleted with no version specified for undelete; When undelete is called; Then the version that was current at delete time is restored as current again, with no new version minted. Given a Secret with multiple versions, soft-deleted; When undelete is called with an explicit earlier version; Then that version's data becomes current, and every other version's own data is left untouched and still readable by number. Given a hard-deleted (destroyed) secret; When undelete is called; Then it returns empty -- that data is genuinely gone with no path back. | No |
 
 #### Secrets Management
 
@@ -1427,6 +1505,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-368 | Boot-only platform-layer JPMS workaround (`requires static`) | (structural/build-time behavior, not a runtime scenario) | No |
 
+#### Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-679 | Gateway route table reloads on a config change without a restart | Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged. | No |
+
 ### gimle-cli
 
 #### CLI
@@ -1475,6 +1559,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-385 | RBAC role binding management | Given "gimle set rolebinding b1 --subject user:alice --role cluster-admin", Then PUT /rolebindings/b1; "gimle get rolebindings" lists "user:alice". | No |
 | [ ] | GIMLE-386 | Operator account management | Given "gimle set account admin --password s3cret-password", Then PUT /accounts/admin sent; JSON output includes "username" but never "passwordHash" or the raw password. | No |
 | [ ] | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | Given "gimle cert request --purpose operator --out-cert op.crt --out-key op.key" against a trust-only connection, Then a keypair/CSR is generated locally, private key written immediately, and CSR POSTed unauthenticated to /bootstrap/csr; a due-for-renewal cred triggers a warning on any other command. | No |
+
+#### CLI / console parity
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-665 | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | Given a delete/get verb backed by requireOne or requireAtMostOne; When more than one positional name/id argument is given; Then the command is rejected with a clear "too many arguments" error and exits nonzero, with no request ever sent to the control plane. Given gimle apply with two -f/--file flags; When the command runs; Then it is rejected before either manifest is read, rather than silently applying only the first. Given a rejected delete or apply; Then the target resource is left completely untouched -- rejection happens client-side, before any HTTP request. | No |
 
 #### CLI UX
 

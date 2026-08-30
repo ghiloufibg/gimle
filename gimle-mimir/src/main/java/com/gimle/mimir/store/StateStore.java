@@ -105,8 +105,15 @@ public final class StateStore implements StoreReader {
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
   private final Map<String, Boolean> nodeCordons = new ConcurrentHashMap<>();
   private final Map<String, Set<String>> nodeTaints = new ConcurrentHashMap<>();
+  private final Map<String, WorkloadHealthState> workloadHealthStates = new ConcurrentHashMap<>();
   private final Map<String, Boolean> revokedCertificateSerials = new ConcurrentHashMap<>();
   private final Map<String, WorkloadTokenRecord> workloadTokens = new ConcurrentHashMap<>();
+  // username -> the epoch-milli watermark set by that user's last console logout. Bounded by the
+  // number of distinct usernames that have ever logged out (an operator account list, not
+  // per-request churn), so unlike workloadTokens above this needs no expired-entry sweep: once
+  // every session issued before a username's watermark has long since hit its own 12-hour expiry,
+  // the entry is simply never consulted again, harmless to leave in place.
+  private final Map<String, Long> sessionRevokedBeforeEpochMilli = new ConcurrentHashMap<>();
   private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
   private final Map<String, Role> roles = new ConcurrentHashMap<>();
   private final Map<String, RoleBinding> roleBindings = new ConcurrentHashMap<>();
@@ -902,6 +909,30 @@ public final class StateStore implements StoreReader {
     return Set.copyOf(revokedCertificateSerials.keySet());
   }
 
+  // ---- console session revocation bookkeeping ----
+
+  /**
+   * Advances {@code username}'s "revoked before" watermark to {@code revokedBeforeEpochMilli} --
+   * called on every {@code /auth/logout} for whichever username the presented cookie verified to. A
+   * session token is otherwise a fully stateless, self-verifying HMAC token (see {@code
+   * SessionTokens}' own javadoc); this is the one piece of server-side state layered on top of it,
+   * mirroring {@link #putCertificateRevocation} for a different credential type -- checked before
+   * any authorization runs, the same per-request level-triggered store read.
+   *
+   * <p>Merges with {@link Math#max} rather than a plain {@code put}: two logouts for the same
+   * username can replay in either order relative to their own wall-clock stamps (clock skew, or a
+   * mutation submitted earlier that commits later), and the watermark must only ever ratchet
+   * forward -- never let a stale, lower stamp silently undo an already-applied revocation.
+   */
+  public void putSessionRevocation(String username, long revokedBeforeEpochMilli) {
+    sessionRevokedBeforeEpochMilli.merge(username, revokedBeforeEpochMilli, Math::max);
+  }
+
+  /** {@code 0} (never revoked) for a username that has never logged out. */
+  public long getSessionRevokedBeforeEpochMilli(String username) {
+    return sessionRevokedBeforeEpochMilli.getOrDefault(username, 0L);
+  }
+
   // ---- workload-identity token bookkeeping ----
 
   /**
@@ -960,6 +991,32 @@ public final class StateStore implements StoreReader {
 
   public void removeRole(String name) {
     roles.remove(name);
+  }
+
+  /**
+   * Removes every {@link RoleBinding} whose {@code roleName} equals {@code name}, returning the
+   * ones removed. Called from {@code StateMutation.RemoveRole}'s own {@code applyTo} so a Role's
+   * deletion and its bindings' cleanup commit as a single Raft log entry -- {@code
+   * RoleBinding.roleName} is a plain string resolved by name at authorize-time, not an immutable
+   * ID, so a binding left behind after its Role is deleted sits inert only until someone later
+   * {@code PUT}s a <i>new</i> Role under the same name, at which point it silently reactivates with
+   * whatever permissions that new Role grants. Doing this here, inside the mutation that deletes
+   * the Role, rather than as a separate proposal from the caller, means no window exists where the
+   * Role is gone but a stale binding naming it still is not.
+   */
+  public List<RoleBinding> removeRoleBindingsForRole(String name) {
+    List<RoleBinding> removed = new ArrayList<>();
+    roleBindings
+        .values()
+        .removeIf(
+            binding -> {
+              if (!binding.roleName().equals(name)) {
+                return false;
+              }
+              removed.add(binding);
+              return true;
+            });
+    return List.copyOf(removed);
   }
 
   // ---- role bindings ----
@@ -1027,6 +1084,33 @@ public final class StateStore implements StoreReader {
 
   public List<ReconcilerInstanceState> listReconcilerInstanceStates() {
     return List.copyOf(reconcilerInstanceStates.values());
+  }
+
+  /**
+   * The {@link WorkloadHealthState} equivalent of {@link #putReconcilerInstanceState} for a
+   * StatefulSet index or DaemonSet node-instance -- see that record's own javadoc for why it's a
+   * separate resource kind rather than reusing {@link ReconcilerInstanceState}.
+   */
+  public void putWorkloadHealthState(WorkloadHealthState state) {
+    workloadHealthStates.put(
+        workloadHealthKey(
+            state.tenantId(), state.workloadKind(), state.workloadName(), state.slot()),
+        state);
+  }
+
+  public Optional<WorkloadHealthState> getWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot) {
+    return Optional.ofNullable(
+        workloadHealthStates.get(workloadHealthKey(tenantId, workloadKind, workloadName, slot)));
+  }
+
+  public void removeWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot) {
+    workloadHealthStates.remove(workloadHealthKey(tenantId, workloadKind, workloadName, slot));
+  }
+
+  public List<WorkloadHealthState> listWorkloadHealthStates() {
+    return List.copyOf(workloadHealthStates.values());
   }
 
   // ---- per-instance lifecycle event log ----
@@ -1362,7 +1446,9 @@ public final class StateStore implements StoreReader {
         List.copyOf(workloadTokens.values()),
         nodeTaintsSnapshot(),
         List.copyOf(kindDefinitions.values()),
-        List.copyOf(customResources.values()));
+        List.copyOf(customResources.values()),
+        List.copyOf(workloadHealthStates.values()),
+        Map.copyOf(sessionRevokedBeforeEpochMilli));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1430,11 +1516,13 @@ public final class StateStore implements StoreReader {
     nodeTaints.clear();
     revokedCertificateSerials.clear();
     workloadTokens.clear();
+    sessionRevokedBeforeEpochMilli.clear();
     configEntries.clear();
     roles.clear();
     roleBindings.clear();
     accounts.clear();
     reconcilerInstanceStates.clear();
+    workloadHealthStates.clear();
     rollingIndices.clear();
     surgeIndices.clear();
     effectiveReplicas.clear();
@@ -1501,11 +1589,13 @@ public final class StateStore implements StoreReader {
                 tenantIds.forEach(tenantId -> putNodeTaint(nodeId, tenantId, true)));
     snapshot.revokedCertificateSerials().forEach(serial -> putCertificateRevocation(serial, true));
     snapshot.workloadTokens().forEach(record -> putWorkloadToken(record, 0L));
+    snapshot.sessionRevokedBeforeEpochMilli().forEach(this::putSessionRevocation);
     snapshot.configEntries().forEach(this::putConfigEntry);
     snapshot.roles().forEach(this::putRole);
     snapshot.roleBindings().forEach(this::putRoleBinding);
     snapshot.accounts().forEach(this::putAccount);
     snapshot.reconcilerInstanceStates().forEach(this::putReconcilerInstanceState);
+    snapshot.workloadHealthStates().forEach(this::putWorkloadHealthState);
     // A direct bulk put rather than replaying through putInstanceEvent one event at a time --
     // StateSnapshot#instanceEvents is already keyed and ordered (oldest-first) exactly the way
     // this store's own instanceEvents field is, retention-cap-pruned by whichever replica took
@@ -1601,6 +1691,16 @@ public final class StateStore implements StoreReader {
   private static String reconcilerStateKey(
       Optional<String> tenantId, String deploymentName, int instanceIndex) {
     return scopedKey(tenantId, deploymentName) + "#" + instanceIndex;
+  }
+
+  /**
+   * {@code workloadKind} prefixes the key (rather than trailing it, as {@code slot} does) so a
+   * Deployment- and StatefulSet-shaped key can never collide even when the tenant, name, and slot
+   * all happen to coincide -- see {@link WorkloadHealthState}'s own javadoc.
+   */
+  private static String workloadHealthKey(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot) {
+    return workloadKind + "#" + scopedKey(tenantId, workloadName) + "#" + slot;
   }
 
   private static String instanceEventsKey(

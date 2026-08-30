@@ -24,11 +24,11 @@ public final class RoleBindingsCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
+    String id = GimleCli.requireAtMostOne(args, "rolebinding");
+    if (id == null) {
       OutputFormat.printList(output, client.getList("/rolebindings"), out);
       return;
     }
-    String id = args.get(0);
     OutputFormat.printObject(output, client.getObject("/rolebindings/" + id), out);
   }
 

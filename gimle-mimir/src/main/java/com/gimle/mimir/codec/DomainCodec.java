@@ -57,6 +57,7 @@ import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -370,6 +371,8 @@ public final class DomainCodec {
     writeOptionalDuration(out, spec.startingDeadline());
     out.writeUTF(spec.concurrencyPolicy().name());
     writeOptionalString(out, spec.tenantId());
+    out.writeInt(spec.successfulJobsHistoryLimit());
+    out.writeInt(spec.failedJobsHistoryLimit());
   }
 
   public static CronJobSpec readCronJobSpec(DataInputStream in) throws IOException {
@@ -379,8 +382,17 @@ public final class DomainCodec {
     Optional<Duration> startingDeadline = readOptionalDuration(in);
     ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.valueOf(in.readUTF());
     Optional<String> tenantId = readOptionalString(in);
+    int successfulJobsHistoryLimit = in.readInt();
+    int failedJobsHistoryLimit = in.readInt();
     return new CronJobSpec(
-        name, schedule, jobTemplate, startingDeadline, concurrencyPolicy, tenantId);
+        name,
+        schedule,
+        jobTemplate,
+        startingDeadline,
+        concurrencyPolicy,
+        tenantId,
+        successfulJobsHistoryLimit,
+        failedJobsHistoryLimit);
   }
 
   public static void writeDaemonSetSpec(DataOutputStream out, DaemonSetSpec spec)
@@ -393,6 +405,7 @@ public final class DomainCodec {
     writeOptionalString(out, spec.artifactSha256());
     writeOptionalDisruptionBudget(out, spec.disruption());
     writeOptionalVesselSpec(out, spec.vessel());
+    out.writeBoolean(spec.tolerateAllTaints());
   }
 
   public static DaemonSetSpec readDaemonSetSpec(DataInputStream in) throws IOException {
@@ -404,8 +417,17 @@ public final class DomainCodec {
     Optional<String> artifactSha256 = readOptionalString(in);
     Optional<DisruptionBudget> disruption = readOptionalDisruptionBudget(in);
     Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
+    boolean tolerateAllTaints = in.readBoolean();
     return new DaemonSetSpec(
-        name, moduleId, artifactPath, placement, tenantId, artifactSha256, disruption, vessel);
+        name,
+        moduleId,
+        artifactPath,
+        placement,
+        tenantId,
+        artifactSha256,
+        disruption,
+        vessel,
+        tolerateAllTaints);
   }
 
   public static void writeDaemonSetAssignment(DataOutputStream out, DaemonSetAssignment assignment)
@@ -1153,6 +1175,41 @@ public final class DomainCodec {
         pendingRetry,
         permanentlyFailed,
         firstSeenMissingAtEpochMilli,
+        tenantId);
+  }
+
+  public static void writeWorkloadHealthState(DataOutputStream out, WorkloadHealthState state)
+      throws IOException {
+    out.writeUTF(state.workloadKind());
+    out.writeUTF(state.workloadName());
+    out.writeUTF(state.slot());
+    out.writeInt(state.attemptsInWindow());
+    out.writeLong(state.windowStartEpochMilli());
+    out.writeLong(state.nextAllowedAttemptEpochMilli());
+    out.writeBoolean(state.pendingRetry());
+    out.writeBoolean(state.permanentlyFailed());
+    writeOptionalString(out, state.tenantId());
+  }
+
+  public static WorkloadHealthState readWorkloadHealthState(DataInputStream in) throws IOException {
+    String workloadKind = in.readUTF();
+    String workloadName = in.readUTF();
+    String slot = in.readUTF();
+    int attemptsInWindow = in.readInt();
+    long windowStartEpochMilli = in.readLong();
+    long nextAllowedAttemptEpochMilli = in.readLong();
+    boolean pendingRetry = in.readBoolean();
+    boolean permanentlyFailed = in.readBoolean();
+    Optional<String> tenantId = readOptionalString(in);
+    return new WorkloadHealthState(
+        workloadKind,
+        workloadName,
+        slot,
+        attemptsInWindow,
+        windowStartEpochMilli,
+        nextAllowedAttemptEpochMilli,
+        pendingRetry,
+        permanentlyFailed,
         tenantId);
   }
 

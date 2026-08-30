@@ -162,7 +162,10 @@ class FafnirServerSealTest {
             "/secretmaps/acme/db-creds/seal",
             Json.write(Map.of("sealed", Map.of("password", Json.parse(sealed)))));
 
-    assertEquals(200, commit.statusCode());
+    // FUNC-02: every key in this batch failed, so the response must say so via its own status --
+    // 200 here (the pre-fix behavior) made a 100%-failed batch indistinguishable from a clean one
+    // to anything checking status alone.
+    assertEquals(207, commit.statusCode());
     List<Object> results = Json.asArray(Json.asObject(Json.parse(commit.body())).get("results"));
     assertEquals(1, results.size());
     assertTrue(Json.asObject(results.get(0)).containsKey("error"));
@@ -180,6 +183,7 @@ class FafnirServerSealTest {
             "/secretmaps/acme/db-creds/seal",
             Json.write(Map.of("sealed", Map.of("password", Json.parse(sealed)))));
 
+    assertEquals(207, commit.statusCode());
     List<Object> results = Json.asArray(Json.asObject(Json.parse(commit.body())).get("results"));
     assertTrue(Json.asObject(results.get(0)).containsKey("error"));
   }
@@ -200,6 +204,7 @@ class FafnirServerSealTest {
             "/secretmaps/acme/db-creds/seal",
             Json.write(Map.of("sealed", Map.of("password", Json.parse(sealed)))));
 
+    assertEquals(207, commit.statusCode());
     List<Object> results = Json.asArray(Json.asObject(Json.parse(commit.body())).get("results"));
     assertTrue(Json.asObject(results.get(0)).containsKey("error"));
   }
@@ -226,6 +231,7 @@ class FafnirServerSealTest {
             "/secretmaps/acme/db-creds/seal",
             Json.write(Map.of("sealed", Map.of("password", Json.parse(sealed)))));
 
+    assertEquals(207, commit.statusCode());
     List<Object> results = Json.asArray(Json.asObject(Json.parse(commit.body())).get("results"));
     Object error = Json.asObject(results.get(0)).get("error");
     assertTrue(error instanceof String, "expected an error message, got: " + error);
@@ -301,7 +307,7 @@ class FafnirServerSealTest {
                 new ConfigEntry(
                     "acme",
                     "plain-secret@meta",
-                    Json.write(Map.of("latestVersion", 1, "deleted", false))
+                    Json.write(Map.of("latestVersion", 1, "highestVersion", 1, "deleted", false))
                         .getBytes(StandardCharsets.UTF_8),
                     false)));
 

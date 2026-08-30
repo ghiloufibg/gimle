@@ -88,6 +88,21 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
         .formatted(name, version, version);
   }
 
+  private static String daemonSetYamlTolerantOfAllTaints(String name, String version) {
+    return """
+        kind: DaemonSet
+        name: %s
+        module:
+          name: com.gimle.example.node-exporter
+          version: %s
+        artifactPath: /var/gimle/artifacts/node-exporter-%s.jar
+        placement:
+          requiredLabels: [gpu]
+        tolerateAllTaints: true
+        """
+        .formatted(name, version, version);
+  }
+
   private HttpResponse<String> put(String path, String yaml) throws Exception {
     return send(
         HttpRequest.newBuilder(URI.create(baseUrl + path))
@@ -198,6 +213,26 @@ class ApiServerStatefulSetDaemonSetRollbackTest {
                 .build());
     Map<String, Object> spec = Json.asObject(Json.asObject(Json.parse(get.body())).get("spec"));
     assertEquals("1.0.0", Json.asObject(spec.get("moduleId")).get("version"));
+  }
+
+  @Test
+  void rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value()
+      throws Exception {
+    // FUNC-55 regression: withArtifactSha256's field-by-field reconstruction on rollback must
+    // carry tolerateAllTaints forward too, not silently reset it to false.
+    put("/daemonsets/node-exporter", daemonSetYamlTolerantOfAllTaints("node-exporter", "1.0.0"));
+    put("/daemonsets/node-exporter", daemonSetYaml("node-exporter", "1.1.0"));
+
+    HttpResponse<String> rolledBack = rollback("/daemonsets/node-exporter", "");
+    assertEquals(200, rolledBack.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .GET()
+                .build());
+    Map<String, Object> spec = Json.asObject(Json.asObject(Json.parse(get.body())).get("spec"));
+    assertEquals(true, spec.get("tolerateAllTaints"));
   }
 
   @Test

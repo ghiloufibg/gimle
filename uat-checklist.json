@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 664,
+    "totalRequirements": 679,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 538,
-    "releaseReadinessPercent": 19.0
+    "notCoveredByAutomatedTest": 553,
+    "releaseReadinessPercent": 18.6
   },
   "items": [
     {
@@ -7306,6 +7306,171 @@
       "category": "Custom Kinds (Galdr)",
       "feature": "Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal",
       "step": "Given a defined kind with instances; When the Custom Resources screen loads; Then the kind picker lists the kind and its table renders the declared printColumns; When an instance row is opened; Then spec and status render side by side with the caught-up signal.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-665",
+      "module": "gimle-cli",
+      "category": "CLI / console parity",
+      "feature": "Single-resource CLI verbs reject more than one positional argument instead of silently truncating",
+      "step": "Given a delete/get verb backed by requireOne or requireAtMostOne; When more than one positional name/id argument is given; Then the command is rejected with a clear \"too many arguments\" error and exits nonzero, with no request ever sent to the control plane. Given gimle apply with two -f/--file flags; When the command runs; Then it is rejected before either manifest is read, rather than silently applying only the first. Given a rejected delete or apply; Then the target resource is left completely untouched -- rejection happens client-side, before any HTTP request.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-666",
+      "module": "gimle-worker",
+      "category": "Worker runtime / health",
+      "feature": "A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event",
+      "step": "Given a module manifest naming a health.liveness class that does not exist; When the module transitions to Active; Then the instance is forced to FAILED with a durable TransitionFailed event, not left ACTIVE with a silently-missing probe loop. Given a module manifest naming a valid liveness probe class; When the module transitions to Active; Then it reaches and remains ACTIVE with its probe loop registered normally.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-667",
+      "module": "gimle-core",
+      "category": "Security / session management",
+      "feature": "Console session logout revokes the session token server-side, not just the client-side cookie",
+      "step": "Given a console user logged in with a valid session cookie; When they log out and then replay the exact same old cookie; Then the server rejects it (401, or the plaintext anonymous carve-out) even though the cookie's own HMAC signature still verifies and it has not yet hit its ordinary expiry. Given a session token issued after a username's own revocation watermark; When it is presented; Then it is still accepted normally.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-668",
+      "module": "gimle-agent",
+      "category": "Networking / policy enforcement",
+      "feature": "A NetworkPolicy change closes an already-open Bifrost connection, not just future ones",
+      "step": "Given a caller tenant permitted by the current NetworkPolicy with an already-open, long-lived connection through Bifrost; When that tenant is removed from the allow list (or a new deny policy is added) and the next poll tick runs; Then the already-open connection is closed within that same tick. Given an open connection to a service with no applicable policy change; When repeated poll ticks run; Then the connection is never closed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-669",
+      "module": "gimle-controlplane",
+      "category": "Reconcilers / self-healing",
+      "feature": "Node-death instance eviction is throttled against the deployment's own DisruptionBudget",
+      "step": "Given a deployment with DisruptionBudget maxUnavailable N and more than N replicas gone stale on a dead node past their grace period; When the reconciler ticks; Then at most N of them are released for re-placement this tick, the rest deferred to a later tick. Given a deployment assignment deferred by an exhausted disruption budget; When a later tick has budget again; Then it is released without having to wait out a fresh grace period.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-670",
+      "module": "gimle-controlplane",
+      "category": "Workloads / CronJob",
+      "feature": "CronJob prunes its own terminal generated Jobs to configurable successful/failed history limits",
+      "step": "Given a CronJob with default history limits and more firings than those limits allow; When the reconciler ticks after each firing is marked terminal; Then only the configured number of most-recent successful and failed Jobs remain, oldest excess pruned. Given an operator lowers a CronJob's history limit below its currently accumulated terminal Job count; When the reconciler next ticks; Then it prunes down to the new, lower limit.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-671",
+      "module": "gimle-fafnir",
+      "category": "Secrets / Fafnir",
+      "feature": "A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version",
+      "step": "Given a Secret soft-deleted with no version specified for undelete; When undelete is called; Then the version that was current at delete time is restored as current again, with no new version minted. Given a Secret with multiple versions, soft-deleted; When undelete is called with an explicit earlier version; Then that version's data becomes current, and every other version's own data is left untouched and still readable by number. Given a hard-deleted (destroyed) secret; When undelete is called; Then it returns empty -- that data is genuinely gone with no path back.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-672",
+      "module": "gimle-fabric",
+      "category": "Service fabric / gossip membership",
+      "feature": "Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one",
+      "step": "Given two gossip members with diverging service catalogs (a missed piggyback update); When anti-entropy sync runs; Then both catalogs converge to the same full state, paginated the same way membership state already is. Given a node that restarts with an empty catalog; When it rejoins the cluster; Then anti-entropy sync repopulates its catalog to match the cluster's current state.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-673",
+      "module": "gimle-controlplane",
+      "category": "Config / ConfigMap",
+      "feature": "Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps",
+      "step": "Given a plain config key written and overwritten several times; When GET .../versions is called; Then every version ever stamped is listed oldest-first, each with its own value. Given a config key with multiple versions; When POST .../rollback names an earlier version; Then that version's content becomes current as a brand-new version, and every other version's own data is left untouched. Given a config key deleted and later recreated; When a new version is written; Then its version number continues counting up from the ledger's own highest, never restarting at 1. Given an encrypted config entry; When it is written or deleted; Then no version is stamped -- versioning covers only the plaintext path.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-674",
+      "module": "gimle-controlplane",
+      "category": "Self-healing / Resilience",
+      "feature": "Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)",
+      "step": "Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck. Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node. Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-675",
+      "module": "gimle-controlplane",
+      "category": "Multi-tenancy / Self-healing",
+      "feature": "DaemonSet opt-in taint toleration (tolerateAllTaints)",
+      "step": "Given a node is tainted for tenant \"acme\"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be. Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node. Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-676",
+      "module": "gimle-fabric",
+      "category": "Networking / Cluster membership",
+      "feature": "Background gossip rejoin after a seed-list join startup blip",
+      "step": "Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running. Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-677",
+      "module": "gimle-fafnir",
+      "category": "Secrets / CLI parity",
+      "feature": "SecretMap batch handlers signal partial failure via HTTP status and CLI exit code",
+      "step": "Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0. Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure. Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-678",
+      "module": "gimle-mimir",
+      "category": "Authorization",
+      "feature": "Deleting a Role cascades to every RoleBinding naming it",
+      "step": "Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked. Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated. Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-679",
+      "module": "gimle-gateway",
+      "category": "Networking",
+      "feature": "Gateway route table reloads on a config change without a restart",
+      "step": "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

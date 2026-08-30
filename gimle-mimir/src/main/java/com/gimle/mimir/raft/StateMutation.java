@@ -26,6 +26,7 @@ import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.time.Instant;
 import java.util.List;
@@ -518,6 +519,23 @@ public sealed interface StateMutation extends RaftLogPayload {
   }
 
   /**
+   * Advances one username's session "revoked before" watermark -- {@code
+   * ApiServer#handleAuthLogout} proposes this for whichever username the logged-out cookie verified
+   * to, and {@code ApiServer#resolvePrincipal} rejects any session cookie for that username issued
+   * at or before it, even though its HMAC signature still verifies. {@code revokedBeforeEpochMilli}
+   * is stamped once by the proposing replica and carried in the mutation, the same determinism
+   * reasoning {@link PutWorkloadToken#mintedAtEpochMilli} documents for its own wall-clock stamp.
+   */
+  record PutSessionRevocation(String username, long revokedBeforeEpochMilli)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putSessionRevocation(username, revokedBeforeEpochMilli);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
    * Replaces one {@code deploymentName#nodeId} key's live workload-identity token record. {@code
    * mintedAtEpochMilli} is stamped once by the minting replica and carried in the mutation, so the
    * opportunistic expired-entry sweep it drives inside {@code StateStore#putWorkloadToken} makes
@@ -639,10 +657,15 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
+  // Cascades to every RoleBinding naming this Role, not just the Role itself -- see
+  // StateStore#removeRoleBindingsForRole's own javadoc for why leaving one behind is a
+  // silent-reactivation trap, not just clutter, and why the cascade belongs in this single
+  // mutation rather than a second proposal from the caller.
   record RemoveRole(String name) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeRole(name);
+      store.removeRoleBindingsForRole(name);
       return MutationOutcome.accepted();
     }
   }
@@ -693,6 +716,26 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeReconcilerInstanceState(tenantId, deploymentName, instanceIndex);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /** The {@link WorkloadHealthState} equivalent of {@link PutReconcilerInstanceState}. */
+  record PutWorkloadHealthState(WorkloadHealthState state) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putWorkloadHealthState(state);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /** The {@link WorkloadHealthState} equivalent of {@link RemoveReconcilerInstanceState}. */
+  record RemoveWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.removeWorkloadHealthState(tenantId, workloadKind, workloadName, slot);
       return MutationOutcome.accepted();
     }
   }

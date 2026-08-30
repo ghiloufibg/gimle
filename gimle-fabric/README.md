@@ -94,7 +94,10 @@ piggyback deltas, last-writer-wins per `(node, workerId, moduleId)` using an inc
 version counter — the identical conflict-resolution shape SWIM already uses for membership. One
 instance runs per node agent, attached to that node's `GossipMember` so catalog data disseminates
 over the exact same infection-style gossip as membership itself, never a second mechanism and never
-routed through the control plane.
+routed through the control plane. It also rides `GossipMember`'s anti-entropy `SyncRequest`/
+`SyncResponse` exchange with its own real full-state page (`ServiceCatalog#currentFullStatePayload`),
+not the same bounded recent-deltas payload the ordinary piggyback path uses — the same "bounded
+piggyback alone can't guarantee eventual convergence" backstop membership itself already relies on.
 
 ## Key packages
 

@@ -188,6 +188,7 @@ public final class FafnirSteps {
         .proposeConfigEntry(new ConfigEntry(tenantId, key + "@1", legacyCiphertext, true));
     final Map<String, Object> meta = new LinkedHashMap<>();
     meta.put("latestVersion", 1);
+    meta.put("highestVersion", 1);
     meta.put("deleted", false);
     world
         .cluster()

@@ -5,6 +5,9 @@ import com.gimle.controlplane.schedule.NodeCandidate;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
+import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.manifest.DaemonSetSpec;
@@ -24,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,9 +38,10 @@ import org.slf4j.LoggerFactory;
  * DeploymentReconciler} reads {@code spec.replicas()}. "How many" is recomputed from live node
  * state every tick via {@link Scheduler#eligibleNodes}: the same five-step filter chain {@code
  * place} applies -- tier, cordon, anti-affinity (always a no-op here, see {@link DaemonSetSpec}'s
- * own javadoc), tenant isolation, required labels -- minus the final bin-packing pick, since there
- * is nothing to pick: every survivor gets an assignment, and {@code Scheduler.place} itself is
- * never called.
+ * own javadoc), tenant isolation (bypassed entirely when {@link DaemonSetSpec#tolerateAllTaints} is
+ * set -- see its own javadoc), required labels -- minus the final bin-packing pick, since there is
+ * nothing to pick: every survivor gets an assignment, and {@code Scheduler.place} itself is never
+ * called.
  *
  * <p>Level-triggered, following the exact same convergence shape {@link DeploymentReconciler} and
  * {@link JobReconciler} already establish: every tick re-derives the full desired set from the
@@ -63,6 +68,16 @@ import org.slf4j.LoggerFactory;
  * readable duplication over an abstraction that would only ever have two call sites. Up to the
  * DaemonSet's effective {@link com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable} nodes
  * migrate concurrently, same as {@code DeploymentReconciler}'s own continuous top-up model.
+ *
+ * <p><b>Crash-loop backoff</b>: {@link #isReady} only ever answers "is this node caught up and
+ * ready" -- an assignment whose module crashed on every restart otherwise sat there forever, since
+ * nothing but a rolling-update version mismatch or an eligibility change ever removed an existing
+ * assignment. {@link WorkloadCrashLoopBackoff} (this class's own DaemonSet-keyed instance, keyed by
+ * {@code nodeId} rather than an instance index) closes that gap the same shape {@link
+ * HealthReconciler} already established for Deployment: back off, then release the stale assignment
+ * so the placement pass below re-adds a fresh one to the very same (still-eligible) node -- there
+ * is nowhere else for a DaemonSet assignment to go -- or give up permanently once the restart
+ * budget is exhausted.
  */
 public final class DaemonSetReconciler {
 
@@ -72,6 +87,8 @@ public final class DaemonSetReconciler {
   public static final Duration DEFAULT_NODE_DARK_TIMEOUT =
       DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT;
 
+  private static final String WORKLOAD_KIND = "DaemonSet";
+
   private final StoreReader store;
   private final Scheduler scheduler;
   private final MutationSink mutations;
@@ -79,6 +96,7 @@ public final class DaemonSetReconciler {
   private final Duration placementGracePeriod;
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
+  private final WorkloadCrashLoopBackoff crashLoopBackoff;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public DaemonSetReconciler(StateStore store, Scheduler scheduler) {
@@ -128,6 +146,7 @@ public final class DaemonSetReconciler {
     this.placementGracePeriod = placementGracePeriod;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
+    this.crashLoopBackoff = new WorkloadCrashLoopBackoff(store);
   }
 
   public void reconcileOnce() {
@@ -200,6 +219,7 @@ public final class DaemonSetReconciler {
                 spec.placement().antiAffinityAcrossNodes(),
                 spec.tenantId(),
                 spec.placement().requiredNodeLabels().orElse(Set.of()),
+                spec.tolerateAllTaints(),
                 buildCandidates(spec.name()))
             .stream()
             .map(NodeCandidate::nodeId)
@@ -215,22 +235,36 @@ public final class DaemonSetReconciler {
     List<StateMutation> evictions = new ArrayList<>();
     for (DaemonSetAssignment assignment :
         store.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name())) {
-      if (eligibleNodeIds.contains(assignment.nodeId())) {
+      if (!eligibleNodeIds.contains(assignment.nodeId())) {
+        if (isMerelyDarkWithinGracePeriod(assignment.nodeId(), now)) {
+          continue;
+        }
+        log.warn(
+            "daemonset {} node {} is no longer eligible ({}); releasing its assignment -- this"
+                + " daemonset is now short a replica versus its own eligible-node count until a"
+                + " replacement node becomes eligible",
+            spec.name(),
+            assignment.nodeId(),
+            ineligibilityReason(assignment.nodeId(), now));
+        evictions.add(
+            new StateMutation.RemoveDaemonSetAssignment(
+                spec.tenantId(), spec.name(), assignment.nodeId()));
         continue;
       }
-      if (isMerelyDarkWithinGracePeriod(assignment.nodeId(), now)) {
+      // Still eligible: see class javadoc's "Crash-loop backoff" note.
+      if (crashLoopBackoff.isPermanentlyFailed(
+          WORKLOAD_KIND, spec.name(), assignment.nodeId(), spec.tenantId())) {
+        continue; // stuck here forever; nothing left to attempt.
+      }
+      if (isCrashLooping(assignment)) {
+        handleCrashLoop(spec, assignment, now, evictions);
         continue;
       }
-      log.warn(
-          "daemonset {} node {} is no longer eligible ({}); releasing its assignment -- this"
-              + " daemonset is now short a replica versus its own eligible-node count until a"
-              + " replacement node becomes eligible",
-          spec.name(),
-          assignment.nodeId(),
-          ineligibilityReason(assignment.nodeId(), now));
-      evictions.add(
-          new StateMutation.RemoveDaemonSetAssignment(
-              spec.tenantId(), spec.name(), assignment.nodeId()));
+      if (isReady(assignment)) {
+        crashLoopBackoff
+            .handleHealthyObserved(WORKLOAD_KIND, spec.name(), assignment.nodeId(), spec.tenantId())
+            .ifPresent(evictions::add);
+      }
     }
     // Flushed before handleRollingUpdate runs -- its own assignment scans must see these.
     mutations.proposeAll(evictions);
@@ -348,6 +382,77 @@ public final class DaemonSetReconciler {
                     && obs.tenantId().equals(assignment.tenantId())
                     && obs.moduleId().equals(assignment.moduleId())
                     && obs.ready());
+  }
+
+  /**
+   * Persists the {@link WorkloadCrashLoopBackoff} verdict for a crash-looping node and, if it says
+   * to act now, either releases the stale assignment (the very next loop below re-adds a fresh one
+   * to this same node, since it's still in {@code eligibleNodeIds}) or gives up on it permanently
+   * -- mirrors {@link HealthReconciler#handleUnhealthy}'s own three outcomes exactly. {@code
+   * evictions} is the caller's own batch, flushed once after the whole per-node scan completes.
+   */
+  private void handleCrashLoop(
+      DaemonSetSpec spec,
+      DaemonSetAssignment assignment,
+      Instant now,
+      List<StateMutation> evictions) {
+    WorkloadCrashLoopBackoff.Evaluation evaluation =
+        crashLoopBackoff.handleFailureObserved(
+            WORKLOAD_KIND, spec.name(), assignment.nodeId(), spec.tenantId(), now);
+    evictions.add(evaluation.stateMutation());
+    if (evaluation.permanentlyFailed()) {
+      log.error(
+          "daemonset {} node {} exhausted its restart budget; giving up on rescheduling it",
+          spec.name(),
+          assignment.nodeId());
+      evictions.add(
+          new StateMutation.AppendInstanceEvent(
+              spec.tenantId(),
+              new InstanceEvent(
+                  UUID.randomUUID().toString(),
+                  spec.name(),
+                  0,
+                  InstanceEventKind.TRANSITION_FAILED,
+                  "node "
+                      + assignment.nodeId()
+                      + " exhausted its restart budget; giving up on rescheduling it",
+                  Optional.empty(),
+                  clock.millis())));
+    } else if (evaluation.shouldRemoveAssignmentNow()) {
+      log.warn(
+          "daemonset {} node {} crash-looped; releasing its assignment for re-placement",
+          spec.name(),
+          assignment.nodeId());
+      evictions.add(
+          new StateMutation.RemoveDaemonSetAssignment(
+              spec.tenantId(), spec.name(), assignment.nodeId()));
+    }
+  }
+
+  /**
+   * True once the node's own heartbeat reports THIS daemonset's instance as {@code FAILED} --
+   * distinct from merely not-yet-ready (still starting), which {@link #isReady} alone cannot tell
+   * apart. See class javadoc's "Crash-loop backoff" note.
+   */
+  private boolean isCrashLooping(DaemonSetAssignment assignment) {
+    return findObservation(assignment)
+        .filter(obs -> "FAILED".equals(obs.lifecycleState()))
+        .isPresent();
+  }
+
+  private Optional<InstanceObservation> findObservation(DaemonSetAssignment assignment) {
+    return store
+        .getNodeHeartbeat(assignment.nodeId())
+        .map(ObservedHeartbeat::heartbeat)
+        .map(NodeHeartbeat::instances)
+        .orElse(List.of())
+        .stream()
+        .filter(
+            obs ->
+                obs.deploymentName().equals(assignment.daemonSetName())
+                    && obs.instanceIndex() == 0
+                    && obs.tenantId().equals(assignment.tenantId()))
+        .findFirst();
   }
 
   /**

@@ -29,6 +29,7 @@ import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.util.List;
 import java.util.Optional;
@@ -82,6 +83,7 @@ public sealed interface StoreRpc {
           GetNodeTaints,
           IsCertificateRevoked,
           ListRevokedCertificateSerials,
+          GetSessionRevokedBeforeEpochMilli,
           GetWorkloadToken,
           ListAssignments,
           GetJobSpec,
@@ -120,6 +122,8 @@ public sealed interface StoreRpc {
           ListConfigEntriesForLinearizable,
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
+          GetWorkloadHealthState,
+          ListWorkloadHealthStates,
           ListInstanceEvents,
           ListAuditEvents,
           ListControllerRevisions,
@@ -183,6 +187,8 @@ public sealed interface StoreRpc {
           RoleBindingListResult,
           ReconcilerInstanceStateResult,
           ReconcilerInstanceStateListResult,
+          WorkloadHealthStateResult,
+          WorkloadHealthStateListResult,
           InstanceEventListResult,
           AuditEventListResult,
           ControllerRevisionListResult,
@@ -292,6 +298,11 @@ public sealed interface StoreRpc {
 
   record ListRevokedCertificateSerials() implements Request {}
 
+  /**
+   * Response reuses {@link GenerationResult} -- same shape as {@link GetDeploymentGeneration}'s.
+   */
+  record GetSessionRevokedBeforeEpochMilli(String username) implements Request {}
+
   record GetWorkloadToken(String key) implements Request {}
 
   record ListAssignments() implements Request {}
@@ -372,6 +383,12 @@ public sealed interface StoreRpc {
       Optional<String> tenantId, String deploymentName, int instanceIndex) implements Request {}
 
   record ListReconcilerInstanceStates() implements Request {}
+
+  record GetWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot)
+      implements Request {}
+
+  record ListWorkloadHealthStates() implements Request {}
 
   record ListInstanceEvents(Optional<String> tenantId, String deploymentName, int instanceIndex)
       implements Request {}
@@ -567,6 +584,11 @@ public sealed interface StoreRpc {
 
   record ReconcilerInstanceStateListResult(List<ReconcilerInstanceState> values)
       implements Response {}
+
+  record WorkloadHealthStateResult(boolean present, WorkloadHealthState value)
+      implements Response {}
+
+  record WorkloadHealthStateListResult(List<WorkloadHealthState> values) implements Response {}
 
   record InstanceEventListResult(List<InstanceEvent> values) implements Response {}
 

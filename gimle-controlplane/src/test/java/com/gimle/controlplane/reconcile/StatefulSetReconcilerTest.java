@@ -18,6 +18,7 @@ import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -108,6 +109,44 @@ class StatefulSetReconcilerTest {
   private Optional<StatefulSetAssignment> indexOf(
       List<StatefulSetAssignment> assignments, int index) {
     return assignments.stream().filter(a -> a.instanceIndex() == index).findFirst();
+  }
+
+  /**
+   * Reports {@code assignment}'s own instance as {@code FAILED} rather than merely not-yet-ready --
+   * mirrors {@code reportReady}'s merge shape exactly.
+   */
+  private static void reportFailed(StateStore store, StatefulSetAssignment assignment) {
+    List<InstanceObservation> existing =
+        store
+            .getNodeHeartbeat(assignment.nodeId())
+            .map(ObservedHeartbeat::heartbeat)
+            .map(NodeHeartbeat::instances)
+            .orElse(List.of());
+    List<InstanceObservation> merged = new ArrayList<>();
+    for (InstanceObservation obs : existing) {
+      if (!(obs.deploymentName().equals(assignment.statefulSetName())
+          && obs.instanceIndex() == assignment.instanceIndex())) {
+        merged.add(obs);
+      }
+    }
+    merged.add(
+        new InstanceObservation(
+            assignment.statefulSetName(),
+            assignment.instanceIndex(),
+            assignment.moduleId(),
+            "FAILED",
+            true,
+            false,
+            0,
+            0,
+            0,
+            0,
+            0));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            assignment.nodeId(),
+            new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
+            merged));
   }
 
   @Test
@@ -455,5 +494,143 @@ class StatefulSetReconcilerTest {
     StatefulSetAssignment replaced =
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
     assertEquals("node-a", replaced.nodeId(), "the sticky index must land back on the same node");
+  }
+
+  @Test
+  void a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses(TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    StatefulSetReconciler reconciler =
+        new StatefulSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            StatefulSetReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            StatefulSetReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment placed =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    reportFailed(store, placed);
+
+    reconciler.reconcileOnce(); // first failure observed: starts the backoff, doesn't act yet
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).isPresent());
+
+    // One nanosecond short of WorkloadCrashLoopBackoff's default 2-second initial delay.
+    clock.advance(Duration.ofSeconds(2).minusNanos(1));
+    reconciler.reconcileOnce();
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).isPresent(),
+        "the backoff has not elapsed yet, so nothing should have been rescheduled");
+
+    clock.advance(Duration.ofNanos(1));
+    reconciler.reconcileOnce();
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).isEmpty(),
+        "the crash-looping index should have been released once its backoff elapsed");
+    assertTrue(
+        store.getStatefulSetIndexNode(Optional.empty(), "orders", 0).isPresent(),
+        "the sticky binding must survive a crash-loop release, same as any other release");
+
+    // The very next tick re-places it -- on the same sticky node.
+    reconciler.reconcileOnce();
+    StatefulSetAssignment replaced =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    assertEquals("node-a", replaced.nodeId());
+  }
+
+  @Test
+  void a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past(TestClock clock) {
+    // OrderedReady must never place index 1 while index 0 sits permanently failed -- the same
+    // ordering guarantee a merely-not-ready index 0 already gets. A generous, non-default
+    // node-dark timeout keeps every attempt's backoff (up to a capped 60s) from ever being
+    // mistaken for the node itself going dark -- this test is about the restart budget, not
+    // node darkness.
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 2));
+    StatefulSetReconciler reconciler =
+        new StatefulSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            Duration.ofMinutes(10),
+            Duration.ofMinutes(10),
+            clock);
+
+    // Matches WorkloadCrashLoopBackoff's own default schedule (initialDelay=2s, x2, capped at 1m).
+    Duration initialDelay = Duration.ofSeconds(2);
+    int maxAttemptsPerWindow = 5;
+
+    // Drive index 0 through repeated crash-loop-and-reschedule cycles, one per restart-budget
+    // attempt, until the budget (5 attempts per window) is exhausted on the 6th failure.
+    reconciler.reconcileOnce(); // places index 0
+    for (int attempt = 1; attempt <= maxAttemptsPerWindow + 1; attempt++) {
+      StatefulSetAssignment index0 =
+          indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+      reportFailed(store, index0);
+      reconciler.reconcileOnce(); // records the failure, starts this attempt's backoff
+      Duration delay =
+          initialDelay.multipliedBy(
+              (long) Math.pow(2.0, Math.min(attempt, maxAttemptsPerWindow) - 1));
+      clock.advance(delay.compareTo(Duration.ofMinutes(1)) > 0 ? Duration.ofMinutes(1) : delay);
+      reconciler.reconcileOnce(); // releases it (attempts 1-5) or gives up (attempt 6)
+      if (attempt <= maxAttemptsPerWindow) {
+        reconciler.reconcileOnce(); // re-places it on the same sticky node for the next cycle
+      }
+    }
+
+    // Gave up: the stale, still-FAILED assignment is left exactly where it is -- never removed,
+    // never re-placed -- the same "leaves it FAILED forever" posture HealthReconciler takes.
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).isPresent(),
+        "a permanently-failed index keeps its stale assignment in place");
+    assertTrue(
+        store
+            .getWorkloadHealthState(Optional.empty(), "StatefulSet", "orders", "0")
+            .orElseThrow()
+            .permanentlyFailed());
+
+    // index 1 must never have been placed -- OrderedReady never skips past a stuck index 0 -- and
+    // one more tick changes nothing, proving the give-up is permanent, not merely this tick's.
+    reconciler.reconcileOnce();
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isEmpty());
+  }
+
+  @Test
+  void converges_correctly_from_a_persisted_permanently_failed_workload_health_state(
+      TestClock clock) {
+    // A brand-new reconciler must respect a permanently-failed slot recorded under a previous
+    // reconciler-leader term, with no history of its own -- the StatefulSet-keyed counterpart of
+    // HealthReconcilerTest's own "converges from an arbitrary mix" case.
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putStatefulSetSpec(statefulSet("orders", jar, 1));
+    store.putStatefulSetAssignment(
+        new StatefulSetAssignment(
+            "orders",
+            0,
+            "node-a",
+            new ModuleId(jar.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0")),
+            jar.toAbsolutePath().toString()));
+    store.putWorkloadHealthState(
+        new WorkloadHealthState(
+            "StatefulSet", "orders", "0", 5, 0L, 0L, false, true, Optional.empty()));
+
+    new StatefulSetReconciler(store, scheduler).reconcileOnce();
+
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).isPresent(),
+        "a permanently-failed index's stale assignment is left in place, not torn down");
   }
 }

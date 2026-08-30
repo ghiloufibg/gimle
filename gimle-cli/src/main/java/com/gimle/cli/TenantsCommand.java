@@ -24,11 +24,11 @@ public final class TenantsCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
+    String id = GimleCli.requireAtMostOne(args, "tenant");
+    if (id == null) {
       OutputFormat.printList(output, client.getList("/tenants"), out);
       return;
     }
-    String id = args.get(0);
     OutputFormat.printObject(output, client.getObject("/tenants/" + id), out);
   }
 

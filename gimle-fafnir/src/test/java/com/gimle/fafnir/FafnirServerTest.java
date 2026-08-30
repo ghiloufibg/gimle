@@ -333,6 +333,143 @@ class FafnirServerTest {
 
   @Test
   @Timeout(10)
+  void undelete_restores_a_soft_deleted_secret_at_the_same_version() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+    client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).DELETE().build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    HttpResponse<String> undeleteResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password/undelete"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, undeleteResponse.statusCode());
+    assertEquals(1L, Json.asObject(Json.parse(undeleteResponse.body())).get("version"));
+
+    HttpResponse<String> getResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, getResponse.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(getResponse.body()));
+    assertEquals(1L, body.get("version"));
+    assertEquals("hunter2", new String(decode((String) body.get("value")), StandardCharsets.UTF_8));
+  }
+
+  @Test
+  @Timeout(10)
+  void undelete_with_a_version_query_parameter_restores_that_specific_older_version()
+      throws Exception {
+    putSecret("acme", "db-password", "v1");
+    putSecret("acme", "db-password", "v2");
+    client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).DELETE().build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    HttpResponse<String> undeleteResponse =
+        client.send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/secrets/acme/db-password/undelete?version=1"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, undeleteResponse.statusCode());
+    assertEquals(1L, Json.asObject(Json.parse(undeleteResponse.body())).get("version"));
+
+    HttpResponse<String> getResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    Map<String, Object> body = Json.asObject(Json.parse(getResponse.body()));
+    assertEquals(1L, body.get("version"));
+    assertEquals("v1", new String(decode((String) body.get("value")), StandardCharsets.UTF_8));
+
+    // Version 2's own data was never touched, still explicitly readable by number.
+    HttpResponse<String> historicalResponse =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password?version=2"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(200, historicalResponse.statusCode());
+    assertEquals(
+        "v2",
+        new String(
+            decode((String) Json.asObject(Json.parse(historicalResponse.body())).get("value")),
+            StandardCharsets.UTF_8));
+  }
+
+  @Test
+  @Timeout(10)
+  void undeleting_a_never_written_secret_returns_404() throws Exception {
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/no-such-key/undelete"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(404, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void undeleting_a_hard_deleted_secret_returns_404_not_a_500() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+    client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password?destroy=true"))
+            .DELETE()
+            .build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password/undelete"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(404, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void undeleting_a_version_that_was_never_written_returns_400_not_a_500() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+    client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).DELETE().build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/secrets/acme/db-password/undelete?version=99"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(400, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_get_request_to_undelete_is_rejected_with_405() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password/undelete"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(405, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
   void deleting_an_unknown_secret_is_idempotent() throws Exception {
     // Matches every other resource kind's own delete-of-a-never-existed-name convention.
     HttpResponse<String> response =

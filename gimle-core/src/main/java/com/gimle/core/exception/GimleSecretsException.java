@@ -66,6 +66,25 @@ public class GimleSecretsException extends RuntimeException {
   }
 
   /**
+   * An {@code undelete} call named a version number with no corresponding {@code key@N} entry --
+   * out of range (never written, or negative/zero), or once written but since wiped by a whole-key
+   * {@code hardDelete}, whose data is genuinely, permanently gone. Distinct from {@link
+   * #secretNotFound}, which covers the key itself having no {@code @meta} pointer at all; this
+   * covers a real key naming a version it simply can't stand behind.
+   */
+  public static GimleSecretsException versionNotRecoverable(
+      String tenantId, String key, int version) {
+    return new GimleSecretsException(
+        "secret "
+            + tenantId
+            + "/"
+            + key
+            + " version "
+            + version
+            + " no longer exists to undelete -- it was likely destroyed by a hard delete");
+  }
+
+  /**
    * {@code gimle-fafnir}'s SecretMap bulk-write lease ({@code secretmap-write:tenantId:name})
    * stayed contended across every bounded retry attempt -- possible only under sustained,
    * unrealistic concurrent writers targeting the same SecretMap name.

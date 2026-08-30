@@ -35,6 +35,7 @@ import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
@@ -309,6 +310,13 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
             .values());
   }
 
+  @Override
+  public long getSessionRevokedBeforeEpochMilli(String username) {
+    return ((StoreRpc.GenerationResult)
+            sendRead(new StoreRpc.GetSessionRevokedBeforeEpochMilli(username)))
+        .value();
+  }
+
   public List<InstanceAssignment> listAssignments() {
     return ((StoreRpc.AssignmentListResult) sendRead(new StoreRpc.ListAssignments())).values();
   }
@@ -536,6 +544,21 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   public List<ReconcilerInstanceState> listReconcilerInstanceStates() {
     return ((StoreRpc.ReconcilerInstanceStateListResult)
             sendRead(new StoreRpc.ListReconcilerInstanceStates()))
+        .values();
+  }
+
+  public Optional<WorkloadHealthState> getWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot) {
+    StoreRpc.WorkloadHealthStateResult r =
+        (StoreRpc.WorkloadHealthStateResult)
+            sendRead(
+                new StoreRpc.GetWorkloadHealthState(tenantId, workloadKind, workloadName, slot));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<WorkloadHealthState> listWorkloadHealthStates() {
+    return ((StoreRpc.WorkloadHealthStateListResult)
+            sendRead(new StoreRpc.ListWorkloadHealthStates()))
         .values();
   }
 

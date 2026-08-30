@@ -78,6 +78,9 @@ public interface StoreReader {
 
   Set<String> listRevokedCertificateSerials();
 
+  /** {@code 0} (never revoked) for a username that has never logged out. */
+  long getSessionRevokedBeforeEpochMilli(String username);
+
   Optional<WorkloadTokenRecord> getWorkloadToken(String key);
 
   List<InstanceAssignment> listAssignments();
@@ -166,6 +169,11 @@ public interface StoreReader {
       Optional<String> tenantId, String deploymentName, int instanceIndex);
 
   List<ReconcilerInstanceState> listReconcilerInstanceStates();
+
+  Optional<WorkloadHealthState> getWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot);
+
+  List<WorkloadHealthState> listWorkloadHealthStates();
 
   List<InstanceEvent> listInstanceEvents(
       Optional<String> tenantId, String deploymentName, int instanceIndex);

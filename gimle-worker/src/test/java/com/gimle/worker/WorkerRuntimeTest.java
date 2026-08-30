@@ -319,6 +319,71 @@ class WorkerRuntimeTest {
     assertTrue(f.registry().contains(f.id()));
   }
 
+  /**
+   * Regression test for FUNC-28/GIMLE-666: {@code health.liveness} naming a class that doesn't
+   * exist (a manifest typo, in production) used to leave the instance stuck ACTIVE forever --
+   * {@link WorkerRuntime#onActive}'s probe {@code instantiate} call threw straight out of the
+   * {@code Active} event's own dispatch, and {@code ModuleController#emit}'s generic event-sink
+   * catch swallowed it after only a log line, so {@code markActive} (already run before that catch
+   * ever fired) was never undone and no {@code TransitionFailed} event was ever produced.
+   */
+  @Test
+  void a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event() {
+    Path jar =
+        TestModuleBuilder.module(
+                """
+                module com.gimle.fixture.badliveness {
+                }
+                """)
+            .withDescriptor(
+                """
+                name: com.gimle.fixture.badliveness
+                version: 1.0.0
+                isolation:
+                  tier: TIER_1
+                resources:
+                  request:
+                    memory: 16Mi
+                    cpu: 10m
+                  limit:
+                    memory: 32Mi
+                    cpu: 50m
+                lifecycle:
+                  hooks: com.gimle.module.integration.ServiceProviderHooks
+                health:
+                  liveness: com.gimle.worker.testsupport.NoSuchLivenessProbeClass
+                """)
+            .build(tempDir, "bad-liveness-" + (counter++) + ".jar");
+
+    WiredWorkerRuntime.Result f =
+        WiredWorkerRuntime.start(
+            jar,
+            2,
+            Optional.empty(),
+            exhaustedId -> {},
+            new InstanceIdentityRegistry(),
+            identity -> {});
+
+    assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+    assertTrue(
+        f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.TransitionFailed),
+        "expected a durable TransitionFailed event, got: " + f.events());
+    // Exactly one Active transition happened -- the module genuinely did become active (its
+    // onStart hook ran) before the probe-load failure forced it straight to FAILED; the fix must
+    // not, say, retry onActive and register the service twice.
+    assertEquals(1, activeTransitionCount(f.events()));
+  }
+
+  /** The happy path this fix must leave untouched: a real probe class still wires up normally. */
+  @Test
+  void a_liveness_probe_class_that_loads_fine_leaves_the_module_active() {
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.goodliveness", 2);
+
+    assertEquals(ModuleState.ACTIVE, f.registry().state(f.id()));
+    assertEquals(1, activeTransitionCount(f.events()));
+    assertTrue(f.events().stream().noneMatch(e -> e instanceof LifecycleEvent.TransitionFailed));
+  }
+
   @Test
   void stopping_a_module_makes_its_service_unreachable_and_removes_it_from_the_registry() {
     WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.stopping", 99);

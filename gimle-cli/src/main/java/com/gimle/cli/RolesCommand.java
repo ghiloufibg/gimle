@@ -26,11 +26,11 @@ public final class RolesCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
+    String name = GimleCli.requireAtMostOne(args, "role");
+    if (name == null) {
       OutputFormat.printList(output, client.getList("/roles"), out);
       return;
     }
-    String name = args.get(0);
     OutputFormat.printObject(output, client.getObject("/roles/" + name), out);
   }
 
@@ -70,9 +70,30 @@ public final class RolesCommand {
     RbacWarnings.warnIfPlaintext(out);
   }
 
+  /**
+   * The control plane cascades removal of every {@code RoleBinding} naming this Role as part of the
+   * same delete -- see {@code ApiServer#handleDeleteRole}'s own javadoc for why leaving one behind
+   * is a silent-reactivation trap, not just clutter. Surfacing exactly which bindings were removed
+   * here, rather than a bare "deleted," is the operator-facing half of that fix: a caller has no
+   * other way to learn that deleting a Role also revoked those bindings.
+   */
   public void delete(String name) {
-    client.expectSuccess(client.delete("/roles/" + name));
-    OutputFormat.printResult(output, resultBody("deleted", name), "role/" + name + " deleted", out);
+    String response = client.expectSuccess(client.delete("/roles/" + name));
+    Map<String, Object> responseBody = Json.asObject(Json.parse(response));
+    List<Object> removedRoleBindings = Json.asArray(responseBody.get("removedRoleBindings"));
+    Map<String, Object> result = resultBody("deleted", name);
+    result.put("removedRoleBindings", removedRoleBindings);
+    String humanLine =
+        removedRoleBindings.isEmpty()
+            ? "role/" + name + " deleted"
+            : "role/"
+                + name
+                + " deleted (also removed "
+                + removedRoleBindings.size()
+                + " role binding(s) that named it: "
+                + removedRoleBindings
+                + ")";
+    OutputFormat.printResult(output, result, humanLine, out);
   }
 
   private static Map<String, Object> parsePermission(String spec) {

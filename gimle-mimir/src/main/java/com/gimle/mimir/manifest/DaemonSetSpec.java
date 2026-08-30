@@ -21,6 +21,18 @@ import java.util.Optional;
  * exactly {@code DaemonSetReconciler}'s behavior before this field existed. Its own {@code
  * maxSurge} is always {@code 0} here -- {@link DaemonSetManifestParser} rejects a nonzero value
  * outright, the same posture it takes for {@code placement.antiAffinity}.
+ *
+ * <p>{@code tolerateAllTaints} defaults to {@code false} -- a node an operator has tainted for one
+ * or more tenants stays excluded from this DaemonSet's placement by default, the same
+ * tenant-isolation boundary {@code Scheduler}'s taint filter already enforces for every other
+ * workload kind. Unlike Kubernetes, where a DaemonSet's pod template gets baseline tolerations for
+ * a handful of built-in system taints automatically, Gimlé taints have no such "well-known" subset
+ * to distinguish -- every taint here is an operator-declared tenant reservation, so opting out is a
+ * deliberate, explicit, per-DaemonSet choice rather than an unconditional default. Set {@code true}
+ * only for a genuinely cluster-wide, untenanted DaemonSet (a log shipper or node exporter) that
+ * must cover every node including ones reserved for a tenant -- {@code Scheduler.eligibleNodes}
+ * skips its taint-filter stage entirely when this is set, independent of the DaemonSet's own {@code
+ * tenantId}.
  */
 public record DaemonSetSpec(
     String name,
@@ -30,7 +42,8 @@ public record DaemonSetSpec(
     Optional<String> tenantId,
     Optional<String> artifactSha256,
     Optional<DisruptionBudget> disruption,
-    Optional<VesselSpec> vessel)
+    Optional<VesselSpec> vessel,
+    boolean tolerateAllTaints)
     implements WorkloadSpec {
 
   public DaemonSetSpec {
@@ -61,6 +74,28 @@ public record DaemonSetSpec(
     if (vessel == null) {
       throw new IllegalArgumentException("vessel must be Optional.empty(), not null");
     }
+  }
+
+  /** Back-compat: defaults {@code tolerateAllTaints} to {@code false}. */
+  public DaemonSetSpec(
+      String name,
+      ModuleId moduleId,
+      String artifactPath,
+      PlacementConstraints placement,
+      Optional<String> tenantId,
+      Optional<String> artifactSha256,
+      Optional<DisruptionBudget> disruption,
+      Optional<VesselSpec> vessel) {
+    this(
+        name,
+        moduleId,
+        artifactPath,
+        placement,
+        tenantId,
+        artifactSha256,
+        disruption,
+        vessel,
+        false);
   }
 
   /** Back-compat: defaults {@code vessel} to {@code Optional.empty()}. */

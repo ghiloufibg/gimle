@@ -1,24 +1,19 @@
 package com.gimle.core.exception;
 
-import java.util.List;
-
 /**
- * A cluster-level operational failure with no per-request retry left to try: joining a cluster
- * whose every configured seed is unreachable, or a fabric service lookup exhausting every endpoint
- * the membership table knows about for an interface, cluster-wide -- the cluster-scoped analog of
- * {@link GimleSchedulingException}'s "no feasible placement." Never thrown for a merely local gap
- * (a single node with no same-machine provider yet): that's a transient, possibly-still-arriving
- * state a caller retries through, not an operational failure.
+ * A cluster-level operational failure with no per-request retry left to try: a fabric service
+ * lookup exhausting every endpoint the membership table knows about for an interface, cluster-wide,
+ * or a cluster-internal HTTP call answering with a non-success status -- the cluster-scoped analog
+ * of {@link GimleSchedulingException}'s "no feasible placement." Never thrown for a merely local
+ * gap (a single node with no same-machine provider yet, or a gossip member whose seeds are all
+ * momentarily unreachable at join time -- see {@code GossipMember#join}/{@code
+ * #retrySeedsIfIsolated}): those are transient, possibly-still-arriving states a caller retries
+ * through, not an operational failure.
  */
 public class GimleClusterException extends RuntimeException {
 
   private GimleClusterException(String message) {
     super(message);
-  }
-
-  public static GimleClusterException noReachableSeed(String nodeId, List<String> seeds) {
-    return new GimleClusterException(
-        "node " + nodeId + " could not reach any of its configured seed members: " + seeds);
   }
 
   /**

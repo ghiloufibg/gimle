@@ -27,11 +27,11 @@ public final class LimitRangeCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
+    String tenantId = GimleCli.requireAtMostOne(args, "limitrange");
+    if (tenantId == null) {
       OutputFormat.printList(output, client.getList("/limitranges"), out);
       return;
     }
-    String tenantId = args.get(0);
     OutputFormat.printObject(output, client.getObject("/limitranges/" + tenantId), out);
   }
 

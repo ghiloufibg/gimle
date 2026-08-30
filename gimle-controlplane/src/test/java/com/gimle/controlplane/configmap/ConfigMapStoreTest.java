@@ -124,9 +124,88 @@ class ConfigMapStoreTest {
   void delete_removes_the_configmap() {
     store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty());
 
+    ConfigMapDeleteOutcome result = store.delete("acme", "app-config");
+
+    assertEquals(new ConfigMapDeleteOutcome.Deleted(2), result);
+    assertEquals(Optional.empty(), store.get("acme", "app-config"));
+  }
+
+  @Test
+  void deleting_a_name_that_never_existed_is_a_notfound_noop() {
+    ConfigMapDeleteOutcome result = store.delete("acme", "never-existed");
+
+    assertEquals(new ConfigMapDeleteOutcome.NotFound(), result);
+    // No version minted for a no-op delete.
+    assertEquals(List.of(), store.listVersions("acme", "never-existed"));
+  }
+
+  @Test
+  void list_versions_shows_every_stamped_version_oldest_first_including_the_delete_tombstone() {
+    store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty());
+    store.patch("acme", "app-config", Map.of("b", "2"), 1);
     store.delete("acme", "app-config");
 
+    List<ConfigMapVersion> versions = store.listVersions("acme", "app-config");
+
+    assertEquals(3, versions.size());
+    assertEquals(1, versions.get(0).version());
+    assertEquals(Map.of("a", "1"), versions.get(0).data());
+    assertEquals(false, versions.get(0).deleted());
+    assertEquals(2, versions.get(1).version());
+    assertEquals(Map.of("a", "1", "b", "2"), versions.get(1).data());
+    assertEquals(3, versions.get(2).version());
+    assertEquals(true, versions.get(2).deleted());
+  }
+
+  @Test
+  void rollback_to_an_earlier_version_restores_its_data_as_a_brand_new_version() {
+    store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty());
+    store.put("acme", "app-config", Map.of("b", "2"), OptionalInt.empty());
+
+    ConfigMapRollbackOutcome result = store.rollback("acme", "app-config", 1);
+
+    assertEquals(new ConfigMapRollbackOutcome.Applied(3, Map.of("a", "1"), false), result);
+    ConfigMap saved = store.get("acme", "app-config").orElseThrow();
+    assertEquals(3, saved.version());
+    assertEquals(Map.of("a", "1"), saved.data());
+    // Rolling back never rewrites the version it targeted or anything stamped after it.
+    List<ConfigMapVersion> versions = store.listVersions("acme", "app-config");
+    assertEquals(3, versions.size());
+    assertEquals(Map.of("b", "2"), versions.get(1).data());
+  }
+
+  @Test
+  void rollback_to_a_deleted_version_deletes_the_configmap_again_as_a_new_version() {
+    store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty());
+    store.delete("acme", "app-config");
+    store.put("acme", "app-config", Map.of("b", "2"), OptionalInt.empty());
+
+    ConfigMapRollbackOutcome result = store.rollback("acme", "app-config", 2);
+
+    assertEquals(new ConfigMapRollbackOutcome.Applied(4, Map.of(), true), result);
     assertEquals(Optional.empty(), store.get("acme", "app-config"));
+  }
+
+  @Test
+  void rollback_of_an_unknown_version_is_rejected_without_touching_the_live_row() {
+    store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty());
+
+    ConfigMapRollbackOutcome result = store.rollback("acme", "app-config", 99);
+
+    assertEquals(new ConfigMapRollbackOutcome.TargetNotFound(), result);
+    assertEquals(Map.of("a", "1"), store.get("acme", "app-config").orElseThrow().data());
+  }
+
+  @Test
+  void version_numbers_keep_counting_up_across_a_delete_then_recreate_cycle() {
+    store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty()); // v1
+    store.delete("acme", "app-config"); // v2 (tombstone)
+
+    ConfigMapWriteResult recreated =
+        store.put("acme", "app-config", Map.of("b", "2"), OptionalInt.empty());
+
+    // Restarting at 1 would collide with the ledger's own v1 entry from before the delete.
+    assertEquals(new ConfigMapWriteResult.Written(3), recreated);
   }
 
   @Test

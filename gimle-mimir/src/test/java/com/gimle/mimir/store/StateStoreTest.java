@@ -784,6 +784,24 @@ class StateStoreTest {
     assertTrue(reloadedAgain.listAccounts().isEmpty());
   }
 
+  @Test
+  void remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role() {
+    StateStore store = new StateStore();
+    RoleBinding toViewer1 = new RoleBinding("b1", RoleBinding.userSubject("alice"), "viewer");
+    RoleBinding toViewer2 = new RoleBinding("b2", RoleBinding.groupSubject("finance"), "viewer");
+    RoleBinding toEditor = new RoleBinding("b3", RoleBinding.userSubject("bob"), "editor");
+    store.putRoleBinding(toViewer1);
+    store.putRoleBinding(toViewer2);
+    store.putRoleBinding(toEditor);
+
+    List<RoleBinding> removed = store.removeRoleBindingsForRole("viewer");
+
+    assertEquals(Set.of(toViewer1, toViewer2), Set.copyOf(removed));
+    assertEquals(List.of(toEditor), store.listRoleBindings());
+    // A second call against a name with nothing left to cascade is a no-op, not an error.
+    assertTrue(store.removeRoleBindingsForRole("viewer").isEmpty());
+  }
+
   // ---- leases: non-replicated coordination state backing the reconciler-leader election ----
 
   @Test

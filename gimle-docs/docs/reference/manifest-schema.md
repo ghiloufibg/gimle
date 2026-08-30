@@ -437,6 +437,8 @@ jobTemplate:
 startingDeadlineSeconds: 300    # optional -- omit for no missed-schedule cutoff
 concurrencyPolicy: Forbid       # optional -- Allow (default), Forbid, or Replace
 tenantId: acme                   # optional -- applied to every Job this CronJob generates
+successfulJobsHistoryLimit: 3   # optional -- defaults to 3, matching Kubernetes CronJob
+failedJobsHistoryLimit: 1       # optional -- defaults to 1, matching Kubernetes CronJob
 ```
 
 | Field | Required | Meaning |
@@ -453,6 +455,8 @@ tenantId: acme                   # optional -- applied to every Job this CronJob
 | `startingDeadlineSeconds` | no | How late a firing may still be honored (after its own due instant) before it's logged as missed instead — matches Kubernetes CronJob's own missed-schedule handling. Omit for no cutoff. |
 | `concurrencyPolicy` | no | `Allow` (default), `Forbid` (skip this firing while the previous generated Job is still non-terminal), or `Replace` (remove the still-running Job first). Case-insensitive. |
 | `tenantId` | no | Applied to every Job this CronJob generates — omit for untenanted firings. |
+| `successfulJobsHistoryLimit` | no | How many `SUCCEEDED` generated Jobs to keep, oldest-first pruned on every reconcile tick. Defaults to `3`, matching Kubernetes CronJob's own default. `0` keeps none. Independent of `concurrencyPolicy`, which only ever governs non-terminal jobs. |
+| `failedJobsHistoryLimit` | no | Same as `successfulJobsHistoryLimit`, for `FAILED` generated Jobs. Defaults to `1`, matching Kubernetes CronJob's own default. |
 
 A cronjob's `lastScheduleTime` is read-only, computed state — never part of the manifest you submit.
 `gimle get cronjobs <name>` (or the console's CronJobs screen) is how you read it back, alongside
@@ -487,6 +491,17 @@ GPU-only telemetry agent) — the console's DaemonSets screen surfaces it as a f
 exactly this reason, not buried in a details panel the way a Deployment's own placement fields
 currently are (not yet surfaced in the console at all).
 
+A node an operator has tainted (`gimle taint <nodeId> <tenantId>`, see the
+[CLI reference](./cli-reference.md)) is excluded from this DaemonSet's placement the same way it
+excludes a Deployment or StatefulSet replica, by default — a DaemonSet gets no automatic exemption.
+Set `tolerateAllTaints: true` to opt a genuinely cluster-wide DaemonSet (a log shipper, a node
+exporter — something that must reach every node regardless of which tenant it's reserved for) out
+of the taint filter entirely; every other DaemonSet stays scoped to untainted nodes (plus any node
+tainted specifically for its own `tenantId`) unless it opts in too. This is a deliberate,
+per-DaemonSet choice rather than an unconditional default — unlike Kubernetes, where a DaemonSet's
+own baseline tolerations only ever cover a handful of built-in system taints, every Gimlé taint is
+an operator-declared tenant reservation, so bypassing one is never silent.
+
 ```yaml
 kind: DaemonSet
 name: node-exporter
@@ -497,6 +512,7 @@ artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
 placement:                     # optional -- omit entirely to run on every eligible node
   requiredLabels: [gpu]
 tenantId: acme                 # optional -- omit for an untenanted daemonset
+tolerateAllTaints: false       # optional, defaults to false -- see below
 disruption:                    # optional -- see the Deployment manifest's own disruption section
   maxUnavailable: 2
 ```
@@ -511,6 +527,7 @@ disruption:                    # optional -- see the Deployment manifest's own d
 | `placement.requiredLabels` | no | Same label-matching semantics as a Deployment/Job manifest's own field — a node missing even one required label is excluded. Omit for "every eligible node." |
 | `placement.antiAffinity` | rejected if present | Not a valid field on this manifest kind — `DaemonSetManifestParser` throws if the YAML sets it, rather than silently ignoring it. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted daemonset. |
+| `tolerateAllTaints` | no | Defaults to `false`. Set `true` to skip the node-taint filter entirely for this DaemonSet, reaching every eligible node regardless of tenant reservation — see above. |
 | `disruption.maxUnavailable` | no | Same meaning as the [Deployment manifest's own field](#deployment-manifest-disruption) — how many nodes may be mid-rollout at once. Defaults to `1`. |
 | `disruption.maxSurge` | rejected if nonzero | Permanently meaningless here, even though it's now implemented for Deployment — one instance per node is already the strongest guarantee a surge could offer. `DaemonSetManifestParser` rejects a nonzero value outright, the same posture it takes for `placement.antiAffinity`. |
 

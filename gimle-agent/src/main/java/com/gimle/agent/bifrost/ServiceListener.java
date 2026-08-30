@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLPeerUnverifiedException;
@@ -42,7 +44,12 @@ import org.slf4j.LoggerFactory;
  * <p>See {@link #forward} for what happens when a {@code NetworkPolicySpec} applies to this
  * service: with a TLS context this listener verifies the caller's certificate-carried tenant
  * against the policy's own allow list; without one it can only refuse outright, since a plaintext
- * byte relay has no caller identity to check.
+ * byte relay has no caller identity to check. That check runs again on every {@link
+ * #setApplicableRules} call, not just at accept time -- {@link BifrostProxy} calls it once per poll
+ * tick, so a policy change reaches every connection this listener currently has open, not only the
+ * next one it accepts. Without this, a long-lived stream (chunked HTTP, a WebSocket, a gRPC call)
+ * opened while a caller's tenant was still permitted would keep flowing indefinitely after that
+ * tenant is removed from the allow list or a new deny policy is added.
  */
 final class ServiceListener implements AutoCloseable {
 
@@ -58,6 +65,7 @@ final class ServiceListener implements AutoCloseable {
   private volatile boolean sessionAffinity;
   private volatile List<NetworkPolicyRule> applicableRules = List.of();
   private volatile boolean closed;
+  private final Set<OpenConnection> openConnections = ConcurrentHashMap.newKeySet();
 
   ServiceListener(String serviceName, InetAddress clusterIp, int port) throws IOException {
     this(serviceName, new InetSocketAddress(clusterIp, port), Optional.empty(), Optional.empty());
@@ -120,6 +128,33 @@ final class ServiceListener implements AutoCloseable {
    */
   void setApplicableRules(List<NetworkPolicyRule> rules) {
     this.applicableRules = List.copyOf(rules);
+    enforceCurrentPolicy();
+  }
+
+  /**
+   * Closes every currently open connection the just-updated rule set no longer permits. Cheap when
+   * nothing changed: an empty rule set (the common case) returns immediately without touching a
+   * single connection, and a non-empty one only re-runs the same {@link #policyPermits} check
+   * {@link #forward} already ran at accept time, against whatever connections are still open.
+   * Called from {@link #setApplicableRules} so a connection is re-checked on the same cadence
+   * {@link BifrostProxy} already refreshes the rule set on -- no separate timer, no per-connection
+   * thread.
+   */
+  private void enforceCurrentPolicy() {
+    List<NetworkPolicyRule> rules = applicableRules;
+    if (rules.isEmpty() || openConnections.isEmpty()) {
+      return;
+    }
+    for (OpenConnection connection : openConnections) {
+      if (!policyPermits(rules, connection.inbound())) {
+        log.info(
+            "bifrost closes an open connection to service {}: no longer permitted by the current"
+                + " network policy",
+            serviceName);
+        closeQuietly(connection.inbound());
+        closeQuietly(connection.outbound());
+      }
+    }
   }
 
   private void acceptLoop() {
@@ -166,19 +201,34 @@ final class ServiceListener implements AutoCloseable {
       closeQuietly(inbound);
       return;
     }
-    Thread clientToBackend =
-        Thread.ofVirtual()
-            .name("gimle-bifrost-relay-" + serviceName + "-out")
-            .start(() -> pump(inbound, outbound));
-    Thread backendToClient =
-        Thread.ofVirtual()
-            .name("gimle-bifrost-relay-" + serviceName + "-in")
-            .start(() -> pump(outbound, inbound));
-    joinQuietly(clientToBackend);
-    joinQuietly(backendToClient);
+    OpenConnection connection = new OpenConnection(inbound, outbound);
+    openConnections.add(connection);
+    try {
+      Thread clientToBackend =
+          Thread.ofVirtual()
+              .name("gimle-bifrost-relay-" + serviceName + "-out")
+              .start(() -> pump(inbound, outbound));
+      Thread backendToClient =
+          Thread.ofVirtual()
+              .name("gimle-bifrost-relay-" + serviceName + "-in")
+              .start(() -> pump(outbound, inbound));
+      joinQuietly(clientToBackend);
+      joinQuietly(backendToClient);
+    } finally {
+      openConnections.remove(connection);
+    }
     closeQuietly(inbound);
     closeQuietly(outbound);
   }
+
+  /**
+   * One proxied connection's live socket pair, tracked only for as long as {@link #forward}'s pump
+   * threads are running -- what lets {@link #enforceCurrentPolicy} find and close it if a policy
+   * change revokes its permission mid-stream. Identity is deliberately the default {@code Socket}
+   * one (there is never more than one {@code OpenConnection} per accepted socket), not a value
+   * comparison.
+   */
+  private record OpenConnection(Socket inbound, Socket outbound) {}
 
   /**
    * Whether the applicable policy set permits this connection. Plaintext listeners can never prove

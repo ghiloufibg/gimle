@@ -460,7 +460,7 @@ public final class FafnirServer implements AutoCloseable {
     return (byte) value;
   }
 
-  // ---- /secrets/{tenantId}, /secrets/{tenantId}/{key}[/versions] ----
+  // ---- /secrets/{tenantId}, /secrets/{tenantId}/{key}[/versions|/undelete] ----
 
   private void handleSecrets(HttpExchange exchange) {
     try {
@@ -489,19 +489,33 @@ public final class FafnirServer implements AutoCloseable {
         return;
       }
       // GET /secrets/{tenantId}/{key}/versions -- list the key's stored version numbers.
+      // POST /secrets/{tenantId}/{key}/undelete[?version=N] -- clear the soft-delete flag,
+      // reserved action segments checked before the general key path below, the same pattern
+      // #handleSecretMaps's own /versions and /rollback sub-routes already establish.
       if (parts.length == 3) {
-        if (!"versions".equals(parts[2])) {
-          respond(exchange, 404, "unknown secrets sub-resource: " + parts[2]);
+        if ("versions".equals(parts[2])) {
+          if (!"GET".equals(exchange.getRequestMethod())) {
+            respond(exchange, 405, "method not allowed");
+            return;
+          }
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRET, Verb.READ, tenantId, Optional.of(key))) {
+            handleSecretVersions(exchange, tenantId, key);
+          }
           return;
         }
-        if (!"GET".equals(exchange.getRequestMethod())) {
-          respond(exchange, 405, "method not allowed");
+        if ("undelete".equals(parts[2])) {
+          if (!"POST".equals(exchange.getRequestMethod())) {
+            respond(exchange, 405, "method not allowed");
+            return;
+          }
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRET, Verb.WRITE, tenantId, Optional.of(key))) {
+            handleUndeleteSecret(exchange, tenantId, key);
+          }
           return;
         }
-        if (authorizeSecrets(
-            exchange, ResourceKind.SECRET, Verb.READ, tenantId, Optional.of(key))) {
-          handleSecretVersions(exchange, tenantId, key);
-        }
+        respond(exchange, 404, "unknown secrets sub-resource: " + parts[2]);
         return;
       }
       // GET/PUT/DELETE /secrets/{tenantId}/{key}[?version=N|destroy=true] -- read, write, or
@@ -582,9 +596,7 @@ public final class FafnirServer implements AutoCloseable {
       return;
     }
     int effectiveVersion =
-        version.orElseGet(
-            () ->
-                secretStore.versions(tenantId, key).stream().max(Integer::compareTo).orElseThrow());
+        version.orElseGet(() -> secretStore.currentVersion(tenantId, key).orElseThrow());
     respondJson(
         exchange, 200, Map.of("value", encodeBase64(value.get()), "version", effectiveVersion));
   }
@@ -609,6 +621,26 @@ public final class FafnirServer implements AutoCloseable {
       secretStore.softDelete(tenantId, key);
     }
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * {@code POST /secrets/{tenantId}/{key}/undelete[?version=N]} -- clears the soft-delete flag on
+   * {@code key}'s {@code @meta} pointer, restoring it as active again; with no {@code version},
+   * whatever version was current when it was deleted; with one, an explicit older version's data as
+   * the new current pointer instead. Genuinely absent (never written, or previously hard- deleted)
+   * is a 404, matching {@link #handleGetSecret}'s own "no such secret" convention; naming a version
+   * whose data doesn't exist is a 400, caught below alongside every other {@link
+   * GimleSecretsException}.
+   */
+  private void handleUndeleteSecret(HttpExchange exchange, String tenantId, String key)
+      throws IOException {
+    OptionalInt version = parseVersion(exchange);
+    OptionalInt restored = secretStore.undelete(tenantId, key, version);
+    if (restored.isEmpty()) {
+      respond(exchange, 404, "no such secret: " + key);
+      return;
+    }
+    respondJson(exchange, 200, Map.of("version", restored.getAsInt()));
   }
 
   // ---- /secretmaps/{tenantId}[?names=a,b,c], /secretmaps/{tenantId}/{name}[/{key}] ----
@@ -778,7 +810,7 @@ public final class FafnirServer implements AutoCloseable {
         secretMapStore.setMany(tenantId, name, values);
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
-    respondJson(exchange, 200, Map.of("results", resultsJson));
+    respondJson(exchange, secretMapBatchStatus(results), Map.of("results", resultsJson));
   }
 
   /**
@@ -801,7 +833,7 @@ public final class FafnirServer implements AutoCloseable {
         secretMapStore.replaceAll(tenantId, name, values);
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
-    respondJson(exchange, 200, Map.of("results", resultsJson));
+    respondJson(exchange, secretMapBatchStatus(results), Map.of("results", resultsJson));
   }
 
   private void handleDeleteSecretMap(HttpExchange exchange, String tenantId, String name)
@@ -850,7 +882,7 @@ public final class FafnirServer implements AutoCloseable {
             applied.results().stream().map(FafnirServer::secretMapKeyResultToJson).toList();
         respondJson(
             exchange,
-            200,
+            secretMapBatchStatus(applied.results()),
             Map.of("results", resultsJson, "groupVersion", applied.newGroupVersion()));
       }
     }
@@ -909,7 +941,7 @@ public final class FafnirServer implements AutoCloseable {
     results.addAll(failures);
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
-    respondJson(exchange, 200, Map.of("results", resultsJson));
+    respondJson(exchange, secretMapBatchStatus(results), Map.of("results", resultsJson));
   }
 
   private static Map<String, Object> groupVersionToJson(
@@ -937,6 +969,20 @@ public final class FafnirServer implements AutoCloseable {
     result.version().ifPresent(version -> map.put("version", version));
     result.error().ifPresent(error -> map.put("error", error));
     return map;
+  }
+
+  /**
+   * The HTTP status every SecretMap batch handler (set/replace/seal/rollback) responds with: 200
+   * only if every key in {@code results} succeeded, 207 Multi-Status the moment even one didn't --
+   * the batch request itself was processed correctly (each key's own outcome is genuinely recorded,
+   * successes are not rolled back), but a caller checking HTTP status alone (an automation script,
+   * not just a human reading the printed per-key {@code results}) must be able to tell a
+   * fully-clean batch from one with a real per-key failure buried in it. Unconditionally returning
+   * 200 here -- the previous behavior -- made a 100%-failed batch indistinguishable from a fully
+   * successful one to anything gating on exit status rather than parsing the response body.
+   */
+  private static int secretMapBatchStatus(List<SecretMapStore.SecretMapKeyResult> results) {
+    return results.stream().anyMatch(result -> result.error().isPresent()) ? 207 : 200;
   }
 
   private static Map<String, Object> secretMetadataToJson(SecretMetadata metadata) {
@@ -1088,7 +1134,19 @@ public final class FafnirServer implements AutoCloseable {
     }
     return sessionCookie(exchange)
         .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
-        .map(username -> new Principal(username, Set.of()));
+        .filter(session -> !isSessionRevoked(session))
+        .map(session -> new Principal(session.username(), Set.of()));
+  }
+
+  /**
+   * Mirrors {@code ApiServer#isSessionRevoked} for this process's own independent console session
+   * cookie: a session token otherwise verifies purely by its own HMAC signature (see {@code
+   * SessionTokens}'s own javadoc), so this is the one server-side check standing between a logged-
+   * out token and continued access -- {@link #handleAuthLogout} is this watermark's only writer.
+   */
+  private boolean isSessionRevoked(SessionTokens.VerifiedSession session) {
+    return session.issuedAtEpochMilli()
+        <= crypto.storeClient().getSessionRevokedBeforeEpochMilli(session.username());
   }
 
   // ---- /auth/login, /auth/logout, /auth/session, /status ----
@@ -1161,6 +1219,17 @@ public final class FafnirServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
+      // Revokes server-side, not just the client-side cookie -- see ApiServer#handleAuthLogout's
+      // own javadoc for the full reasoning, identical here.
+      sessionCookie(exchange)
+          .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
+          .ifPresent(
+              session ->
+                  crypto
+                      .storeClient()
+                      .propose(
+                          new StateMutation.PutSessionRevocation(
+                              session.username(), System.currentTimeMillis())));
       exchange.getResponseHeaders().add("Set-Cookie", sessionCookieHeader("", 0));
       respond(exchange, 200, "ok");
     } catch (IOException e) {

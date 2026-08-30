@@ -50,6 +50,8 @@ public final class ConfigMapCommand {
       case "get" -> get(rest);
       case "set" -> set(rest);
       case "delete" -> delete(rest);
+      case "versions" -> versions(rest);
+      case "rollback" -> rollback(rest);
       default -> throw new CliException(usage());
     }
   }
@@ -176,6 +178,40 @@ public final class ConfigMapCommand {
     }
   }
 
+  private void versions(List<String> args) {
+    if (args.size() < 2) {
+      throw new CliException("configmap versions requires <tenantId> <name>");
+    }
+    String tenantId = args.get(0);
+    String name = args.get(1);
+    Map<String, Object> response =
+        client.getObject("/configmaps/" + tenantId + "/" + name + "/versions");
+    OutputFormat.printList(output, Json.asObjectList(response.get("versions")), out);
+  }
+
+  private void rollback(List<String> args) {
+    if (args.size() < 3) {
+      throw new CliException("configmap rollback requires <tenantId> <name> <version>");
+    }
+    String tenantId = args.get(0);
+    String name = args.get(1);
+    int version = parseVersion(args.get(2));
+    String response =
+        client.expectSuccess(
+            client.post(
+                "/configmaps/" + tenantId + "/" + name + "/rollback",
+                Json.write(Map.of("version", version))));
+    OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
+  }
+
+  private static int parseVersion(String raw) {
+    try {
+      return Integer.parseInt(raw);
+    } catch (NumberFormatException e) {
+      throw new CliException("version must be an integer, got: " + raw);
+    }
+  }
+
   private static Map<String, Object> resultBody(String result, String tenantId, String name) {
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("result", result);
@@ -201,6 +237,8 @@ public final class ConfigMapCommand {
           get <tenantId> <name>
           set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
           delete <tenantId> <name>
+          versions <tenantId> <name>
+          rollback <tenantId> <name> <version>
         """;
   }
 }

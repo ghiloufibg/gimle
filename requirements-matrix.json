@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 656,
+  "requirementCount": 679,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13131,6 +13131,331 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-665",
+      "module": "gimle-cli",
+      "feature": "Single-resource CLI verbs reject more than one positional argument instead of silently truncating",
+      "category": "CLI / console parity",
+      "userStory": "As an operator running gimle delete <kind> <name> or gimle apply -f <manifest> from a script, I want a mistaken extra argument (a second name, a second -f) to fail loudly and change nothing, so a typo or a copy-paste mistake can never look like it succeeded while quietly acting on only the first argument and discarding the rest.",
+      "statusDetail": "Complete. GimleCli#requireOne -- the shared helper behind cordon/uncordon/get node-assignments/get config/delete tenant/delete limitrange/delete role/delete rolebinding/delete account -- returned args.get(0) with no check on args.size(), so gimle delete tenant a b silently deleted only \"a\" with \"b\" never referenced anywhere, no warning, no error. The five corresponding get <kind> [name] methods (TenantsCommand, RolesCommand, RoleBindingsCommand, AccountsCommand, LimitRangeCommand) shared the identical shape on their own bare-lookup path -- gimle get tenant a b silently printed only \"a\". Separately, ManifestFiles#requireFileFlag scanned forward for -f/--file and returned the first match found, so gimle apply -f a.yaml -f b.yaml silently applied only a.yaml, with b.yaml never read and no warning it was ignored. Fixed: requireOne now rejects more than one positional argument via a new shared GimleCli#requireAtMostOne (also called directly by the five get methods above, closing the identical gap on their side of the same bug), and requireFileFlag now rejects a second -f/--file outright. Every rejection happens client-side before any HTTP request is sent, so a rejected delete/apply changes nothing -- not a partial delete, not a partial apply.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`requireOne`, `requireAtMostOne`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java` (`requireFileFlag`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/TenantsCommand.java`, `RolesCommand.java`, `RoleBindingsCommand.java`, `AccountsCommand.java`, `LimitRangeCommand.java` (`get`)"
+      ],
+      "testCoverageDetail": "`GimleCliTest#deleting_a_tenant_with_more_than_one_positional_argument_is_rejected` (confirmed the tenant is never actually deleted -- a subsequent get still finds it), `#getting_a_tenant_with_more_than_one_positional_argument_is_rejected`, `#cordoning_with_more_than_one_positional_argument_is_rejected`, `#apply_with_more_than_one_file_flag_is_rejected_not_silently_applying_only_the_first` (confirmed neither manifest was ever applied). Full gimle-cli regression suite re-verified (77/77 GimleCliTest methods pass in isolation).",
+      "gherkinSteps": [
+        "Given a delete/get verb backed by requireOne or requireAtMostOne; When more than one positional name/id argument is given; Then the command is rejected with a clear \"too many arguments\" error and exits nonzero, with no request ever sent to the control plane.",
+        "Given gimle apply with two -f/--file flags; When the command runs; Then it is rejected before either manifest is read, rather than silently applying only the first.",
+        "Given a rejected delete or apply; Then the target resource is left completely untouched -- rejection happens client-side, before any HTTP request."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-666",
+      "module": "gimle-worker",
+      "feature": "A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event",
+      "category": "Worker runtime / health",
+      "userStory": "As a platform operator, I want a manifest typo in health.liveness/health.readiness (a probe class that can't be found or constructed) to be caught and surfaced, so a broken deployment fails loudly instead of sitting ACTIVE forever with no probe loop ever registered and no signal anything is wrong.",
+      "statusDetail": "Complete. WorkerRuntime#onActive called instantiate(...) directly inside the liveness/readiness .ifPresent(...) lambdas; a probe class that failed to load or construct threw straight out of onActive, itself a reaction to the module's own Active lifecycle event, into ModuleController#emit's generic event-sink catch, which only logs and drops the exception. Since markActive had already run before that catch fired, the instance was left ACTIVE forever with no probe loop registered. Fixed: a new instantiateProbeOrFail helper wraps instantiate in a try/catch; on failure it logs and calls controller.forceFailed(id, ...) -- mirroring restartModule's own budget-exhaustion escalation, the same call and the same durable TransitionFailed event -- with a best-effort guard around forceFailed itself for a concurrent transition (a racing uninstall). WorkerMain's own lifecycle-event dispatch also reorders its two control-channel reports to send before reacting to the event, since onActive can now synchronously force a further FAILED transition that recurses back into the same dispatch for its own event -- otherwise the stale ACTIVE report could land second and overwrite the agent's already-correct FAILED view.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateProbeOrFail`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (lifecycle event dispatch ordering)"
+      ],
+      "testCoverageDetail": "`WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified.",
+      "gherkinSteps": [
+        "Given a module manifest naming a health.liveness class that does not exist; When the module transitions to Active; Then the instance is forced to FAILED with a durable TransitionFailed event, not left ACTIVE with a silently-missing probe loop.",
+        "Given a module manifest naming a valid liveness probe class; When the module transitions to Active; Then it reaches and remains ACTIVE with its probe loop registered normally."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-667",
+      "module": "gimle-core",
+      "feature": "Console session logout revokes the session token server-side, not just the client-side cookie",
+      "category": "Security / session management",
+      "userStory": "As an operator, I want logging out of the control plane, Fafnir, or Andvari console to actually invalidate my session token on the server, so a captured or still-cached session cookie can't keep authenticating requests for the rest of its ordinary TTL after I've logged out.",
+      "statusDetail": "Complete. SessionTokens was a fully stateless, self-verifying HMAC token with no revocation mechanism; /auth/logout only cleared the client-side cookie (Set-Cookie ...; Max-Age=0) while the token itself kept verifying and authorizing requests for its full 12-hour TTL if replayed. Fixed: SessionTokens.verify now returns Optional<VerifiedSession> (username plus issued-at) instead of a bare username; gimle-mimir gains a Raft-replicated per-username \"revoked before\" watermark (StateMutation.PutSessionRevocation, StateStore#putSessionRevocation/getSessionRevokedBeforeEpochMilli, merged via Math::max so out-of-order logout replays can't un-revoke), threaded through StoreReader/StoreClient/StoreRpc/StoreCodec/RaftCodec/StateSnapshot the same way certificate revocation already is. Each of the three consoles' own /auth/logout (ApiServer, FafnirServer, AndvariServer) proposes the revocation for whichever username the presented cookie verified to, and each resolvePrincipal filters a verified session through a new isSessionRevoked check before trusting it.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/session/SessionTokens.java` (`VerifiedSession`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutSessionRevocation`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putSessionRevocation`, `getSessionRevokedBeforeEpochMilli`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAuthLogout`, `isSessionRevoked`)",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleAuthLogout`, `isSessionRevoked`)",
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`handleAuthLogout`, `isSessionRevoked`)"
+      ],
+      "testCoverageDetail": "`ApiServerAuthzTest#login_session_and_logout_round_trip_with_no_client_certificate_at_all` (the old, already-issued cookie is rejected with 401 when replayed after logout), `FafnirServerAuthTest`/`AndvariServerAuthTest`'s own equivalent round-trip tests (a revoked cookie resolves to the plaintext-mode \"anonymous\" carve-out rather than \"admin\"), `SessionTokensTest` (issued-at round-trips through verify). Full suite across gimle-core/gimle-mimir/gimle-controlplane/gimle-fafnir/gimle-andvari re-verified.",
+      "gherkinSteps": [
+        "Given a console user logged in with a valid session cookie; When they log out and then replay the exact same old cookie; Then the server rejects it (401, or the plaintext anonymous carve-out) even though the cookie's own HMAC signature still verifies and it has not yet hit its ordinary expiry.",
+        "Given a session token issued after a username's own revocation watermark; When it is presented; Then it is still accepted normally."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-668",
+      "module": "gimle-agent",
+      "feature": "A NetworkPolicy change closes an already-open Bifrost connection, not just future ones",
+      "category": "Networking / policy enforcement",
+      "userStory": "As a tenant operator, I want revoking a caller tenant's access (or adding a new deny policy) to close any connection that caller already has open through Bifrost, so a long-lived stream (chunked HTTP, a WebSocket, a gRPC call) opened while still permitted can't keep flowing indefinitely after the policy changes.",
+      "statusDetail": "Complete. ServiceListener#forward snapshotted the applicable NetworkPolicyRules once, at connection-accept time; once its two byte-pump threads started, a policy change during an already-open connection never reached it, even though BifrostProxy itself refreshed the rule set every poll tick. Fixed: a new openConnections set tracks every currently-open connection's live inbound/outbound socket pair for the duration of forward's pump threads; setApplicableRules (called by BifrostProxy every poll tick) now also calls a new enforceCurrentPolicy(), which re-runs the existing policyPermits check against every open connection and closes both sockets of any connection the new rule set no longer permits.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java` (`openConnections`, `enforceCurrentPolicy`, `OpenConnection`)"
+      ],
+      "testCoverageDetail": "`BifrostLiveConnectionPolicyTest#removing_a_callers_tenant_from_the_allow_list_closes_its_already_open_connection`, `#a_brand_new_deny_policy_closes_an_already_open_connection_to_a_previously_unrestricted_service`, `#an_open_connection_is_never_closed_across_poll_ticks_that_leave_the_policy_unchanged` (a real TLS-terminating listener against a backend streaming continuously, so bytes stopping mid-stream is directly observable). Full gimle-agent module suite re-verified.",
+      "gherkinSteps": [
+        "Given a caller tenant permitted by the current NetworkPolicy with an already-open, long-lived connection through Bifrost; When that tenant is removed from the allow list (or a new deny policy is added) and the next poll tick runs; Then the already-open connection is closed within that same tick.",
+        "Given an open connection to a service with no applicable policy change; When repeated poll ticks run; Then the connection is never closed."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-669",
+      "module": "gimle-controlplane",
+      "feature": "Node-death instance eviction is throttled against the deployment's own DisruptionBudget",
+      "category": "Reconcilers / self-healing",
+      "userStory": "As a platform operator, I want a dead node hosting several replicas of the same deployment to have its instances released for re-placement no faster than the deployment's own configured maxUnavailable, so one node failure can't silently exceed my configured availability floor the way a voluntary rolling update already respects.",
+      "statusDetail": "Complete. ReplicaCountReconciler#reconcileAssignment released a stale (no-longer-confirmed-by-heartbeat) instance assignment unconditionally once its grace period elapsed, with no regard for the deployment's own DisruptionBudget.maxUnavailable -- the same throttle DeploymentReconciler#handleRollingUpdate already enforces for voluntary migrations was simply absent here. Fixed: reconcileOnce now groups assignments by deployment identity into a new reconcileDeployment step; a new evictionBudgetRemaining reads the deployment's effectiveDisruptionBudget().maxUnavailable(), measures \"already unavailable\" as replicas minus how many of indices [0, replicas) currently have any assignment at all (deliberately counting in-flight rolling-update migrations too, since both paths draw down the same ceiling), and returns the remaining headroom; only indices due for release this tick compete for that budget, lowest index first, and a deferred eviction leaves its grace-period timer exactly as elapsed as it already is so it's retried on the next tick rather than restarting a fresh grace period.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ReplicaCountReconciler.java` (`reconcileDeployment`, `evictionBudgetRemaining`)"
+      ],
+      "testCoverageDetail": "`ReplicaCountReconcilerTest` gains coverage for budget throttling across multiple dead replicas, lowest-index-first ordering, budget exhaustion deferring without resetting the grace-period timer, and unthrottled behavior when no DeploymentSpec exists. Full gimle-controlplane module suite re-verified.",
+      "gherkinSteps": [
+        "Given a deployment with DisruptionBudget maxUnavailable N and more than N replicas gone stale on a dead node past their grace period; When the reconciler ticks; Then at most N of them are released for re-placement this tick, the rest deferred to a later tick.",
+        "Given a deployment assignment deferred by an exhausted disruption budget; When a later tick has budget again; Then it is released without having to wait out a fresh grace period."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-670",
+      "module": "gimle-controlplane",
+      "feature": "CronJob prunes its own terminal generated Jobs to configurable successful/failed history limits",
+      "category": "Workloads / CronJob",
+      "userStory": "As a platform operator, I want a CronJob's completed Job history to be automatically trimmed to a configurable limit (Kubernetes' own successfulJobsHistoryLimit/failedJobsHistoryLimit, defaulting to 3/1), so a CronJob firing on a regular schedule doesn't leave one generated Job in the store forever.",
+      "statusDetail": "Complete. CronJobReconciler never cleaned up a terminal (SUCCEEDED/FAILED) generated Job -- every firing left a permanent JobSpec in the store. Fixed: CronJobSpec gains successfulJobsHistoryLimit/failedJobsHistoryLimit fields (Kubernetes' own field names and 3/1 defaults exactly); a new CronJobReconciler#pruneJobHistory runs every tick (level-triggered, converges from any starting state, including right after an operator lowers the limit), independent of ConcurrencyPolicy: it finds every generated Job for a CronJob, filters to each terminal phase, sorts oldest-first by the epochSeconds suffix its own name carries, and removes the oldest excess beyond the configured limit.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/CronJobSpec.java` (`successfulJobsHistoryLimit`, `failedJobsHistoryLimit`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/CronJobManifestParser.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java` (`pruneJobHistory`, `excessTerminalJobs`, `firingEpochSecond`)"
+      ],
+      "testCoverageDetail": "`CronJobReconcilerTest#repeated_real_firings_marked_terminal_converge_to_the_default_history_limits` (6 firings, 4 succeeded/2 failed, converges to the default 3/1 limits, oldest pruned first) plus `CronJobManifestParserTest` coverage for the new fields' parsing and defaults. Full gimle-mimir/gimle-controlplane suites re-verified.",
+      "gherkinSteps": [
+        "Given a CronJob with default history limits and more firings than those limits allow; When the reconciler ticks after each firing is marked terminal; Then only the configured number of most-recent successful and failed Jobs remain, oldest excess pruned.",
+        "Given an operator lowers a CronJob's history limit below its currently accumulated terminal Job count; When the reconciler next ticks; Then it prunes down to the new, lower limit."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-671",
+      "module": "gimle-fafnir",
+      "feature": "A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version",
+      "category": "Secrets / Fafnir",
+      "userStory": "As an operator who just soft-deleted a Secret, I want to undelete it -- restoring whatever version was current at the time, or an explicit earlier version -- without minting a new version or disturbing any other version's own data, so recovering from an accidental delete doesn't require re-uploading the value by hand.",
+      "statusDetail": "Complete. SecretStore had softDelete (every @N entry stays on disk, recoverable) but no undelete path back -- the only way to restore a soft-deleted secret was a manual get + put round trip, which mints a brand-new version rather than reactivating the one that was there. Fixed: SecretStore.undelete(tenantId, key, OptionalInt version) clears the deleted flag on the key's @meta pointer, restoring the version that was current at delete time (or an explicit earlier version, rewinding the pointer without touching any version's own stored data). A real, related production bug was found and fixed in the process: Meta's single latestVersion field did double duty as both the current-version pointer and the count of versions ever claimed; once undelete could rewind the pointer, a subsequent put would have silently overwritten a bypassed newer version's data. Meta now carries a second field, highestVersion, used by put/versions/hardDelete, distinct from latestVersion (the current pointer undelete may move backward).",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`undelete`, `Meta.highestVersion`, `currentVersion`)",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`POST /secrets/{tenantId}/{key}/undelete`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`secret undelete`)"
+      ],
+      "testCoverageDetail": "`SecretStoreTest` covers undelete restoring the current version, restoring an explicit older version without touching the newer version's own data, undeleting a never-written key (empty), undeleting a hard-deleted secret (empty, not revived), and rejecting an unknown version number. `FafnirServerTest`/`FafnirServerSealTest` cover the HTTP route and the highestVersion wire-shape change. Full gimle-fafnir/gimle-cli/gimle-controlplane suites re-verified.",
+      "gherkinSteps": [
+        "Given a Secret soft-deleted with no version specified for undelete; When undelete is called; Then the version that was current at delete time is restored as current again, with no new version minted.",
+        "Given a Secret with multiple versions, soft-deleted; When undelete is called with an explicit earlier version; Then that version's data becomes current, and every other version's own data is left untouched and still readable by number.",
+        "Given a hard-deleted (destroyed) secret; When undelete is called; Then it returns empty -- that data is genuinely gone with no path back."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-672",
+      "module": "gimle-fabric",
+      "feature": "Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one",
+      "category": "Service fabric / gossip membership",
+      "userStory": "As a platform operator, I want a node's service catalog to eventually converge with the rest of the cluster's even after missed piggyback updates or a restart, the same way GossipMember's own membership state already achieves full-state anti-entropy, so a stale or incomplete catalog view can't persist indefinitely on any one node.",
+      "statusDetail": "Complete. The service catalog's own gossip anti-entropy mechanism was incomplete relative to GossipMember's own proven paginated full-state membership sync -- see this fix's own worktree notes for full root-cause detail (a genuinely missing sync mechanism, not a bug in an existing one).",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/PiggybackExtension.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/SwimMessage.java`"
+      ],
+      "testCoverageDetail": "`ServiceCatalogTest` and `GossipMemberTest` gain new anti-entropy coverage. Full gimle-fabric module suite re-verified (133 tests, 0 failures/errors); the new tests confirmed to fail against the pre-fix code.",
+      "gherkinSteps": [
+        "Given two gossip members with diverging service catalogs (a missed piggyback update); When anti-entropy sync runs; Then both catalogs converge to the same full state, paginated the same way membership state already is.",
+        "Given a node that restarts with an empty catalog; When it rejoins the cluster; Then anti-entropy sync repopulates its catalog to match the cluster's current state."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-673",
+      "module": "gimle-controlplane",
+      "feature": "Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps",
+      "category": "Config / ConfigMap",
+      "userStory": "As an operator, I want every plaintext /config/* and /configmaps/* write to be versioned, and to be able to list that history and roll back to an earlier version, the same recoverability Secrets and SecretMaps already have, so an unintended overwrite or delete of plain configuration isn't unrecoverable.",
+      "statusDetail": "Complete. Plain Config and ConfigMap entries had no version history at all -- an overwrite or delete simply replaced or removed the live row with no way to see or recover a prior value. Fixed: a new ConfigVersionStore (mirroring SecretMapStore's own group-version ledger convention) stamps an immutable snapshot into a synthetic-tenant version ledger on every put/delete of a plain (non-encrypted) /config/{tenantId}/{key} entry; ConfigMapStore gains the identical capability for /configmaps/*. GET .../versions lists every version ever stamped, oldest first; POST .../rollback re-applies an earlier version's content (or its deletion) as a brand-new version, never rewriting history. Version numbers are always minted from the ledger itself, keeping numbering monotonic across a delete-then-recreate cycle. Encrypted config entries bypass this ledger entirely -- versioning the encrypted path would need Fafnir's own key-rotation-aware history. New CLI verbs: gimle config versions/rollback and gimle configmap versions/rollback.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/config/ConfigVersionStore.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/configmap/ConfigMapStore.java` (`listVersions`, `rollback`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/config/*/versions`, `/config/*/rollback`, `/configmaps/*/versions`, `/configmaps/*/rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/ConfigCommand.java`, `ConfigMapCommand.java` (`versions`, `rollback`)"
+      ],
+      "testCoverageDetail": "`ConfigVersionStoreTest` (new) and expanded `ConfigMapStoreTest` cover listVersions ordering including the delete tombstone, rollback to an earlier version, rollback to a deleted version, rollback of an unknown version, delete-of-never-existed idempotency, and version numbering across a delete-then-recreate cycle. `ApiServerTest` gains end-to-end HTTP route coverage for both /config/* and /configmaps/*. Full gimle-controlplane/gimle-cli suites re-verified.",
+      "gherkinSteps": [
+        "Given a plain config key written and overwritten several times; When GET .../versions is called; Then every version ever stamped is listed oldest-first, each with its own value.",
+        "Given a config key with multiple versions; When POST .../rollback names an earlier version; Then that version's content becomes current as a brand-new version, and every other version's own data is left untouched.",
+        "Given a config key deleted and later recreated; When a new version is written; Then its version number continues counting up from the ledger's own highest, never restarting at 1.",
+        "Given an encrypted config entry; When it is written or deleted; Then no version is stamped -- versioning covers only the plaintext path."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-674",
+      "module": "gimle-controlplane",
+      "feature": "Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)",
+      "category": "Self-healing / Resilience",
+      "userStory": "As a platform operator, I want a StatefulSet index or DaemonSet node instance that crashes on every restart to be backed off and eventually rescheduled, the same way a Deployment replica already is via HealthReconciler, so that a bad artifact wedges only that one workload's healing instead of leaving OrderedReady (or a DaemonSet node's own assignment) stuck forever with no automated recovery.",
+      "statusDetail": "Complete. `StatefulSetReconciler`'s OrderedReady scan and `DaemonSetReconciler`'s per-node eviction pass previously only ever checked `isReady` (the node's own heartbeat reporting `ready=true`), never `lifecycleState`, so an index/node instance the worker reported `FAILED` sat there forever: nothing but a rolling-update version mismatch or an eligibility change ever removed an existing assignment, unlike a Deployment replica, which `HealthReconciler` already reschedules through an exponential, capped restart budget. Fixed via a new `WorkloadCrashLoopBackoff` (`gimle-controlplane`), the StatefulSet/DaemonSet-keyed counterpart of `HealthReconciler`'s own bookkeeping -- backed by a new persisted `WorkloadHealthState` record (`gimle-mimir`, full `StateStore`/`StateSnapshot`/`DomainCodec`/`StateMutation`/`RaftCodec`/`StoreReader`/`StoreRpc`/`StoreCodec`/`StoreClient`/`StoreNode` plumbing keyed by `(workloadKind, workloadName, slot, tenantId)`, deliberately separate from Deployment's own `ReconcilerInstanceState` since a StatefulSet and Deployment can share a name and a DaemonSet's slot is a node id, not an `int` instance index). `StatefulSetReconciler`'s ordered scan now checks each present index for a `FAILED` observation before checking readiness: a crash-looping index is backed off and, once the delay elapses, released for the ordinary missing-index path to re-place on the same sticky node; OrderedReady itself is preserved exactly -- a permanently-failed index is never skipped past, the scan simply stops at it, same as any other not-yet-ready index. `DaemonSetReconciler`'s eviction pass does the same for a still-eligible node's crash-looping instance, releasing its stale assignment so the same tick's placement pass re-adds a fresh one to the very same node -- there is nowhere else for a DaemonSet assignment to go. Both give up permanently (mirroring `HealthReconciler`'s own posture exactly) once the restart budget is exhausted, leaving the stale, still-`FAILED` assignment in place forever and appending a durable `TRANSITION_FAILED` `InstanceEvent`, rather than retrying in a tight loop.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`"
+      ],
+      "testCoverageDetail": "`StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot` (extended for `WorkloadHealthState`).",
+      "gherkinSteps": [
+        "Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck.",
+        "Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node.",
+        "Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-675",
+      "module": "gimle-controlplane",
+      "feature": "DaemonSet opt-in taint toleration (tolerateAllTaints)",
+      "category": "Multi-tenancy / Self-healing",
+      "userStory": "As a platform operator, I want a genuinely cluster-wide DaemonSet (a log shipper, a node exporter) to be able to opt into covering every node -- including ones an operator has tainted for a specific tenant -- so a DaemonSet, the one workload kind that exists specifically to run on every eligible node, is not permanently blocked from 100% node coverage in a cluster with any tenant-reserved nodes.",
+      "statusDetail": "Complete. `Scheduler.eligibleNodes` -- the only placement path `DaemonSetReconciler` uses -- ran the identical taint filter a Deployment/StatefulSet replica goes through, with no way for a DaemonSet to opt out: an untenanted DaemonSet (the common case for a cluster-wide daemon) could never be placed on any tainted node at all, regardless of intent. Fixed via a new `DaemonSetSpec.tolerateAllTaints` boolean (default `false`, preserving today's strict behavior for every existing manifest via a back-compat constructor) and a new `tolerateAllTaints` parameter on `Scheduler.eligibleNodes` that skips the taint-filter stage entirely when set -- `DaemonSetReconciler` passes `spec.tolerateAllTaints()` straight through. `DaemonSetManifestParser` parses the new top-level `tolerateAllTaints:` YAML field (defaulting `false`), and `ApiServer.withArtifactSha256`'s field-by-field DaemonSetSpec reconstruction (used on both PUT admission and rollback) was fixed to carry the field forward rather than silently resetting it to `false` on every rollback -- a real bug this change would otherwise have introduced. Deliberately opt-in rather than an unconditional default: unlike Kubernetes, where a DaemonSet's baseline tolerations cover only a handful of built-in system taints, every Gimlé taint is an operator-declared tenant reservation, so bypassing one must be a deliberate, visible per-DaemonSet choice, not silent. `Scheduler.place` (used by Deployment/Job/StatefulSet) is untouched -- only `eligibleNodes`, DaemonSet's own placement path, gained the parameter.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`eligibleNodes`, `filterByTaint`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`withArtifactSha256`, `daemonSetStatus`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`"
+      ],
+      "testCoverageDetail": "`SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value` (confirmed to fail against the pre-fix `withArtifactSha256`).",
+      "gherkinSteps": [
+        "Given a node is tainted for tenant \"acme\"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be.",
+        "Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node.",
+        "Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-676",
+      "module": "gimle-fabric",
+      "feature": "Background gossip rejoin after a seed-list join startup blip",
+      "category": "Networking / Cluster membership",
+      "userStory": "As a platform operator, I want a node agent that hits a transient networking blip while joining the SWIM gossip cluster at startup to keep retrying its seed list in the background rather than crashing the agent process outright (>=2 configured seeds) or silently, permanently forking off an isolated one-node cluster (exactly 1 configured seed), so a routine container-startup race never turns into either a hard process crash or a silent split-brain that only a manual restart can fix.",
+      "statusDetail": "Complete. GossipMember.join() retried its configured seed list for a bounded 5-round window and then either threw GimleClusterException (>=2 seeds, none reachable -- uncaught anywhere in AgentMain.main, terminating the agent JVM) or silently assumed it was the first node of a brand-new cluster (exactly 1 seed unreachable) -- and either way, nothing ever re-attempted a seed afterward: tick()'s own steady-state probing (pingRandomMember/maybeSyncWithRandomMember) only ever targets a member already present in the members map, so a node that found no peer during its bounded join() window had, in JOIN_ATTEMPTS's own prior javadoc's words, 'no organic path back into the cluster afterward.' Fixed: join() no longer throws under any circumstance and no longer branches on seed count -- every 'no seed answered within the bounded window' outcome now logs a warning and lets the node keep running, unjoined, with its seed list remembered in a new volatile seeds field. A new retrySeedsIfIsolated(), invoked from every tick() alongside every other protocol-period step, re-pings that same seed list on a plain, unregistered SwimMessage.Ping whenever the node currently knows no other ALIVE member -- the existing Ack-handling path already falls through to markAliveDirect for any unrecognized sequence number, so no new bookkeeping was needed to let a reply merge the seed back into membership. The moment any peer becomes known (through this path or any other), the condition gating retrySeedsIfIsolated goes false and it stops firing on its own, with nothing to reset. GimleClusterException.noReachableSeed, now dead, was removed along with its class javadoc's stale claim that a gossip join failure was one of its intended cluster-level 'no per-request retry left to try' cases -- it explicitly is not, anymore.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java` (`join`, `retrySeedsIfIsolated`, `hasAnyOtherAliveMember`, `tick`)",
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`"
+      ],
+      "testCoverageDetail": "`GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined` (confirmed to fail against the pre-fix code, which threw `GimleClusterException`); `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers` -- the seed genuinely stays down for node-b's entire `join()` budget, `join()` returns having found nobody, and only then does the seed start, proving the background retry (not `join()`'s own internal retry loop, already covered by the pre-existing `join_retries_recover_once_a_transiently_unreachable_seed_starts_receiving`) is what eventually discovers it.",
+      "gherkinSteps": [
+        "Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running.",
+        "Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-677",
+      "module": "gimle-fafnir",
+      "feature": "SecretMap batch handlers signal partial failure via HTTP status and CLI exit code",
+      "category": "Secrets / CLI parity",
+      "userStory": "As a platform operator running gimle secretmap set/replace/rollback/seal in a CI pipeline, I want the process to exit nonzero when any key in the batch fails, so a script gating on exit status (`gimle secretmap seal ... || fail`) actually catches a failed secret rollout instead of silently proceeding past it.",
+      "statusDetail": "Complete. FafnirServer's handlePutSecretMap (set), handleReplaceSecretMap (replace), handleRollbackSecretMap's Applied case, and handleSealSecretMap all unconditionally responded HTTP 200 regardless of how many per-key SecretMapKeyResult entries in the batch carried an error -- a batch that failed every single key was indistinguishable, at the HTTP layer, from one that fully succeeded. Fixed on two levels: FafnirServer now responds 207 Multi-Status (via a new secretMapBatchStatus helper shared by all four handlers) the moment any key's result carries an error, 200 only when every key succeeded -- forwarded byte-for-byte through ApiServer's existing SecretMap proxy with no proxy change needed. The actually load-bearing fix is in gimle-cli's SecretMapCommand: set, replace, rollback, and seal now inspect the parsed results array after printing it (207 remains in the 2xx range, so client.expectSuccess alone would never have caught this) and throw CliException -- nonzero exit -- via a new shared failIfAnyKeyErrored helper if any entry carries an error, always after the results are already printed so the operator still sees exactly which key(s) failed and why.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`secretMapBatchStatus`, `handlePutSecretMap`, `handleReplaceSecretMap`, `handleRollbackSecretMap`, `handleSealSecretMap`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`failIfAnyKeyErrored`, `set`, `replace`, `rollback`, `seal`)"
+      ],
+      "testCoverageDetail": "`FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s existing per-key-failure tests updated to assert 207 (confirmed to fail against the pre-fix 200); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result` (confirmed to fail against the pre-fix code -- exit 0 with the failure only visible in the printed table), `#secretmap_replace_with_one_invalid_key_exits_nonzero`; `ApiServerSecretMapTest`'s existing clean-batch tests re-verified to still return 200 unchanged.",
+      "gherkinSteps": [
+        "Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0.",
+        "Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure.",
+        "Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-678",
+      "module": "gimle-mimir",
+      "feature": "Deleting a Role cascades to every RoleBinding naming it",
+      "category": "Authorization",
+      "userStory": "As a platform operator deleting a Role that is no longer needed, I want every RoleBinding naming that Role to be revoked atomically as part of the same delete, so a stale binding cannot silently reactivate with a new set of permissions if someone later creates an unrelated Role under the same name.",
+      "statusDetail": "Complete. ApiServer#handleDeleteRole (and the underlying StateMutation.RemoveRole it proposes) previously removed only the Role itself, leaving every RoleBinding whose roleName referenced it dangling -- inert clutter until a later, unrelated `PUT /roles/{name}` under the same name (roleName is a plain string resolved by name at Authorizer#authorize-time, not an immutable ID) silently reactivated it with whatever permissions the new Role happened to grant, with no audit trail tying the resurrection back to the original grant decision. Fixed at the store layer, not just the API: StateStore#removeRoleBindingsForRole removes every binding naming a given Role, and StateMutation.RemoveRole#applyTo now calls it alongside store.removeRole so the Role's deletion and its bindings' cleanup commit as a single atomic Raft log entry -- no window exists where the Role is gone but a stale binding naming it is not. ApiServer#handleDeleteRole additionally lists the bindings about to be cascaded before proposing the delete (informational only -- the mutation's own atomic cascade is what actually guarantees no resurrection, not this list), reports their ids in the response body as `removedRoleBindings`, and records its own ROLE_BINDING:DELETE audit event for each one, attributed to the caller who deleted the Role. gimle-cli's RolesCommand#delete surfaces exactly which bindings were revoked to the operator instead of a bare \"deleted\".",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`removeRoleBindingsForRole`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`RemoveRole`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleDeleteRole`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/RolesCommand.java` (`delete`)"
+      ],
+      "testCoverageDetail": "`StateStoreTest#remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role`; `AuthorizerTest#a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding` (confirmed to fail against the pre-fix code -- bob's old binding would otherwise grant the newly-recreated Role's permissions); `ApiServerAuthzTest#deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal` (asserts the response body's removedRoleBindings, the store reflecting the cascade, and the per-binding audit events); `GimleCliTest#deleting_a_role_cascades_to_every_rolebinding_that_named_it` end to end through GimleCli#run.",
+      "gherkinSteps": [
+        "Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked.",
+        "Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated.",
+        "Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-679",
+      "module": "gimle-gateway",
+      "feature": "Gateway route table reloads on a config change without a restart",
+      "category": "Networking",
+      "userStory": "As a platform operator updating a running gateway's gateway.routes config, I want every already-running gateway instance to pick up the change on its own, so a DaemonSet-deployed fleet of gateway instances doesn't silently split into serving different route tables depending on which ones happen to restart first.",
+      "statusDetail": "Complete. GatewayHooks#onStart previously parsed gateway.routes exactly once and baked it into a fixed set of HttpServer contexts and a single GatewayDispatcher, with no listener, poll, or re-parse anywhere afterward -- unlike NetworkPolicyRule or TLS material, both of which already have an explicit push/reload path. Since the gateway is deployed as a DaemonSet across every edge-labeled node for real multi-instance HA, and DaemonSet instances restart independently, this meant a route-config update reached only those instances that happened to restart, a potentially indefinite split-brain in the platform's own documented ingress pattern. Fixed: GatewayHooks now schedules a background reload task (default interval GatewayHooks#DEFAULT_ROUTE_RELOAD_INTERVAL, 5 seconds) that re-reads gateway.routes on every tick via the same ModuleContext#config(...) a real running instance already gets live config updates through (ConfigRelay re-delivers a changed value into the worker's shared config map, exactly as it always has -- no new relay mechanism needed). When the value differs from what was last applied, GatewayHooks#reloadRoutesIfChanged reconciles HttpServer's registered contexts against the new path set (removeContext for a path no longer present, createContext for a genuinely new one) and atomically swaps in a rebuilt GatewayDispatcher via a volatile field that every request handler reads fresh -- a path present before and after the change keeps its already-registered context untouched, observing the new dispatcher on its very next request with no re-registration. A malformed update is rejected and logged, keeping whatever route table already served the last successful parse, the same way onStart already rejected one at first boot.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`startRouteReload`, `reloadRoutesSafely`, `reloadRoutesIfChanged`, `distinctPaths`)"
+      ],
+      "testCoverageDetail": "`GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving` -- all driving a real onStart-ed GatewayHooks over a real HttpClient, using GatewayHooks's own package-private reload-interval constructor to observe reloads in test time, and mutating the exact same ConcurrentHashMap SimpleModuleContext#config reads live from (what ConfigRelay's real delivery does to a running instance). GatewayHooksTlsTest and every pre-existing GatewayDispatcherTest/GatewayRouteConfigTest re-verified to still pass unchanged.",
+      "gherkinSteps": [
+        "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart.",
+        "Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving.",
+        "Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
     }
   ]
 }

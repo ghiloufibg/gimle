@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 658,
+  "requirementCount": 679,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11508,6 +11508,265 @@
         "`gimle-console/src/stores/useCustomResourcesStore.ts`"
       ],
       "otherTestCoverage": "gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests)"
+    },
+    {
+      "id": "GIMLE-665",
+      "module": "gimle-cli",
+      "feature": "Single-resource CLI verbs reject more than one positional argument instead of silently truncating",
+      "category": "CLI / console parity",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-44 -- requireOne, five sibling get methods, and ManifestFiles#requireFileFlag all silently kept only the first argument/-f and discarded the rest, with no warning or error.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario driving the real CLI against a real cluster with gimle delete <kind> <name> <extra> and gimle apply -f a.yaml -f b.yaml, asserting a nonzero exit and that nothing was actually deleted/applied.",
+      "otherTestCoverage": "`GimleCliTest#deleting_a_tenant_with_more_than_one_positional_argument_is_rejected`, `#getting_a_tenant_with_more_than_one_positional_argument_is_rejected`, `#cordoning_with_more_than_one_positional_argument_is_rejected`, `#apply_with_more_than_one_file_flag_is_rejected_not_silently_applying_only_the_first`.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/TenantsCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/RolesCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/RoleBindingsCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/AccountsCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/LimitRangeCommand.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-666",
+      "module": "gimle-worker",
+      "feature": "A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event",
+      "category": "Worker runtime / health",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-28 -- WorkerRuntime#onActive called instantiate(...) directly inside the liveness/readiness .ifPresent(...) lambdas; a probe class that failed to load or construct threw straight out of onActive, itself a r...",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified.",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateProbeOrFail`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (lifecycle event dispatch ordering)"
+      ]
+    },
+    {
+      "id": "GIMLE-667",
+      "module": "gimle-core",
+      "feature": "Console session logout revokes the session token server-side, not just the client-side cookie",
+      "category": "Security / session management",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-26 -- SessionTokens was a fully stateless, self-verifying HMAC token with no revocation mechanism; /auth/logout only cleared the client-side cookie (Set-Cookie ...; Max-Age=0) while the token itself kept ve...",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ApiServerAuthzTest#login_session_and_logout_round_trip_with_no_client_certificate_at_all` (the old, already-issued cookie is rejected with 401 when replayed after logout), `FafnirServerAuthTest`/`AndvariServerAuthTest`'s own equivalent round-trip tests (a revoked cookie resolves to the plaintext-mode \"anonymous\" carve-out rather than \"admin\"), `SessionTokensTest` (issued-at round-trips through verify). Full suite across gimle-core/gimle-mimir/gimle-controlplane/gimle-fafnir/gimle-andvari re-verified.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/session/SessionTokens.java` (`VerifiedSession`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutSessionRevocation`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putSessionRevocation`, `getSessionRevokedBeforeEpochMilli`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAuthLogout`, `isSessionRevoked`)",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleAuthLogout`, `isSessionRevoked`)",
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`handleAuthLogout`, `isSessionRevoked`)"
+      ]
+    },
+    {
+      "id": "GIMLE-668",
+      "module": "gimle-agent",
+      "feature": "A NetworkPolicy change closes an already-open Bifrost connection, not just future ones",
+      "category": "Networking / policy enforcement",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-30 -- ServiceListener#forward snapshotted the applicable NetworkPolicyRules once, at connection-accept time; once its two byte-pump threads started, a policy change during an already-open connection never r...",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`BifrostLiveConnectionPolicyTest#removing_a_callers_tenant_from_the_allow_list_closes_its_already_open_connection`, `#a_brand_new_deny_policy_closes_an_already_open_connection_to_a_previously_unrestricted_service`, `#an_open_connection_is_never_closed_across_poll_ticks_that_leave_the_policy_unchanged` (a real TLS-terminating listener against a backend streaming continuously, so bytes stopping mid-stream is directly observable). Full gimle-agent module suite re-verified.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java` (`openConnections`, `enforceCurrentPolicy`, `OpenConnection`)"
+      ]
+    },
+    {
+      "id": "GIMLE-669",
+      "module": "gimle-controlplane",
+      "feature": "Node-death instance eviction is throttled against the deployment's own DisruptionBudget",
+      "category": "Reconcilers / self-healing",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-29 -- ReplicaCountReconciler#reconcileAssignment released a stale (no-longer-confirmed-by-heartbeat) instance assignment unconditionally once its grace period elapsed, with no regard for the deployment's ow...",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ReplicaCountReconcilerTest` gains coverage for budget throttling across multiple dead replicas, lowest-index-first ordering, budget exhaustion deferring without resetting the grace-period timer, and unthrottled behavior when no DeploymentSpec exists. Full gimle-controlplane module suite re-verified.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ReplicaCountReconciler.java` (`reconcileDeployment`, `evictionBudgetRemaining`)"
+      ]
+    },
+    {
+      "id": "GIMLE-670",
+      "module": "gimle-controlplane",
+      "feature": "CronJob prunes its own terminal generated Jobs to configurable successful/failed history limits",
+      "category": "Workloads / CronJob",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-03 -- CronJobReconciler never cleaned up a terminal (SUCCEEDED/FAILED) generated Job -- every firing left a permanent JobSpec in the store. Fixed: CronJobSpec gains successfulJobsHistoryLimit/failedJobsHist...",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`CronJobReconcilerTest#repeated_real_firings_marked_terminal_converge_to_the_default_history_limits` (6 firings, 4 succeeded/2 failed, converges to the default 3/1 limits, oldest pruned first) plus `CronJobManifestParserTest` coverage for the new fields' parsing and defaults. Full gimle-mimir/gimle-controlplane suites re-verified.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/CronJobSpec.java` (`successfulJobsHistoryLimit`, `failedJobsHistoryLimit`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/CronJobManifestParser.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java` (`pruneJobHistory`, `excessTerminalJobs`, `firingEpochSecond`)"
+      ]
+    },
+    {
+      "id": "GIMLE-671",
+      "module": "gimle-fafnir",
+      "feature": "A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version",
+      "category": "Secrets / Fafnir",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-08 -- SecretStore had softDelete (every @N entry stays on disk, recoverable) but no undelete path back -- the only way to restore a soft-deleted secret was a manual get + put round trip, which mints a brand...",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`SecretStoreTest` covers undelete restoring the current version, restoring an explicit older version without touching the newer version's own data, undeleting a never-written key (empty), undeleting a hard-deleted secret (empty, not revived), and rejecting an unknown version number. `FafnirServerTest`/`FafnirServerSealTest` cover the HTTP route and the highestVersion wire-shape change. Full gimle-fafnir/gimle-cli/gimle-controlplane suites re-verified.",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`undelete`, `Meta.highestVersion`, `currentVersion`)",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`POST /secrets/{tenantId}/{key}/undelete`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`secret undelete`)"
+      ]
+    },
+    {
+      "id": "GIMLE-672",
+      "module": "gimle-fabric",
+      "feature": "Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one",
+      "category": "Service fabric / gossip membership",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-31 -- The service catalog's own gossip anti-entropy mechanism was incomplete relative to GossipMember's own proven paginated full-state membership sync -- see this fix's own worktree notes for full root-cau...",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ServiceCatalogTest` and `GossipMemberTest` gain new anti-entropy coverage. Full gimle-fabric module suite re-verified (133 tests, 0 failures/errors); the new tests confirmed to fail against the pre-fix code.",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/PiggybackExtension.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/SwimMessage.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-673",
+      "module": "gimle-controlplane",
+      "feature": "Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps",
+      "category": "Config / ConfigMap",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-25 -- Plain Config and ConfigMap entries had no version history at all -- an overwrite or delete simply replaced or removed the live row with no way to see or recover a prior value. Fixed: a new ConfigVersi...",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ConfigVersionStoreTest` (new) and expanded `ConfigMapStoreTest` cover listVersions ordering including the delete tombstone, rollback to an earlier version, rollback to a deleted version, rollback of an unknown version, delete-of-never-existed idempotency, and version numbering across a delete-then-recreate cycle. `ApiServerTest` gains end-to-end HTTP route coverage for both /config/* and /configmaps/*. Full gimle-controlplane/gimle-cli suites re-verified.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/config/ConfigVersionStore.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/configmap/ConfigMapStore.java` (`listVersions`, `rollback`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/config/*/versions`, `/config/*/rollback`, `/configmaps/*/versions`, `/configmaps/*/rollback`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/ConfigCommand.java`, `ConfigMapCommand.java` (`versions`, `rollback`)"
+      ]
+    },
+    {
+      "id": "GIMLE-674",
+      "module": "gimle-controlplane",
+      "feature": "Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)",
+      "category": "Self-healing / Resilience",
+      "status": "New",
+      "statusNote": "New requirement: closes the self-healing coverage gap where only Deployment replicas were rescheduled through HealthReconciler's restart-budget backoff -- StatefulSet indices and DaemonSet node instances now get the same crash-loop detection and eventual reschedule.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that deploys a StatefulSet (or DaemonSet) whose module crashes on start, and asserts the instance is eventually rescheduled after backoff, then permanently marked failed once its restart budget is exhausted.",
+      "otherTestCoverage": "`StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-675",
+      "module": "gimle-controlplane",
+      "feature": "DaemonSet opt-in taint toleration (tolerateAllTaints)",
+      "category": "Multi-tenancy / Self-healing",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-55 -- a DaemonSet had no way to opt out of the same taint filter a Deployment/StatefulSet replica goes through, so it could never cover 100% of nodes in a cluster with any tenant-reserved node. Now an explicit, opt-in tolerateAllTaints field lets a genuinely cluster-wide DaemonSet bypass the taint filter.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that taints a node for one tenant, deploys an untenanted DaemonSet with tolerateAllTaints: true, and asserts the tainted node still receives an assignment.",
+      "otherTestCoverage": "`SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-676",
+      "module": "gimle-fabric",
+      "feature": "Background gossip rejoin after a seed-list join startup blip",
+      "category": "Networking / Cluster membership",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-43 -- a routine container-startup networking blip during SWIM gossip join could crash the agent process outright (>=2 seeds) or silently, permanently fork a one-node cluster (1 seed). A node now keeps retrying its seed list in the background on every gossip tick until it finds a peer.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.",
+      "otherTestCoverage": "`GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`",
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-677",
+      "module": "gimle-fafnir",
+      "feature": "SecretMap batch handlers signal partial failure via HTTP status and CLI exit code",
+      "category": "Secrets / CLI parity",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-02 -- a SecretMap batch (set/replace/rollback/seal) that failed every single key still returned HTTP 200 and exit code 0, invisible to any CI script gating on exit status.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that submits a SecretMap batch with one deliberately invalid key alongside a valid one and asserts the resulting exit code (via gimle-cli) is nonzero while the valid key's own write still lands.",
+      "otherTestCoverage": "`FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`.",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-678",
+      "module": "gimle-mimir",
+      "feature": "Deleting a Role cascades to every RoleBinding naming it",
+      "category": "Authorization",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-24 -- a Role's own RoleBindings previously survived its deletion, sitting inert until a new Role created under the same name silently reactivated them.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that creates a Role and RoleBinding, deletes the Role through the real API, asserts the binding is gone, creates a new Role under the same name, and asserts the previously-bound subject gains none of its permissions.",
+      "otherTestCoverage": "`StateStoreTest#remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role`; `AuthorizerTest#a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding`; `ApiServerAuthzTest#deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal`; `GimleCliTest#deleting_a_role_cascades_to_every_rolebinding_that_named_it`.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/RolesCommand.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-679",
+      "module": "gimle-gateway",
+      "feature": "Gateway route table reloads on a config change without a restart",
+      "category": "Networking",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-62 -- gateway.routes was parsed once at instance startup with no reload path, so a config update reached only whichever DaemonSet instances happened to restart.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that boots a gateway DaemonSet, updates its gateway.routes config through the real API, and asserts (without restarting any instance) that the new route becomes reachable on every replica.",
+      "otherTestCoverage": "`GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`.",
+      "sourceLocations": [
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
+      ]
     }
   ]
 }

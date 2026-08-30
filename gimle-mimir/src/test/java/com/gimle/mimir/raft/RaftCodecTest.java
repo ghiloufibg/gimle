@@ -39,6 +39,7 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -371,7 +372,11 @@ class RaftCodecTest {
                     Optional.of("tenant-1"),
                     new byte[] {123, 125},
                     new byte[0],
-                    1L)));
+                    1L)),
+            List.of(
+                new WorkloadHealthState(
+                    "StatefulSet", "orders", "0", 2, 100L, 200L, true, false, Optional.empty())),
+            Map.of("alice", 42_000L));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -384,6 +389,7 @@ class RaftCodecTest {
     assertEquals(snapshot.effectiveReplicas(), decoded.effectiveReplicas());
     assertEquals(snapshot.tenants(), decoded.tenants());
     assertEquals(snapshot.quotaViolatingDeployments(), decoded.quotaViolatingDeployments());
+    assertEquals(snapshot.workloadHealthStates(), decoded.workloadHealthStates());
     assertEquals(1, decoded.configEntries().size());
     assertEquals(
         snapshot.configEntries().get(0).tenantId(), decoded.configEntries().get(0).tenantId());
@@ -417,6 +423,8 @@ class RaftCodecTest {
     assertEquals(originalResource.generation(), decodedResource.generation());
     assertArrayEquals(originalResource.specJson(), decodedResource.specJson());
     assertArrayEquals(originalResource.statusJson(), decodedResource.statusJson());
+    assertEquals(
+        snapshot.sessionRevokedBeforeEpochMilli(), decoded.sessionRevokedBeforeEpochMilli());
   }
 
   @Test

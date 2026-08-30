@@ -242,7 +242,8 @@ the node agent's own direct fetch path, in that order (source: `diagrams/secrets
 - **Versioning** — every write claims a new, immutable version rather than overwriting the last one
   (`gimle secret set`/`GET .../versions`); `gimle secret get` defaults to the latest version,
   `--version N` reads a specific historical one. `gimle secret delete` soft-deletes by default
-  (every version stays recoverable) — `--destroy` hard-deletes irreversibly. This versioning lives
+  (every version stays recoverable via `gimle secret undelete`, which clears the flag in place
+  rather than minting a new version) — `--destroy` hard-deletes irreversibly. This versioning lives
   entirely inside Fafnir as a synthetic key-naming convention (`key@N` for each immutable version,
   `key@meta` for the mutable current-version pointer) layered over the same underlying config-entry
   store `/config/*` uses — no separate store schema for it.
