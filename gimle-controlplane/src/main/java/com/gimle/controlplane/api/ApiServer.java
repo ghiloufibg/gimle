@@ -10,9 +10,17 @@ import com.gimle.controlplane.admission.TenantQuotaPlugin;
 import com.gimle.controlplane.andvari.AndvariClient;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
+import com.gimle.controlplane.config.ConfigDeleteOutcome;
+import com.gimle.controlplane.config.ConfigRollbackOutcome;
+import com.gimle.controlplane.config.ConfigVersion;
+import com.gimle.controlplane.config.ConfigVersionStore;
+import com.gimle.controlplane.config.ConfigWriteOutcome;
 import com.gimle.controlplane.configmap.ConfigMap;
 import com.gimle.controlplane.configmap.ConfigMapCodec;
+import com.gimle.controlplane.configmap.ConfigMapDeleteOutcome;
+import com.gimle.controlplane.configmap.ConfigMapRollbackOutcome;
 import com.gimle.controlplane.configmap.ConfigMapStore;
+import com.gimle.controlplane.configmap.ConfigMapVersion;
 import com.gimle.controlplane.configmap.ConfigMapWriteResult;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.controlplane.muninn.MuninnClient;
@@ -267,6 +275,9 @@ public final class ApiServer implements AutoCloseable {
   // full StoreClient rather than a StoreReader/MutationSink pair: its write path needs the lease
   // and linearizable-read primitives only StoreClient exposes.
   private final ConfigMapStore configMapStore;
+  // Version history for plain, unencrypted /config/* entries -- see the class's own javadoc for why
+  // it's a separate ledger rather than a change to the live ConfigEntry row's own shape.
+  private final ConfigVersionStore configVersionStore;
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
@@ -383,6 +394,7 @@ public final class ApiServer implements AutoCloseable {
     this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
     this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient, storeClient);
     this.configMapStore = new ConfigMapStore(storeClient);
+    this.configVersionStore = new ConfigVersionStore(storeClient);
     this.fafnirClient = fafnirClient;
     this.muninnClient = muninnClient;
     this.workloadAdmissionChain =
@@ -4055,13 +4067,13 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "expected /config/{tenantId} or /config/{tenantId}/{key}");
         return;
       }
-      int slash = tail.indexOf('/');
-      String tenantId = slash < 0 ? tail : tail.substring(0, slash);
+      String[] parts = tail.split("/", 3);
+      String tenantId = parts[0];
       if (tenantId.isBlank()) {
         respond(exchange, 400, "missing tenantId");
         return;
       }
-      if (slash < 0) {
+      if (parts.length == 1) {
         if (!"GET".equals(exchange.getRequestMethod())) {
           respond(exchange, 405, "method not allowed");
           return;
@@ -4069,7 +4081,7 @@ public final class ApiServer implements AutoCloseable {
         handleListConfig(exchange, tenantId);
         return;
       }
-      String key = tail.substring(slash + 1);
+      String key = parts[1];
       if (key.isBlank()) {
         respond(exchange, 400, "missing config key");
         return;
@@ -4086,6 +4098,26 @@ public final class ApiServer implements AutoCloseable {
             "'"
                 + ConfigMapCodec.KEY_PREFIX
                 + "' is a reserved config key prefix; use /configmaps/* instead");
+        return;
+      }
+      // GET .../versions and POST .../rollback are reserved action segments, checked before the
+      // general 2-part PUT/DELETE handling below -- both only ever cover the plaintext ledger (see
+      // ConfigVersionStore's own javadoc), so they authorize as CONFIG unconditionally, unlike PUT/
+      // DELETE below which branch on an encrypted flag.
+      if (parts.length == 3) {
+        if ("versions".equals(parts[2]) && "GET".equals(exchange.getRequestMethod())) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.READ, Optional.of(tenantId))) {
+            handleListConfigVersions(exchange, tenantId, key);
+          }
+          return;
+        }
+        if ("rollback".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
+          if (requireAuthorized(exchange, ResourceKind.CONFIG, Verb.WRITE, Optional.of(tenantId))) {
+            handleRollbackConfig(exchange, tenantId, key);
+          }
+          return;
+        }
+        respond(exchange, 404, "unknown config sub-resource: " + parts[2]);
         return;
       }
       switch (exchange.getRequestMethod()) {
@@ -4108,12 +4140,10 @@ public final class ApiServer implements AutoCloseable {
           // stored entry left here to read an `encrypted` flag from; authorize as CONFIG, the
           // plain, unencrypted default this endpoint otherwise assumes.
           Optional<ConfigEntry> existing = findConfigEntry(tenantId, key);
-          ResourceKind resource =
-              existing.map(ConfigEntry::encrypted).orElse(false)
-                  ? ResourceKind.SECRET
-                  : ResourceKind.CONFIG;
+          boolean encrypted = existing.map(ConfigEntry::encrypted).orElse(false);
+          ResourceKind resource = encrypted ? ResourceKind.SECRET : ResourceKind.CONFIG;
           if (requireAuthorized(exchange, resource, Verb.DELETE, Optional.of(tenantId))) {
-            handleDeleteConfig(exchange, tenantId, key);
+            handleDeleteConfig(exchange, tenantId, key, encrypted);
           }
         }
         default -> respond(exchange, 405, "method not allowed");
@@ -4155,22 +4185,109 @@ public final class ApiServer implements AutoCloseable {
     return suffix.equals("meta") || suffix.chars().allMatch(Character::isDigit);
   }
 
+  /**
+   * An encrypted write bypasses {@link ConfigVersionStore} entirely, exactly as before that class
+   * existed -- versioning only ever covers the plaintext ledger (see that class's own javadoc).
+   */
   private void handlePutConfig(
       HttpExchange exchange, String tenantId, String key, String value, boolean encrypted)
       throws IOException {
-    byte[] stored =
-        encrypted
-            ? fafnirClient.encrypt(value.getBytes(StandardCharsets.UTF_8))
-            : value.getBytes(StandardCharsets.UTF_8);
-    storeClient.propose(
-        new StateMutation.PutConfigEntry(new ConfigEntry(tenantId, key, stored, encrypted)));
-    respond(exchange, 200, "ok");
+    if (encrypted) {
+      byte[] stored = fafnirClient.encrypt(value.getBytes(StandardCharsets.UTF_8));
+      storeClient.propose(
+          new StateMutation.PutConfigEntry(new ConfigEntry(tenantId, key, stored, true)));
+      respond(exchange, 200, "ok");
+      return;
+    }
+    switch (configVersionStore.put(tenantId, key, value)) {
+      case ConfigWriteOutcome.Written written ->
+          respondJson(exchange, 200, Map.of("version", written.version()));
+      case ConfigWriteOutcome.WriteContention contention ->
+          respond(
+              exchange,
+              409,
+              "too many concurrent writers to config key "
+                  + key
+                  + " ("
+                  + contention.attempts()
+                  + " attempts)");
+    }
   }
 
-  private void handleDeleteConfig(HttpExchange exchange, String tenantId, String key)
+  /**
+   * An encrypted key's delete bypasses {@link ConfigVersionStore} entirely, the same as {@link
+   * #handlePutConfig}'s own encrypted branch -- there is no plaintext ledger entry to tombstone for
+   * a value that was never written through it.
+   */
+  private void handleDeleteConfig(
+      HttpExchange exchange, String tenantId, String key, boolean encrypted) throws IOException {
+    if (encrypted) {
+      storeClient.propose(new StateMutation.RemoveConfigEntry(tenantId, key));
+      respond(exchange, 200, "ok");
+      return;
+    }
+    switch (configVersionStore.delete(tenantId, key)) {
+      case ConfigDeleteOutcome.Deleted ignored -> respond(exchange, 200, "ok");
+      // Idempotent, matching every other resource kind's own delete-of-a-never-existed-name
+      // convention -- the key simply never had a plaintext ledger entry to tombstone.
+      case ConfigDeleteOutcome.NotFound ignored -> respond(exchange, 200, "ok");
+      case ConfigDeleteOutcome.WriteContention contention ->
+          respond(
+              exchange,
+              409,
+              "too many concurrent writers to config key "
+                  + key
+                  + " ("
+                  + contention.attempts()
+                  + " attempts)");
+    }
+  }
+
+  private void handleListConfigVersions(HttpExchange exchange, String tenantId, String key)
       throws IOException {
-    storeClient.propose(new StateMutation.RemoveConfigEntry(tenantId, key));
-    respond(exchange, 200, "ok");
+    List<Map<String, Object>> versions =
+        configVersionStore.listVersions(tenantId, key).stream()
+            .map(ApiServer::configVersionToJson)
+            .toList();
+    respondJson(exchange, 200, Map.of("versions", versions));
+  }
+
+  private static Map<String, Object> configVersionToJson(ConfigVersion version) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("version", version.version());
+    map.put("value", version.value());
+    map.put("deleted", version.deleted());
+    return map;
+  }
+
+  private void handleRollbackConfig(HttpExchange exchange, String tenantId, String key)
+      throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Object raw = body.get("version");
+    if (!(raw instanceof Number number)) {
+      respond(exchange, 400, "'version' must be an integer");
+      return;
+    }
+    switch (configVersionStore.rollback(tenantId, key, number.intValue())) {
+      case ConfigRollbackOutcome.TargetNotFound ignored ->
+          respond(exchange, 404, "no such version of config key " + key + ": " + number.intValue());
+      case ConfigRollbackOutcome.WriteContention contention ->
+          respond(
+              exchange,
+              409,
+              "too many concurrent writers to config key "
+                  + key
+                  + " ("
+                  + contention.attempts()
+                  + " attempts)");
+      case ConfigRollbackOutcome.Applied applied -> {
+        Map<String, Object> responseBody = new LinkedHashMap<>();
+        responseBody.put("version", applied.version());
+        responseBody.put("value", applied.value().orElse(null));
+        responseBody.put("deleted", applied.deleted());
+        respondJson(exchange, 200, responseBody);
+      }
+    }
   }
 
   /**
@@ -4251,13 +4368,13 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "expected /configmaps/{tenantId} or /configmaps/{tenantId}/{name}");
         return;
       }
-      int slash = tail.indexOf('/');
-      String tenantId = slash < 0 ? tail : tail.substring(0, slash);
+      String[] parts = tail.split("/", 3);
+      String tenantId = parts[0];
       if (tenantId.isBlank()) {
         respond(exchange, 400, "missing tenantId");
         return;
       }
-      if (slash < 0) {
+      if (parts.length == 1) {
         if (!"GET".equals(exchange.getRequestMethod())) {
           respond(exchange, 405, "method not allowed");
           return;
@@ -4269,9 +4386,31 @@ public final class ApiServer implements AutoCloseable {
         handleListOrBatchGetConfigMaps(exchange, tenantId);
         return;
       }
-      String name = tail.substring(slash + 1);
+      String name = parts[1];
       if (name.isBlank()) {
         respond(exchange, 400, "missing configmap name");
+        return;
+      }
+      // GET .../versions and POST .../rollback are reserved action segments, checked before the
+      // general 2-part GET/PUT/PATCH/DELETE handling below -- a real name literally named
+      // "versions"/"rollback" only ever reaches that branch via GET/PUT/PATCH/DELETE, which these
+      // two never intercept.
+      if (parts.length == 3) {
+        if ("versions".equals(parts[2]) && "GET".equals(exchange.getRequestMethod())) {
+          if (requireAuthorized(
+              exchange, ResourceKind.CONFIGMAP, Verb.READ, Optional.of(tenantId))) {
+            handleListConfigMapVersions(exchange, tenantId, name);
+          }
+          return;
+        }
+        if ("rollback".equals(parts[2]) && "POST".equals(exchange.getRequestMethod())) {
+          if (requireAuthorized(
+              exchange, ResourceKind.CONFIGMAP, Verb.WRITE, Optional.of(tenantId))) {
+            handleRollbackConfigMap(exchange, tenantId, name);
+          }
+          return;
+        }
+        respond(exchange, 404, "unknown configmap sub-resource: " + parts[2]);
         return;
       }
       switch (exchange.getRequestMethod()) {
@@ -4296,8 +4435,7 @@ public final class ApiServer implements AutoCloseable {
         case "DELETE" -> {
           if (requireAuthorized(
               exchange, ResourceKind.CONFIGMAP, Verb.DELETE, Optional.of(tenantId))) {
-            configMapStore.delete(tenantId, name);
-            respond(exchange, 200, "ok");
+            handleDeleteConfigMap(exchange, tenantId, name);
           }
         }
         default -> respond(exchange, 405, "method not allowed");
@@ -4392,6 +4530,68 @@ public final class ApiServer implements AutoCloseable {
               "too many concurrent writers to this configmap ("
                   + contention.attempts()
                   + " attempts)");
+    }
+  }
+
+  private void handleDeleteConfigMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    switch (configMapStore.delete(tenantId, name)) {
+      case ConfigMapDeleteOutcome.Deleted ignored -> respond(exchange, 200, "ok");
+      // Idempotent, matching every other resource kind's own delete-of-a-never-existed-name
+      // convention -- see handleDeleteConfig's identical reasoning.
+      case ConfigMapDeleteOutcome.NotFound ignored -> respond(exchange, 200, "ok");
+      case ConfigMapDeleteOutcome.WriteContention contention ->
+          respond(
+              exchange,
+              409,
+              "too many concurrent writers to this configmap ("
+                  + contention.attempts()
+                  + " attempts)");
+    }
+  }
+
+  private void handleListConfigMapVersions(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    List<Map<String, Object>> versions =
+        configMapStore.listVersions(tenantId, name).stream()
+            .map(ApiServer::configMapVersionToJson)
+            .toList();
+    respondJson(exchange, 200, Map.of("versions", versions));
+  }
+
+  private static Map<String, Object> configMapVersionToJson(ConfigMapVersion version) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("version", version.version());
+    map.put("data", version.data());
+    map.put("deleted", version.deleted());
+    return map;
+  }
+
+  private void handleRollbackConfigMap(HttpExchange exchange, String tenantId, String name)
+      throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    Object raw = body.get("version");
+    if (!(raw instanceof Number number)) {
+      respond(exchange, 400, "'version' must be an integer");
+      return;
+    }
+    switch (configMapStore.rollback(tenantId, name, number.intValue())) {
+      case ConfigMapRollbackOutcome.TargetNotFound ignored ->
+          respond(exchange, 404, "no such version of configmap " + name + ": " + number.intValue());
+      case ConfigMapRollbackOutcome.WriteContention contention ->
+          respond(
+              exchange,
+              409,
+              "too many concurrent writers to this configmap ("
+                  + contention.attempts()
+                  + " attempts)");
+      case ConfigMapRollbackOutcome.Applied applied -> {
+        Map<String, Object> responseBody = new LinkedHashMap<>();
+        responseBody.put("version", applied.version());
+        responseBody.put("data", applied.data());
+        responseBody.put("deleted", applied.deleted());
+        respondJson(exchange, 200, responseBody);
+      }
     }
   }
 

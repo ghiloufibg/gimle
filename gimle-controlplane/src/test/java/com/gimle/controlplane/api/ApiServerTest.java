@@ -1938,6 +1938,98 @@ class ApiServerTest {
     assertEquals(200, delete.statusCode());
   }
 
+  /**
+   * End-to-end proof of {@code ConfigVersionStore}'s wiring through {@code ApiServer}'s own HTTP
+   * surface -- the store-level semantics (numbering, tombstones, never rewriting history) are
+   * {@code ConfigVersionStoreTest}'s own job; this only proves the routes/auth/JSON shape.
+   */
+  @Test
+  void config_versions_and_rollback_round_trip_through_the_http_surface() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"v1\",\"encrypted\":false}"))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"v2\",\"encrypted\":false}"))
+            .build());
+
+    HttpResponse<String> versions =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting/versions"))
+                .GET()
+                .build());
+    assertEquals(200, versions.statusCode());
+    List<Map<String, Object>> versionList =
+        Json.asObjectList(Json.asObject(Json.parse(versions.body())).get("versions"));
+    assertEquals(2, versionList.size());
+    assertEquals("v1", versionList.get(0).get("value"));
+    assertEquals("v2", versionList.get(1).get("value"));
+
+    HttpResponse<String> rollback =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting/rollback"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"version\":1}"))
+                .build());
+    assertEquals(200, rollback.statusCode());
+    Map<String, Object> rolledBack = Json.asObject(Json.parse(rollback.body()));
+    assertEquals(3, ((Number) rolledBack.get("version")).intValue());
+    assertEquals("v1", rolledBack.get("value"));
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme")).GET().build());
+    assertEquals("v1", Json.asObjectList(Json.parse(get.body())).get(0).get("value"));
+  }
+
+  @Test
+  void config_rollback_of_an_unknown_version_is_404() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"value\":\"v1\",\"encrypted\":false}"))
+            .build());
+
+    HttpResponse<String> rollback =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/config/acme/greeting/rollback"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"version\":99}"))
+                .build());
+
+    assertEquals(404, rollback.statusCode());
+  }
+
+  /** Same end-to-end proof as above, for {@code ConfigMapStore}'s own version ledger. */
+  @Test
+  void configmap_versions_and_rollback_round_trip_through_the_http_surface() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/configmaps/acme/app-config"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"data\":{\"a\":\"1\"}}"))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/configmaps/acme/app-config"))
+            .PUT(HttpRequest.BodyPublishers.ofString("{\"data\":{\"a\":\"2\"}}"))
+            .build());
+
+    HttpResponse<String> versions =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/configmaps/acme/app-config/versions"))
+                .GET()
+                .build());
+    assertEquals(200, versions.statusCode());
+    List<Map<String, Object>> versionList =
+        Json.asObjectList(Json.asObject(Json.parse(versions.body())).get("versions"));
+    assertEquals(2, versionList.size());
+
+    HttpResponse<String> rollback =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/configmaps/acme/app-config/rollback"))
+                .POST(HttpRequest.BodyPublishers.ofString("{\"version\":1}"))
+                .build());
+    assertEquals(200, rollback.statusCode());
+    Map<String, Object> rolledBack = Json.asObject(Json.parse(rollback.body()));
+    assertEquals(3, ((Number) rolledBack.get("version")).intValue());
+    assertEquals(Map.of("a", "1"), rolledBack.get("data"));
+  }
+
   // ---- /secrets/{tenantId}/... proxy to Fafnir ----
 
   @Test

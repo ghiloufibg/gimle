@@ -6,10 +6,10 @@ import java.util.Map;
  * A named, multi-key configuration bundle a Deployment attaches by reference ({@code
  * configMapRefs}) instead of receiving its tenant's entire flat config set. Stored as one {@link
  * com.gimle.core.config.ConfigEntry} row per {@code (tenantId, name)} -- see {@link ConfigMapCodec}
- * for the wire/storage envelope. {@code version} exists purely for optimistic- concurrency conflict
- * detection ({@link ConfigMapStore#put}/{@link ConfigMapStore#patch}); there is deliberately no
- * version history to roll back to, unlike Fafnir's own versioned secrets -- ConfigMap overwrites in
- * place.
+ * for the wire/storage envelope. {@code version} is this live row's own optimistic-concurrency
+ * token ({@link ConfigMapStore#put}/{@link ConfigMapStore#patch}); the immutable history of every
+ * version ever written is kept separately by {@link ConfigMapStore}'s own version ledger ({@link
+ * ConfigMapStore#listVersions}/{@link ConfigMapStore#rollback}), not by this record.
  */
 public record ConfigMap(String tenantId, String name, int version, Map<String, String> data) {
 
