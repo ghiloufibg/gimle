@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 663,
+    "totalRequirements": 664,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 540,
-    "releaseReadinessPercent": 18.6
+    "notCoveredByAutomatedTest": 541,
+    "releaseReadinessPercent": 18.5
   },
   "items": [
     {
@@ -7295,6 +7295,17 @@
       "category": "Authorization",
       "feature": "Deleting a Role cascades to every RoleBinding naming it",
       "step": "Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked. Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated. Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-664",
+      "module": "gimle-gateway",
+      "category": "Networking",
+      "feature": "Gateway route table reloads on a config change without a restart",
+      "step": "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

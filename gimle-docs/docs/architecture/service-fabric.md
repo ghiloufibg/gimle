@@ -236,7 +236,20 @@ taking precedence for a matching `Host` header.
 
 Route configuration is a single `ctx.config("gateway.routes")` value (delivered the same tenant-
 scoped way any other plain config is — see [Multi-tenancy and quotas](./multi-tenancy.md)), one
-route per line, starting with an optional `HOST` prefix and then an explicit kind token:
+route per line, starting with an optional `HOST` prefix and then an explicit kind token. `GatewayHooks`
+re-reads this value on a fixed background interval for as long as an instance runs, not just once at
+startup: a change reaches an already-running instance the same way any other config update does
+(`ConfigRelay` re-delivers it, the worker's shared config map is overwritten, and the next read
+observes it), and `GatewayHooks` diffs the new route set against what it already applied — adding an
+`HttpServer` context for a genuinely new path, removing one for a path no longer present, and
+swapping in a rebuilt `GatewayDispatcher` for everything else — without ever rebinding the listener
+itself. This matters specifically because the gateway is deployed as a `DaemonSet` across every
+edge-labeled node for real multi-instance HA behind one external entry point, and `DaemonSet`
+instances restart independently (crash, node maintenance, a manual bounce): without this, a route
+table baked in once at each instance's own startup meant different edge nodes behind the same load
+balancer could silently serve different route tables for as long as their next restart happened not
+to coincide. A malformed update is rejected and logged, keeping whatever route table already served
+the last successful parse.
 
 ```text
 [HOST <hostname>] FABRIC <httpPath> <interfaceName> <majorVersion> <methodName> <paramType>

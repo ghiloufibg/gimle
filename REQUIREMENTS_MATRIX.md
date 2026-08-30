@@ -673,6 +673,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | Complete | Yes |
 | GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | Complete | Yes |
 | GIMLE-663 | Deleting a Role cascades to every RoleBinding naming it | Authorization | Complete | Yes |
+| GIMLE-664 | Gateway route table reloads on a config change without a restart | Networking | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6810,6 +6811,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given two routes declared at the same path, one HOST orders.example.com and one host-unconstrained, When a request arrives with Host: orders.example.com, Then the host-constrained route serves it; When a request arrives with a different or missing Host header, Then the host-unconstrained sibling serves it instead.
   Given a route declared HOST orders.example.com only, When a request arrives with a non-matching Host header, Then the response is 404, not a fallback to any other route at that path.
   Given a SERVICE route naming a control-plane Service with a live ready endpoint, When dispatched, Then the request is proxied verbatim to that endpoint's host:port, resolved through ServiceEndpointCache's own TTL-bounded relay to GET /services/{name}/endpoints; When the Service has no ready endpoint, Then a clear error status is returned, not a silent 200.
+  ```
+
+#### GIMLE-664 — Gateway route table reloads on a config change without a restart
+
+- **Category**: Networking
+- **User story**: As a platform operator updating a running gateway's gateway.routes config, I want every already-running gateway instance to pick up the change on its own, so a DaemonSet-deployed fleet of gateway instances doesn't silently split into serving different route tables depending on which ones happen to restart first.
+- **Status**: Complete. GatewayHooks#onStart previously parsed gateway.routes exactly once and baked it into a fixed set of HttpServer contexts and a single GatewayDispatcher, with no listener, poll, or re-parse anywhere afterward -- unlike NetworkPolicyRule or TLS material, both of which already have an explicit push/reload path. Since the gateway is deployed as a DaemonSet across every edge-labeled node for real multi-instance HA, and DaemonSet instances restart independently, this meant a route-config update reached only those instances that happened to restart, a potentially indefinite split-brain in the platform's own documented ingress pattern. Fixed: GatewayHooks now schedules a background reload task (default interval GatewayHooks#DEFAULT_ROUTE_RELOAD_INTERVAL, 5 seconds) that re-reads gateway.routes on every tick via the same ModuleContext#config(...) a real running instance already gets live config updates through (ConfigRelay re-delivers a changed value into the worker's shared config map, exactly as it always has -- no new relay mechanism needed). When the value differs from what was last applied, GatewayHooks#reloadRoutesIfChanged reconciles HttpServer's registered contexts against the new path set (removeContext for a path no longer present, createContext for a genuinely new one) and atomically swaps in a rebuilt GatewayDispatcher via a volatile field that every request handler reads fresh -- a path present before and after the change keeps its already-registered context untouched, observing the new dispatcher on its very next request with no re-registration. A malformed update is rejected and logged, keeping whatever route table already served the last successful parse, the same way onStart already rejected one at first boot.
+- **Confidence**: High
+- **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`startRouteReload`, `reloadRoutesSafely`, `reloadRoutesIfChanged`, `distinctPaths`)
+- **Test coverage**: `GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving` -- all driving a real onStart-ed GatewayHooks over a real HttpClient, using GatewayHooks's own package-private reload-interval constructor to observe reloads in test time, and mutating the exact same ConcurrentHashMap SimpleModuleContext#config reads live from (what ConfigRelay's real delivery does to a running instance). GatewayHooksTlsTest and every pre-existing GatewayDispatcherTest/GatewayRouteConfigTest re-verified to still pass unchanged.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart.
+  Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving.
+  Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged.
   ```
 
 ### gimle-cli

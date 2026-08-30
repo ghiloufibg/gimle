@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 663,
+  "requirementCount": 664,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13115,6 +13115,26 @@
         "Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked.",
         "Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated.",
         "Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-664",
+      "module": "gimle-gateway",
+      "feature": "Gateway route table reloads on a config change without a restart",
+      "category": "Networking",
+      "userStory": "As a platform operator updating a running gateway's gateway.routes config, I want every already-running gateway instance to pick up the change on its own, so a DaemonSet-deployed fleet of gateway instances doesn't silently split into serving different route tables depending on which ones happen to restart first.",
+      "statusDetail": "Complete. GatewayHooks#onStart previously parsed gateway.routes exactly once and baked it into a fixed set of HttpServer contexts and a single GatewayDispatcher, with no listener, poll, or re-parse anywhere afterward -- unlike NetworkPolicyRule or TLS material, both of which already have an explicit push/reload path. Since the gateway is deployed as a DaemonSet across every edge-labeled node for real multi-instance HA, and DaemonSet instances restart independently, this meant a route-config update reached only those instances that happened to restart, a potentially indefinite split-brain in the platform's own documented ingress pattern. Fixed: GatewayHooks now schedules a background reload task (default interval GatewayHooks#DEFAULT_ROUTE_RELOAD_INTERVAL, 5 seconds) that re-reads gateway.routes on every tick via the same ModuleContext#config(...) a real running instance already gets live config updates through (ConfigRelay re-delivers a changed value into the worker's shared config map, exactly as it always has -- no new relay mechanism needed). When the value differs from what was last applied, GatewayHooks#reloadRoutesIfChanged reconciles HttpServer's registered contexts against the new path set (removeContext for a path no longer present, createContext for a genuinely new one) and atomically swaps in a rebuilt GatewayDispatcher via a volatile field that every request handler reads fresh -- a path present before and after the change keeps its already-registered context untouched, observing the new dispatcher on its very next request with no re-registration. A malformed update is rejected and logged, keeping whatever route table already served the last successful parse, the same way onStart already rejected one at first boot.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`startRouteReload`, `reloadRoutesSafely`, `reloadRoutesIfChanged`, `distinctPaths`)"
+      ],
+      "testCoverageDetail": "`GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving` -- all driving a real onStart-ed GatewayHooks over a real HttpClient, using GatewayHooks's own package-private reload-interval constructor to observe reloads in test time, and mutating the exact same ConcurrentHashMap SimpleModuleContext#config reads live from (what ConfigRelay's real delivery does to a running instance). GatewayHooksTlsTest and every pre-existing GatewayDispatcherTest/GatewayRouteConfigTest re-verified to still pass unchanged.",
+      "gherkinSteps": [
+        "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart.",
+        "Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving.",
+        "Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

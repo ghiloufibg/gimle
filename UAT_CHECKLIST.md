@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 663
+- **Total requirements**: 664
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 540
-- **Release-readiness (automated coverage)**: 18.6%
+- **Not covered by automated test**: 541
+- **Release-readiness (automated coverage)**: 18.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -26,7 +26,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
-| gimle-gateway | 16 | 0 | 16 | 0.0% |
+| gimle-gateway | 17 | 0 | 17 | 0.0% |
 | gimle-cli | 29 | 0 | 29 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
@@ -1432,6 +1432,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-368 | Boot-only platform-layer JPMS workaround (`requires static`) | (structural/build-time behavior, not a runtime scenario) | No |
+
+#### Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-664 | Gateway route table reloads on a config change without a restart | Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged. | No |
 
 ### gimle-cli
 

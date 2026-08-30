@@ -17,10 +17,16 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import org.slf4j.Logger;
@@ -45,8 +51,14 @@ import org.slf4j.LoggerFactory;
  *
  * <ul>
  *   <li>{@code gateway.port} -- the TCP port this instance's {@code HttpServer}/{@code HttpsServer}
- *       binds on {@code 0.0.0.0}.
+ *       binds on {@code 0.0.0.0}. Read once, at {@code onStart}: unlike {@code gateway.routes}
+ *       below, changing the listen port of a running instance is a rebind, not a route-table swap,
+ *       and stays a redeploy the same way it always has.
  *   <li>{@code gateway.routes} -- the route table, in {@link GatewayRouteConfig}'s own format.
+ *       Re-read on a fixed background interval ({@link #DEFAULT_ROUTE_RELOAD_INTERVAL}) for as long
+ *       as this instance runs, not just once at {@code onStart} -- see {@link
+ *       #reloadRoutesIfChanged} for why a route table baked in once at startup was a real gap for a
+ *       {@code DaemonSet}-deployed, independently-restarting fleet of gateway instances.
  * </ul>
  *
  * <p>TLS itself is not a {@code ctx.config(...)} key: it is the same cluster-wide {@code
@@ -69,8 +81,38 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   // "attacker-controlled surface" discipline Muninn/Saga's own ingest endpoints already apply.
   private static final long MAX_REQUEST_BODY_BYTES = 50L * 1024 * 1024;
 
+  private static final Duration DEFAULT_ROUTE_RELOAD_INTERVAL = Duration.ofSeconds(5);
+
+  private final Duration routeReloadInterval;
+
   private HttpServer server;
   private ExecutorService executor;
+  private ScheduledExecutorService routeReloadScheduler;
+
+  // Read by every inbound request's handler on every request (see the createContext lambdas
+  // below), written only from onStart/reloadRoutesIfChanged -- volatile, not a lock, since a
+  // request racing a reload only ever sees either the old or the new dispatcher, both fully built,
+  // never a half-constructed one (GatewayDispatcher's own fields are all final).
+  private volatile GatewayDispatcher dispatcher;
+
+  // Both accessed only from onStart and from reloadRoutesIfChanged, which is itself synchronized
+  // (see that method's own javadoc) -- ordinary fields, not volatile, are enough.
+  private String appliedRoutesConfig;
+  private Set<String> registeredPaths = Set.of();
+
+  public GatewayHooks() {
+    this(DEFAULT_ROUTE_RELOAD_INTERVAL);
+  }
+
+  /**
+   * Test-only seam: lets a test shrink the reload interval far below {@link
+   * #DEFAULT_ROUTE_RELOAD_INTERVAL} so a route-config change is observed in test time rather than
+   * real wall-clock seconds, the same reason {@code NetworkPolicyRelay}/{@code ConfigRelay} each
+   * take their own poll interval as a constructor parameter instead of hardcoding it.
+   */
+  GatewayHooks(Duration routeReloadInterval) {
+    this.routeReloadInterval = routeReloadInterval;
+  }
 
   @Override
   public void onInstall(ModuleContext ctx) {}
@@ -80,7 +122,9 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
     int port = requiredIntConfig(ctx, "gateway.port");
     String routesConfig = requiredConfig(ctx, "gateway.routes");
     List<GatewayRoute> routes = GatewayRouteConfig.parse(routesConfig);
-    GatewayDispatcher dispatcher = new GatewayDispatcher(ctx, routes);
+    dispatcher = new GatewayDispatcher(ctx, routes);
+    appliedRoutesConfig = routesConfig;
+    registeredPaths = distinctPaths(routes);
 
     try {
       server = createHttpServer(port);
@@ -88,8 +132,9 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
       // host-unconstrained (or differently-host-constrained) sibling can now share the same path,
       // and HttpServer#createContext rejects a second context registered at a path already bound.
       // GatewayDispatcher itself resolves which of a path's routes actually serves a given request.
-      List<String> distinctPaths = routes.stream().map(GatewayRoute::path).distinct().toList();
-      for (String path : distinctPaths) {
+      // The lambda reads the dispatcher field itself, not a captured snapshot, so a route-table
+      // reload later takes effect on this same context with no need to re-register it.
+      for (String path : registeredPaths) {
         server.createContext(path, exchange -> handle(dispatcher, exchange));
       }
       // One virtual thread per request: an inbound gateway request blocks synchronously on a real
@@ -104,9 +149,100 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
           port,
           TransportProtocol.fromConfig(),
           routes.size());
+      startRouteReload(ctx);
     } catch (IOException e) {
       throw new UncheckedIOException("gimle-gateway failed to bind port " + port, e);
     }
+  }
+
+  private void startRouteReload(ModuleContext ctx) {
+    routeReloadScheduler =
+        Executors.newSingleThreadScheduledExecutor(
+            r -> Thread.ofVirtual().name("gimle-gateway-route-reload").unstarted(r));
+    routeReloadScheduler.scheduleAtFixedRate(
+        () -> reloadRoutesSafely(ctx),
+        routeReloadInterval.toMillis(),
+        routeReloadInterval.toMillis(),
+        TimeUnit.MILLISECONDS);
+  }
+
+  private void reloadRoutesSafely(ModuleContext ctx) {
+    try {
+      reloadRoutesIfChanged(ctx);
+    } catch (RuntimeException e) {
+      log.warn(
+          "gimle-gateway route reload tick failed unexpectedly, keeping the previous route"
+              + " table: {}",
+          e.getMessage(),
+          e);
+    }
+  }
+
+  /**
+   * Re-reads {@code gateway.routes} and, if it differs from what this instance last applied,
+   * rebuilds the route table and swaps it in -- closing the gap the original implementation had:
+   * {@code onStart} parsed {@code gateway.routes} exactly once and baked it into a fixed set of
+   * {@code HttpServer} contexts, with no listener, poll, or re-parse anywhere afterward, unlike
+   * {@code NetworkPolicyRule}s or TLS material, both of which already have an explicit push/reload
+   * path. Since this module is deployed as a {@code DaemonSet} across every edge-labeled node for
+   * real multi-instance HA behind one external entry point, and DaemonSet instances restart
+   * independently (crash, node maintenance, a manual bounce), a route-config update that never
+   * reaches an already-running instance is a <i>potentially indefinite</i> window where different
+   * edge nodes behind the same load balancer silently serve different route tables -- a real
+   * split-brain in the platform's own documented ingress pattern.
+   *
+   * <p>{@code synchronized} against itself only -- one gateway instance's reload scheduler runs a
+   * single thread on a fixed rate, so overlap is impossible in production; the guard exists purely
+   * so a test can call this directly without racing a concurrently-scheduled tick.
+   *
+   * <p>A route table is swapped by rebuilding the {@link GatewayDispatcher} outright (its own
+   * per-target caches reset and simply refill on the next request through them -- a negligible
+   * cost, not a correctness concern) and reconciling {@code HttpServer}'s registered contexts
+   * against the new path set: a path no longer present is removed ({@link
+   * HttpServer#removeContext}, so a request to it gets the server's own ordinary 404 rather than a
+   * stale route ever matching again), a genuinely new path is registered, and a path present in
+   * both the old and new route sets keeps its already-registered context untouched -- that
+   * context's handler reads {@link #dispatcher} on every request, so it observes the swapped-in
+   * dispatcher on its very next request with no re-registration needed. A malformed update is
+   * rejected the same way {@code onStart} already rejects one -- logged and skipped, keeping
+   * whatever route table is already serving traffic, rather than tearing down a working gateway
+   * over an operator's typo.
+   */
+  private synchronized void reloadRoutesIfChanged(ModuleContext ctx) {
+    String routesConfig = ctx.config("gateway.routes").orElse(null);
+    if (routesConfig == null || routesConfig.equals(appliedRoutesConfig)) {
+      return;
+    }
+    List<GatewayRoute> newRoutes;
+    try {
+      newRoutes = GatewayRouteConfig.parse(routesConfig);
+    } catch (GatewayConfigException e) {
+      log.warn(
+          "gimle-gateway rejected a gateway.routes update, keeping the previous route table: {}",
+          e.getMessage());
+      return;
+    }
+    Set<String> newPaths = distinctPaths(newRoutes);
+    for (String path : newPaths) {
+      if (!registeredPaths.contains(path)) {
+        server.createContext(path, exchange -> handle(dispatcher, exchange));
+      }
+    }
+    for (String path : registeredPaths) {
+      if (!newPaths.contains(path)) {
+        server.removeContext(path);
+      }
+    }
+    dispatcher = new GatewayDispatcher(ctx, newRoutes);
+    appliedRoutesConfig = routesConfig;
+    registeredPaths = newPaths;
+    log.info("gimle-gateway reloaded its route table ({} route(s))", newRoutes.size());
+  }
+
+  private static Set<String> distinctPaths(List<GatewayRoute> routes) {
+    return routes.stream()
+        .map(GatewayRoute::path)
+        .collect(Collectors.toCollection(LinkedHashSet::new));
   }
 
   /**
@@ -153,6 +289,9 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   @Override
   public void onStop(ModuleContext ctx) {
     ready.set(false);
+    if (routeReloadScheduler != null) {
+      routeReloadScheduler.shutdownNow();
+    }
     if (server != null) {
       // HttpServer#stop never shuts down a caller-supplied executor -- it assumes the executor may
       // be shared -- so this virtual-thread-per-task executor, created solely for this server
