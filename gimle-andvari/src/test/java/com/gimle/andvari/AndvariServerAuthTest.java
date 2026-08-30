@@ -100,7 +100,7 @@ class AndvariServerAuthTest {
     assertEquals(200, session.statusCode());
     assertEquals("admin", Json.asObject(Json.parse(session.body())).get("username"));
 
-    // 4. Logout tells the browser to drop the cookie (Max-Age=0).
+    // 4. Logout tells the browser to drop the cookie (Max-Age=0) *and* revokes it server-side.
     HttpResponse<String> logout =
         client.send(
             HttpRequest.newBuilder(URI.create(baseUrl + "/auth/logout"))
@@ -110,6 +110,14 @@ class AndvariServerAuthTest {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     assertEquals(200, logout.statusCode());
     assertTrue(logout.headers().firstValue("Set-Cookie").orElse("").contains("Max-Age=0"));
+
+    // The old cookie, replayed, no longer resolves to "admin" -- this plaintext server's own
+    // anonymous carve-out (see handleAuthSession) means a revoked cookie still reports 200, not
+    // 401, but the username it reports proves the token itself, not just this client's copy of
+    // it, was actually invalidated.
+    HttpResponse<String> replayedOldCookie = getWithCookie("/auth/session", cookie);
+    assertEquals(200, replayedOldCookie.statusCode());
+    assertEquals("anonymous", Json.asObject(Json.parse(replayedOldCookie.body())).get("username"));
   }
 
   @Test

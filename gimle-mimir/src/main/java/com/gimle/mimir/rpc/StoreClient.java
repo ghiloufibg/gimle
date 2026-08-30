@@ -271,6 +271,13 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
             .values());
   }
 
+  @Override
+  public long getSessionRevokedBeforeEpochMilli(String username) {
+    return ((StoreRpc.GenerationResult)
+            sendRead(new StoreRpc.GetSessionRevokedBeforeEpochMilli(username)))
+        .value();
+  }
+
   public List<InstanceAssignment> listAssignments() {
     return ((StoreRpc.AssignmentListResult) sendRead(new StoreRpc.ListAssignments())).values();
   }

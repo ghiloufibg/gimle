@@ -27,7 +27,7 @@ class SessionTokensTest {
     SecretKey key = key();
     String token = SessionTokens.issue("alice", key, Duration.ofHours(1));
 
-    assertEquals(Optional.of("alice"), SessionTokens.verify(token, key));
+    assertEquals("alice", SessionTokens.verify(token, key).orElseThrow().username());
   }
 
   @Test
@@ -52,7 +52,7 @@ class SessionTokensTest {
     // virtual time can assert this side of the boundary at all.
     clock.advance(ttl);
 
-    assertEquals(Optional.of("alice"), SessionTokens.verify(token, key, clock));
+    assertEquals("alice", SessionTokens.verify(token, key, clock).orElseThrow().username());
   }
 
   @Test

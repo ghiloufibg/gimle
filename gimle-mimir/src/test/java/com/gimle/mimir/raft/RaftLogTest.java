@@ -67,7 +67,8 @@ class RaftLogTest {
         Map.of(), // limitRangeViolations
         Set.of(), // revokedCertificateSerials
         List.of(), // workloadTokens
-        Map.of()); // nodeTaints
+        Map.of(), // nodeTaints
+        Map.of()); // sessionRevokedBeforeEpochMilli
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -112,7 +113,8 @@ class RaftLogTest {
         base.limitRangeViolations(),
         base.revokedCertificateSerials(),
         base.workloadTokens(),
-        base.nodeTaints());
+        base.nodeTaints(),
+        base.sessionRevokedBeforeEpochMilli());
   }
 
   @Test

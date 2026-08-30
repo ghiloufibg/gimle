@@ -105,6 +105,12 @@ public final class StateStore implements StoreReader {
   private final Map<String, Set<String>> nodeTaints = new ConcurrentHashMap<>();
   private final Map<String, Boolean> revokedCertificateSerials = new ConcurrentHashMap<>();
   private final Map<String, WorkloadTokenRecord> workloadTokens = new ConcurrentHashMap<>();
+  // username -> the epoch-milli watermark set by that user's last console logout. Bounded by the
+  // number of distinct usernames that have ever logged out (an operator account list, not
+  // per-request churn), so unlike workloadTokens above this needs no expired-entry sweep: once
+  // every session issued before a username's watermark has long since hit its own 12-hour expiry,
+  // the entry is simply never consulted again, harmless to leave in place.
+  private final Map<String, Long> sessionRevokedBeforeEpochMilli = new ConcurrentHashMap<>();
   private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
   private final Map<String, Role> roles = new ConcurrentHashMap<>();
   private final Map<String, RoleBinding> roleBindings = new ConcurrentHashMap<>();
@@ -898,6 +904,30 @@ public final class StateStore implements StoreReader {
     return Set.copyOf(revokedCertificateSerials.keySet());
   }
 
+  // ---- console session revocation bookkeeping ----
+
+  /**
+   * Advances {@code username}'s "revoked before" watermark to {@code revokedBeforeEpochMilli} --
+   * called on every {@code /auth/logout} for whichever username the presented cookie verified to. A
+   * session token is otherwise a fully stateless, self-verifying HMAC token (see {@code
+   * SessionTokens}' own javadoc); this is the one piece of server-side state layered on top of it,
+   * mirroring {@link #putCertificateRevocation} for a different credential type -- checked before
+   * any authorization runs, the same per-request level-triggered store read.
+   *
+   * <p>Merges with {@link Math#max} rather than a plain {@code put}: two logouts for the same
+   * username can replay in either order relative to their own wall-clock stamps (clock skew, or a
+   * mutation submitted earlier that commits later), and the watermark must only ever ratchet
+   * forward -- never let a stale, lower stamp silently undo an already-applied revocation.
+   */
+  public void putSessionRevocation(String username, long revokedBeforeEpochMilli) {
+    sessionRevokedBeforeEpochMilli.merge(username, revokedBeforeEpochMilli, Math::max);
+  }
+
+  /** {@code 0} (never revoked) for a username that has never logged out. */
+  public long getSessionRevokedBeforeEpochMilli(String username) {
+    return sessionRevokedBeforeEpochMilli.getOrDefault(username, 0L);
+  }
+
   // ---- workload-identity token bookkeeping ----
 
   /**
@@ -1250,7 +1280,8 @@ public final class StateStore implements StoreReader {
         Map.copyOf(limitRangeViolations),
         Set.copyOf(revokedCertificateSerials.keySet()),
         List.copyOf(workloadTokens.values()),
-        nodeTaintsSnapshot());
+        nodeTaintsSnapshot(),
+        Map.copyOf(sessionRevokedBeforeEpochMilli));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1318,6 +1349,7 @@ public final class StateStore implements StoreReader {
     nodeTaints.clear();
     revokedCertificateSerials.clear();
     workloadTokens.clear();
+    sessionRevokedBeforeEpochMilli.clear();
     configEntries.clear();
     roles.clear();
     roleBindings.clear();
@@ -1387,6 +1419,7 @@ public final class StateStore implements StoreReader {
                 tenantIds.forEach(tenantId -> putNodeTaint(nodeId, tenantId, true)));
     snapshot.revokedCertificateSerials().forEach(serial -> putCertificateRevocation(serial, true));
     snapshot.workloadTokens().forEach(record -> putWorkloadToken(record, 0L));
+    snapshot.sessionRevokedBeforeEpochMilli().forEach(this::putSessionRevocation);
     snapshot.configEntries().forEach(this::putConfigEntry);
     snapshot.roles().forEach(this::putRole);
     snapshot.roleBindings().forEach(this::putRoleBinding);

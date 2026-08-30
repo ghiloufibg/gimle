@@ -76,6 +76,9 @@ public interface StoreReader {
 
   Set<String> listRevokedCertificateSerials();
 
+  /** {@code 0} (never revoked) for a username that has never logged out. */
+  long getSessionRevokedBeforeEpochMilli(String username);
+
   Optional<WorkloadTokenRecord> getWorkloadToken(String key);
 
   List<InstanceAssignment> listAssignments();
