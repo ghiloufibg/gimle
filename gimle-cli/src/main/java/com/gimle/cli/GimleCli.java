@@ -47,7 +47,7 @@ import java.util.Map;
  *   gimle uncordon &lt;nodeId&gt;
  *   gimle taint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle untaint &lt;nodeId&gt; &lt;tenantId&gt;
- *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--limit N]
+ *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--tenant &lt;id&gt;] [--limit N]
  *   gimle get services [name]
  *   gimle set service &lt;name&gt; (--deployment &lt;name&gt; [--deployment ...] | --external-name &lt;host&gt;) --port N [--target-port N] [--session-affinity]
  *                             [--tenant &lt;id&gt;]
@@ -292,7 +292,8 @@ public final class GimleCli {
   private static void handleEvents(
       List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
     if (args.size() < 2) {
-      throw new CliException("usage: gimle events <deploymentName> <instanceIndex> [--limit N]");
+      throw new CliException(
+          "usage: gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]");
     }
     new EventsCommand(client, output, out)
         .run(args.get(0), args.get(1), args.subList(2, args.size()));
@@ -751,7 +752,7 @@ public final class GimleCli {
           + " <name>";
 
   private static final String EVENTS_USAGE =
-      "usage: gimle events <deploymentName> <instanceIndex> [--limit N]";
+      "usage: gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]";
 
   private static String requireOne(List<String> args, String what) {
     if (args.isEmpty()) {
@@ -811,7 +812,7 @@ public final class GimleCli {
           untaint <nodeId> <tenantId>
           volume list
           volume destroy <statefulSet> <instanceIndex> --node <nodeId>
-          events <deploymentName> <instanceIndex> [--limit N]
+          events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
           get services [name]
           set service <name> (--deployment <name> [--deployment ...] | --external-name <host>) --port N [--target-port N] [--session-affinity]
                               [--tenant <id>]

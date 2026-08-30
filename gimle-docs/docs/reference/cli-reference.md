@@ -49,7 +49,7 @@ gimle taint <nodeId> <tenantId>
 gimle untaint <nodeId> <tenantId>
 gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
-gimle events <deploymentName> <instanceIndex> [--limit N]
+gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
 gimle get services [name] [--tenant <id>]
 gimle set service <name> (--deployment <name> [--deployment ...] | --external-name <host>)
                           --port N [--target-port N] [--tenant <id>] [--session-affinity]
@@ -341,8 +341,11 @@ gimle taint node-1 tenant-a --server 127.0.0.1:8080
 gimle untaint node-1 tenant-a --server 127.0.0.1:8080
 
 # An instance's own lifecycle timeline (installed, resolved, started, active, ...) -- --limit caps
-# a crash-looping instance's otherwise-hundreds-of-lines timeline to the most recent entries
+# a crash-looping instance's otherwise-hundreds-of-lines timeline to the most recent entries.
+# --tenant is required for a tenanted deployment: the timeline is keyed by the exact
+# (tenantId, deploymentName, instanceIndex) triple, never a bare-name search across tenants.
 gimle events orders-service-deployment 0 --server 127.0.0.1:8080
+gimle events orders-service-deployment 0 --tenant acme --server 127.0.0.1:8080
 gimle events orders-service-deployment 0 --limit 20 --server 127.0.0.1:8080
 
 # A stable name in front of a Deployment's live endpoints, and who else may call it

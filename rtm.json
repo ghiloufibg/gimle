@@ -6561,11 +6561,11 @@
       "feature": "Instance lifecycle event timeline",
       "category": "CLI",
       "status": "Modified",
-      "statusNote": "Added `--limit N`, applied client-side against the already-newest-first response.",
+      "statusNote": "Added `--tenant <id>` -- closing a real gap the P6 Galdr watchers pass surfaced (finding F2): the CLI had no way to address a tenanted instance's own event timeline at all, since the store keys it by the exact (tenantId, deploymentName, instanceIndex) triple rather than a bare-name search. `--limit N` from the prior revision is unchanged.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Instance lifecycle event timeline\".",
-      "otherTestCoverage": "`GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`",
+      "otherTestCoverage": "`GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`, `events_with_tenant_finds_that_tenants_own_timeline`, `events_without_tenant_never_finds_a_tenanted_instances_timeline`, `events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline`",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`"
       ]

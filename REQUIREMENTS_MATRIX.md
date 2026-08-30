@@ -6878,14 +6878,15 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: CLI
 - **User story**: As an operator debugging a misbehaving instance, I want to see its full lifecycle event history, and cap it to just the most recent entries when a crash loop would otherwise print hundreds of lines.
-- **Status**: Complete, including `--limit N`: since `GET /events` carries no server-side limit parameter of its own (unlike `GET /audit`), the flag truncates the already-newest-first response client-side rather than adding a query-string parameter the server would silently ignore.
+- **Status**: Complete, including `--tenant <id>` and `--limit N`. The store keys an instance's event timeline by the exact `(tenantId, deploymentName, instanceIndex)` triple, never a bare-name search across tenants (`StateStore.listInstanceEvents`), so a tenanted instance's timeline was previously unreachable from this command -- omitting `--tenant` always addressed the untenanted namespace, which for a real tenanted deployment is simply empty. `--tenant` is threaded through as `&tenant=<id>` on `GET /events`, the same `TenantQuery`/`CanICommand` convention every other by-name resource command already uses. `--limit N` still truncates the already-newest-first response client-side, since `GET /events` carries no server-side limit parameter of its own (unlike `GET /audit`).
 - **Confidence**: High
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`events` dispatch passes flags through past the two positional args)
-- **Test coverage**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`
+- **Test coverage**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`, `events_with_tenant_finds_that_tenants_own_timeline`, `events_without_tenant_never_finds_a_tenanted_instances_timeline`, `events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline`
 - **Gherkin scenario**:
   ```gherkin
   Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed.
   Given an instance with more lifecycle events than --limit, When "gimle events orders-service 0 --limit 5", Then only the 5 most recent events print.
+  Given a tenanted instance's own lifecycle events; When "gimle events <name> <index> --tenant <id>"; Then that tenant's own timeline is printed, and neither the untenanted namespace nor a different tenant's timeline is ever returned in its place.
   ```
 
 #### GIMLE-378 — Tenant management and quota configuration

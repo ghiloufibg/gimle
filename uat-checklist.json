@@ -4148,7 +4148,7 @@
       "module": "gimle-cli",
       "category": "CLI",
       "feature": "Instance lifecycle event timeline",
-      "step": "Given deployment \"orders-service\" index 0, When \"gimle events orders-service 0\", Then GET /events?deployment=orders-service&instance=0 results are printed. Given an instance with more lifecycle events than --limit, When \"gimle events orders-service 0 --limit 5\", Then only the 5 most recent events print.",
+      "step": "Given deployment \"orders-service\" index 0, When \"gimle events orders-service 0\", Then GET /events?deployment=orders-service&instance=0 results are printed. Given an instance with more lifecycle events than --limit, When \"gimle events orders-service 0 --limit 5\", Then only the 5 most recent events print. Given a tenanted instance's own lifecycle events; When \"gimle events <name> <index> --tenant <id>\"; Then that tenant's own timeline is printed, and neither the untenanted namespace nor a different tenant's timeline is ever returned in its place.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -4943,10 +4943,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-377 — Instance lifecycle event timeline
 
 - **Category**: CLI
-- **Status**: Modified  _(Added `--limit N`, applied client-side against the already-newest-first response.)_
+- **Status**: Modified  _(Added `--tenant <id>` -- closing a real gap the P6 Galdr watchers pass surfaced (finding F2): the CLI had no way to address a tenanted instance's own event timeline at all, since the store keys it by the exact (tenantId, deploymentName, instanceIndex) triple rather than a bare-name search. `--limit N` from the prior revision is unchanged.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Instance lifecycle event timeline".
-- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`
+- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`, `events_with_tenant_finds_that_tenants_own_timeline`, `events_without_tenant_never_finds_a_tenanted_instances_timeline`, `events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline`
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`
 
 #### GIMLE-378 — Tenant management and quota configuration
@@ -7103,7 +7103,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-374 | gimle-cli | DaemonSet resource management | CLI | `GimleCliTest.apply_then_get_daemonsets_round_trips`, `apply_then_delete_removes_the_daemonset` |
 | GIMLE-375 | gimle-cli | StatefulSet resource management | CLI | `GimleCliTest.apply_then_get_statefulsets_round_trips`, `apply_then_delete_removes_the_statefulset` |
 | GIMLE-376 | gimle-cli | Node inventory and cordon/uncordon | CLI | `GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field` |
-| GIMLE-377 | gimle-cli | Instance lifecycle event timeline | CLI | `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails` |
+| GIMLE-377 | gimle-cli | Instance lifecycle event timeline | CLI | `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`, `events_with_tenant_finds_that_tenants_own_timeline`, `events_without_tenant_never_finds_a_tenanted_instances_timeline`, `events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline` |
 | GIMLE-378 | gimle-cli | Tenant management and quota configuration | CLI | `GimleCliTest.set_tenant_then_get_tenants_round_trips`, `set_and_delete_tenant_produce_real_json_under_json_output_format` |
 | GIMLE-379 | gimle-cli | Tenant plain configuration key/value store | CLI | `GimleCliTest.set_and_get_config_round_trips`, `set_and_delete_config_produce_real_json_under_json_output_format` |
 | GIMLE-382 | gimle-cli | Log viewing and live tailing | CLI | NONE recorded in the baseline |

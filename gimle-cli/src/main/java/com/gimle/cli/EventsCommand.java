@@ -1,17 +1,22 @@
 package com.gimle.cli;
 
 import java.io.PrintStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code events <deploymentName> <instanceIndex> [--limit N]} -- an instance's own lifecycle
- * timeline. {@code GET /events} always returns the full timeline, newest-first (see {@code
- * ApiServer#handleEvents}'s own javadoc); it carries no {@code limit} query parameter the way
- * {@code GET /audit} does, so {@code --limit} is applied client-side by truncating the
+ * {@code events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]} -- an instance's own
+ * lifecycle timeline. {@code GET /events} always returns the full timeline, newest-first (see
+ * {@code ApiServer#handleEvents}'s own javadoc); it carries no {@code limit} query parameter the
+ * way {@code GET /audit} does, so {@code --limit} is applied client-side by truncating the
  * already-newest-first response rather than by adding a query-string parameter the server would
- * silently ignore.
+ * silently ignore. {@code --tenant} is required for a tenanted instance -- the store keys an
+ * instance's event timeline by the exact {@code (tenantId, deploymentName, instanceIndex)} triple,
+ * never a bare-name search across tenants, so omitting it addresses only the untenanted namespace,
+ * the same convention {@link TenantQuery} documents for every other by-name resource command.
  */
 public final class EventsCommand {
 
@@ -26,13 +31,19 @@ public final class EventsCommand {
   }
 
   public void run(String deploymentName, String instanceIndex, List<String> extraArgs) {
-    Flags flags =
-        Flags.parse(
-            extraArgs,
-            Set.of(),
-            "usage: gimle events <deploymentName> <instanceIndex> [--limit N]");
-    String path = "/events?deployment=" + deploymentName + "&instance=" + instanceIndex;
-    List<Map<String, Object>> events = client.getList(path);
+    String usage =
+        "usage: gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]";
+    Flags flags = Flags.parse(extraArgs, Set.of(), usage);
+    StringBuilder path =
+        new StringBuilder("/events?deployment=")
+            .append(deploymentName)
+            .append("&instance=")
+            .append(instanceIndex);
+    String tenant = flags.getOrDefault("--tenant", null);
+    if (tenant != null && !tenant.isBlank()) {
+      path.append("&tenant=").append(URLEncoder.encode(tenant, StandardCharsets.UTF_8));
+    }
+    List<Map<String, Object>> events = client.getList(path.toString());
     String limitValue = flags.getOrDefault("--limit", null);
     if (limitValue != null) {
       int limit = parseLimit(limitValue);
