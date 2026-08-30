@@ -2496,7 +2496,8 @@ public final class ApiServer implements AutoCloseable {
         spec.tenantId(),
         sha256,
         spec.disruption(),
-        spec.vessel());
+        spec.vessel(),
+        spec.tolerateAllTaints());
   }
 
   private void handleGetDaemonSet(HttpExchange exchange, Optional<String> tenantHint, String name)
@@ -2552,6 +2553,7 @@ public final class ApiServer implements AutoCloseable {
         .requiredNodeLabels()
         .ifPresent(labels -> placement.put("requiredLabels", new ArrayList<>(labels)));
     specMap.put("placement", placement);
+    specMap.put("tolerateAllTaints", spec.tolerateAllTaints());
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
     spec.vessel().ifPresent(v -> specMap.put("vessel", vesselToJson(v)));
 

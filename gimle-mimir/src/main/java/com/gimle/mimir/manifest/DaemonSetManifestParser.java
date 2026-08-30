@@ -32,7 +32,8 @@ public final class DaemonSetManifestParser {
           "tenantId",
           "artifactSha256",
           "disruption",
-          "vessel");
+          "vessel",
+          "tolerateAllTaints");
 
   private DaemonSetManifestParser() {}
 
@@ -68,10 +69,19 @@ public final class DaemonSetManifestParser {
     Optional<String> artifactSha256 = parseArtifactSha256(root);
     Optional<DisruptionBudget> disruption = parseDisruptionBudget(root);
     Optional<VesselSpec> vessel = ManifestFields.parseVessel(root);
+    boolean tolerateAllTaints = ManifestFields.booleanField(root, "tolerateAllTaints", false);
 
     try {
       return new DaemonSetSpec(
-          name, moduleId, artifactPath, placement, tenantId, artifactSha256, disruption, vessel);
+          name,
+          moduleId,
+          artifactPath,
+          placement,
+          tenantId,
+          artifactSha256,
+          disruption,
+          vessel,
+          tolerateAllTaints);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid daemonset manifest for " + name + ": " + e.getMessage(), e);

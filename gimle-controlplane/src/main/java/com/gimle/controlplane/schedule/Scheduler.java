@@ -195,18 +195,27 @@ public final class Scheduler {
    * returned, never just one. Never throws: an empty result is an ordinary "no node is eligible
    * right now" outcome for a caller like {@code DaemonSetReconciler} that places on every survivor
    * rather than needing exactly one.
+   *
+   * <p>{@code tolerateAllTaints} skips the taint-filter stage entirely when {@code true} -- the
+   * only caller that ever passes {@code true} is {@code DaemonSetReconciler}, for a DaemonSet whose
+   * own manifest opted into {@code tolerateAllTaints}, mirroring Kubernetes' notion of a DaemonSet
+   * needing to cover every node including ones reserved for a tenant. Every other caller passes
+   * {@code false}, leaving today's strict "an operator-tainted node stays excluded unless the
+   * caller's own tenantId matches" behavior unchanged.
    */
   public List<NodeCandidate> eligibleNodes(
       IsolationTier tier,
       boolean antiAffinityAcrossNodes,
       Optional<String> tenantId,
       Set<String> requiredNodeLabels,
+      boolean tolerateAllTaints,
       List<NodeCandidate> candidates) {
     List<NodeCandidate> tierEligible = filterByTier(tier, candidates);
     List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
     List<NodeCandidate> affinityEligible =
         filterByAntiAffinity(uncordonedEligible, antiAffinityAcrossNodes);
-    List<NodeCandidate> taintEligible = filterByTaint(affinityEligible, tenantId);
+    List<NodeCandidate> taintEligible =
+        tolerateAllTaints ? affinityEligible : filterByTaint(affinityEligible, tenantId);
     return filterByLabels(taintEligible, requiredNodeLabels);
   }
 

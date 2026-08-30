@@ -1,6 +1,7 @@
 package com.gimle.mimir.codec;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ReclaimPolicy;
@@ -200,6 +201,30 @@ class DomainCodecTest {
             new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
 
     assertEquals(revision, roundTripped);
+  }
+
+  @Test
+  void a_daemonset_spec_with_tolerate_all_taints_set_round_trips() throws Exception {
+    DaemonSetSpec spec =
+        new DaemonSetSpec(
+            "cluster-log-shipper",
+            new ModuleId("com.gimle.example.cluster-log-shipper", Version.parse("1.0.0")),
+            "/artifacts/cluster-log-shipper-1.0.0.jar",
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            true);
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeDaemonSetSpec(new DataOutputStream(buffer), spec);
+    DaemonSetSpec roundTripped =
+        DomainCodec.readDaemonSetSpec(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(spec, roundTripped);
+    assertTrue(roundTripped.tolerateAllTaints());
   }
 
   @Test

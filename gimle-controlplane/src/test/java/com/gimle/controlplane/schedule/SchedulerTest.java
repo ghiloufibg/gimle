@@ -12,6 +12,7 @@ import com.gimle.core.protocol.ResourceUsageSnapshot;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class SchedulerTest {
@@ -423,7 +424,7 @@ class SchedulerTest {
 
     List<NodeCandidate> eligible =
         scheduler.eligibleNodes(
-            IsolationTier.TIER_1, false, Optional.empty(), Set.of(), candidates);
+            IsolationTier.TIER_1, false, Optional.empty(), Set.of(), false, candidates);
 
     // Unlike place(), resource sizing (freeMemoryBytes/freeCpuMillicores) is never consulted --
     // node-b's tiny free memory would fail place()'s own bin-packing filter but survives here.
@@ -439,7 +440,7 @@ class SchedulerTest {
 
     List<NodeCandidate> eligible =
         scheduler.eligibleNodes(
-            IsolationTier.TIER_2, false, Optional.empty(), Set.of(), candidates);
+            IsolationTier.TIER_2, false, Optional.empty(), Set.of(), false, candidates);
 
     assertEquals(List.of("node-both"), eligible.stream().map(NodeCandidate::nodeId).toList());
   }
@@ -453,7 +454,7 @@ class SchedulerTest {
 
     List<NodeCandidate> eligible =
         scheduler.eligibleNodes(
-            IsolationTier.TIER_1, false, Optional.empty(), Set.of(), candidates);
+            IsolationTier.TIER_1, false, Optional.empty(), Set.of(), false, candidates);
 
     assertEquals(List.of("node-free"), eligible.stream().map(NodeCandidate::nodeId).toList());
   }
@@ -467,7 +468,7 @@ class SchedulerTest {
 
     List<NodeCandidate> eligible =
         scheduler.eligibleNodes(
-            IsolationTier.TIER_1, false, Optional.empty(), Set.of("gpu"), candidates);
+            IsolationTier.TIER_1, false, Optional.empty(), Set.of("gpu"), false, candidates);
 
     assertEquals(List.of("node-gpu"), eligible.stream().map(NodeCandidate::nodeId).toList());
   }
@@ -481,9 +482,27 @@ class SchedulerTest {
 
     List<NodeCandidate> eligible =
         scheduler.eligibleNodes(
-            IsolationTier.TIER_2, false, Optional.of("tenant-a"), Set.of(), candidates);
+            IsolationTier.TIER_2, false, Optional.of("tenant-a"), Set.of(), false, candidates);
 
     assertEquals(List.of("node-open"), eligible.stream().map(NodeCandidate::nodeId).toList());
+  }
+
+  @Test
+  void eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely() {
+    // A DaemonSet whose manifest set tolerateAllTaints=true must cover every node -- including a
+    // node tainted for a different tenant, and one tainted with no tenantId of its own at all.
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTaints("node-tainted", TIER_1_AND_2, 800L * 1024 * 1024, Set.of("tenant-b")),
+            nodeWithTaints("node-open", TIER_1_AND_2, 200L * 1024 * 1024, Set.of()));
+
+    List<NodeCandidate> eligible =
+        scheduler.eligibleNodes(
+            IsolationTier.TIER_2, false, Optional.empty(), Set.of(), true, candidates);
+
+    assertEquals(
+        Set.of("node-tainted", "node-open"),
+        eligible.stream().map(NodeCandidate::nodeId).collect(Collectors.toSet()));
   }
 
   @Test
@@ -493,7 +512,7 @@ class SchedulerTest {
 
     List<NodeCandidate> eligible =
         scheduler.eligibleNodes(
-            IsolationTier.TIER_2, false, Optional.empty(), Set.of(), candidates);
+            IsolationTier.TIER_2, false, Optional.empty(), Set.of(), false, candidates);
 
     assertEquals(List.of(), eligible);
   }
@@ -501,7 +520,8 @@ class SchedulerTest {
   @Test
   void eligible_nodes_returns_an_empty_list_for_no_candidates_at_all() {
     List<NodeCandidate> eligible =
-        scheduler.eligibleNodes(IsolationTier.TIER_1, false, Optional.empty(), Set.of(), List.of());
+        scheduler.eligibleNodes(
+            IsolationTier.TIER_1, false, Optional.empty(), Set.of(), false, List.of());
 
     assertEquals(List.of(), eligible);
   }

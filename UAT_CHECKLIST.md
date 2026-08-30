@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 659
+- **Total requirements**: 660
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 536
-- **Release-readiness (automated coverage)**: 18.7%
+- **Not covered by automated test**: 537
+- **Release-readiness (automated coverage)**: 18.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 60 | 35 | 25 | 58.3% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 82 | 14 | 68 | 17.1% |
+| gimle-controlplane | 83 | 14 | 69 | 16.9% |
 | gimle-fafnir | 26 | 11 | 15 | 42.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -980,6 +980,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Given tenant A's and tenant B's identically-named deployment both land instance index 0 on node N; When node N's heartbeat reports an observation for that (name, index); Then only the assignment whose tenantId matches the observation's own is considered healthy/ready. | No |
+
+#### Multi-tenancy / Self-healing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be. Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node. Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false. | No |
 
 #### Networking / Services
 

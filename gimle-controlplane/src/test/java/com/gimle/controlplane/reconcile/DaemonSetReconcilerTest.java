@@ -54,6 +54,19 @@ class DaemonSetReconcilerTest {
         Optional.empty());
   }
 
+  private DaemonSetSpec daemonSetTolerantOfAllTaints(String name, Path jar) {
+    return new DaemonSetSpec(
+        name,
+        new ModuleId(jar.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0")),
+        jar.toAbsolutePath().toString(),
+        PlacementConstraints.NONE,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        true);
+  }
+
   private static void registerNode(StateStore store, String nodeId, Set<String> labels) {
     store.putNodeRegistration(
         new NodeRegistration(
@@ -145,6 +158,48 @@ class DaemonSetReconcilerTest {
         store.listDaemonSetAssignmentsFor(Optional.empty(), "gpu-agent");
     assertEquals(1, assignments.size());
     assertEquals("node-gpu", assignments.get(0).nodeId());
+  }
+
+  @Test
+  void an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default() {
+    // The strict, pre-existing behavior: without tolerateAllTaints, a DaemonSet is filtered by
+    // node taints exactly like a Deployment or StatefulSet would be.
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    store.putNodeTaint("node-b", "some-other-tenant", true);
+
+    new DaemonSetReconciler(store, scheduler).reconcileOnce();
+
+    List<DaemonSetAssignment> assignments =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
+    assertEquals(1, assignments.size());
+    assertEquals("node-a", assignments.get(0).nodeId());
+  }
+
+  @Test
+  void a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too() {
+    // FUNC-55: a genuinely cluster-wide DaemonSet (e.g. a log shipper) that opts into
+    // tolerateAllTaints must reach every node, including one reserved for a different tenant.
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSetTolerantOfAllTaints("cluster-log-shipper", jar));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    store.putNodeTaint("node-b", "some-other-tenant", true);
+
+    new DaemonSetReconciler(store, scheduler).reconcileOnce();
+
+    List<DaemonSetAssignment> assignments =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "cluster-log-shipper");
+    assertEquals(2, assignments.size());
+    assertEquals(
+        Set.of("node-a", "node-b"),
+        assignments.stream().map(DaemonSetAssignment::nodeId).collect(Collectors.toSet()));
   }
 
   @Test

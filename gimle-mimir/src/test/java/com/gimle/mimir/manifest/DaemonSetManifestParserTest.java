@@ -67,6 +67,56 @@ class DaemonSetManifestParserTest {
   }
 
   @Test
+  void tolerate_all_taints_defaults_to_false() {
+    DaemonSetSpec spec =
+        DaemonSetManifestParser.parse(
+            yaml(
+                """
+                name: node-exporter
+                module:
+                  name: com.gimle.example.node-exporter
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                """));
+
+    assertFalse(spec.tolerateAllTaints());
+  }
+
+  @Test
+  void tolerate_all_taints_is_parsed_when_set_true() {
+    DaemonSetSpec spec =
+        DaemonSetManifestParser.parse(
+            yaml(
+                """
+                name: cluster-log-shipper
+                module:
+                  name: com.gimle.example.cluster-log-shipper
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/cluster-log-shipper-1.0.0.jar
+                tolerateAllTaints: true
+                """));
+
+    assertTrue(spec.tolerateAllTaints());
+  }
+
+  @Test
+  void tolerate_all_taints_rejects_a_non_boolean_value() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DaemonSetManifestParser.parse(
+                yaml(
+                    """
+                    name: node-exporter
+                    module:
+                      name: com.gimle.example.node-exporter
+                      version: 1.0.0
+                    artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                    tolerateAllTaints: "yes"
+                    """)));
+  }
+
+  @Test
   void placement_anti_affinity_field_is_rejected_outright() {
     assertThrows(
         GimleManifestException.class,

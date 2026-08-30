@@ -38,9 +38,10 @@ import org.slf4j.LoggerFactory;
  * DeploymentReconciler} reads {@code spec.replicas()}. "How many" is recomputed from live node
  * state every tick via {@link Scheduler#eligibleNodes}: the same five-step filter chain {@code
  * place} applies -- tier, cordon, anti-affinity (always a no-op here, see {@link DaemonSetSpec}'s
- * own javadoc), tenant isolation, required labels -- minus the final bin-packing pick, since there
- * is nothing to pick: every survivor gets an assignment, and {@code Scheduler.place} itself is
- * never called.
+ * own javadoc), tenant isolation (bypassed entirely when {@link DaemonSetSpec#tolerateAllTaints} is
+ * set -- see its own javadoc), required labels -- minus the final bin-packing pick, since there is
+ * nothing to pick: every survivor gets an assignment, and {@code Scheduler.place} itself is never
+ * called.
  *
  * <p>Level-triggered, following the exact same convergence shape {@link DeploymentReconciler} and
  * {@link JobReconciler} already establish: every tick re-derives the full desired set from the
@@ -218,6 +219,7 @@ public final class DaemonSetReconciler {
                 spec.placement().antiAffinityAcrossNodes(),
                 spec.tenantId(),
                 spec.placement().requiredNodeLabels().orElse(Set.of()),
+                spec.tolerateAllTaints(),
                 buildCandidates(spec.name()))
             .stream()
             .map(NodeCandidate::nodeId)

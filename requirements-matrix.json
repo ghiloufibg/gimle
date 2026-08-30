@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 656,
+  "requirementCount": 660,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13026,6 +13026,31 @@
         "Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck.",
         "Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node.",
         "Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-660",
+      "module": "gimle-controlplane",
+      "feature": "DaemonSet opt-in taint toleration (tolerateAllTaints)",
+      "category": "Multi-tenancy / Self-healing",
+      "userStory": "As a platform operator, I want a genuinely cluster-wide DaemonSet (a log shipper, a node exporter) to be able to opt into covering every node -- including ones an operator has tainted for a specific tenant -- so a DaemonSet, the one workload kind that exists specifically to run on every eligible node, is not permanently blocked from 100% node coverage in a cluster with any tenant-reserved nodes.",
+      "statusDetail": "Complete. `Scheduler.eligibleNodes` -- the only placement path `DaemonSetReconciler` uses -- ran the identical taint filter a Deployment/StatefulSet replica goes through, with no way for a DaemonSet to opt out: an untenanted DaemonSet (the common case for a cluster-wide daemon) could never be placed on any tainted node at all, regardless of intent. Fixed via a new `DaemonSetSpec.tolerateAllTaints` boolean (default `false`, preserving today's strict behavior for every existing manifest via a back-compat constructor) and a new `tolerateAllTaints` parameter on `Scheduler.eligibleNodes` that skips the taint-filter stage entirely when set -- `DaemonSetReconciler` passes `spec.tolerateAllTaints()` straight through. `DaemonSetManifestParser` parses the new top-level `tolerateAllTaints:` YAML field (defaulting `false`), and `ApiServer.withArtifactSha256`'s field-by-field DaemonSetSpec reconstruction (used on both PUT admission and rollback) was fixed to carry the field forward rather than silently resetting it to `false` on every rollback -- a real bug this change would otherwise have introduced. Deliberately opt-in rather than an unconditional default: unlike Kubernetes, where a DaemonSet's baseline tolerations cover only a handful of built-in system taints, every Gimlé taint is an operator-declared tenant reservation, so bypassing one must be a deliberate, visible per-DaemonSet choice, not silent. `Scheduler.place` (used by Deployment/Job/StatefulSet) is untouched -- only `eligibleNodes`, DaemonSet's own placement path, gained the parameter.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`eligibleNodes`, `filterByTaint`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`withArtifactSha256`, `daemonSetStatus`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`"
+      ],
+      "testCoverageDetail": "`SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value` (confirmed to fail against the pre-fix `withArtifactSha256`).",
+      "gherkinSteps": [
+        "Given a node is tainted for tenant \"acme\"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be.",
+        "Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node.",
+        "Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

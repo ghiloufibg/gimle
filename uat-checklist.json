@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 659,
+    "totalRequirements": 660,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 536,
-    "releaseReadinessPercent": 18.7
+    "notCoveredByAutomatedTest": 537,
+    "releaseReadinessPercent": 18.6
   },
   "items": [
     {
@@ -7251,6 +7251,17 @@
       "category": "Self-healing / Resilience",
       "feature": "Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)",
       "step": "Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck. Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node. Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-660",
+      "module": "gimle-controlplane",
+      "category": "Multi-tenancy / Self-healing",
+      "feature": "DaemonSet opt-in taint toleration (tolerateAllTaints)",
+      "step": "Given a node is tainted for tenant \"acme\"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be. Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node. Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

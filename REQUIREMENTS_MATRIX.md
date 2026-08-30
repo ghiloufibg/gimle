@@ -669,6 +669,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | Complete | Yes |
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | Admission / Multi-tenancy | Complete | Yes |
 | GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | Complete | Yes |
+| GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5251,6 +5252,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck.
   Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node.
   Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again.
+  ```
+
+#### GIMLE-660 — DaemonSet opt-in taint toleration (tolerateAllTaints)
+
+- **Category**: Multi-tenancy / Self-healing
+- **User story**: As a platform operator, I want a genuinely cluster-wide DaemonSet (a log shipper, a node exporter) to be able to opt into covering every node -- including ones an operator has tainted for a specific tenant -- so a DaemonSet, the one workload kind that exists specifically to run on every eligible node, is not permanently blocked from 100% node coverage in a cluster with any tenant-reserved nodes.
+- **Status**: Complete. `Scheduler.eligibleNodes` -- the only placement path `DaemonSetReconciler` uses -- ran the identical taint filter a Deployment/StatefulSet replica goes through, with no way for a DaemonSet to opt out: an untenanted DaemonSet (the common case for a cluster-wide daemon) could never be placed on any tainted node at all, regardless of intent. Fixed via a new `DaemonSetSpec.tolerateAllTaints` boolean (default `false`, preserving today's strict behavior for every existing manifest via a back-compat constructor) and a new `tolerateAllTaints` parameter on `Scheduler.eligibleNodes` that skips the taint-filter stage entirely when set -- `DaemonSetReconciler` passes `spec.tolerateAllTaints()` straight through. `DaemonSetManifestParser` parses the new top-level `tolerateAllTaints:` YAML field (defaulting `false`), and `ApiServer.withArtifactSha256`'s field-by-field DaemonSetSpec reconstruction (used on both PUT admission and rollback) was fixed to carry the field forward rather than silently resetting it to `false` on every rollback -- a real bug this change would otherwise have introduced. Deliberately opt-in rather than an unconditional default: unlike Kubernetes, where a DaemonSet's baseline tolerations cover only a handful of built-in system taints, every Gimlé taint is an operator-declared tenant reservation, so bypassing one must be a deliberate, visible per-DaemonSet choice, not silent. `Scheduler.place` (used by Deployment/Job/StatefulSet) is untouched -- only `eligibleNodes`, DaemonSet's own placement path, gained the parameter.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`eligibleNodes`, `filterByTaint`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`withArtifactSha256`, `daemonSetStatus`), `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`
+- **Test coverage**: `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value` (confirmed to fail against the pre-fix `withArtifactSha256`).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be.
+  Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node.
+  Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false.
   ```
 
 ### gimle-fafnir

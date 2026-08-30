@@ -386,6 +386,7 @@ public final class DomainCodec {
     writeOptionalString(out, spec.artifactSha256());
     writeOptionalDisruptionBudget(out, spec.disruption());
     writeOptionalVesselSpec(out, spec.vessel());
+    out.writeBoolean(spec.tolerateAllTaints());
   }
 
   public static DaemonSetSpec readDaemonSetSpec(DataInputStream in) throws IOException {
@@ -397,8 +398,17 @@ public final class DomainCodec {
     Optional<String> artifactSha256 = readOptionalString(in);
     Optional<DisruptionBudget> disruption = readOptionalDisruptionBudget(in);
     Optional<VesselSpec> vessel = readOptionalVesselSpec(in);
+    boolean tolerateAllTaints = in.readBoolean();
     return new DaemonSetSpec(
-        name, moduleId, artifactPath, placement, tenantId, artifactSha256, disruption, vessel);
+        name,
+        moduleId,
+        artifactPath,
+        placement,
+        tenantId,
+        artifactSha256,
+        disruption,
+        vessel,
+        tolerateAllTaints);
   }
 
   public static void writeDaemonSetAssignment(DataOutputStream out, DaemonSetAssignment assignment)
