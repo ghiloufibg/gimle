@@ -36,6 +36,8 @@ import java.util.Map;
  *   gimle daemonset revisions &lt;name&gt;
  *   gimle daemonset rollback &lt;name&gt; [--to-revision N]
  *   gimle cronjob trigger &lt;name&gt;
+ *   gimle config versions &lt;tenantId&gt; &lt;key&gt;
+ *   gimle config rollback &lt;tenantId&gt; &lt;key&gt; &lt;version&gt;
  *   gimle get nodes
  *   gimle get node-assignments &lt;nodeId&gt;
  *   gimle cordon &lt;nodeId&gt;
@@ -222,6 +224,7 @@ public final class GimleCli {
       case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
       case "volume", "volumes" -> new VolumesCommand(client, output, out).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
+      case "config", "configs" -> handleConfigVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
       case "can-i" -> new CanICommand(client, output, out).run(rest);
       case "service", "services" -> handleServiceVerb(rest, client, output, out);
@@ -274,6 +277,29 @@ public final class GimleCli {
     switch (action) {
       case "trigger" -> new CronJobsCommand(client, output, out).trigger(rest);
       default -> throw new CliException("unknown cronjob action: " + action);
+    }
+  }
+
+  /**
+   * {@code config}'s own get/set/delete stay folded into {@link #handleGet}/{@link #handleSet}/
+   * {@link #handleDelete} above -- unchanged from before this fix -- but {@code versions}/{@code
+   * rollback} have no shape in that three-verb dispatch (the same reason {@code secret} split off
+   * into its own top-level verb once it needed more than three actions, see {@link SecretCommand}'s
+   * own javadoc), so they're reached through this new, narrower top-level verb instead of folding
+   * {@code config} entirely into {@link ConfigMapCommand}'s style.
+   */
+  private static void handleConfigVerb(
+      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+    if (args.isEmpty()) {
+      throw new CliException("usage: gimle config versions|rollback ...");
+    }
+    String action = args.get(0);
+    List<String> rest = args.subList(1, args.size());
+    ConfigCommand command = new ConfigCommand(client, output, out);
+    switch (action) {
+      case "versions" -> command.versions(rest);
+      case "rollback" -> command.rollback(rest);
+      default -> throw new CliException("unknown config action: " + action);
     }
   }
 
@@ -504,6 +530,7 @@ public final class GimleCli {
       case "artifact", "artifacts" -> ArtifactCommand.usage();
       case "volume", "volumes" -> VolumesCommand.usage();
       case "cronjob", "cronjobs" -> CRONJOB_USAGE;
+      case "config", "configs" -> CONFIG_VERB_USAGE;
       case "audit" -> AuditCommand.usage();
       case "can-i" -> CAN_I_USAGE;
       case "service", "services" -> SERVICE_VERB_USAGE;
@@ -677,6 +704,15 @@ public final class GimleCli {
 
   private static final String CRONJOB_USAGE = "usage: gimle cronjob trigger <name>";
 
+  private static final String CONFIG_VERB_USAGE =
+      """
+      usage: gimle config <action> [args]
+
+      actions:
+        versions <tenantId> <key>
+        rollback <tenantId> <key> <version>
+      """;
+
   private static final String CAN_I_USAGE =
       "usage: gimle can-i <verb> <resource> [--tenant <id>] [--target <id>]";
 
@@ -743,6 +779,8 @@ public final class GimleCli {
           daemonset revisions <name>
           daemonset rollback <name> [--to-revision N]
           cronjob trigger <name>
+          config versions <tenantId> <key>
+          config rollback <tenantId> <key> <version>
           get nodes
           get node-assignments <nodeId>
           cordon <nodeId>

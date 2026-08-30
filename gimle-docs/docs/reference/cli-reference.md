@@ -67,6 +67,8 @@ gimle delete limitrange <tenantId>
 gimle get config <tenantId>
 gimle set config <tenantId> <key> <value> [--encrypted]
 gimle delete config <tenantId> <key>
+gimle config versions <tenantId> <key>
+gimle config rollback <tenantId> <key> <version>
 gimle secret list <tenantId>
 gimle secret get <tenantId> <key> [--version N]
 gimle secret set <tenantId> <key> --value <v>
@@ -78,6 +80,8 @@ gimle configmap list <tenantId>
 gimle configmap get <tenantId> <name>
 gimle configmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
 gimle configmap delete <tenantId> <name>
+gimle configmap versions <tenantId> <name>
+gimle configmap rollback <tenantId> <name> <version>
 gimle secretmap list <tenantId>
 gimle secretmap get <tenantId> <name>
 gimle secretmap set <tenantId> <name> [--from-literal key=value ...] [--from-file path|key=path ...]
@@ -129,8 +133,21 @@ tenant-membership client certificate (`O=gimle:tenant:<id>`, stamped server-side
 already authorized to approve certificate requests under that tenant's scope — the credential
 `gimle-bifrost`'s TLS identity-verifying mode checks a NetworkPolicy's allow list against.
 
-Unlike `config`, `secret` is a distinct top-level verb rather than a `get`/`set`/`delete` noun —
-it needs two actions (`versions`, `rotate-key`) that three-verb dispatch has no shape for. Every
+`config`'s own `versions`/`rollback` reach a separate plaintext version ledger (`ConfigVersionStore`)
+each `set config`/`delete config` also stamps into, and are a narrower top-level `config` verb of
+their own rather than folded into `get`/`set`/`delete` — that three-verb dispatch has no shape for
+them either, but unlike `secret` below there was no reason to move `config`'s existing `get`/`set`/
+`delete` off it too. `config versions <tenantId> <key>` lists every version ever stamped, oldest
+first, each carrying its own value (or a `deleted: true` tombstone); `config rollback <tenantId>
+<key> <version>` re-applies an earlier version's content (or its deletion) as a brand-new version,
+never rewriting history — the same "restore = re-apply as a new revision" semantics `secretmap
+rollback` below documents. Only plaintext config is covered: an encrypted (`--encrypted`) entry's
+`set`/`delete` bypass this ledger entirely, since versioning an encrypted value would need Fafnir's
+own key-rotation-aware history, not this one.
+
+Unlike `config`'s own `get`/`set`/`delete`, `secret` is a distinct top-level verb rather than a
+`get`/`set`/`delete` noun — it needs more actions (`versions`, `rotate-key`) than three-verb
+dispatch has a shape for. Every
 call is proxied by the control plane to Fafnir, the dedicated secrets service (see
 [Multi-tenancy](../architecture/multi-tenancy.md#secrets) and
 [Node topology](../architecture/node-topology.md#fafnir)) — never talked to directly. Each `set`
@@ -155,7 +172,10 @@ yet" as version 0) and supplies that version back to the server itself, so a cal
 version number by hand; a concurrent writer racing that same read is reported back as a plain
 conflict, never silently retried. `--from-literal key=value` may repeat to set several keys in one
 call; `--from-file path` reads a whole file's content as one key named by the file's own base name,
-or `--from-file key=path` names the key explicitly.
+or `--from-file key=path` names the key explicitly. `configmap versions <tenantId> <name>` and
+`configmap rollback <tenantId> <name> <version>` are ConfigMap's own equivalent of `config`'s
+version ledger above — same oldest-first listing, same "restore = new revision" rollback semantics
+— stamped alongside every `set`/`delete` on the ConfigMap as a whole object rather than per key.
 
 `secretmap` is the identical grouping for Fafnir-managed secrets, attached by reference
 (`secretMapRefs` in the manifest — see

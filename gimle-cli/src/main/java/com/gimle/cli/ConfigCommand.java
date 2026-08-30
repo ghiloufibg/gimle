@@ -9,7 +9,13 @@ import java.util.Set;
 
 /**
  * {@code get config <tenantId>}, {@code set config <tenantId> <key> <value> [--encrypted]}, {@code
- * delete config <tenantId> <key>}.
+ * delete config <tenantId> <key>} -- folded into {@link GimleCli}'s shared get/set/delete dispatch.
+ * {@code config versions <tenantId> <key>} and {@code config rollback <tenantId> <key> <version>}
+ * reach the plaintext version ledger {@code ConfigVersionStore} added instead, through a narrower
+ * top-level {@code config} verb {@code GimleCli} routes directly (see its own javadoc for why get/
+ * set/delete themselves stay folded rather than moving here too) -- neither has any shape in the
+ * three-verb dispatch, and an encrypted key was never covered by that ledger to begin with (see
+ * {@code ConfigVersionStore}'s own javadoc).
  */
 public final class ConfigCommand {
 
@@ -58,6 +64,40 @@ public final class ConfigCommand {
         resultBody("deleted", tenantId, key),
         "config/" + tenantId + "/" + key + " deleted",
         out);
+  }
+
+  void versions(List<String> args) {
+    if (args.size() < 2) {
+      throw new CliException("config versions requires <tenantId> <key>");
+    }
+    String tenantId = args.get(0);
+    String key = args.get(1);
+    Map<String, Object> response =
+        client.getObject("/config/" + tenantId + "/" + key + "/versions");
+    OutputFormat.printList(output, Json.asObjectList(response.get("versions")), out);
+  }
+
+  void rollback(List<String> args) {
+    if (args.size() < 3) {
+      throw new CliException("config rollback requires <tenantId> <key> <version>");
+    }
+    String tenantId = args.get(0);
+    String key = args.get(1);
+    int version = parseVersion(args.get(2));
+    String response =
+        client.expectSuccess(
+            client.post(
+                "/config/" + tenantId + "/" + key + "/rollback",
+                Json.write(Map.of("version", version))));
+    OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
+  }
+
+  private static int parseVersion(String raw) {
+    try {
+      return Integer.parseInt(raw);
+    } catch (NumberFormatException e) {
+      throw new CliException("version must be an integer, got: " + raw);
+    }
   }
 
   private static Map<String, Object> resultBody(String result, String tenantId, String key) {
