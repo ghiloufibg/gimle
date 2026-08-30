@@ -676,6 +676,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | New | Not Covered | — |
 | GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | New | Not Covered | — |
 | GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | New | Not Covered | — |
+| GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4153,6 +4154,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC)
 - **Source location(s)**: `SecretMapStore#replaceAll`, `FafnirServer#handleReplaceSecretMap`, `SecretMapCommand#replace`
 
+#### GIMLE-662 — SecretMap batch handlers signal partial failure via HTTP status and CLI exit code
+
+- **Category**: Secrets / CLI parity
+- **Status**: New  _(New requirement: closes FUNC-02 -- a SecretMap batch (set/replace/rollback/seal) that failed every single key still returned HTTP 200 and exit code 0, invisible to any CI script gating on exit status.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that submits a SecretMap batch with one deliberately invalid key alongside a valid one and asserts the resulting exit code (via gimle-cli) is nonzero while the valid key's own write still lands.
+- **Other test coverage (non-Holmgang, informational only)**: `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`.
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`, `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -6998,7 +7008,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**538 of 661 requirements are Not Covered.**
+**539 of 662 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7418,6 +7428,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-218 | gimle-controlplane | DaemonSet eligible-node enumeration (`eligibleNodes`) | Scheduling | `SchedulerTest` — `eligible_nodes_returns_every_node_that_passes_every_filter`, `eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies`; `DaemonSetReconcilerTest#places_an_assignment_on_every_registered_node` |
 | GIMLE-215 | gimle-controlplane | Tier 2/3 node-level tenant isolation | Scheduling / Multi-tenancy | `SchedulerTest` — `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant` |
 | GIMLE-217 | gimle-controlplane | StatefulSet sticky node placement | Scheduling / Orchestration | `SchedulerTest` — `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone` |
+| GIMLE-662 | gimle-fafnir | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`. |
 | GIMLE-588 | gimle-fafnir | SecretMap store and `/secretmaps/*` API | Secrets Management | `SecretMapCodecTest`, `SecretMapStoreTest` (including a concurrency regression test mirroring `ConfigMapStoreTest`'s own), `FafnirServerSecretMapTest` (HTTP-level CRUD, authz, and reserved-prefix rejection). |
 | GIMLE-589 | gimle-mimir | Deployment `secretMapRefs` field with admission-time collision rejection | Secrets Management | `SecretMapRefsPluginTest` covers empty refs, no-tenant rejection, unknown-name rejection, cross-SecretMap key collision, SecretMap-vs-ConfigMap collision, SecretMap-vs-flat-config collision, and SecretMap-vs-flat-secret collision. `DomainCodecTest`/`DeploymentManifestParserTest` cover the wire/YAML round trip. |
 | GIMLE-590 | gimle-controlplane | `/secretmaps/*` proxy and `ResourceKind.SECRETMAP` RBAC | Secrets Management | `ApiServerSecretMapTest` (plaintext CRUD through the proxy to a real in-process Fafnir), `ApiServerSecretMapAuthzTest` (real mTLS: an operator role may write/read, a no-grant caller gets 403 on both). |

@@ -132,7 +132,9 @@ public final class SecretMapCommand {
     String response =
         client.expectSuccess(client.put("/secretmaps/" + tenantId + "/" + name, Json.write(body)));
     Map<String, Object> responseBody = Json.asObject(Json.parse(response));
-    OutputFormat.printList(output, Json.asObjectList(responseBody.get("results")), out);
+    List<Map<String, Object>> results = Json.asObjectList(responseBody.get("results"));
+    OutputFormat.printList(output, results, out);
+    failIfAnyKeyErrored(results);
   }
 
   /**
@@ -174,7 +176,9 @@ public final class SecretMapCommand {
         client.expectSuccess(
             client.post("/secretmaps/" + tenantId + "/" + name + "/replace", Json.write(body)));
     Map<String, Object> responseBody = Json.asObject(Json.parse(response));
-    OutputFormat.printList(output, Json.asObjectList(responseBody.get("results")), out);
+    List<Map<String, Object>> results = Json.asObjectList(responseBody.get("results"));
+    OutputFormat.printList(output, results, out);
+    failIfAnyKeyErrored(results);
   }
 
   private void delete(List<String> args) {
@@ -219,7 +223,9 @@ public final class SecretMapCommand {
             client.post(
                 "/secretmaps/" + tenantId + "/" + name + "/rollback",
                 Json.write(Map.of("groupVersion", groupVersion))));
-    OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
+    Map<String, Object> responseBody = Json.asObject(Json.parse(response));
+    OutputFormat.printObject(output, responseBody, out);
+    failIfAnyKeyErrored(Json.asObjectList(responseBody.get("results")));
   }
 
   private static int parseGroupVersion(String raw) {
@@ -261,7 +267,9 @@ public final class SecretMapCommand {
         client.expectSuccess(
             client.post("/secretmaps/" + tenantId + "/" + name + "/seal", Json.write(body)));
     Map<String, Object> responseBody = Json.asObject(Json.parse(response));
-    OutputFormat.printList(output, Json.asObjectList(responseBody.get("results")), out);
+    List<Map<String, Object>> results = Json.asObjectList(responseBody.get("results"));
+    OutputFormat.printList(output, results, out);
+    failIfAnyKeyErrored(results);
   }
 
   private static String readSealedEnvelope(String path) {
@@ -296,6 +304,23 @@ public final class SecretMapCommand {
       data.put(key, Files.readString(Path.of(pathText), StandardCharsets.UTF_8));
     } catch (IOException e) {
       throw new UncheckedIOException("could not read --from-file path: " + pathText, e);
+    }
+  }
+
+  /**
+   * A SecretMap batch verb (set/replace/seal/rollback) reports one outcome per key rather than
+   * succeeding or failing as a whole -- {@code client.expectSuccess} above only ever throws for a
+   * genuine request-level failure (a malformed body, an unknown tenant), never for an individual
+   * key's own write/unseal failure, which is why FUNC-02 existed: a batch that failed every single
+   * key still returned HTTP 200, and this class printed the per-key results but never acted on
+   * them, so a CI script gating on exit status (`gimle secretmap seal ... || fail`) never saw the
+   * failure. Called only after the results are already printed, so the operator sees exactly which
+   * key(s) failed and why before the process exits nonzero.
+   */
+  private static void failIfAnyKeyErrored(List<Map<String, Object>> results) {
+    long failed = results.stream().filter(result -> result.containsKey("error")).count();
+    if (failed > 0) {
+      throw new CliException(failed + " of " + results.size() + " key(s) failed -- see above");
     }
   }
 

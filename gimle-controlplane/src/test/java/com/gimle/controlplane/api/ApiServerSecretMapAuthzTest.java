@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.pki.CertificateAuthority;
@@ -75,6 +77,9 @@ class ApiServerSecretMapAuthzTest {
             InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
         ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
       server.start();
+      // SecretMap writes enforce tenant existence (unlike ConfigMap's), so the write below only
+      // succeeds -- and only then is a real 200, not a per-key failure -- once "acme" exists.
+      inProcessStore.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
       String baseUrl = "https://localhost:" + server.port();
       HttpClient operatorClient = mutualTlsClient(ca, "O=gimle:operators,CN=root-operator");
 

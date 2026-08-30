@@ -778,7 +778,7 @@ public final class FafnirServer implements AutoCloseable {
         secretMapStore.setMany(tenantId, name, values);
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
-    respondJson(exchange, 200, Map.of("results", resultsJson));
+    respondJson(exchange, secretMapBatchStatus(results), Map.of("results", resultsJson));
   }
 
   /**
@@ -801,7 +801,7 @@ public final class FafnirServer implements AutoCloseable {
         secretMapStore.replaceAll(tenantId, name, values);
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
-    respondJson(exchange, 200, Map.of("results", resultsJson));
+    respondJson(exchange, secretMapBatchStatus(results), Map.of("results", resultsJson));
   }
 
   private void handleDeleteSecretMap(HttpExchange exchange, String tenantId, String name)
@@ -850,7 +850,7 @@ public final class FafnirServer implements AutoCloseable {
             applied.results().stream().map(FafnirServer::secretMapKeyResultToJson).toList();
         respondJson(
             exchange,
-            200,
+            secretMapBatchStatus(applied.results()),
             Map.of("results", resultsJson, "groupVersion", applied.newGroupVersion()));
       }
     }
@@ -909,7 +909,7 @@ public final class FafnirServer implements AutoCloseable {
     results.addAll(failures);
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
-    respondJson(exchange, 200, Map.of("results", resultsJson));
+    respondJson(exchange, secretMapBatchStatus(results), Map.of("results", resultsJson));
   }
 
   private static Map<String, Object> groupVersionToJson(
@@ -937,6 +937,20 @@ public final class FafnirServer implements AutoCloseable {
     result.version().ifPresent(version -> map.put("version", version));
     result.error().ifPresent(error -> map.put("error", error));
     return map;
+  }
+
+  /**
+   * The HTTP status every SecretMap batch handler (set/replace/seal/rollback) responds with: 200
+   * only if every key in {@code results} succeeded, 207 Multi-Status the moment even one didn't --
+   * the batch request itself was processed correctly (each key's own outcome is genuinely recorded,
+   * successes are not rolled back), but a caller checking HTTP status alone (an automation script,
+   * not just a human reading the printed per-key {@code results}) must be able to tell a
+   * fully-clean batch from one with a real per-key failure buried in it. Unconditionally returning
+   * 200 here -- the previous behavior -- made a 100%-failed batch indistinguishable from a fully
+   * successful one to anything gating on exit status rather than parsing the response body.
+   */
+  private static int secretMapBatchStatus(List<SecretMapStore.SecretMapKeyResult> results) {
+    return results.stream().anyMatch(result -> result.error().isPresent()) ? 207 : 200;
   }
 
   private static Map<String, Object> secretMetadataToJson(SecretMetadata metadata) {

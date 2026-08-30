@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 661
+- **Total requirements**: 662
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 538
+- **Not covered by automated test**: 539
 - **Release-readiness (automated coverage)**: 18.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -22,7 +22,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-mimir | 60 | 35 | 25 | 58.3% |
 | gimle-fabric | 34 | 1 | 33 | 2.9% |
 | gimle-controlplane | 83 | 14 | 69 | 16.9% |
-| gimle-fafnir | 26 | 11 | 15 | 42.3% |
+| gimle-fafnir | 27 | 11 | 16 | 40.7% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
@@ -1191,6 +1191,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-294 | Muninn metrics/traces shipping | Given -Dgimle.fafnir.muninnEndpoint is set; When FafnirMain starts; Then a MuninnShipper periodically ships this replica's metrics and traces. | No |
+
+#### Secrets / CLI parity
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0. Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure. Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed. | No |
 
 #### Secrets Management
 

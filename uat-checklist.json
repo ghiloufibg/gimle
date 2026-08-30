@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 661,
+    "totalRequirements": 662,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 538,
+    "notCoveredByAutomatedTest": 539,
     "releaseReadinessPercent": 18.6
   },
   "items": [
@@ -7273,6 +7273,17 @@
       "category": "Networking / Cluster membership",
       "feature": "Background gossip rejoin after a seed-list join startup blip",
       "step": "Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running. Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-662",
+      "module": "gimle-fafnir",
+      "category": "Secrets / CLI parity",
+      "feature": "SecretMap batch handlers signal partial failure via HTTP status and CLI exit code",
+      "step": "Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0. Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure. Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

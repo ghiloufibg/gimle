@@ -671,6 +671,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | Complete | Yes |
 | GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | Complete | Yes |
 | GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | Complete | Yes |
+| GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5622,6 +5623,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely.
+  ```
+
+#### GIMLE-662 — SecretMap batch handlers signal partial failure via HTTP status and CLI exit code
+
+- **Category**: Secrets / CLI parity
+- **User story**: As a platform operator running gimle secretmap set/replace/rollback/seal in a CI pipeline, I want the process to exit nonzero when any key in the batch fails, so a script gating on exit status (`gimle secretmap seal ... || fail`) actually catches a failed secret rollout instead of silently proceeding past it.
+- **Status**: Complete. FafnirServer's handlePutSecretMap (set), handleReplaceSecretMap (replace), handleRollbackSecretMap's Applied case, and handleSealSecretMap all unconditionally responded HTTP 200 regardless of how many per-key SecretMapKeyResult entries in the batch carried an error -- a batch that failed every single key was indistinguishable, at the HTTP layer, from one that fully succeeded. Fixed on two levels: FafnirServer now responds 207 Multi-Status (via a new secretMapBatchStatus helper shared by all four handlers) the moment any key's result carries an error, 200 only when every key succeeded -- forwarded byte-for-byte through ApiServer's existing SecretMap proxy with no proxy change needed. The actually load-bearing fix is in gimle-cli's SecretMapCommand: set, replace, rollback, and seal now inspect the parsed results array after printing it (207 remains in the 2xx range, so client.expectSuccess alone would never have caught this) and throw CliException -- nonzero exit -- via a new shared failIfAnyKeyErrored helper if any entry carries an error, always after the results are already printed so the operator still sees exactly which key(s) failed and why.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`secretMapBatchStatus`, `handlePutSecretMap`, `handleReplaceSecretMap`, `handleRollbackSecretMap`, `handleSealSecretMap`), `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`failIfAnyKeyErrored`, `set`, `replace`, `rollback`, `seal`)
+- **Test coverage**: `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s existing per-key-failure tests updated to assert 207 (confirmed to fail against the pre-fix 200); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result` (confirmed to fail against the pre-fix code -- exit 0 with the failure only visible in the printed table), `#secretmap_replace_with_one_invalid_key_exits_nonzero`; `ApiServerSecretMapTest`'s existing clean-batch tests re-verified to still return 200 unchanged.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0.
+  Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure.
+  Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed.
   ```
 
 ### gimle-andvari

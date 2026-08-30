@@ -105,6 +105,42 @@ class FafnirServerSecretMapTest {
 
   @Test
   @Timeout(10)
+  void put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure()
+      throws Exception {
+    // FUNC-02: a mixed-outcome batch must be distinguishable from an all-succeeded one via status
+    // alone, not just by an automation script parsing the printed per-key results.
+    HttpResponse<String> response =
+        send(
+            "PUT",
+            "/secretmaps/acme/db-creds",
+            Json.write(
+                Map.of(
+                    "data",
+                    Map.of(
+                        "username", encode("admin"),
+                        "bad:key", encode("hunter2")))));
+
+    assertEquals(207, response.statusCode());
+    List<Object> results = Json.asArray(Json.asObject(Json.parse(response.body())).get("results"));
+    assertEquals(2, results.size());
+    Map<String, Object> good =
+        results.stream()
+            .map(Json::asObject)
+            .filter(r -> "username".equals(r.get("key")))
+            .findFirst()
+            .orElseThrow();
+    Map<String, Object> bad =
+        results.stream()
+            .map(Json::asObject)
+            .filter(r -> "bad:key".equals(r.get("key")))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(good.containsKey("version"));
+    assertTrue(bad.containsKey("error"));
+  }
+
+  @Test
+  @Timeout(10)
   void replace_removes_every_key_not_named_in_the_new_data() throws Exception {
     putSecretMap("acme", "db-creds", Map.of("username", "admin", "password", "hunter2"));
 
@@ -124,6 +160,31 @@ class FafnirServerSecretMapTest {
             .findFirst()
             .orElseThrow();
     assertEquals("username", live.get("key"));
+  }
+
+  @Test
+  @Timeout(10)
+  void replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones() throws Exception {
+    HttpResponse<String> response =
+        send(
+            "POST",
+            "/secretmaps/acme/db-creds/replace",
+            Json.write(
+                Map.of(
+                    "data",
+                    Map.of(
+                        "username", encode("root"),
+                        "bad:key", encode("hunter2")))));
+
+    assertEquals(207, response.statusCode());
+    List<Object> results = Json.asArray(Json.asObject(Json.parse(response.body())).get("results"));
+    Map<String, Object> bad =
+        results.stream()
+            .map(Json::asObject)
+            .filter(r -> "bad:key".equals(r.get("key")))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(bad.containsKey("error"));
   }
 
   @Test
@@ -291,6 +352,23 @@ class FafnirServerSecretMapTest {
         Json.asObject(Json.asObject(Json.parse(valuesResponse.body())).get("secretMaps"));
     Map<String, Object> data = Json.asObject(Json.asObject(secretMaps.get("db-creds")).get("data"));
     assertEquals("hunter2", decode((String) data.get("password")));
+  }
+
+  @Test
+  @Timeout(10)
+  void rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted() throws Exception {
+    putSecretMap("acme", "db-creds", Map.of("password", "hunter2")); // group version 1
+    // Hard-delete purges the key's entire version ledger -- group version 1's own recorded
+    // version is now genuinely unrecoverable, not merely soft-tombstoned.
+    send("DELETE", "/secretmaps/acme/db-creds/password?destroy=true", null);
+
+    HttpResponse<String> response =
+        send("POST", "/secretmaps/acme/db-creds/rollback", Json.write(Map.of("groupVersion", 1)));
+
+    assertEquals(207, response.statusCode());
+    List<Object> results = Json.asArray(Json.asObject(Json.parse(response.body())).get("results"));
+    assertEquals(1, results.size());
+    assertTrue(Json.asObject(results.get(0)).containsKey("error"));
   }
 
   @Test
