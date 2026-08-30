@@ -172,7 +172,8 @@ class SecretMapRefsPluginTest {
 
   /**
    * The identical plain-JSON {@code key@meta} envelope {@code SecretStore}'s own {@code Meta}
-   * record produces -- {@code {"latestVersion": 1, "deleted": false}}, unencrypted.
+   * record produces -- {@code {"latestVersion": 1, "highestVersion": 1, "deleted": false}},
+   * unencrypted.
    */
   private void seedSecretMapKey(String tenantId, String name, String key) {
     seedMetaEntry(tenantId, "secretmap:" + name + ":" + key);
@@ -185,6 +186,7 @@ class SecretMapRefsPluginTest {
   private void seedMetaEntry(String tenantId, String rawKeyWithoutSuffix) {
     Map<String, Object> meta = new LinkedHashMap<>();
     meta.put("latestVersion", 1);
+    meta.put("highestVersion", 1);
     meta.put("deleted", false);
     inProcessStore
         .client()

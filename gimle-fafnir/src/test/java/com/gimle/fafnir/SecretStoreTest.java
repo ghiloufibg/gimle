@@ -132,6 +132,81 @@ class SecretStoreTest {
   }
 
   @Test
+  void undelete_with_no_version_restores_the_secret_as_active_at_its_same_version() {
+    secrets.put("acme", "db-password", bytes("hunter2"));
+    secrets.softDelete("acme", "db-password");
+
+    OptionalInt restored = secrets.undelete("acme", "db-password", OptionalInt.empty());
+
+    assertEquals(OptionalInt.of(1), restored);
+    assertEquals("hunter2", asString(secrets.get("acme", "db-password", OptionalInt.empty())));
+    assertFalse(secrets.list("acme").get(0).deleted());
+  }
+
+  @Test
+  void undelete_never_mints_a_new_version() {
+    secrets.put("acme", "db-password", bytes("v1"));
+    secrets.put("acme", "db-password", bytes("v2"));
+    secrets.softDelete("acme", "db-password");
+
+    secrets.undelete("acme", "db-password", OptionalInt.empty());
+
+    assertEquals(List.of(1, 2), secrets.versions("acme", "db-password"));
+  }
+
+  @Test
+  void undelete_of_a_specific_older_version_makes_it_current_without_touching_the_newer_version() {
+    secrets.put("acme", "db-password", bytes("v1"));
+    secrets.put("acme", "db-password", bytes("v2"));
+    secrets.softDelete("acme", "db-password");
+
+    OptionalInt restored = secrets.undelete("acme", "db-password", OptionalInt.of(1));
+
+    assertEquals(OptionalInt.of(1), restored);
+    assertEquals("v1", asString(secrets.get("acme", "db-password", OptionalInt.empty())));
+    assertFalse(secrets.list("acme").get(0).deleted());
+    // Version 2's own stored data is untouched -- still directly readable by number even though
+    // it's no longer the current pointer.
+    assertEquals("v2", asString(secrets.get("acme", "db-password", OptionalInt.of(2))));
+    assertEquals(List.of(1, 2), secrets.versions("acme", "db-password"));
+  }
+
+  @Test
+  void undeleting_a_never_written_key_returns_empty() {
+    assertTrue(secrets.undelete("acme", "no-such-key", OptionalInt.empty()).isEmpty());
+  }
+
+  @Test
+  void undeleting_a_hard_deleted_secret_returns_empty_rather_than_reviving_it() {
+    secrets.put("acme", "db-password", bytes("hunter2"));
+    secrets.hardDelete("acme", "db-password");
+
+    assertTrue(secrets.undelete("acme", "db-password", OptionalInt.empty()).isEmpty());
+    assertFalse(secrets.exists("acme", "db-password"));
+  }
+
+  @Test
+  void undeleting_a_version_number_that_was_never_written_is_rejected() {
+    secrets.put("acme", "db-password", bytes("v1"));
+    secrets.softDelete("acme", "db-password");
+
+    assertThrows(
+        RuntimeException.class, () -> secrets.undelete("acme", "db-password", OptionalInt.of(99)));
+    // Rejected, not silently applied -- the secret is still exactly as soft-deleted as before.
+    assertTrue(secrets.get("acme", "db-password", OptionalInt.empty()).isEmpty());
+  }
+
+  @Test
+  void undelete_on_an_already_active_secret_is_a_harmless_no_op() {
+    secrets.put("acme", "db-password", bytes("hunter2"));
+
+    OptionalInt restored = secrets.undelete("acme", "db-password", OptionalInt.empty());
+
+    assertEquals(OptionalInt.of(1), restored);
+    assertEquals("hunter2", asString(secrets.get("acme", "db-password", OptionalInt.empty())));
+  }
+
+  @Test
   void hard_delete_removes_every_version_and_the_metadata_entry_itself() {
     secrets.put("acme", "db-password", bytes("v1"));
     secrets.put("acme", "db-password", bytes("v2"));

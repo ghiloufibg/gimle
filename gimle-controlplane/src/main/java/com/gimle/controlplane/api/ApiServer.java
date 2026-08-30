@@ -4770,7 +4770,9 @@ public final class ApiServer implements AutoCloseable {
       Verb verb =
           switch (exchange.getRequestMethod()) {
             case "GET" -> Verb.READ;
-            case "PUT" -> Verb.WRITE;
+            // POST is always the /undelete action sub-route (see FafnirServer#handleSecrets) --
+            // a write, the same way PUT is.
+            case "PUT", "POST" -> Verb.WRITE;
             case "DELETE" -> Verb.DELETE;
             default -> null;
           };
@@ -4790,7 +4792,7 @@ public final class ApiServer implements AutoCloseable {
                     "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
               });
       byte[] body =
-          "PUT".equals(exchange.getRequestMethod())
+          "PUT".equals(exchange.getRequestMethod()) || "POST".equals(exchange.getRequestMethod())
               ? readBody(exchange).getBytes(StandardCharsets.UTF_8)
               : null;
       String query = exchange.getRequestURI().getRawQuery();

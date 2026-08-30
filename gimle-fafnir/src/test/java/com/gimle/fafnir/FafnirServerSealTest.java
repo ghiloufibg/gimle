@@ -301,7 +301,7 @@ class FafnirServerSealTest {
                 new ConfigEntry(
                     "acme",
                     "plain-secret@meta",
-                    Json.write(Map.of("latestVersion", 1, "deleted", false))
+                    Json.write(Map.of("latestVersion", 1, "highestVersion", 1, "deleted", false))
                         .getBytes(StandardCharsets.UTF_8),
                     false)));
 
