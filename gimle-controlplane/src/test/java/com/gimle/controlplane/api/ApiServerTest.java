@@ -1990,6 +1990,37 @@ class ApiServerTest {
   }
 
   @Test
+  void secrets_undelete_restores_a_soft_deleted_secret_through_the_fafnir_proxy() throws Exception {
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(Json.write(Map.of("value", encode("hunter2")))))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password")).DELETE().build());
+
+    // The proxy only forwards GET/PUT/DELETE to Fafnir for the plain /secrets/* surface --
+    // undelete's POST sub-route needs its own carve-out in ApiServer#handleSecretsProxy, exactly
+    // the shape #handleSecretMapsProxy already carries for POST .../rollback.
+    HttpResponse<String> undelete =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password/undelete"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build());
+    assertEquals(200, undelete.statusCode());
+    assertEquals(1L, Json.asObject(Json.parse(undelete.body())).get("version"));
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
+                .GET()
+                .build());
+    assertEquals(200, get.statusCode());
+    assertEquals("hunter2", decode((String) Json.asObject(Json.parse(get.body())).get("value")));
+  }
+
+  @Test
   void secrets_delete_removes_the_secret() throws Exception {
     store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
     send(

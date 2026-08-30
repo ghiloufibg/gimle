@@ -90,15 +90,29 @@ public final class SecretStore {
     return result;
   }
 
-  /** {@code key@1 .. key@latestVersion} -- every version always exists once claimed. */
+  /** {@code key@1 .. key@highestVersion} -- every version always exists once claimed. */
   public List<Integer> versions(String tenantId, String key) {
     validateKey(key);
     Meta meta = readMeta(tenantId, key).orElse(Meta.EMPTY);
     List<Integer> versions = new ArrayList<>();
-    for (int v = 1; v <= meta.latestVersion(); v++) {
+    for (int v = 1; v <= meta.highestVersion(); v++) {
       versions.add(v);
     }
     return versions;
+  }
+
+  /**
+   * The version number {@link #get} would return with no explicit {@code version} given -- the
+   * highest of {@link #versions} <em>except</em> after {@link #undelete} has rewound the pointer to
+   * an older one, which {@code versions}'s own gapless {@code 1..highestVersion} listing can no
+   * longer be relied on to reveal. Empty for a key with no {@code @meta} entry at all.
+   */
+  public OptionalInt currentVersion(String tenantId, String key) {
+    validateKey(key);
+    return readMeta(tenantId, key)
+        .map(Meta::latestVersion)
+        .map(OptionalInt::of)
+        .orElse(OptionalInt.empty());
   }
 
   /**
@@ -174,7 +188,7 @@ public final class SecretStore {
     String holderId = UUID.randomUUID().toString();
     for (int attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt++) {
       Meta before = readMetaLinearizable(tenantId, key).orElse(Meta.EMPTY);
-      int next = before.latestVersion() + 1;
+      int next = before.highestVersion() + 1;
       byte[] ciphertext = crypto.encrypt(plaintext);
       storeClient.propose(
           new StateMutation.PutConfigEntry(
@@ -187,8 +201,8 @@ public final class SecretStore {
       }
       try {
         Meta after = readMetaLinearizable(tenantId, key).orElse(Meta.EMPTY);
-        if (after.latestVersion() == before.latestVersion()) {
-          writeMeta(tenantId, key, new Meta(next, false));
+        if (after.highestVersion() == before.highestVersion()) {
+          writeMeta(tenantId, key, new Meta(next, next, false));
           return next;
         }
         // Lost the race to a writer that already finished before this one even acquired the
@@ -200,15 +214,51 @@ public final class SecretStore {
     throw GimleSecretsException.writeContention(tenantId, key, MAX_WRITE_ATTEMPTS);
   }
 
-  /** Soft delete: every {@code @N} entry stays on disk, recoverable by a future undelete. */
+  /** Soft delete: every {@code @N} entry stays on disk, recoverable by {@link #undelete}. */
   public boolean softDelete(String tenantId, String key) {
     validateKey(key);
     Optional<Meta> meta = readMeta(tenantId, key);
     if (meta.isEmpty()) {
       return false;
     }
-    writeMeta(tenantId, key, new Meta(meta.get().latestVersion(), true));
+    writeMeta(
+        tenantId, key, new Meta(meta.get().latestVersion(), meta.get().highestVersion(), true));
     return true;
+  }
+
+  /**
+   * Undelete: clears {@code deleted} on {@code key}'s single {@code @meta} pointer -- {@code
+   * deleted} lives there alone, not per {@code @N} entry, so there is nothing to flip on the
+   * version data itself, only on the pointer naming which version is current. With no {@code
+   * version} given, the pointer's own {@code latestVersion} is left exactly as it was (the version
+   * active at the moment {@link #softDelete} was called); with one given, the pointer is moved to
+   * name that already-persisted {@code key@N} entry as current instead -- restoring an older
+   * version this way, rather than through the {@link #get} + {@link #put} round trip the absence of
+   * this method used to force, never mints a new version, and every version's own data is left
+   * untouched either way (an old {@code key@N} entry bypassed by a rewind stays exactly as it was,
+   * still reachable via an explicit {@link #get} for that version). Returns empty if {@code key}
+   * has no {@code @meta} entry at all -- never written, or previously purged entirely by {@link
+   * #hardDelete}, whose data is genuinely gone with no undelete path back. Throws if {@code
+   * version} (or, absent that, the pointer's own current {@code latestVersion}) names a {@code
+   * key@N} entry that doesn't exist -- only possible for a bogus/out-of-range number, since a
+   * secret's own version range is otherwise gapless and {@link #hardDelete} always removes {@code
+   * @meta} in the same stroke as every {@code @N}, so a partially-purged key is never left behind
+   * for this check to catch. Never touches {@code highestVersion} -- rewinding the current pointer
+   * must not make {@link #put}'s next-version computation forget about a newer version this call
+   * bypassed, or a subsequent {@code put} would silently overwrite it.
+   */
+  public OptionalInt undelete(String tenantId, String key, OptionalInt version) {
+    validateKey(key);
+    Optional<Meta> meta = readMeta(tenantId, key);
+    if (meta.isEmpty()) {
+      return OptionalInt.empty();
+    }
+    int targetVersion = version.orElseGet(meta.get()::latestVersion);
+    if (targetVersion < 1 || findEntry(tenantId, versionKey(key, targetVersion)).isEmpty()) {
+      throw GimleSecretsException.versionNotRecoverable(tenantId, key, targetVersion);
+    }
+    writeMeta(tenantId, key, new Meta(targetVersion, meta.get().highestVersion(), false));
+    return OptionalInt.of(targetVersion);
   }
 
   /** Hard delete ({@code ?destroy=true}): removes {@code @meta} and every {@code @N}. */
@@ -218,7 +268,7 @@ public final class SecretStore {
     if (meta.isEmpty()) {
       return false;
     }
-    for (int v = 1; v <= meta.get().latestVersion(); v++) {
+    for (int v = 1; v <= meta.get().highestVersion(); v++) {
       storeClient.propose(new StateMutation.RemoveConfigEntry(tenantId, versionKey(key, v)));
     }
     storeClient.propose(new StateMutation.RemoveConfigEntry(tenantId, metaKey(key)));
@@ -301,22 +351,37 @@ public final class SecretStore {
     }
   }
 
-  /** The {@code key@meta} entry's decoded payload -- never holds secret material itself. */
-  private record Meta(int latestVersion, boolean deleted) {
+  /**
+   * The {@code key@meta} entry's decoded payload -- never holds secret material itself. {@code
+   * latestVersion} and {@code highestVersion} are deliberately distinct fields, not one: {@code
+   * latestVersion} is the current pointer {@link #get} reads by default and {@link #undelete} may
+   * rewind to an older number, while {@code highestVersion} is the count of {@code key@N} entries
+   * actually claimed on disk -- only ever advanced by {@link #put}, never rewound. Before {@link
+   * #undelete} existed the two always moved together, so one field sufficed; once undelete can move
+   * {@code latestVersion} backward without touching the data, {@link #versions} and {@link
+   * #hardDelete} (both of which must still account for every {@code key@N} entry that physically
+   * exists, not just the ones reachable from the current pointer) need the un-rewound count, and
+   * {@link #put} needs it too when computing the next version number -- computing "next" from the
+   * current pointer instead would silently overwrite an existing newer version's data after a
+   * rewind.
+   */
+  private record Meta(int latestVersion, int highestVersion, boolean deleted) {
 
-    static final Meta EMPTY = new Meta(0, false);
+    static final Meta EMPTY = new Meta(0, 0, false);
 
     static Meta fromBytes(byte[] bytes) {
       Map<String, Object> map =
           Json.asObject(Json.parse(new String(bytes, StandardCharsets.UTF_8)));
       int latestVersion = ((Number) map.get("latestVersion")).intValue();
+      int highestVersion = ((Number) map.get("highestVersion")).intValue();
       boolean deleted = Boolean.TRUE.equals(map.get("deleted"));
-      return new Meta(latestVersion, deleted);
+      return new Meta(latestVersion, highestVersion, deleted);
     }
 
     byte[] toBytes() {
       Map<String, Object> map = new LinkedHashMap<>();
       map.put("latestVersion", latestVersion);
+      map.put("highestVersion", highestVersion);
       map.put("deleted", deleted);
       return Json.write(map).getBytes(StandardCharsets.UTF_8);
     }

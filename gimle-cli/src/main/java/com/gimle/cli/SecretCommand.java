@@ -12,12 +12,18 @@ import java.util.Set;
 /**
  * {@code secret list <tenantId>}, {@code secret get <tenantId> <key> [--version N]}, {@code secret
  * set <tenantId> <key> --value <v>}, {@code secret delete <tenantId> <key> [--destroy]}, {@code
- * secret versions <tenantId> <key>}, {@code secret rotate-key} -- the versioned {@code /secrets/*}
- * surface, reached through {@code gimle-controlplane}'s proxy to Fafnir, never Fafnir directly
- * (matching the console's own routing decision). A distinct top-level verb from {@code config} (not
- * folded into {@link GimleCli}'s shared get/set/delete dispatch the way {@link ConfigCommand} is)
- * since it needs two actions -- {@code versions}, {@code rotate-key} -- that three-verb dispatch
- * has no shape for.
+ * secret undelete <tenantId> <key> [--version N]}, {@code secret versions <tenantId> <key>}, {@code
+ * secret rotate-key} -- the versioned {@code /secrets/*} surface, reached through {@code
+ * gimle-controlplane}'s proxy to Fafnir, never Fafnir directly (matching the console's own routing
+ * decision). A distinct top-level verb from {@code config} (not folded into {@link GimleCli}'s
+ * shared get/set/delete dispatch the way {@link ConfigCommand} is) since it needs actions -- {@code
+ * versions}, {@code undelete}, {@code rotate-key} -- that three-verb dispatch has no shape for.
+ *
+ * <p>{@code undelete} clears a soft delete's flag in place rather than minting a new version: with
+ * no {@code --version}, it restores whatever version was current when {@code delete} was called;
+ * with one, it restores that specific earlier version's data as current instead, without disturbing
+ * any other version's own stored data. It cannot bring back a {@code --destroy}ed secret -- that
+ * data is genuinely gone.
  *
  * <p>Values cross the wire as base64 ({@code /secrets/*}'s own body shape is binary-safe, unlike
  * {@code /config/*}'s plain-string {@code value} field) -- this class is the one place that
@@ -52,6 +58,7 @@ public final class SecretCommand {
       case "get" -> get(rest);
       case "set" -> set(rest);
       case "delete" -> delete(rest);
+      case "undelete" -> undelete(rest);
       case "versions" -> versions(rest);
       case "rotate-key" -> rotateKey();
       case "retire-key" -> retireKey(rest);
@@ -126,6 +133,35 @@ public final class SecretCommand {
         output,
         resultBody(destroy ? "destroyed" : "deleted", tenantId, key),
         "secrets/" + tenantId + "/" + key + (destroy ? " destroyed" : " deleted"),
+        out);
+  }
+
+  private void undelete(List<String> args) {
+    String usage = "secret undelete requires <tenantId> <key> [--version N]";
+    if (args.size() < 2) {
+      throw new CliException(usage);
+    }
+    String tenantId = args.get(0);
+    String key = args.get(1);
+    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage);
+    String version = flags.getOrDefault("--version", null);
+    String path =
+        "/secrets/"
+            + tenantId
+            + "/"
+            + key
+            + "/undelete"
+            + (version == null ? "" : "?version=" + version);
+
+    String response = client.expectSuccess(client.post(path, ""));
+    Object restoredVersion = Json.asObject(Json.parse(response)).get("version");
+
+    Map<String, Object> resultBody = resultBody("undeleted", tenantId, key);
+    resultBody.put("version", restoredVersion);
+    OutputFormat.printResult(
+        output,
+        resultBody,
+        "secrets/" + tenantId + "/" + key + " undeleted (version " + restoredVersion + ")",
         out);
   }
 
@@ -210,6 +246,7 @@ public final class SecretCommand {
           get <tenantId> <key> [--version N]
           set <tenantId> <key> --value <v>
           delete <tenantId> <key> [--destroy]
+          undelete <tenantId> <key> [--version N]
           versions <tenantId> <key>
           rotate-key
           retire-key <keyId>

@@ -71,6 +71,7 @@ gimle secret list <tenantId>
 gimle secret get <tenantId> <key> [--version N]
 gimle secret set <tenantId> <key> --value <v>
 gimle secret delete <tenantId> <key> [--destroy]
+gimle secret undelete <tenantId> <key> [--version N]
 gimle secret versions <tenantId> <key>
 gimle secret rotate-key
 gimle secret retire-key <keyId>
@@ -136,7 +137,11 @@ call is proxied by the control plane to Fafnir, the dedicated secrets service (s
 [Node topology](../architecture/node-topology.md#fafnir)) — never talked to directly. Each `set`
 claims a new, immutable version rather than overwriting the last one; `get` defaults to the latest
 version, `--version N` reads a specific one; `delete` soft-deletes by default (every version stays
-recoverable), `--destroy` hard-deletes irreversibly. `rotate-key` generates a new master encryption
+recoverable via `undelete`), `--destroy` hard-deletes irreversibly and has no way back. `undelete`
+clears the soft-delete flag in place rather than minting a new version: with no `--version` it
+restores whatever version was current at the moment of `delete`, with one it restores that specific
+earlier version's data as current instead, leaving every other version's own stored data untouched
+either way. `rotate-key` generates a new master encryption
 key and re-encrypts every existing secret under it, cluster-wide. `retire-key <keyId>` is
 destructive in a different, sharper way than `delete`: it stops Fafnir from trusting that key id at
 all, so any value still encrypted under it — one `rotate-key` alone never re-encrypts — becomes

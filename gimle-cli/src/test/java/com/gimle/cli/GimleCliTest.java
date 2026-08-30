@@ -474,6 +474,51 @@ class GimleCliTest {
   }
 
   @Test
+  void secret_undelete_then_get_restores_the_same_version_and_value() throws Exception {
+    createTenant("acme");
+    run("secret", "set", "acme", "temp", "--value", "x");
+    run("secret", "delete", "acme", "temp");
+
+    outBuffer.reset();
+    int undeleteExit = run("secret", "undelete", "acme", "temp");
+    assertEquals(0, undeleteExit, stderr());
+    assertTrue(stdout().contains("secrets/acme/temp undeleted (version 1)"));
+
+    outBuffer.reset();
+    int getExit = run("secret", "get", "acme", "temp");
+    assertEquals(0, getExit, stderr());
+    assertTrue(stdout().contains("x"));
+  }
+
+  @Test
+  void secret_undelete_with_an_explicit_version_restores_that_older_version() throws Exception {
+    createTenant("acme");
+    run("secret", "set", "acme", "db-password", "--value", "v1");
+    run("secret", "set", "acme", "db-password", "--value", "v2");
+    run("secret", "delete", "acme", "db-password");
+
+    outBuffer.reset();
+    int undeleteExit = run("secret", "undelete", "acme", "db-password", "--version", "1");
+    assertEquals(0, undeleteExit, stderr());
+    assertTrue(stdout().contains("secrets/acme/db-password undeleted (version 1)"));
+
+    outBuffer.reset();
+    int getExit = run("secret", "get", "acme", "db-password");
+    assertEquals(0, getExit, stderr());
+    assertTrue(stdout().contains("v1"));
+  }
+
+  @Test
+  void secret_undelete_of_a_hard_deleted_secret_fails_rather_than_reviving_it() throws Exception {
+    createTenant("acme");
+    run("secret", "set", "acme", "temp", "--value", "x");
+    run("secret", "delete", "acme", "temp", "--destroy");
+
+    int undeleteExit = run("secret", "undelete", "acme", "temp");
+    assertEquals(1, undeleteExit);
+  }
+
+  @Test
   void secret_rotate_key_returns_an_incrementing_active_key_id() throws Exception {
     int firstExit = run("-o", "json", "secret", "rotate-key");
     assertEquals(0, firstExit, stderr());

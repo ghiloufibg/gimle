@@ -460,7 +460,7 @@ public final class FafnirServer implements AutoCloseable {
     return (byte) value;
   }
 
-  // ---- /secrets/{tenantId}, /secrets/{tenantId}/{key}[/versions] ----
+  // ---- /secrets/{tenantId}, /secrets/{tenantId}/{key}[/versions|/undelete] ----
 
   private void handleSecrets(HttpExchange exchange) {
     try {
@@ -489,19 +489,33 @@ public final class FafnirServer implements AutoCloseable {
         return;
       }
       // GET /secrets/{tenantId}/{key}/versions -- list the key's stored version numbers.
+      // POST /secrets/{tenantId}/{key}/undelete[?version=N] -- clear the soft-delete flag,
+      // reserved action segments checked before the general key path below, the same pattern
+      // #handleSecretMaps's own /versions and /rollback sub-routes already establish.
       if (parts.length == 3) {
-        if (!"versions".equals(parts[2])) {
-          respond(exchange, 404, "unknown secrets sub-resource: " + parts[2]);
+        if ("versions".equals(parts[2])) {
+          if (!"GET".equals(exchange.getRequestMethod())) {
+            respond(exchange, 405, "method not allowed");
+            return;
+          }
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRET, Verb.READ, tenantId, Optional.of(key))) {
+            handleSecretVersions(exchange, tenantId, key);
+          }
           return;
         }
-        if (!"GET".equals(exchange.getRequestMethod())) {
-          respond(exchange, 405, "method not allowed");
+        if ("undelete".equals(parts[2])) {
+          if (!"POST".equals(exchange.getRequestMethod())) {
+            respond(exchange, 405, "method not allowed");
+            return;
+          }
+          if (authorizeSecrets(
+              exchange, ResourceKind.SECRET, Verb.WRITE, tenantId, Optional.of(key))) {
+            handleUndeleteSecret(exchange, tenantId, key);
+          }
           return;
         }
-        if (authorizeSecrets(
-            exchange, ResourceKind.SECRET, Verb.READ, tenantId, Optional.of(key))) {
-          handleSecretVersions(exchange, tenantId, key);
-        }
+        respond(exchange, 404, "unknown secrets sub-resource: " + parts[2]);
         return;
       }
       // GET/PUT/DELETE /secrets/{tenantId}/{key}[?version=N|destroy=true] -- read, write, or
@@ -582,9 +596,7 @@ public final class FafnirServer implements AutoCloseable {
       return;
     }
     int effectiveVersion =
-        version.orElseGet(
-            () ->
-                secretStore.versions(tenantId, key).stream().max(Integer::compareTo).orElseThrow());
+        version.orElseGet(() -> secretStore.currentVersion(tenantId, key).orElseThrow());
     respondJson(
         exchange, 200, Map.of("value", encodeBase64(value.get()), "version", effectiveVersion));
   }
@@ -609,6 +621,26 @@ public final class FafnirServer implements AutoCloseable {
       secretStore.softDelete(tenantId, key);
     }
     respond(exchange, 200, "ok");
+  }
+
+  /**
+   * {@code POST /secrets/{tenantId}/{key}/undelete[?version=N]} -- clears the soft-delete flag on
+   * {@code key}'s {@code @meta} pointer, restoring it as active again; with no {@code version},
+   * whatever version was current when it was deleted; with one, an explicit older version's data as
+   * the new current pointer instead. Genuinely absent (never written, or previously hard- deleted)
+   * is a 404, matching {@link #handleGetSecret}'s own "no such secret" convention; naming a version
+   * whose data doesn't exist is a 400, caught below alongside every other {@link
+   * GimleSecretsException}.
+   */
+  private void handleUndeleteSecret(HttpExchange exchange, String tenantId, String key)
+      throws IOException {
+    OptionalInt version = parseVersion(exchange);
+    OptionalInt restored = secretStore.undelete(tenantId, key, version);
+    if (restored.isEmpty()) {
+      respond(exchange, 404, "no such secret: " + key);
+      return;
+    }
+    respondJson(exchange, 200, Map.of("version", restored.getAsInt()));
   }
 
   // ---- /secretmaps/{tenantId}[?names=a,b,c], /secretmaps/{tenantId}/{name}[/{key}] ----
