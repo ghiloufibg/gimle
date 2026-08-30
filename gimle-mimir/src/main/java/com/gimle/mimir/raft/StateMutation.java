@@ -7,6 +7,8 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -43,6 +45,18 @@ public sealed interface StateMutation extends RaftLogPayload {
   MutationOutcome applyTo(StateStore store);
 
   /**
+   * The compare-and-set (or other) precondition this mutation would check against {@code store}'s
+   * current state, without applying anything -- {@link MutationOutcome#accepted()} for the
+   * overwhelming majority that have none. Every guarded variant's own {@link #applyTo} checks this
+   * itself first, so a bare proposal behaves exactly as before; {@link Batch} additionally checks
+   * every member's precondition up front and applies nothing at all if any fails, which is what
+   * makes a batch carrying guarded members all-or-nothing instead of silently half-applied.
+   */
+  default MutationOutcome precondition(StateStore store) {
+    return MutationOutcome.accepted();
+  }
+
+  /**
    * Generation-guarded: {@code expectedGeneration} is the value the proposer last read via {@link
    * StateStore#getDeploymentGeneration}. Applied identically on every node from the same prior
    * state (Raft's usual determinism guarantee), so a mismatch is a real, cluster-wide fact about
@@ -54,7 +68,7 @@ public sealed interface StateMutation extends RaftLogPayload {
    */
   record PutDeployment(DeploymentSpec spec, long expectedGeneration) implements StateMutation {
     @Override
-    public MutationOutcome applyTo(StateStore store) {
+    public MutationOutcome precondition(StateStore store) {
       long current = store.getDeploymentGeneration(spec.tenantId(), spec.name());
       if (current != expectedGeneration) {
         return MutationOutcome.rejected(
@@ -64,6 +78,15 @@ public sealed interface StateMutation extends RaftLogPayload {
                 + current
                 + ", expected "
                 + expectedGeneration);
+      }
+      return MutationOutcome.accepted();
+    }
+
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      MutationOutcome guard = precondition(store);
+      if (guard instanceof MutationOutcome.Rejected) {
+        return guard;
       }
       store.putDeployment(spec);
       return MutationOutcome.accepted();
@@ -81,7 +104,7 @@ public sealed interface StateMutation extends RaftLogPayload {
   record RemoveDeployment(Optional<String> tenantId, String name, long expectedGeneration)
       implements StateMutation {
     @Override
-    public MutationOutcome applyTo(StateStore store) {
+    public MutationOutcome precondition(StateStore store) {
       long current = store.getDeploymentGeneration(tenantId, name);
       if (current != expectedGeneration) {
         return MutationOutcome.rejected(
@@ -91,6 +114,15 @@ public sealed interface StateMutation extends RaftLogPayload {
                 + current
                 + ", expected "
                 + expectedGeneration);
+      }
+      return MutationOutcome.accepted();
+    }
+
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      MutationOutcome guard = precondition(store);
+      if (guard instanceof MutationOutcome.Rejected) {
+        return guard;
       }
       store.removeDeployment(tenantId, name);
       return MutationOutcome.accepted();
@@ -709,11 +741,138 @@ public sealed interface StateMutation extends RaftLogPayload {
   }
 
   /**
+   * Generation-guarded exactly like {@link PutDeployment} -- see its javadoc for the CAS contract.
+   * The stored generation is store-assigned (current + 1); the proposer's {@code spec.generation()}
+   * is carried only for the record and never trusted.
+   */
+  record PutKindDefinition(KindDefinitionSpec spec, long expectedGeneration)
+      implements StateMutation {
+    @Override
+    public MutationOutcome precondition(StateStore store) {
+      long current = store.getKindDefinitionGeneration(spec.kindName());
+      if (current != expectedGeneration) {
+        return MutationOutcome.rejected(
+            "kind definition '"
+                + spec.kindName()
+                + "' is at generation "
+                + current
+                + ", expected "
+                + expectedGeneration);
+      }
+      return MutationOutcome.accepted();
+    }
+
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      MutationOutcome guard = precondition(store);
+      if (guard instanceof MutationOutcome.Rejected) {
+        return guard;
+      }
+      store.putKindDefinition(spec);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * Refused while any instance of the kind still exists -- the store-level half of a
+   * defense-in-depth pair with the API server's own 409, so no replay or alternate caller can ever
+   * orphan stored instances with no schema left to validate or display them.
+   */
+  record RemoveKindDefinition(String kindName) implements StateMutation {
+    @Override
+    public MutationOutcome precondition(StateStore store) {
+      int instanceCount = store.listCustomResources(kindName).size();
+      if (instanceCount > 0) {
+        return MutationOutcome.rejected(
+            "kind '"
+                + kindName
+                + "' still has "
+                + instanceCount
+                + " instance(s) -- delete them first");
+      }
+      return MutationOutcome.accepted();
+    }
+
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      MutationOutcome guard = precondition(store);
+      if (guard instanceof MutationOutcome.Rejected) {
+        return guard;
+      }
+      store.removeKindDefinition(kindName);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * Generation-guarded exactly like {@link PutDeployment} -- a lost race surfaces to the client as
+   * a 409, never a silent overwrite. The store bumps the generation itself and preserves any
+   * already-reported status; see {@code StateStore#putCustomResource}.
+   */
+  record PutCustomResource(CustomResource resource, long expectedGeneration)
+      implements StateMutation {
+    @Override
+    public MutationOutcome precondition(StateStore store) {
+      long current =
+          store.getCustomResourceGeneration(
+              resource.kindName(), resource.tenantId(), resource.name());
+      if (current != expectedGeneration) {
+        return MutationOutcome.rejected(
+            "resource '"
+                + resource.kindName()
+                + "/"
+                + resource.name()
+                + "' is at generation "
+                + current
+                + ", expected "
+                + expectedGeneration);
+      }
+      return MutationOutcome.accepted();
+    }
+
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      MutationOutcome guard = precondition(store);
+      if (guard instanceof MutationOutcome.Rejected) {
+        return guard;
+      }
+      store.putCustomResource(resource);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  record RemoveCustomResource(String kindName, Optional<String> tenantId, String name)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.removeCustomResource(kindName, tenantId, name);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * Last-write-wins and never bumps the generation -- operators embed {@code observedGeneration} in
+   * the status JSON itself, and a stale status self-corrects on the operator's next level-triggered
+   * pass. See {@code StateStore#putCustomResourceStatus}.
+   */
+  record PutCustomResourceStatus(
+      String kindName, Optional<String> tenantId, String name, byte[] statusJson)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putCustomResourceStatus(kindName, tenantId, name, statusJson);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
    * N independent mutations riding one log entry -- one consensus round and one WAL fsync for the
    * lot, applied in order. The group-commit lever for a caller (typically a reconciler tick, via
    * {@link MutationSink#proposeAll}) that would otherwise pay a full replication round trip per
    * mutation in a burst. Never nested: a batch of batches would buy nothing and only complicate
-   * every consumer's reasoning about what one entry can hold.
+   * every consumer's reasoning about what one entry can hold. Guarded members are all-or-nothing --
+   * see {@link #applyTo} -- with their preconditions checked against the pre-batch state, so a
+   * batch must never carry a guarded member that depends on an earlier member's own effect.
    */
   record Batch(List<StateMutation> mutations) implements StateMutation {
     public Batch {
@@ -728,10 +887,20 @@ public sealed interface StateMutation extends RaftLogPayload {
 
     @Override
     public MutationOutcome applyTo(StateStore store) {
-      // No batched mutation is CAS-guarded today (PutDeployment/RemoveDeployment, the only two
-      // that can reject, are proposed bare by ApiServer, never wrapped in a Batch), so there is no
-      // partial-rejection semantics to define yet -- every member always applies and this always
-      // reports accepted. A future CAS-guarded mutation entering a Batch would need this revisited.
+      // All-or-nothing for guarded members: every member's precondition is checked against the
+      // pre-batch state first, and one failure rejects the whole entry with nothing applied --
+      // there is no rollback, so applying members before discovering a later member's stale CAS
+      // would leave a half-applied batch no caller could reason about. Preconditions target
+      // distinct resources per member in practice (a batch never carries two guarded writes to
+      // the same key), so checking them all against the pre-batch state is exact, not
+      // approximate. Applied under Raft's serial log-application, so no other writer can
+      // interleave between the check pass and the apply pass.
+      for (StateMutation mutation : mutations) {
+        MutationOutcome guard = mutation.precondition(store);
+        if (guard instanceof MutationOutcome.Rejected) {
+          return guard;
+        }
+      }
       for (StateMutation mutation : mutations) {
         mutation.applyTo(store);
       }

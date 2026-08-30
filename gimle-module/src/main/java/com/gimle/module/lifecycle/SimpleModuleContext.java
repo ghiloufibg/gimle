@@ -24,10 +24,9 @@ public final class SimpleModuleContext implements ModuleContext {
    * The default {@code relay} for a caller that doesn't wire the real agent-backed collaborator
    * (every pre-existing constructor below, and any test building a context directly) -- a
    * consistent, synthesized "not available" result rather than a {@code NullPointerException} the
-   * first time a module calls {@link #relayControlPlaneRead}.
+   * first time a module calls {@link #relayControlPlaneRead}/{@link #reportResourceStatus}.
    */
-  private static final Function<String, RelayResult> NO_OP_RELAY =
-      path -> new RelayResult(501, "control-plane relay is not available on this context");
+  private static final ControlPlaneRelayClient NO_OP_RELAY = ControlPlaneRelayClient.unavailable();
 
   /**
    * The default {@code instanceInfo} for a caller that doesn't wire the real registry-backed
@@ -40,7 +39,7 @@ public final class SimpleModuleContext implements ModuleContext {
   private final ServiceRegistry serviceRegistry;
   private final Map<String, String> configValues;
   private final Map<String, Path> dataDirectories;
-  private final Function<String, RelayResult> relay;
+  private final ControlPlaneRelayClient relay;
   private final Supplier<Optional<InstanceInfo>> instanceInfo;
   private final AtomicInteger inFlight = new AtomicInteger();
   private final Map<String, Integer> reportedPorts = new ConcurrentHashMap<>();
@@ -76,8 +75,38 @@ public final class SimpleModuleContext implements ModuleContext {
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Map<String, Path> dataDirectories,
-      Function<String, RelayResult> relay) {
+      ControlPlaneRelayClient relay) {
     this(id, serviceRegistry, configValues, dataDirectories, relay, NO_OP_INSTANCE_INFO);
+  }
+
+  /**
+   * Read-only relay convenience for a caller (typically a test) that scripts only {@link
+   * #relayControlPlaneRead} -- status reporting answers the same synthesized "not available" result
+   * the no-op relay gives everything.
+   */
+  public SimpleModuleContext(
+      ModuleId id,
+      ServiceRegistry serviceRegistry,
+      Map<String, String> configValues,
+      Map<String, Path> dataDirectories,
+      Function<String, RelayResult> readOnlyRelay) {
+    this(id, serviceRegistry, configValues, dataDirectories, readOnly(readOnlyRelay));
+  }
+
+  /** Adapts a read-only relay function onto the two-operation client shape. */
+  public static ControlPlaneRelayClient readOnly(Function<String, RelayResult> read) {
+    return new ControlPlaneRelayClient() {
+      @Override
+      public RelayResult read(String path) {
+        return read.apply(path);
+      }
+
+      @Override
+      public RelayResult putResourceStatus(
+          String kindName, Optional<String> tenantId, String name, String statusJson) {
+        return new RelayResult(501, "status reporting is not available on this context");
+      }
+    };
   }
 
   /**
@@ -90,7 +119,7 @@ public final class SimpleModuleContext implements ModuleContext {
       ServiceRegistry serviceRegistry,
       Map<String, String> configValues,
       Map<String, Path> dataDirectories,
-      Function<String, RelayResult> relay,
+      ControlPlaneRelayClient relay,
       Supplier<Optional<InstanceInfo>> instanceInfo) {
     this.id = id;
     this.serviceRegistry = serviceRegistry;
@@ -171,7 +200,13 @@ public final class SimpleModuleContext implements ModuleContext {
 
   @Override
   public RelayResult relayControlPlaneRead(String path) {
-    return relay.apply(path);
+    return relay.read(path);
+  }
+
+  @Override
+  public RelayResult reportResourceStatus(
+      String kindName, Optional<String> tenantId, String name, String statusJson) {
+    return relay.putResourceStatus(kindName, tenantId, name, statusJson);
   }
 
   @Override

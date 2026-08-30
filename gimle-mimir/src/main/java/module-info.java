@@ -8,6 +8,7 @@ module com.gimle.mimir {
 
   exports com.gimle.mimir.authz;
   exports com.gimle.mimir.cron;
+  exports com.gimle.mimir.galdr;
   exports com.gimle.mimir.manifest;
   exports com.gimle.mimir.store;
   exports com.gimle.mimir.raft;

@@ -81,6 +81,14 @@ One more `kind:` value, `ArtifactSet`, is also routed through `gimle apply -f`'s
 scheduling at all, only Andvari's artifact registry. See [ArtifactSet manifest](#artifactset-manifest)
 below.
 
+Two further shapes ride the same dispatch without being workload kinds either: `kind:
+KindDefinition` (teaching the cluster a new custom kind — see
+[KindDefinition manifest](#kinddefinition-manifest) below) and any *dotted* kind name
+(`kind: custom.Greeting`) — the fallthrough for an instance of a cluster-defined custom kind, sent
+up verbatim for the server to validate against that kind's own stored schema. See
+[Custom resource manifests](#custom-resource-manifests) below and the
+[custom kinds architecture page](../architecture/custom-kinds.md).
+
 ## Manifest versioning: `apiVersion`
 
 Every `gimle apply -f` kind — the five workload kinds plus `ArtifactSet` — also accepts an
@@ -686,3 +694,81 @@ re-push is refused the same way a differing digest is.
 file, not a divergent feature. A Maven reactor with several modules to publish together can bind
 `gimle:artifactset-push` once at its aggregator root instead of hand-maintaining this file — see the
 [Maven plugin goals reference](./maven-plugin-goals.md).
+
+## KindDefinition manifest
+
+Teaches the cluster a new custom kind — see the
+[custom kinds architecture page](../architecture/custom-kinds.md) for the full mechanism. Applied
+via `gimle apply -f`; stored durably; re-applying with a changed schema re-validates every stored
+instance first (a breaking change is refused with a 409 naming the violators, a compatible one
+backfills new defaults into stored specs).
+
+```yaml
+kind: KindDefinition
+name: Greeting            # no dot prefix supplied -- normalized and stored as custom.Greeting
+scope: Tenant             # Tenant | Cluster
+description: "A greeting this cluster should keep saying"
+names:                    # optional CLI/console nicknames
+  plural: greetings
+  shortNames: [gr]
+schema:
+  fields:
+    - name: message
+      type: string
+      required: true
+    - name: repeat
+      type: int
+      default: 1
+      min: 1
+      max: 100
+    - name: tone
+      type: enum
+      values: [friendly, formal]
+      default: friendly
+printColumns:             # optional; dotted paths into spec/status for CLI + console tables
+  - name: MESSAGE
+    path: spec.message
+  - name: SAID
+    path: status.timesSaid
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `kind` | yes | Always `KindDefinition`. |
+| `name` | yes | The kind's name. Must carry a dotted prefix (`acme.AlertRule`); a bare name is normalized to `custom.<name>` with a warning — the prefix is what makes collision with a future built-in kind structurally impossible. |
+| `scope` | yes | `Tenant` (instances require a `tenantId`) or `Cluster` (instances must not carry one). |
+| `description` | no | Free text, shown by `gimle kinds` and the console's kind picker. |
+| `names.plural` / `names.shortNames` | no | Extra nouns `gimle get`/`delete` resolve — `gimle get greetings`, `gimle get gr`. |
+| `schema.fields` | yes | The instance spec schema — see below. |
+| `printColumns` | no | Extra table columns for `gimle get` and the console, each a `name` plus a dotted `path` into the instance (`spec.message`, `status.timesSaid`); an unresolved path renders as an empty cell, never an error. |
+
+Schema field types are `string` (`maxLength`), `int`/`double` (`min`/`max`, inclusive), `bool`,
+`enum` (`values`, exact case-sensitive membership), `list` (`items` — any type including `object` —
+plus `minItems`/`maxItems`), and `object` (nested `fields`, recursion depth capped at definition
+admission). Every field takes `required` or `default` — never both. Unknown keys anywhere in the
+manifest are rejected at parse time, and unknown keys in an *instance's* spec are rejected at apply
+time — never silently pruned. There is deliberately no `pattern` attribute for strings: a
+user-supplied regex evaluated at admission would be a ReDoS surface on the control plane; format
+checks belong in the kind's operator.
+
+## Custom resource manifests
+
+An instance of any defined custom kind. The root level is reserved (`kind`, `apiVersion`, `name`,
+`tenantId`, `spec`) so no user schema can ever collide with a future reserved field; all user data
+lives under `spec:`, unlike the flat workload manifests.
+
+```yaml
+kind: custom.Greeting     # the stored, prefixed kind name -- instances always use it
+name: hello-world
+tenantId: team-a          # required for a Tenant-scoped kind, rejected for Cluster
+spec:
+  message: "hello"
+  repeat: 3
+```
+
+Admission validates `spec` against the kind's schema, applies declared defaults, and persists the
+**defaulted** tree — a stored spec is always complete. Re-applying an identical manifest is a
+no-op (no generation bump); a changed spec bumps the store-assigned `generation`, which operators
+echo back as `observedGeneration` in the status they report. The status sub-document is not
+authored in this manifest at all: only an operator writes it, through its own separately-granted
+RBAC surface.

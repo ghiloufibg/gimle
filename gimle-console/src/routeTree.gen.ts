@@ -17,6 +17,7 @@ import { Route as NetworkingRouteImport } from './routes/networking'
 import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as CustomResourcesRouteImport } from './routes/custom-resources'
 import { Route as ControlplaneRouteImport } from './routes/controlplane'
 import { Route as ConfigmapsRouteImport } from './routes/configmaps'
 import { Route as ConfigRouteImport } from './routes/config'
@@ -80,6 +81,11 @@ const LogsRoute = LogsRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomResourcesRoute = CustomResourcesRouteImport.update({
+  id: '/custom-resources',
+  path: '/custom-resources',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ControlplaneRoute = ControlplaneRouteImport.update({
@@ -211,6 +217,7 @@ export interface FileRoutesByFullPath {
   '/config': typeof ConfigRoute
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
+  '/custom-resources': typeof CustomResourcesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
@@ -245,6 +252,7 @@ export interface FileRoutesByTo {
   '/config': typeof ConfigRoute
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
+  '/custom-resources': typeof CustomResourcesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
@@ -280,6 +288,7 @@ export interface FileRoutesById {
   '/config': typeof ConfigRoute
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
+  '/custom-resources': typeof CustomResourcesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
@@ -316,6 +325,7 @@ export interface FileRouteTypes {
     | '/config'
     | '/configmaps'
     | '/controlplane'
+    | '/custom-resources'
     | '/login'
     | '/logs'
     | '/metrics'
@@ -350,6 +360,7 @@ export interface FileRouteTypes {
     | '/config'
     | '/configmaps'
     | '/controlplane'
+    | '/custom-resources'
     | '/login'
     | '/logs'
     | '/metrics'
@@ -384,6 +395,7 @@ export interface FileRouteTypes {
     | '/config'
     | '/configmaps'
     | '/controlplane'
+    | '/custom-resources'
     | '/login'
     | '/logs'
     | '/metrics'
@@ -419,6 +431,7 @@ export interface RootRouteChildren {
   ConfigRoute: typeof ConfigRoute
   ConfigmapsRoute: typeof ConfigmapsRoute
   ControlplaneRoute: typeof ControlplaneRoute
+  CustomResourcesRoute: typeof CustomResourcesRoute
   LoginRoute: typeof LoginRoute
   LogsRoute: typeof LogsRoute
   MetricsRoute: typeof MetricsRoute
@@ -502,6 +515,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/custom-resources': {
+      id: '/custom-resources'
+      path: '/custom-resources'
+      fullPath: '/custom-resources'
+      preLoaderRoute: typeof CustomResourcesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/controlplane': {
@@ -683,6 +703,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConfigRoute: ConfigRoute,
   ConfigmapsRoute: ConfigmapsRoute,
   ControlplaneRoute: ControlplaneRoute,
+  CustomResourcesRoute: CustomResourcesRoute,
   LoginRoute: LoginRoute,
   LogsRoute: LogsRoute,
   MetricsRoute: MetricsRoute,

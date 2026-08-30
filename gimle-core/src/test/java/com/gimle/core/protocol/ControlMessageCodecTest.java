@@ -52,6 +52,18 @@ class ControlMessageCodecTest {
         new ControlMessage.Pong("corr-2"),
         new ControlMessage.ConfigDelivered("db.password", "hunter2", true),
         new ControlMessage.RelayControlPlaneRead("corr-10", "/endpoints/orders-service"),
+        new ControlMessage.RelayResourceStatusPut(
+            "corr-12",
+            "custom.Greeting",
+            "acme",
+            "hello",
+            "{\"timesSaid\":3,\"observedGeneration\":2}"),
+        new ControlMessage.RelayResourceStatusPut(
+            "corr-13",
+            "custom.ClusterThing",
+            "",
+            "wide",
+            "{\"note\":\"spaces and \\\"quotes\\\"\"}"),
         new ControlMessage.RelayControlPlaneResult(
             "corr-10", 200, "[{\"instanceIndex\":0,\"nodeId\":\"node-a\"}]"),
         new ControlMessage.RelayControlPlaneResult(

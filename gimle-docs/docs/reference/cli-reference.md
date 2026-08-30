@@ -23,7 +23,12 @@ gimle get jobs [name] [--tenant <id>]
 gimle get cronjobs [name] [--tenant <id>]
 gimle get daemonsets [name] [--tenant <id>]
 gimle get statefulsets [name] [--tenant <id>]
-gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or ArtifactSet, read from the file itself)
+gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet,
+                                  KindDefinition, or any defined custom kind, read from the file itself)
+gimle kinds
+gimle get <custom-kind|plural|shortName> [name] [--tenant <id>]
+gimle delete <custom-kind|plural|shortName> <name> [--tenant <id>]
+gimle delete kinddefinition <kind>
 gimle delete deployment <name> [--tenant <id>]
 gimle delete job <name> [--tenant <id>]
 gimle delete cronjob <name> [--tenant <id>]
@@ -44,7 +49,7 @@ gimle taint <nodeId> <tenantId>
 gimle untaint <nodeId> <tenantId>
 gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
-gimle events <deploymentName> <instanceIndex> [--limit N]
+gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
 gimle get services [name] [--tenant <id>]
 gimle set service <name> (--deployment <name> [--deployment ...] | --external-name <host>)
                           --port N [--target-port N] [--tenant <id>] [--session-affinity]
@@ -103,7 +108,10 @@ gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                   [--since <epochMillis>] [--limit N]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
 gimle get roles [name]
-gimle set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
+gimle set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] [--permission ...]
+                       (qualifier narrows a custom_resource grant to one kind, e.g.
+                        custom_resource:write:team-a:custom.Greeting/status; leave the tenant
+                        segment empty for a cluster-wide qualified grant: custom_resource:read::custom.Greeting)
 gimle delete role <name>
 gimle get rolebindings [id]
 gimle set rolebinding <id> --subject user:<name>|group:<name> --role <name>
@@ -296,6 +304,27 @@ as JSON under `-o json`). Verb and resource are matched case-insensitively, `-` 
 `_` (`network-policy` works), and a plural `s` is tolerated so the nouns the other verbs use spell
 valid questions here too.
 
+## Custom kinds
+
+`gimle kinds` lists every [KindDefinition](../reference/manifest-schema.md#kinddefinition-manifest)
+the cluster currently knows — name, scope, declared names, instance count, description. For `get`
+and `delete`, any noun the built-in dispatch doesn't recognize is resolved against that catalog:
+first as an exact prefixed kind name (`custom.Greeting`), then against each definition's declared
+`plural` (`greetings`), then its `shortNames` (`gr`) — so a kind's own declared nicknames work the
+moment its definition is applied, with no CLI release in between. Tables render
+`NAME · TENANT · GENERATION` plus the definition's `printColumns`, each resolved by dotted path
+into the instance's spec/status (an unresolved path is an empty cell); `-o json` emits spec and
+status verbatim.
+
+`apply -f` routes on the manifest's `kind:` the same way: `KindDefinition` teaches the cluster a
+new kind, and any dotted kind name is sent up verbatim as an instance of that kind, validated
+server-side against its stored schema. A concurrent-modification 409 (the server's
+compare-and-set on the instance's generation losing a race) is retried a bounded number of times
+before the conflict is surfaced; a schema-violation 409 — including a definition re-apply refused
+with its violator list — is surfaced immediately, since resending the same bytes can't fix it.
+See the [custom kinds architecture page](../architecture/custom-kinds.md) for the whole
+mechanism, including how operator modules report the `status` these tables render.
+
 ## Examples
 
 `apply -f` honors the manifest's own optional `apiVersion:` field (omitted means `v1alpha1`; see
@@ -337,8 +366,11 @@ gimle taint node-1 tenant-a --server 127.0.0.1:8080
 gimle untaint node-1 tenant-a --server 127.0.0.1:8080
 
 # An instance's own lifecycle timeline (installed, resolved, started, active, ...) -- --limit caps
-# a crash-looping instance's otherwise-hundreds-of-lines timeline to the most recent entries
+# a crash-looping instance's otherwise-hundreds-of-lines timeline to the most recent entries.
+# --tenant is required for a tenanted deployment: the timeline is keyed by the exact
+# (tenantId, deploymentName, instanceIndex) triple, never a bare-name search across tenants.
 gimle events orders-service-deployment 0 --server 127.0.0.1:8080
+gimle events orders-service-deployment 0 --tenant acme --server 127.0.0.1:8080
 gimle events orders-service-deployment 0 --limit 20 --server 127.0.0.1:8080
 
 # A stable name in front of a Deployment's live endpoints, and who else may call it

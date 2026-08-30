@@ -10,8 +10,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code get roles [name]}, {@code set role <name> --permission <resource>:<verb>[:<tenant>]}
- * (repeatable), {@code delete role <name>}.
+ * {@code get roles [name]}, {@code set role <name> --permission
+ * <resource>:<verb>[:<tenant>[:<qualifier>]]} (repeatable), {@code delete role <name>}.
  */
 public final class RolesCommand {
 
@@ -35,13 +35,17 @@ public final class RolesCommand {
   }
 
   /**
-   * {@code --permission resource:verb[:tenant]}, one per grant -- {@code resource} and {@code verb}
-   * match {@code ResourceKind}/{@code Verb}'s own names case-insensitively (e.g. {@code
-   * deployment:read} or {@code DEPLOYMENT:READ}), the optional third segment scopes the grant to
-   * one tenant instead of cluster-wide.
+   * {@code --permission resource:verb[:tenant[:qualifier]]}, one per grant -- {@code resource} and
+   * {@code verb} match {@code ResourceKind}/{@code Verb}'s own names case-insensitively (e.g.
+   * {@code deployment:read} or {@code DEPLOYMENT:READ}), the optional third segment scopes the
+   * grant to one tenant instead of cluster-wide, and the optional fourth narrows a {@code
+   * custom_resource} grant to one kind ({@code custom.Greeting}) or one kind's status sub-document
+   * ({@code custom.Greeting/status}). A cluster-wide grant that still needs a qualifier leaves the
+   * tenant segment empty: {@code custom_resource:read::custom.Greeting}.
    */
   public void set(List<String> args) {
-    String usage = "set role requires <name> --permission <resource>:<verb>[:<tenant>] ...";
+    String usage =
+        "set role requires <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] ...";
     if (args.isEmpty()) {
       throw new CliException(usage);
     }
@@ -93,15 +97,21 @@ public final class RolesCommand {
   }
 
   private static Map<String, Object> parsePermission(String spec) {
-    String[] parts = spec.split(":", 3);
+    String[] parts = spec.split(":", 4);
     if (parts.length < 2) {
-      throw new CliException("invalid --permission " + spec + " (expected resource:verb[:tenant])");
+      throw new CliException(
+          "invalid --permission " + spec + " (expected resource:verb[:tenant[:qualifier]])");
     }
     Map<String, Object> permission = new LinkedHashMap<>();
     permission.put("resource", parts[0].toUpperCase(Locale.ROOT));
     permission.put("verb", parts[1].toUpperCase(Locale.ROOT));
-    if (parts.length == 3) {
+    // An empty tenant segment (custom_resource:read::custom.Greeting) means cluster-wide with a
+    // qualifier -- the grant's scope and its kind-narrowing are independent axes.
+    if (parts.length >= 3 && !parts[2].isEmpty()) {
       permission.put("tenantScope", parts[2]);
+    }
+    if (parts.length == 4 && !parts[3].isEmpty()) {
+      permission.put("qualifier", parts[3]);
     }
     return permission;
   }

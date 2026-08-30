@@ -6,31 +6,31 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 673
-- **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 550
-- **Release-readiness (automated coverage)**: 18.3%
+- **Total requirements**: 679
+- **Covered by automated (Holmgang Cucumber) test**: 126
+- **Not covered by automated test**: 553
+- **Release-readiness (automated coverage)**: 18.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 44 | 15 | 29 | 34.1% |
-| gimle-module | 25 | 11 | 14 | 44.0% |
+| gimle-core | 45 | 15 | 30 | 33.3% |
+| gimle-module | 26 | 12 | 14 | 46.2% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 23 | 2 | 21 | 8.7% |
 | gimle-agent | 47 | 6 | 41 | 12.8% |
-| gimle-mimir | 61 | 35 | 26 | 57.4% |
+| gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 35 | 1 | 34 | 2.9% |
-| gimle-controlplane | 86 | 14 | 72 | 16.3% |
+| gimle-controlplane | 87 | 15 | 72 | 17.2% |
 | gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 17 | 0 | 17 | 0.0% |
-| gimle-cli | 30 | 0 | 30 | 0.0% |
+| gimle-cli | 31 | 0 | 31 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 33 | 0 | 33 | 0.0% |
+| gimle-console | 34 | 0 | 34 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -58,6 +58,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-038 | Tenant-scoped config/secret entry model | Given ConfigEntry{encrypted:true}, When constructed and value() accessed, Then a defensive clone is returned each time. | Yes |
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-661 | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Given a role granting WRITE on CustomResource qualified "custom.Greeting/status"; When its principal PUTs an instance's spec; Then the write is denied; When it PUTs the instance's status; Then the write is allowed. | No |
 
 #### Internal/Infra
 
@@ -207,6 +213,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-036 | Bounded-retry-with-backoff restart policy (CrashLoopBackOff-equivalent) | Given a tracker with maxAttemptsPerWindow=3, When a 4th failure is recorded within the window, Then recordFailureAndCheckShouldRetry returns false. | Yes |
 
 ### gimle-module
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-662 | Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status | Given a defined Greeting kind and an applied instance; When the greeting-operator module is deployed for the tenant; Then the instance's status reports timesSaid matching its spec with observedGeneration caught up. Given the operator has reported; When the control plane is bounced and the spec's repeat changes; Then the reported status catches up with the new generation. | Yes |
 
 #### Module System
 
@@ -645,7 +657,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-663 | Deleting a Role cascades to every RoleBinding naming it | Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked. Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated. Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event. | No |
+| [ ] | GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked. Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated. Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event. | No |
 
 #### Config
 
@@ -670,6 +682,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | Given a manifest with no apiVersion field, When it is submitted, Then it is parsed with the kind's v1alpha1 ruleset -- identical to today's behavior, permanently. Given a manifest declaring apiVersion v9, When it is submitted, Then the control plane rejects it with 400 naming the kind's supported versions, never silently defaulting. Given a manifest declaring a blank or non-string apiVersion, When it is submitted, Then it is rejected outright. | Yes |
 | [ ] | GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | Given a v1alpha1 manifest naming a local artifactPath, When it is applied, Then it is accepted and the operator sees a deprecation warning on stderr explaining the cwd-relative hazard and the registry migration. Given a v1 manifest naming an artifactPath, When it is applied, Then it is rejected with 400 and an error pointing at the registry migration. Given a module pushed to the artifact registry, When a v1 coordinate-only deployment for it is applied, Then it is accepted and reaches ACTIVE on a real worker. | Yes |
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-659 | KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued) | Given a running cluster; When a KindDefinition named "Greeting" is applied; Then the submission is accepted and the kind catalog lists "custom.Greeting". Given a stored definition with live instances; When its deletion is attempted; Then it is refused until the instances are deleted first. | Yes |
 
 #### Internal-Infra
 
@@ -833,7 +851,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running. Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry. | No |
+| [ ] | GIMLE-676 | Background gossip rejoin after a seed-list join startup blip | Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running. Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry. | No |
 
 #### Networking / Multi-tenancy
 
@@ -973,6 +991,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-581 | ConfigMap store and API with optimistic-concurrency writes | Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote. | No |
 
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-660 | Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op | Given a defined Greeting kind; When an instance with an unknown spec field, an out-of-bounds value, or a missing tenant is submitted; Then each is rejected with a 400. Given an applied instance omitting a defaulted field; Then the stored spec carries the default and generation 1; When the identical manifest is re-applied; Then the generation is still 1; When the spec changes; Then the generation becomes 2. | Yes |
+
 #### Governance
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1027,7 +1051,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be. Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node. Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false. | No |
+| [ ] | GIMLE-675 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be. Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node. Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false. | No |
 
 #### Networking / Services
 
@@ -1177,7 +1201,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck. Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node. Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again. | No |
+| [ ] | GIMLE-674 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck. Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node. Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again. | No |
 
 #### Storage / Operations
 
@@ -1244,7 +1268,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0. Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure. Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed. | No |
+| [ ] | GIMLE-677 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0. Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure. Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed. | No |
 
 #### Secrets / Fafnir
 
@@ -1485,7 +1509,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-664 | Gateway route table reloads on a config change without a restart | Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged. | No |
+| [ ] | GIMLE-679 | Gateway route table reloads on a config change without a restart | Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged. | No |
 
 ### gimle-cli
 
@@ -1499,7 +1523,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-374 | DaemonSet resource management | Given a manifest (kind:DaemonSet), When "gimle apply -f node-exporter.yaml", Then /daemonsets/<name> is PUT; no "scale" verb exists (topology-derived, not operator-set). | No |
 | [ ] | GIMLE-375 | StatefulSet resource management | Given a manifest (kind:StatefulSet, replicas:3), When "gimle apply -f orders-statefulset.yaml", Then /statefulsets/<name> is PUT. | No |
 | [ ] | GIMLE-376 | Node inventory and cordon/uncordon | Given node "node-a" registered, When "gimle cordon node-a", Then POST /nodes/node-a/cordon succeeds and prints "node/node-a cordoned". | No |
-| [ ] | GIMLE-377 | Instance lifecycle event timeline | Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed. Given an instance with more lifecycle events than --limit, When "gimle events orders-service 0 --limit 5", Then only the 5 most recent events print. | No |
+| [ ] | GIMLE-377 | Instance lifecycle event timeline | Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed. Given an instance with more lifecycle events than --limit, When "gimle events orders-service 0 --limit 5", Then only the 5 most recent events print. Given a tenanted instance's own lifecycle events; When "gimle events <name> <index> --tenant <id>"; Then that tenant's own timeline is printed, and neither the untenanted namespace nor a different tenant's timeline is ever returned in its place. | No |
 | [ ] | GIMLE-378 | Tenant management and quota configuration | Given "gimle set tenant acme --max-memory-bytes 1000000000 --max-cpu-millicores 4000 --max-instances 10", Then PUT /tenants/acme is sent; "gimle get tenants" lists "acme". | No |
 | [ ] | GIMLE-379 | Tenant plain configuration key/value store | Given tenant "acme" exists, When "gimle set config acme greeting hello", Then PUT /config/acme/greeting; delete then get fails. | No |
 | [ ] | GIMLE-382 | Log viewing and live tailing | Given "gimle logs instance/orders-service/0", Then GET /logs/instances/orders-service/0?category=APPLICATION&limit=200; "--follow" opens a chunked GET with follow=true and prints new lines until interrupted. | No |
@@ -1547,6 +1571,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | Given a StatefulSet with 3 desired replicas and none yet placed, When "gimle get statefulsets" runs with the default table output, Then the row shows replicas "0/3" and health "UNPLACED(3)" rather than a raw JSON blob for the spec/instances/unplacedCount fields. Given an applied DaemonSet, When "gimle get daemonsets" or "gimle get daemonset <name>" runs with the default table output, Then the row shows the module coordinate and a health column with no raw JSON braces or brackets in any cell. Given the same resources, When "-o json" is passed instead, Then the full nested spec/instances shape -- including each instance's own nodeId -- is returned unchanged, exactly as before this fix. | No |
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-663 | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Given a defined Greeting kind declaring plural "greetings" and shortName "gr"; When `gimle get greetings` or `gimle get gr` runs; Then the same instances render with the definition's own printColumns. | No |
 
 #### Internal-Infra
 
@@ -1649,6 +1679,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | Given a read-only account's New Deployment submit is refused with 403, When the control plane's response comes back, Then a visible error toast appears -- the page's own text is no longer byte-for-byte identical before and after the submit. | No |
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-664 | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Given a defined kind with instances; When the Custom Resources screen loads; Then the kind picker lists the kind and its table renders the declared printColumns; When an instance row is opened; Then spec and status render side by side with the caught-up signal. | No |
 
 #### Observability
 

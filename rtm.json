@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 673,
+  "requirementCount": 679,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -6561,11 +6561,11 @@
       "feature": "Instance lifecycle event timeline",
       "category": "CLI",
       "status": "Modified",
-      "statusNote": "Added `--limit N`, applied client-side against the already-newest-first response.",
+      "statusNote": "Added `--tenant <id>` -- closing a real gap the P6 Galdr watchers pass surfaced (finding F2): the CLI had no way to address a tenanted instance's own event timeline at all, since the store keys it by the exact (tenantId, deploymentName, instanceIndex) triple rather than a bare-name search. `--limit N` from the prior revision is unchanged.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Instance lifecycle event timeline\".",
-      "otherTestCoverage": "`GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`",
+      "otherTestCoverage": "`GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`, `events_with_tenant_finds_that_tenants_own_timeline`, `events_without_tenant_never_finds_a_tenanted_instances_timeline`, `events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline`",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`"
       ]
@@ -11380,105 +11380,134 @@
     },
     {
       "id": "GIMLE-659",
-      "module": "gimle-controlplane",
-      "feature": "Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)",
-      "category": "Self-healing / Resilience",
+      "module": "gimle-mimir",
+      "feature": "KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued)",
+      "category": "Custom Kinds (Galdr)",
       "status": "New",
-      "statusNote": "New requirement: closes the self-healing coverage gap where only Deployment replicas were rescheduled through HealthReconciler's restart-budget backoff -- StatefulSet indices and DaemonSet node instances now get the same crash-loop detection and eventual reschedule.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that deploys a StatefulSet (or DaemonSet) whose module crashes on start, and asserts the instance is eventually rescheduled after backoff, then permanently marked failed once its restart budget is exhausted.",
-      "otherTestCoverage": "`StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`.",
+      "statusNote": "New requirement: the custom-kinds (Galdr) foundation -- KindDefinition manifests as the CRD analogue.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "A hosted operator reconciles a defined kind's instances, across a control-plane bounce",
+          "whyThisCounts": "Applies a real KindDefinition manifest under its bare name against a running cluster's admission surface, asserts acceptance, and asserts GET /kinddefinitions lists the prefix-normalized custom.Greeting -- then the same stored definition keeps serving instances across a control-plane bounce, proving it lives in the store."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "Defaults are persisted and an identical re-apply never bumps the generation",
+          "whyThisCounts": "Re-uses the applied definition for schema-validated instance admission in a second scenario against the same pooled cluster, proving the definition is durably readable by later requests rather than an artifact of one submission."
+        }
+      ],
+      "gapNote": "",
       "sourceLocations": [
-        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`",
-        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
-        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
-        "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`"
-      ]
+        "`gimle-mimir/src/main/java/com/gimle/mimir/galdr/KindDefinitionSpec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/KindDefinitionParser.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/kinddefinitions` routes)"
+      ],
+      "otherTestCoverage": "`GaldrStateStoreTest`, `GaldrCodecTest` (gimle-mimir), `ApiServerCustomKindsTest` (gimle-controlplane), `SchemaValidatorTest` (definition-admission schema rules)"
     },
     {
       "id": "GIMLE-660",
       "module": "gimle-controlplane",
-      "feature": "DaemonSet opt-in taint toleration (tolerateAllTaints)",
-      "category": "Multi-tenancy / Self-healing",
+      "feature": "Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op",
+      "category": "Custom Kinds (Galdr)",
       "status": "New",
-      "statusNote": "New requirement: closes FUNC-55 -- a DaemonSet had no way to opt out of the same taint filter a Deployment/StatefulSet replica goes through, so it could never cover 100% of nodes in a cluster with any tenant-reserved node. Now an explicit, opt-in tolerateAllTaints field lets a genuinely cluster-wide DaemonSet bypass the taint filter.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that taints a node for one tenant, deploys an untenanted DaemonSet with tolerateAllTaints: true, and asserts the tainted node still receives an assignment.",
-      "otherTestCoverage": "`SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`.",
+      "statusNote": "New requirement: admission-side schema validation and generation semantics for custom resources.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "Admission validates instances against the declared schema and rejects loudly",
+          "whyThisCounts": "Submits real manifests with an unknown spec field, an out-of-bounds repeat, and a missing tenant against a running cluster's admission surface and asserts each clean 400 -- the loud-rejection contract, exercised end to end."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "Defaults are persisted and an identical re-apply never bumps the generation",
+          "whyThisCounts": "Applies an instance omitting the defaulted tone, reads back the persisted default and generation 1, re-applies the identical manifest asserting the generation stays 1, then changes the spec and asserts the bump to 2 -- persisted defaults and no-op re-apply against the real store."
+        }
+      ],
+      "gapNote": "",
       "sourceLocations": [
-        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`",
-        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
-        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
-        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`",
-        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`"
-      ]
+        "`gimle-mimir/src/main/java/com/gimle/mimir/galdr/SchemaValidator.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/CustomResourceManifestParser.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutCustomResource`)"
+      ],
+      "otherTestCoverage": "`SchemaValidatorTest` (gimle-mimir), `ApiServerCustomKindsTest` (gimle-controlplane), `CustomResourceCommandTest` (gimle-cli bounded 409 retry)"
     },
     {
       "id": "GIMLE-661",
-      "module": "gimle-fabric",
-      "feature": "Background gossip rejoin after a seed-list join startup blip",
-      "category": "Networking / Cluster membership",
+      "module": "gimle-core",
+      "feature": "Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only)",
+      "category": "Custom Kinds (Galdr)",
       "status": "New",
-      "statusNote": "New requirement: closes FUNC-43 -- a routine container-startup networking blip during SWIM gossip join could crash the agent process outright (>=2 seeds) or silently, permanently fork a one-node cluster (1 seed). A node now keeps retrying its seed list in the background on every gossip tick until it finds a peer.",
+      "statusNote": "New requirement: per-kind least-privilege RBAC over one CUSTOM_RESOURCE resource kind.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.",
-      "otherTestCoverage": "`GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.",
+      "gapNote": "No Holmgang scenario exercises the qualifier end to end: the plaintext `minimal` topology doesn't authenticate principals, so enforcement is only observable under the `mtls` topology. To close: an mtls-topology scenario binding a role qualified `custom.Greeting/status` to the operator's `svc:` principal and asserting its spec write is denied while its status write lands.",
       "sourceLocations": [
-        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`",
-        "`gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`"
-      ]
+        "`gimle-core/src/main/java/com/gimle/core/tenant/Permission.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`customResourceQualifier`, `requireCustomResource*`)"
+      ],
+      "otherTestCoverage": "`CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir)"
     },
     {
       "id": "GIMLE-662",
-      "module": "gimle-fafnir",
-      "feature": "SecretMap batch handlers signal partial failure via HTTP status and CLI exit code",
-      "category": "Secrets / CLI parity",
+      "module": "gimle-module",
+      "feature": "Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status",
+      "category": "Custom Kinds (Galdr)",
       "status": "New",
-      "statusNote": "New requirement: closes FUNC-02 -- a SecretMap batch (set/replace/rollback/seal) that failed every single key still returned HTTP 200 and exit code 0, invisible to any CI script gating on exit status.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that submits a SecretMap batch with one deliberately invalid key alongside a valid one and asserts the resulting exit code (via gimle-cli) is nonzero while the valid key's own write still lands.",
-      "otherTestCoverage": "`FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`.",
+      "statusNote": "New requirement: the operator half of custom kinds -- the Galdr SDK poll loop and the typed status-relay write path.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "A hosted operator reconciles a defined kind's instances, across a control-plane bounce",
+          "whyThisCounts": "Deploys the real greeting-operator module into a tenant on a running cluster, asserts the applied Greeting's status reports timesSaid matching its spec with observedGeneration caught up to the store's generation, bounces the control plane, asserts the status survives (it lives in the store), then changes the spec and asserts the operator re-converges to the new generation -- the whole hosted-operator loop, real processes end to end."
+        }
+      ],
+      "gapNote": "",
       "sourceLocations": [
-        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`",
-        "`gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`"
-      ]
+        "`gimle-module/src/main/java/com/gimle/module/galdr/GaldrOperatorLoop.java`",
+        "`gimle-worker/src/main/java/com/gimle/worker/ControlPlaneRelay.java` (`requestStatusPut`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`handleRelayStatusPut`)",
+        "`gimle-examples/greeting-operator/src/main/java/com/gimle/examples/greeting/operator/GreetingOperatorHooks.java`"
+      ],
+      "otherTestCoverage": "`GaldrOperatorLoopTest` (gimle-module), `AgentRelayStatusPutTest` (gimle-agent), `ControlPlaneRelayTest` (gimle-worker), `ControlMessageCodecTest` (gimle-core)"
     },
     {
       "id": "GIMLE-663",
-      "module": "gimle-mimir",
-      "feature": "Deleting a Role cascades to every RoleBinding naming it",
-      "category": "Authorization",
+      "module": "gimle-cli",
+      "feature": "CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables",
+      "category": "Custom Kinds (Galdr)",
       "status": "New",
-      "statusNote": "New requirement: closes FUNC-24 -- a Role's own RoleBindings previously survived its deletion, sitting inert until a new Role created under the same name silently reactivated them.",
+      "statusNote": "New requirement: the CLI surface over custom kinds.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that creates a Role and RoleBinding, deletes the Role through the real API, asserts the binding is gone, creates a new Role under the same name, and asserts the previously-bound subject gains none of its permissions.",
-      "otherTestCoverage": "`StateStoreTest#remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role`; `AuthorizerTest#a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding`; `ApiServerAuthzTest#deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal`; `GimleCliTest#deleting_a_role_cascades_to_every_rolebinding_that_named_it`.",
+      "gapNote": "Holmgang scenarios drive the control plane's HTTP API directly, not the gimle-cli binary, so the CLI's own resolution/retry/rendering isn't exercised by any .feature scenario. To close: a scenario invoking the real CLI (the way RagnarokCliIT shells out) for kinds/get/apply against a running cluster.",
       "sourceLocations": [
-        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
-        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java`",
-        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
-        "`gimle-cli/src/main/java/com/gimle/cli/RolesCommand.java`"
-      ]
+        "`gimle-cli/src/main/java/com/gimle/cli/CustomResourceCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (custom-kind fallthrough dispatch)"
+      ],
+      "otherTestCoverage": "`CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip)"
     },
     {
       "id": "GIMLE-664",
-      "module": "gimle-gateway",
-      "feature": "Gateway route table reloads on a config change without a restart",
-      "category": "Networking",
+      "module": "gimle-console",
+      "feature": "Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal",
+      "category": "Custom Kinds (Galdr)",
       "status": "New",
-      "statusNote": "New requirement: closes FUNC-62 -- gateway.routes was parsed once at instance startup with no reload path, so a config update reached only whichever DaemonSet instances happened to restart.",
+      "statusNote": "New requirement: the web console's read-only custom-resources surface.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that boots a gateway DaemonSet, updates its gateway.routes config through the real API, and asserts (without restarting any instance) that the new route becomes reachable on every replica.",
-      "otherTestCoverage": "`GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`.",
+      "gapNote": "Console behavior isn't observable from a Holmgang .feature scenario (per the coverage rule, Vitest/Playwright don't count). To close: extend the console's Playwright E2E (driven by gimle-smoke-tests) to assert the screen against a live cluster, or add a Holmgang scenario asserting the bundled console serves the route.",
       "sourceLocations": [
-        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
-      ]
+        "`gimle-console/src/routes/custom-resources.tsx`",
+        "`gimle-console/src/repositories/customResources.ts`",
+        "`gimle-console/src/repositories/http/customResources.ts`",
+        "`gimle-console/src/stores/useCustomResourcesStore.ts`"
+      ],
+      "otherTestCoverage": "gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests)"
     },
     {
       "id": "GIMLE-665",
@@ -11635,6 +11664,108 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/configmap/ConfigMapStore.java` (`listVersions`, `rollback`)",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/config/*/versions`, `/config/*/rollback`, `/configmaps/*/versions`, `/configmaps/*/rollback`)",
         "`gimle-cli/src/main/java/com/gimle/cli/ConfigCommand.java`, `ConfigMapCommand.java` (`versions`, `rollback`)"
+      ]
+    },
+    {
+      "id": "GIMLE-674",
+      "module": "gimle-controlplane",
+      "feature": "Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)",
+      "category": "Self-healing / Resilience",
+      "status": "New",
+      "statusNote": "New requirement: closes the self-healing coverage gap where only Deployment replicas were rescheduled through HealthReconciler's restart-budget backoff -- StatefulSet indices and DaemonSet node instances now get the same crash-loop detection and eventual reschedule.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that deploys a StatefulSet (or DaemonSet) whose module crashes on start, and asserts the instance is eventually rescheduled after backoff, then permanently marked failed once its restart budget is exhausted.",
+      "otherTestCoverage": "`StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-675",
+      "module": "gimle-controlplane",
+      "feature": "DaemonSet opt-in taint toleration (tolerateAllTaints)",
+      "category": "Multi-tenancy / Self-healing",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-55 -- a DaemonSet had no way to opt out of the same taint filter a Deployment/StatefulSet replica goes through, so it could never cover 100% of nodes in a cluster with any tenant-reserved node. Now an explicit, opt-in tolerateAllTaints field lets a genuinely cluster-wide DaemonSet bypass the taint filter.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that taints a node for one tenant, deploys an untenanted DaemonSet with tolerateAllTaints: true, and asserts the tainted node still receives an assignment.",
+      "otherTestCoverage": "`SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-676",
+      "module": "gimle-fabric",
+      "feature": "Background gossip rejoin after a seed-list join startup blip",
+      "category": "Networking / Cluster membership",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-43 -- a routine container-startup networking blip during SWIM gossip join could crash the agent process outright (>=2 seeds) or silently, permanently fork a one-node cluster (1 seed). A node now keeps retrying its seed list in the background on every gossip tick until it finds a peer.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.",
+      "otherTestCoverage": "`GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`",
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-677",
+      "module": "gimle-fafnir",
+      "feature": "SecretMap batch handlers signal partial failure via HTTP status and CLI exit code",
+      "category": "Secrets / CLI parity",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-02 -- a SecretMap batch (set/replace/rollback/seal) that failed every single key still returned HTTP 200 and exit code 0, invisible to any CI script gating on exit status.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that submits a SecretMap batch with one deliberately invalid key alongside a valid one and asserts the resulting exit code (via gimle-cli) is nonzero while the valid key's own write still lands.",
+      "otherTestCoverage": "`FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`.",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-678",
+      "module": "gimle-mimir",
+      "feature": "Deleting a Role cascades to every RoleBinding naming it",
+      "category": "Authorization",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-24 -- a Role's own RoleBindings previously survived its deletion, sitting inert until a new Role created under the same name silently reactivated them.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that creates a Role and RoleBinding, deletes the Role through the real API, asserts the binding is gone, creates a new Role under the same name, and asserts the previously-bound subject gains none of its permissions.",
+      "otherTestCoverage": "`StateStoreTest#remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role`; `AuthorizerTest#a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding`; `ApiServerAuthzTest#deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal`; `GimleCliTest#deleting_a_role_cascades_to_every_rolebinding_that_named_it`.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/RolesCommand.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-679",
+      "module": "gimle-gateway",
+      "feature": "Gateway route table reloads on a config change without a restart",
+      "category": "Networking",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-62 -- gateway.routes was parsed once at instance startup with no reload path, so a config update reached only whichever DaemonSet instances happened to restart.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that boots a gateway DaemonSet, updates its gateway.routes config through the real API, and asserts (without restarting any instance) that the new route becomes reachable on every replica.",
+      "otherTestCoverage": "`GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`.",
+      "sourceLocations": [
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
       ]
     }
   ]

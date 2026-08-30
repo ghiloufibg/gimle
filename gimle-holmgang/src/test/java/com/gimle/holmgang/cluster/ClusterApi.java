@@ -887,6 +887,47 @@ public final class ClusterApi implements ControlPlaneClient {
     expectOk("POST", "/nodes/" + nodeId + "/events", body, "instance event relay");
   }
 
+  /**
+   * {@code GET /kinddefinitions} -- every KindDefinition the cluster currently knows, as parsed
+   * JSON maps. Empty (never a hard failure) when the read itself fails, matching every other
+   * best-effort reader in this class.
+   */
+  public List<Map<String, Object>> kindCatalog() {
+    final Optional<HttpResponse<String>> response = tryGet("/kinddefinitions");
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return List.of();
+    }
+    return Json.asObjectList(Json.parse(response.get().body()));
+  }
+
+  /**
+   * {@code GET /resources/{kind}/{name}} -- one custom resource with spec and status side by side,
+   * empty when it doesn't exist (or the read fails). {@code tenant} travels as {@code ?tenant=},
+   * the same convention every tenant-scoped route here uses.
+   */
+  public Optional<Map<String, Object>> customResource(
+      final String kindName, final String name, final Optional<String> tenant) {
+    final String path =
+        "/resources/" + kindName + "/" + name + tenant.map(id -> "?tenant=" + id).orElse("");
+    final Optional<HttpResponse<String>> response = tryGet(path);
+    if (response.isEmpty() || response.get().statusCode() != 200) {
+      return Optional.empty();
+    }
+    return Optional.of(Json.asObject(Json.parse(response.get().body())));
+  }
+
+  public void deleteCustomResource(
+      final String kindName, final String name, final Optional<String> tenant) {
+    expectOkNoBody(
+        "DELETE",
+        "/resources/" + kindName + "/" + name + tenant.map(id -> "?tenant=" + id).orElse(""),
+        "custom resource deletion");
+  }
+
+  public void deleteKindDefinition(final String kindName) {
+    expectOkNoBody("DELETE", "/kinddefinitions/" + kindName, "kind definition deletion");
+  }
+
   private Optional<HttpResponse<String>> tryGet(final String path) {
     try {
       return Optional.of(

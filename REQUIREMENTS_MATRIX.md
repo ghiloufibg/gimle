@@ -668,12 +668,12 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Complete | Partial |
 | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | Complete | Yes |
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | Admission / Multi-tenancy | Complete | Yes |
-| GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | Complete | Yes |
-| GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | Complete | Yes |
-| GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | Complete | Yes |
-| GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | Complete | Yes |
-| GIMLE-663 | Deleting a Role cascades to every RoleBinding naming it | Authorization | Complete | Yes |
-| GIMLE-664 | Gateway route table reloads on a config change without a restart | Networking | Complete | Yes |
+| GIMLE-659 | KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued) | Custom Kinds (Galdr) | Complete | Yes |
+| GIMLE-660 | Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op | Custom Kinds (Galdr) | Complete | Yes |
+| GIMLE-661 | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | Complete | Partial |
+| GIMLE-662 | Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status | Custom Kinds (Galdr) | Complete | Yes |
+| GIMLE-663 | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | Complete | Partial |
+| GIMLE-664 | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | Complete | Partial |
 | GIMLE-665 | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | CLI / console parity | Complete | Yes |
 | GIMLE-666 | A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event | Worker runtime / health | Complete | Yes |
 | GIMLE-667 | Console session logout revokes the session token server-side, not just the client-side cookie | Security / session management | Complete | Yes |
@@ -683,6 +683,12 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-671 | A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version | Secrets / Fafnir | Complete | Yes |
 | GIMLE-672 | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Service fabric / gossip membership | Complete | Yes |
 | GIMLE-673 | Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps | Config / ConfigMap | Complete | Yes |
+| GIMLE-674 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | Complete | Yes |
+| GIMLE-675 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | Complete | Yes |
+| GIMLE-676 | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | Complete | Yes |
+| GIMLE-677 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | Complete | Yes |
+| GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | Authorization | Complete | Yes |
+| GIMLE-679 | Gateway route table reloads on a config change without a restart | Networking | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -1249,6 +1255,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a RoleBinding to tenant-view:acme, When its subject GETs /deployments, Then the response is 200 listing exactly tenant acme's deployments -- never another tenant's or an untenanted one, and never a 403.
   ```
 
+#### GIMLE-661 — Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only)
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a platform operator, I want to grant an operator's workload principal write access to exactly one kind's status sub-document -- and a tenant admin write access to its specs -- so that per-kind least privilege works without a ResourceKind value per kind, and an operator can never alter desired state.
+- **Status**: Complete. `Permission` carries an optional qualifier over `ResourceKind.CUSTOM_RESOURCE`: absent covers every kind's specs (never status), `{kind}` one kind's specs, `{kind}/status` only that kind's status (`Permission.STATUS_QUALIFIER_SUFFIX`); `Authorizer` matches it on every custom-resource request, spec-write never covering status nor the reverse; audit rows record the qualified `CustomResource:{kind}` string.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tenant/Permission.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`customResourceQualifier`, `requireCustomResource*`)
+- **Test coverage**: `CustomResourceQualifierAuthzTest` (gimle-controlplane): qualifier matching for absent/{kind}/{kind}-status shapes, spec-WRITE never covering status and the reverse, a svc: workload principal authorized purely by its bindings.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a role granting WRITE on CustomResource qualified "custom.Greeting/status"; When its principal PUTs an instance's spec; Then the write is denied; When it PUTs the instance's status; Then the write is allowed.
+  ```
+
 #### GIMLE-667 — Console session logout revokes the session token server-side, not just the client-side cookie
 
 - **Category**: Security / session management
@@ -1591,6 +1610,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path.
   Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged.
+  ```
+
+#### GIMLE-662 — Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a module author, I want to write an operator as an ordinary hosted module -- a Galdr SDK poll loop reading my kind's full instance set and a reportStatus call per resource -- so that reconciling a custom kind needs no new deployment model, network identity, or watch machinery.
+- **Status**: Complete. `GaldrOperatorLoop`/`GaldrResource`/`GaldrSpec` (gimle-module) poll `/resources/{kind}` via `ModuleContext.relayControlPlaneRead` -- full recompute per tick, exponential backoff on failed polls, a reconciler exception poisoning only its own tick, the caller's MDC carried onto the loop thread so operator logging stays that instance's own APPLICATION log; `ModuleContext.reportResourceStatus` travels the control channel as typed fields (`ControlMessage.RelayResourceStatusPut`), and the agent validates each segment, mints the instance's workload-identity token, and issues `PUT /resources/{kind}/{name}/status` itself -- an untenanted instance is refused locally, and status writes never bump the generation. `gimle-examples/greeting-operator` is the reference operator.
+- **Confidence**: High
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/galdr/GaldrOperatorLoop.java`, `gimle-worker/src/main/java/com/gimle/worker/ControlPlaneRelay.java` (`requestStatusPut`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`handleRelayStatusPut`), `gimle-examples/greeting-operator/src/main/java/com/gimle/examples/greeting/operator/GreetingOperatorHooks.java`
+- **Test coverage**: `GaldrOperatorLoopTest` (convergence from arbitrary states, poisoned tick, backoff, MDC propagation), `AgentRelayStatusPutTest` (untenanted 403, malformed-field 400, minted-token happy path, mint-failure 502), `ControlPlaneRelayTest`/`ControlMessageCodecTest` (wire round-trips), Holmgang `custom-kinds.feature` (a real deployed operator's status landing and re-converging across a control-plane bounce).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a defined Greeting kind and an applied instance; When the greeting-operator module is deployed for the tenant; Then the instance's status reports timesSaid matching its spec with observedGeneration caught up.
+  Given the operator has reported; When the control plane is bounced and the spec's repeat changes; Then the reported status catches up with the new generation.
   ```
 
 ### gimle-os
@@ -3789,7 +3822,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given tenant A and tenant B each submit a Deployment named "orders-service"; When both are stored; Then each tenant's own GET resolves only its own spec, and the untenanted namespace sees neither.
   ```
 
-#### GIMLE-663 — Deleting a Role cascades to every RoleBinding naming it
+#### GIMLE-659 — KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued)
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a platform operator, I want to teach a running cluster a new resource kind by applying a KindDefinition manifest -- name, scope, declared CLI names, schema, printColumns -- so that domain resources get schema, storage, RBAC, and CLI/console visibility without platform code changes or restarts.
+- **Status**: Complete. `KindDefinitionParser` (gimle-controlplane) parses/validates the manifest and normalizes a bare kind name to the mandatory dot prefix (`Greeting` -> `custom.Greeting`, warning surfaced); `KindDefinitionSpec` (gimle-mimir) travels the Raft log via `StateMutation.PutKindDefinition`/`RemoveKindDefinition` and lands in `StateSnapshot`; `GET /kinddefinitions` serves the catalog; a definition with live instances refuses deletion at both the API and store levels; a schema-changing re-apply re-validates every stored instance (409 with violator list on a breaking change, atomic default backfill on a compatible one).
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/galdr/KindDefinitionSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/KindDefinitionParser.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/kinddefinitions` routes)
+- **Test coverage**: `GaldrStateStoreTest`/`GaldrCodecTest` (gimle-mimir: mutation round-trips, snapshot/restore, delete-with-instances refused), `ApiServerCustomKindsTest` (admission, prefix normalization warning, re-PUT revalidation + backfill, violator-list 409), Holmgang `custom-kinds.feature` (live cluster end to end).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running cluster; When a KindDefinition named "Greeting" is applied; Then the submission is accepted and the kind catalog lists "custom.Greeting".
+  Given a stored definition with live instances; When its deletion is attempted; Then it is refused until the instances are deleted first.
+  ```
+
+#### GIMLE-678 — Deleting a Role cascades to every RoleBinding naming it
 
 - **Category**: Authorization
 - **User story**: As a platform operator deleting a Role that is no longer needed, I want every RoleBinding naming that Role to be revoked atomically as part of the same delete, so a stale binding cannot silently reactivate with a new set of permissions if someone later creates an unrelated Role under the same name.
@@ -4240,20 +4287,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given an egress rule owned by the caller's tenant with an empty allow list, When that tenant calls a foreign-tenant callee, Then the callee's own listener denies it.
   ```
 
-#### GIMLE-661 — Background gossip rejoin after a seed-list join startup blip
-
-- **Category**: Networking / Cluster membership
-- **User story**: As a platform operator, I want a node agent that hits a transient networking blip while joining the SWIM gossip cluster at startup to keep retrying its seed list in the background rather than crashing the agent process outright (>=2 configured seeds) or silently, permanently forking off an isolated one-node cluster (exactly 1 configured seed), so a routine container-startup race never turns into either a hard process crash or a silent split-brain that only a manual restart can fix.
-- **Status**: Complete. GossipMember.join() retried its configured seed list for a bounded 5-round window and then either threw GimleClusterException (>=2 seeds, none reachable -- uncaught anywhere in AgentMain.main, terminating the agent JVM) or silently assumed it was the first node of a brand-new cluster (exactly 1 seed unreachable) -- and either way, nothing ever re-attempted a seed afterward: tick()'s own steady-state probing (pingRandomMember/maybeSyncWithRandomMember) only ever targets a member already present in the members map, so a node that found no peer during its bounded join() window had, in JOIN_ATTEMPTS's own prior javadoc's words, 'no organic path back into the cluster afterward.' Fixed: join() no longer throws under any circumstance and no longer branches on seed count -- every 'no seed answered within the bounded window' outcome now logs a warning and lets the node keep running, unjoined, with its seed list remembered in a new volatile seeds field. A new retrySeedsIfIsolated(), invoked from every tick() alongside every other protocol-period step, re-pings that same seed list on a plain, unregistered SwimMessage.Ping whenever the node currently knows no other ALIVE member -- the existing Ack-handling path already falls through to markAliveDirect for any unrecognized sequence number, so no new bookkeeping was needed to let a reply merge the seed back into membership. The moment any peer becomes known (through this path or any other), the condition gating retrySeedsIfIsolated goes false and it stops firing on its own, with nothing to reset. GimleClusterException.noReachableSeed, now dead, was removed along with its class javadoc's stale claim that a gossip join failure was one of its intended cluster-level 'no per-request retry left to try' cases -- it explicitly is not, anymore.
-- **Confidence**: High
-- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java` (`join`, `retrySeedsIfIsolated`, `hasAnyOtherAliveMember`, `tick`), `gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`
-- **Test coverage**: `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined` (confirmed to fail against the pre-fix code, which threw `GimleClusterException`); `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers` -- the seed genuinely stays down for node-b's entire `join()` budget, `join()` returns having found nobody, and only then does the seed start, proving the background retry (not `join()`'s own internal retry loop, already covered by the pre-existing `join_retries_recover_once_a_transiently_unreachable_seed_starts_receiving`) is what eventually discovers it.
-- **Gherkin scenario**:
-  ```gherkin
-  Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running.
-  Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry.
-  ```
-
 #### GIMLE-672 — Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one
 
 - **Category**: Service fabric / gossip membership
@@ -4266,6 +4299,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given two gossip members with diverging service catalogs (a missed piggyback update); When anti-entropy sync runs; Then both catalogs converge to the same full state, paginated the same way membership state already is.
   Given a node that restarts with an empty catalog; When it rejoins the cluster; Then anti-entropy sync repopulates its catalog to match the cluster's current state.
+  ```
+
+#### GIMLE-676 — Background gossip rejoin after a seed-list join startup blip
+
+- **Category**: Networking / Cluster membership
+- **User story**: As a platform operator, I want a node agent that hits a transient networking blip while joining the SWIM gossip cluster at startup to keep retrying its seed list in the background rather than crashing the agent process outright (>=2 configured seeds) or silently, permanently forking off an isolated one-node cluster (exactly 1 configured seed), so a routine container-startup race never turns into either a hard process crash or a silent split-brain that only a manual restart can fix.
+- **Status**: Complete. GossipMember.join() retried its configured seed list for a bounded 5-round window and then either threw GimleClusterException (>=2 seeds, none reachable -- uncaught anywhere in AgentMain.main, terminating the agent JVM) or silently assumed it was the first node of a brand-new cluster (exactly 1 seed unreachable) -- and either way, nothing ever re-attempted a seed afterward: tick()'s own steady-state probing (pingRandomMember/maybeSyncWithRandomMember) only ever targets a member already present in the members map, so a node that found no peer during its bounded join() window had, in JOIN_ATTEMPTS's own prior javadoc's words, 'no organic path back into the cluster afterward.' Fixed: join() no longer throws under any circumstance and no longer branches on seed count -- every 'no seed answered within the bounded window' outcome now logs a warning and lets the node keep running, unjoined, with its seed list remembered in a new volatile seeds field. A new retrySeedsIfIsolated(), invoked from every tick() alongside every other protocol-period step, re-pings that same seed list on a plain, unregistered SwimMessage.Ping whenever the node currently knows no other ALIVE member -- the existing Ack-handling path already falls through to markAliveDirect for any unrecognized sequence number, so no new bookkeeping was needed to let a reply merge the seed back into membership. The moment any peer becomes known (through this path or any other), the condition gating retrySeedsIfIsolated goes false and it stops firing on its own, with nothing to reset. GimleClusterException.noReachableSeed, now dead, was removed along with its class javadoc's stale claim that a gossip join failure was one of its intended cluster-level 'no per-request retry left to try' cases -- it explicitly is not, anymore.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java` (`join`, `retrySeedsIfIsolated`, `hasAnyOtherAliveMember`, `tick`), `gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`
+- **Test coverage**: `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined` (confirmed to fail against the pre-fix code, which threw `GimleClusterException`); `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers` -- the seed genuinely stays down for node-b's entire `join()` budget, `join()` returns having found nobody, and only then does the seed start, proving the background retry (not `join()`'s own internal retry loop, already covered by the pre-existing `join_retries_recover_once_a_transiently_unreachable_seed_starts_receiving`) is what eventually discovers it.
+- **Gherkin scenario**:
+  ```gherkin
+  Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running.
+  Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry.
   ```
 
 ### gimle-controlplane
@@ -5337,34 +5384,18 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a CronJob manifest names a tenantId that does not exist; When it is PUT; Then admission rejects it with 409, the same as a directly-submitted Deployment/Job/DaemonSet/StatefulSet would be.
   ```
 
-#### GIMLE-659 — Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)
+#### GIMLE-660 — Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op
 
-- **Category**: Self-healing / Resilience
-- **User story**: As a platform operator, I want a StatefulSet index or DaemonSet node instance that crashes on every restart to be backed off and eventually rescheduled, the same way a Deployment replica already is via HealthReconciler, so that a bad artifact wedges only that one workload's healing instead of leaving OrderedReady (or a DaemonSet node's own assignment) stuck forever with no automated recovery.
-- **Status**: Complete. `StatefulSetReconciler`'s OrderedReady scan and `DaemonSetReconciler`'s per-node eviction pass previously only ever checked `isReady` (the node's own heartbeat reporting `ready=true`), never `lifecycleState`, so an index/node instance the worker reported `FAILED` sat there forever: nothing but a rolling-update version mismatch or an eligibility change ever removed an existing assignment, unlike a Deployment replica, which `HealthReconciler` already reschedules through an exponential, capped restart budget. Fixed via a new `WorkloadCrashLoopBackoff` (`gimle-controlplane`), the StatefulSet/DaemonSet-keyed counterpart of `HealthReconciler`'s own bookkeeping -- backed by a new persisted `WorkloadHealthState` record (`gimle-mimir`, full `StateStore`/`StateSnapshot`/`DomainCodec`/`StateMutation`/`RaftCodec`/`StoreReader`/`StoreRpc`/`StoreCodec`/`StoreClient`/`StoreNode` plumbing keyed by `(workloadKind, workloadName, slot, tenantId)`, deliberately separate from Deployment's own `ReconcilerInstanceState` since a StatefulSet and Deployment can share a name and a DaemonSet's slot is a node id, not an `int` instance index). `StatefulSetReconciler`'s ordered scan now checks each present index for a `FAILED` observation before checking readiness: a crash-looping index is backed off and, once the delay elapses, released for the ordinary missing-index path to re-place on the same sticky node; OrderedReady itself is preserved exactly -- a permanently-failed index is never skipped past, the scan simply stops at it, same as any other not-yet-ready index. `DaemonSetReconciler`'s eviction pass does the same for a still-eligible node's crash-looping instance, releasing its stale assignment so the same tick's placement pass re-adds a fresh one to the very same node -- there is nowhere else for a DaemonSet assignment to go. Both give up permanently (mirroring `HealthReconciler`'s own posture exactly) once the restart budget is exhausted, leaving the stale, still-`FAILED` assignment in place forever and appending a durable `TRANSITION_FAILED` `InstanceEvent`, rather than retrying in a tight loop.
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a resource author, I want my custom-resource manifest validated against its kind's declared schema at apply time -- typo'd fields and out-of-bounds values rejected loudly, declared defaults filled in and persisted, tenant scoping enforced -- so that the stored spec is always complete and correct, and re-applying the same manifest changes nothing.
+- **Status**: Complete. `CustomResourceManifestParser` reserves the manifest root (kind/apiVersion/name/tenantId/spec); `SchemaValidator` (gimle-mimir) validates and defaults the spec tree per the definition's schema (unknown keys rejected, bounds inclusive, required-xor-default, depth cap, 256 KiB caps); admission persists the canonical defaulted JSON bytes, so an identical re-apply is a byte-equality no-op with no generation bump, while a changed spec bumps the store-assigned generation under a CAS guard (structured 409 on a lost race, bounded-retried by the CLI).
 - **Confidence**: High
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`
-- **Test coverage**: `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot` (extended for `WorkloadHealthState`).
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/galdr/SchemaValidator.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/CustomResourceManifestParser.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutCustomResource`)
+- **Test coverage**: `SchemaValidatorTest` (table-driven happy/failure pairs per type, unknown-key rejection, default persistence, depth cap, size caps), `ApiServerCustomKindsTest` (tenant-scope enforcement both ways, no-op re-apply, CAS 409), Holmgang `custom-kinds.feature` (live admission rejections and generation semantics).
 - **Gherkin scenario**:
   ```gherkin
-  Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck.
-  Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node.
-  Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again.
-  ```
-
-#### GIMLE-660 — DaemonSet opt-in taint toleration (tolerateAllTaints)
-
-- **Category**: Multi-tenancy / Self-healing
-- **User story**: As a platform operator, I want a genuinely cluster-wide DaemonSet (a log shipper, a node exporter) to be able to opt into covering every node -- including ones an operator has tainted for a specific tenant -- so a DaemonSet, the one workload kind that exists specifically to run on every eligible node, is not permanently blocked from 100% node coverage in a cluster with any tenant-reserved nodes.
-- **Status**: Complete. `Scheduler.eligibleNodes` -- the only placement path `DaemonSetReconciler` uses -- ran the identical taint filter a Deployment/StatefulSet replica goes through, with no way for a DaemonSet to opt out: an untenanted DaemonSet (the common case for a cluster-wide daemon) could never be placed on any tainted node at all, regardless of intent. Fixed via a new `DaemonSetSpec.tolerateAllTaints` boolean (default `false`, preserving today's strict behavior for every existing manifest via a back-compat constructor) and a new `tolerateAllTaints` parameter on `Scheduler.eligibleNodes` that skips the taint-filter stage entirely when set -- `DaemonSetReconciler` passes `spec.tolerateAllTaints()` straight through. `DaemonSetManifestParser` parses the new top-level `tolerateAllTaints:` YAML field (defaulting `false`), and `ApiServer.withArtifactSha256`'s field-by-field DaemonSetSpec reconstruction (used on both PUT admission and rollback) was fixed to carry the field forward rather than silently resetting it to `false` on every rollback -- a real bug this change would otherwise have introduced. Deliberately opt-in rather than an unconditional default: unlike Kubernetes, where a DaemonSet's baseline tolerations cover only a handful of built-in system taints, every Gimlé taint is an operator-declared tenant reservation, so bypassing one must be a deliberate, visible per-DaemonSet choice, not silent. `Scheduler.place` (used by Deployment/Job/StatefulSet) is untouched -- only `eligibleNodes`, DaemonSet's own placement path, gained the parameter.
-- **Confidence**: High
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`eligibleNodes`, `filterByTaint`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`withArtifactSha256`, `daemonSetStatus`), `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`
-- **Test coverage**: `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value` (confirmed to fail against the pre-fix `withArtifactSha256`).
-- **Gherkin scenario**:
-  ```gherkin
-  Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be.
-  Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node.
-  Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false.
+  Given a defined Greeting kind; When an instance with an unknown spec field, an out-of-bounds value, or a missing tenant is submitted; Then each is rejected with a 400.
+  Given an applied instance omitting a defaulted field; Then the stored spec carries the default and generation 1; When the identical manifest is re-applied; Then the generation is still 1; When the spec changes; Then the generation becomes 2.
   ```
 
 #### GIMLE-669 — Node-death instance eviction is throttled against the deployment's own DisruptionBudget
@@ -5409,6 +5440,36 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a config key with multiple versions; When POST .../rollback names an earlier version; Then that version's content becomes current as a brand-new version, and every other version's own data is left untouched.
   Given a config key deleted and later recreated; When a new version is written; Then its version number continues counting up from the ledger's own highest, never restarting at 1.
   Given an encrypted config entry; When it is written or deleted; Then no version is stamped -- versioning covers only the plaintext path.
+  ```
+
+#### GIMLE-674 — Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)
+
+- **Category**: Self-healing / Resilience
+- **User story**: As a platform operator, I want a StatefulSet index or DaemonSet node instance that crashes on every restart to be backed off and eventually rescheduled, the same way a Deployment replica already is via HealthReconciler, so that a bad artifact wedges only that one workload's healing instead of leaving OrderedReady (or a DaemonSet node's own assignment) stuck forever with no automated recovery.
+- **Status**: Complete. `StatefulSetReconciler`'s OrderedReady scan and `DaemonSetReconciler`'s per-node eviction pass previously only ever checked `isReady` (the node's own heartbeat reporting `ready=true`), never `lifecycleState`, so an index/node instance the worker reported `FAILED` sat there forever: nothing but a rolling-update version mismatch or an eligibility change ever removed an existing assignment, unlike a Deployment replica, which `HealthReconciler` already reschedules through an exponential, capped restart budget. Fixed via a new `WorkloadCrashLoopBackoff` (`gimle-controlplane`), the StatefulSet/DaemonSet-keyed counterpart of `HealthReconciler`'s own bookkeeping -- backed by a new persisted `WorkloadHealthState` record (`gimle-mimir`, full `StateStore`/`StateSnapshot`/`DomainCodec`/`StateMutation`/`RaftCodec`/`StoreReader`/`StoreRpc`/`StoreCodec`/`StoreClient`/`StoreNode` plumbing keyed by `(workloadKind, workloadName, slot, tenantId)`, deliberately separate from Deployment's own `ReconcilerInstanceState` since a StatefulSet and Deployment can share a name and a DaemonSet's slot is a node id, not an `int` instance index). `StatefulSetReconciler`'s ordered scan now checks each present index for a `FAILED` observation before checking readiness: a crash-looping index is backed off and, once the delay elapses, released for the ordinary missing-index path to re-place on the same sticky node; OrderedReady itself is preserved exactly -- a permanently-failed index is never skipped past, the scan simply stops at it, same as any other not-yet-ready index. `DaemonSetReconciler`'s eviction pass does the same for a still-eligible node's crash-looping instance, releasing its stale assignment so the same tick's placement pass re-adds a fresh one to the very same node -- there is nowhere else for a DaemonSet assignment to go. Both give up permanently (mirroring `HealthReconciler`'s own posture exactly) once the restart budget is exhausted, leaving the stale, still-`FAILED` assignment in place forever and appending a durable `TRANSITION_FAILED` `InstanceEvent`, rather than retrying in a tight loop.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`
+- **Test coverage**: `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot` (extended for `WorkloadHealthState`).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck.
+  Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node.
+  Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again.
+  ```
+
+#### GIMLE-675 — DaemonSet opt-in taint toleration (tolerateAllTaints)
+
+- **Category**: Multi-tenancy / Self-healing
+- **User story**: As a platform operator, I want a genuinely cluster-wide DaemonSet (a log shipper, a node exporter) to be able to opt into covering every node -- including ones an operator has tainted for a specific tenant -- so a DaemonSet, the one workload kind that exists specifically to run on every eligible node, is not permanently blocked from 100% node coverage in a cluster with any tenant-reserved nodes.
+- **Status**: Complete. `Scheduler.eligibleNodes` -- the only placement path `DaemonSetReconciler` uses -- ran the identical taint filter a Deployment/StatefulSet replica goes through, with no way for a DaemonSet to opt out: an untenanted DaemonSet (the common case for a cluster-wide daemon) could never be placed on any tainted node at all, regardless of intent. Fixed via a new `DaemonSetSpec.tolerateAllTaints` boolean (default `false`, preserving today's strict behavior for every existing manifest via a back-compat constructor) and a new `tolerateAllTaints` parameter on `Scheduler.eligibleNodes` that skips the taint-filter stage entirely when set -- `DaemonSetReconciler` passes `spec.tolerateAllTaints()` straight through. `DaemonSetManifestParser` parses the new top-level `tolerateAllTaints:` YAML field (defaulting `false`), and `ApiServer.withArtifactSha256`'s field-by-field DaemonSetSpec reconstruction (used on both PUT admission and rollback) was fixed to carry the field forward rather than silently resetting it to `false` on every rollback -- a real bug this change would otherwise have introduced. Deliberately opt-in rather than an unconditional default: unlike Kubernetes, where a DaemonSet's baseline tolerations cover only a handful of built-in system taints, every Gimlé taint is an operator-declared tenant reservation, so bypassing one must be a deliberate, visible per-DaemonSet choice, not silent. `Scheduler.place` (used by Deployment/Job/StatefulSet) is untouched -- only `eligibleNodes`, DaemonSet's own placement path, gained the parameter.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`eligibleNodes`, `filterByTaint`), `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`withArtifactSha256`, `daemonSetStatus`), `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`
+- **Test coverage**: `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value` (confirmed to fail against the pre-fix `withArtifactSha256`).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be.
+  Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node.
+  Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false.
   ```
 
 ### gimle-fafnir
@@ -5751,21 +5812,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely.
   ```
 
-#### GIMLE-662 — SecretMap batch handlers signal partial failure via HTTP status and CLI exit code
-
-- **Category**: Secrets / CLI parity
-- **User story**: As a platform operator running gimle secretmap set/replace/rollback/seal in a CI pipeline, I want the process to exit nonzero when any key in the batch fails, so a script gating on exit status (`gimle secretmap seal ... || fail`) actually catches a failed secret rollout instead of silently proceeding past it.
-- **Status**: Complete. FafnirServer's handlePutSecretMap (set), handleReplaceSecretMap (replace), handleRollbackSecretMap's Applied case, and handleSealSecretMap all unconditionally responded HTTP 200 regardless of how many per-key SecretMapKeyResult entries in the batch carried an error -- a batch that failed every single key was indistinguishable, at the HTTP layer, from one that fully succeeded. Fixed on two levels: FafnirServer now responds 207 Multi-Status (via a new secretMapBatchStatus helper shared by all four handlers) the moment any key's result carries an error, 200 only when every key succeeded -- forwarded byte-for-byte through ApiServer's existing SecretMap proxy with no proxy change needed. The actually load-bearing fix is in gimle-cli's SecretMapCommand: set, replace, rollback, and seal now inspect the parsed results array after printing it (207 remains in the 2xx range, so client.expectSuccess alone would never have caught this) and throw CliException -- nonzero exit -- via a new shared failIfAnyKeyErrored helper if any entry carries an error, always after the results are already printed so the operator still sees exactly which key(s) failed and why.
-- **Confidence**: High
-- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`secretMapBatchStatus`, `handlePutSecretMap`, `handleReplaceSecretMap`, `handleRollbackSecretMap`, `handleSealSecretMap`), `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`failIfAnyKeyErrored`, `set`, `replace`, `rollback`, `seal`)
-- **Test coverage**: `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s existing per-key-failure tests updated to assert 207 (confirmed to fail against the pre-fix 200); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result` (confirmed to fail against the pre-fix code -- exit 0 with the failure only visible in the printed table), `#secretmap_replace_with_one_invalid_key_exits_nonzero`; `ApiServerSecretMapTest`'s existing clean-batch tests re-verified to still return 200 unchanged.
-- **Gherkin scenario**:
-  ```gherkin
-  Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0.
-  Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure.
-  Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed.
-  ```
-
 #### GIMLE-671 — A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version
 
 - **Category**: Secrets / Fafnir
@@ -5779,6 +5825,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Secret soft-deleted with no version specified for undelete; When undelete is called; Then the version that was current at delete time is restored as current again, with no new version minted.
   Given a Secret with multiple versions, soft-deleted; When undelete is called with an explicit earlier version; Then that version's data becomes current, and every other version's own data is left untouched and still readable by number.
   Given a hard-deleted (destroyed) secret; When undelete is called; Then it returns empty -- that data is genuinely gone with no path back.
+  ```
+
+#### GIMLE-677 — SecretMap batch handlers signal partial failure via HTTP status and CLI exit code
+
+- **Category**: Secrets / CLI parity
+- **User story**: As a platform operator running gimle secretmap set/replace/rollback/seal in a CI pipeline, I want the process to exit nonzero when any key in the batch fails, so a script gating on exit status (`gimle secretmap seal ... || fail`) actually catches a failed secret rollout instead of silently proceeding past it.
+- **Status**: Complete. FafnirServer's handlePutSecretMap (set), handleReplaceSecretMap (replace), handleRollbackSecretMap's Applied case, and handleSealSecretMap all unconditionally responded HTTP 200 regardless of how many per-key SecretMapKeyResult entries in the batch carried an error -- a batch that failed every single key was indistinguishable, at the HTTP layer, from one that fully succeeded. Fixed on two levels: FafnirServer now responds 207 Multi-Status (via a new secretMapBatchStatus helper shared by all four handlers) the moment any key's result carries an error, 200 only when every key succeeded -- forwarded byte-for-byte through ApiServer's existing SecretMap proxy with no proxy change needed. The actually load-bearing fix is in gimle-cli's SecretMapCommand: set, replace, rollback, and seal now inspect the parsed results array after printing it (207 remains in the 2xx range, so client.expectSuccess alone would never have caught this) and throw CliException -- nonzero exit -- via a new shared failIfAnyKeyErrored helper if any entry carries an error, always after the results are already printed so the operator still sees exactly which key(s) failed and why.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`secretMapBatchStatus`, `handlePutSecretMap`, `handleReplaceSecretMap`, `handleRollbackSecretMap`, `handleSealSecretMap`), `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java` (`failIfAnyKeyErrored`, `set`, `replace`, `rollback`, `seal`)
+- **Test coverage**: `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s existing per-key-failure tests updated to assert 207 (confirmed to fail against the pre-fix 200); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result` (confirmed to fail against the pre-fix code -- exit 0 with the failure only visible in the printed table), `#secretmap_replace_with_one_invalid_key_exits_nonzero`; `ApiServerSecretMapTest`'s existing clean-batch tests re-verified to still return 200 unchanged.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0.
+  Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure.
+  Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed.
   ```
 
 ### gimle-andvari
@@ -6937,7 +6998,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a SERVICE route naming a control-plane Service with a live ready endpoint, When dispatched, Then the request is proxied verbatim to that endpoint's host:port, resolved through ServiceEndpointCache's own TTL-bounded relay to GET /services/{name}/endpoints; When the Service has no ready endpoint, Then a clear error status is returned, not a silent 200.
   ```
 
-#### GIMLE-664 — Gateway route table reloads on a config change without a restart
+#### GIMLE-679 — Gateway route table reloads on a config change without a restart
 
 - **Category**: Networking
 - **User story**: As a platform operator updating a running gateway's gateway.routes config, I want every already-running gateway instance to pick up the change on its own, so a DaemonSet-deployed fleet of gateway instances doesn't silently split into serving different route tables depending on which ones happen to restart first.
@@ -7036,14 +7097,15 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: CLI
 - **User story**: As an operator debugging a misbehaving instance, I want to see its full lifecycle event history, and cap it to just the most recent entries when a crash loop would otherwise print hundreds of lines.
-- **Status**: Complete, including `--limit N`: since `GET /events` carries no server-side limit parameter of its own (unlike `GET /audit`), the flag truncates the already-newest-first response client-side rather than adding a query-string parameter the server would silently ignore.
+- **Status**: Complete, including `--tenant <id>` and `--limit N`. The store keys an instance's event timeline by the exact `(tenantId, deploymentName, instanceIndex)` triple, never a bare-name search across tenants (`StateStore.listInstanceEvents`), so a tenanted instance's timeline was previously unreachable from this command -- omitting `--tenant` always addressed the untenanted namespace, which for a real tenanted deployment is simply empty. `--tenant` is threaded through as `&tenant=<id>` on `GET /events`, the same `TenantQuery`/`CanICommand` convention every other by-name resource command already uses. `--limit N` still truncates the already-newest-first response client-side, since `GET /events` carries no server-side limit parameter of its own (unlike `GET /audit`).
 - **Confidence**: High
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`events` dispatch passes flags through past the two positional args)
-- **Test coverage**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`
+- **Test coverage**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`, `events_with_tenant_finds_that_tenants_own_timeline`, `events_without_tenant_never_finds_a_tenanted_instances_timeline`, `events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline`
 - **Gherkin scenario**:
   ```gherkin
   Given deployment "orders-service" index 0, When "gimle events orders-service 0", Then GET /events?deployment=orders-service&instance=0 results are printed.
   Given an instance with more lifecycle events than --limit, When "gimle events orders-service 0 --limit 5", Then only the 5 most recent events print.
+  Given a tenanted instance's own lifecycle events; When "gimle events <name> <index> --tenant <id>"; Then that tenant's own timeline is printed, and neither the untenanted namespace nor a different tenant's timeline is ever returned in its place.
   ```
 
 #### GIMLE-378 — Tenant management and quota configuration
@@ -7334,6 +7396,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a command like "secret set default my-secret hunter2" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does.
+  ```
+
+#### GIMLE-663 — CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a resource author, I want `gimle apply/get/delete` to work with my custom kind's own declared names the moment its definition is applied -- `gimle get greetings`, `gimle get gr` -- with tables showing my kind's own declared columns, so the CLI needs no release to learn a new kind.
+- **Status**: Complete. `CustomResourceCommand` (gimle-cli): `gimle kinds` lists the catalog; unrecognized get/delete nouns resolve exact-prefixed-name -> plural -> shortNames from one catalog fetch; `apply -f` routes `kind: KindDefinition` and any dotted kind name; a retryable concurrent-modification 409 is resent a bounded number of times while schema/violator 409s surface immediately; tables render NAME/TENANT/GENERATION plus printColumns via a dotted-path resolver (unresolved path = empty cell); `-o json` emits spec and status verbatim. The `--permission` flag also carries the custom-resource qualifier as an optional fourth segment (`custom_resource:write:acme:custom.Greeting/status`; an empty tenant segment means cluster-wide with a qualifier), so per-kind and status-only grants are expressible from the CLI, not only the raw API.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/CustomResourceCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (custom-kind fallthrough dispatch)
+- **Test coverage**: `CustomResourceCommandTest` (gimle-cli): noun resolution order, bounded retry exhaustion surfacing the conflict, immediate surfacing of non-retryable 409s, printColumns rendering, kinds listing. `GimleCliTest#set_role_carries_a_custom_resource_qualifier_through_to_the_stored_role` (qualifier round-trip through the real API).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a defined Greeting kind declaring plural "greetings" and shortName "gr"; When `gimle get greetings` or `gimle get gr` runs; Then the same instances render with the definition's own printColumns.
   ```
 
 #### GIMLE-665 — Single-resource CLI verbs reject more than one positional argument instead of silently truncating
@@ -8430,6 +8505,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API.
   Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value.
   Given an instance detail page shows a real workerId, When the operator clicks "Worker metrics" or "Worker traces", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing.
+  ```
+
+#### GIMLE-664 — Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a platform operator, I want a read-only console screen listing each defined kind's instances with its own declared columns, and a detail pane showing spec and status side by side with the generation/observedGeneration pair visible, so I can see at a glance whether each operator has caught up.
+- **Status**: Complete. `gimle-console`: `CustomResourcesRepository` (Http over `/kinddefinitions` + `/resources/{kind}`, Mock for tests), `useCustomResourcesStore` (Zustand), and the `/custom-resources` route -- a kind picker, an instance table rendering NAME/TENant/GENERATION plus printColumns via the same dotted-path resolution the CLI uses, a caught-up/behind/no-status operator badge, and a YAML-rendered spec/status detail pane. Deliberately read-only; authoring stays in the CLI.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/routes/custom-resources.tsx`, `gimle-console/src/repositories/customResources.ts`, `gimle-console/src/repositories/http/customResources.ts`, `gimle-console/src/stores/useCustomResourcesStore.ts`
+- **Test coverage**: Vitest: `customResources.test.ts` (Mock), `http/customResources.test.ts` (routes/encoding/error propagation), `useCustomResourcesStore.test.ts` (load/select/refresh/error surfacing), `-custom-resources.test.ts` (dotted-path resolver and YAML rendering).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a defined kind with instances; When the Custom Resources screen loads; Then the kind picker lists the kind and its table renders the declared printColumns; When an instance row is opened; Then spec and status render side by side with the caught-up signal.
   ```
 
 ### gimle-fafnir-console

@@ -22,8 +22,13 @@ import java.util.Map;
  *   gimle get cronjobs [name]
  *   gimle get daemonsets [name]
  *   gimle get statefulsets [name]
- *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or
- *                                     ArtifactSet, read from the file itself)
+ *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
+ *                                     ArtifactSet, KindDefinition, or any defined custom kind,
+ *                                     read from the file itself)
+ *   gimle kinds
+ *   gimle get &lt;custom-kind|plural|shortName&gt; [name] [--tenant &lt;id&gt;]
+ *   gimle delete &lt;custom-kind|plural|shortName&gt; &lt;name&gt; [--tenant &lt;id&gt;]
+ *   gimle delete kinddefinition &lt;kind&gt;
  *   gimle delete deployment &lt;name&gt;
  *   gimle delete job &lt;name&gt;
  *   gimle delete cronjob &lt;name&gt;
@@ -44,7 +49,7 @@ import java.util.Map;
  *   gimle uncordon &lt;nodeId&gt;
  *   gimle taint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle untaint &lt;nodeId&gt; &lt;tenantId&gt;
- *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--limit N]
+ *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--tenant &lt;id&gt;] [--limit N]
  *   gimle get services [name]
  *   gimle set service &lt;name&gt; (--deployment &lt;name&gt; [--deployment ...] | --external-name &lt;host&gt;) --port N [--target-port N] [--session-affinity]
  *                             [--tenant &lt;id&gt;]
@@ -100,7 +105,7 @@ import java.util.Map;
  *   gimle artifact delete &lt;moduleId&gt; &lt;version&gt;
  *   gimle logs &lt;target&gt; [--category=CAT] [--follow|-f] [--since=&lt;cursor&gt;]
  *   gimle get roles [name]
- *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;] [--permission ...]
+ *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;[:&lt;qualifier&gt;]] [--permission ...]
  *   gimle delete role &lt;name&gt;
  *   gimle get rolebindings [id]
  *   gimle set rolebinding &lt;id&gt; --subject user:&lt;name&gt;|group:&lt;name&gt; --role &lt;name&gt;
@@ -207,6 +212,7 @@ public final class GimleCli {
     ControlPlaneClient client = new ControlPlaneClient(server);
     switch (verb) {
       case "apply" -> handleApply(rest, client, output, out, err);
+      case "kinds" -> new CustomResourceCommand(client, output, out).kinds();
       case "get" -> handleGet(rest, client, output, out);
       case "set" -> handleSet(rest, client, output, out);
       case "delete" -> handleDelete(rest, client, output, out);
@@ -258,7 +264,13 @@ public final class GimleCli {
       case "DaemonSet" -> new DaemonSetsCommand(client, output, out).apply(args, err);
       case "StatefulSet" -> new StatefulSetsCommand(client, output, out).apply(args, err);
       case "ArtifactSet" -> new ArtifactSetCommand(client, output, out).apply(args);
-      case String other -> throw new CliException("unknown manifest kind: " + other);
+      case "KindDefinition" ->
+          new CustomResourceCommand(client, output, out).applyKindDefinition(args, err);
+      // No client-side "unknown manifest kind" hard error any more: an unrecognized kind routes
+      // to the generic custom-resource PUT, and whether it names a defined kind is decided
+      // server-side, where the definition catalog lives -- an undefined one comes back as a 400
+      // carrying that catalog.
+      case String other -> new CustomResourceCommand(client, output, out).apply(other, args, err);
     }
   }
 
@@ -306,7 +318,8 @@ public final class GimleCli {
   private static void handleEvents(
       List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
     if (args.size() < 2) {
-      throw new CliException("usage: gimle events <deploymentName> <instanceIndex> [--limit N]");
+      throw new CliException(
+          "usage: gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]");
     }
     new EventsCommand(client, output, out)
         .run(args.get(0), args.get(1), args.subList(2, args.size()));
@@ -430,8 +443,28 @@ public final class GimleCli {
       case "role", "roles" -> new RolesCommand(client, output, out).get(rest);
       case "rolebinding", "rolebindings" -> new RoleBindingsCommand(client, output, out).get(rest);
       case "account", "accounts" -> new AccountsCommand(client, output, out).get(rest);
-      default -> throw new CliException("unknown resource: " + noun);
+      // Custom kinds fall through only after every built-in noun above failed to match, resolved
+      // against the live definition catalog: exact prefixed kind name, then a definition's
+      // declared plural, then its shortNames.
+      default -> {
+        CustomResourceCommand command = new CustomResourceCommand(client, output, out);
+        command
+            .resolveKind(noun)
+            .ifPresentOrElse(
+                kindName -> command.get(kindName, rest),
+                () -> {
+                  throw unknownResource(noun);
+                });
+      }
     }
+  }
+
+  private static CliException unknownResource(String noun) {
+    return new CliException(
+        "unknown resource: "
+            + noun
+            + " -- not a built-in resource, and no KindDefinition matches it by kind name,"
+            + " plural, or short name (see 'gimle kinds')");
   }
 
   private static void handleSet(
@@ -482,7 +515,20 @@ public final class GimleCli {
           new RoleBindingsCommand(client, output, out).delete(requireOne(rest, "rolebinding"));
       case "account", "accounts" ->
           new AccountsCommand(client, output, out).delete(requireOne(rest, "account"));
-      default -> throw new CliException("unknown resource for 'delete': " + noun);
+      case "kinddefinition", "kinddefinitions" ->
+          new CustomResourceCommand(client, output, out)
+              .deleteKindDefinition(requireOne(rest, "kinddefinition"));
+      // The same custom-kind fallthrough handleGet takes, over the identical noun resolution.
+      default -> {
+        CustomResourceCommand command = new CustomResourceCommand(client, output, out);
+        command
+            .resolveKind(noun)
+            .ifPresentOrElse(
+                kindName -> command.delete(kindName, rest),
+                () -> {
+                  throw unknownResource(noun);
+                });
+      }
     }
   }
 
@@ -523,6 +569,7 @@ public final class GimleCli {
       case "delete" ->
           noun == null ? DELETE_USAGE : DELETE_NOUN_USAGE.getOrDefault(noun, DELETE_USAGE);
       case "apply" -> APPLY_USAGE;
+      case "kinds" -> KINDS_USAGE;
       case "secret", "secrets" -> SecretCommand.usage();
       case "configmap", "configmaps" -> ConfigMapCommand.usage();
       case "secretmap", "secretmaps" -> SecretMapCommand.usage();
@@ -567,7 +614,8 @@ public final class GimleCli {
         config <tenantId>
         roles [name]
         rolebindings [id]
-        accounts [username]""";
+        accounts [username]
+        <custom-kind|plural|shortName> [name] [--tenant <id>]   (any kind defined via 'gimle kinds')""";
 
   private static final Map<String, String> GET_NOUN_USAGE =
       Map.ofEntries(
@@ -641,7 +689,7 @@ public final class GimleCli {
           Map.entry("config", "usage: gimle set config <tenantId> <key> <value> [--encrypted]"),
           Map.entry(
               "role",
-              "usage: gimle set role <name> --permission <resource>:<verb>[:<tenant>]"
+              "usage: gimle set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]]"
                   + " [--permission ...]"),
           Map.entry(
               "rolebinding",
@@ -666,7 +714,9 @@ public final class GimleCli {
         config
         role
         rolebinding
-        account""";
+        account
+        kinddefinition <kind>
+        <custom-kind|plural|shortName> <name> [--tenant <id>]""";
 
   private static final Map<String, String> DELETE_NOUN_USAGE =
       Map.ofEntries(
@@ -694,13 +744,20 @@ public final class GimleCli {
           Map.entry("rolebinding", "usage: gimle delete rolebinding <id>"),
           Map.entry("rolebindings", "usage: gimle delete rolebinding <id>"),
           Map.entry("account", "usage: gimle delete account <username>"),
-          Map.entry("accounts", "usage: gimle delete account <username>"));
+          Map.entry("accounts", "usage: gimle delete account <username>"),
+          Map.entry("kinddefinition", "usage: gimle delete kinddefinition <kind>"),
+          Map.entry("kinddefinitions", "usage: gimle delete kinddefinition <kind>"));
 
   private static final String APPLY_USAGE =
       """
       usage: gimle apply -f <file.yaml>
 
-      kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or ArtifactSet, read from the manifest file's own 'kind:' field""";
+      kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any
+      defined custom kind (see 'gimle kinds'), read from the manifest file's own 'kind:' field""";
+
+  private static final String KINDS_USAGE =
+      "usage: gimle kinds   (lists every KindDefinition: name, scope, declared names, instance"
+          + " count)";
 
   private static final String CRONJOB_USAGE = "usage: gimle cronjob trigger <name>";
 
@@ -731,7 +788,7 @@ public final class GimleCli {
           + " <name>";
 
   private static final String EVENTS_USAGE =
-      "usage: gimle events <deploymentName> <instanceIndex> [--limit N]";
+      "usage: gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]";
 
   private static String requireOne(List<String> args, String what) {
     if (args.isEmpty()) {
@@ -795,7 +852,11 @@ public final class GimleCli {
           get cronjobs [name]
           get daemonsets [name]
           get statefulsets [name]
-          apply -f <file.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, or ArtifactSet, read from the file itself)
+          apply -f <file.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any defined custom kind, read from the file itself)
+          kinds
+          get <custom-kind|plural|shortName> [name] [--tenant <id>]
+          delete <custom-kind|plural|shortName> <name> [--tenant <id>]
+          delete kinddefinition <kind>
           delete deployment <name>
           delete job <name>
           delete cronjob <name>
@@ -818,7 +879,7 @@ public final class GimleCli {
           untaint <nodeId> <tenantId>
           volume list
           volume destroy <statefulSet> <instanceIndex> --node <nodeId>
-          events <deploymentName> <instanceIndex> [--limit N]
+          events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
           get services [name]
           set service <name> (--deployment <name> [--deployment ...] | --external-name <host>) --port N [--target-port N] [--session-affinity]
                               [--tenant <id>]
@@ -872,7 +933,7 @@ public final class GimleCli {
                      [--since <epochMillis>] [--limit N]
           logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
           get roles [name]
-          set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
+          set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] [--permission ...]
           delete role <name>
           get rolebindings [id]
           set rolebinding <id> --subject user:<name>|group:<name> --role <name>

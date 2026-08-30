@@ -67,6 +67,13 @@ for the full per-verb flag list. `NetworkPolicySpec` is the one exception: its o
 never optional to begin with (it restricts exactly one tenant's own traffic), so `--tenant`/
 `?tenant=` is required, not defaulted, on its `get`/`delete` routes specifically.
 
+One deliberate asymmetry to know about: **deleting a tenant does not cascade its resources**.
+`gimle delete tenant <id>` removes the tenant object (and its quota) itself; the tenant's
+workloads, [custom resources](./custom-kinds.md), config, and secrets remain stored under the
+now-dead tenant id — still listable and deletable by an operator, just no longer admitting new
+instances against a quota. Clean up a tenant's resources before (or after) deleting the tenant;
+nothing is silently destroyed, and nothing becomes unreachable.
+
 ## Plaintext transport is explicitly single-tenant
 
 Plaintext (the default transport, see [Transport security](./transport-security.md)) gives every

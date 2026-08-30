@@ -106,7 +106,14 @@ class StoreCodecTest {
 
   private static Role role() {
     return new Role(
-        "viewer", Set.of(new Permission(ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty())));
+        "viewer",
+        Set.of(
+            new Permission(ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty(), Optional.empty()),
+            new Permission(
+                ResourceKind.CUSTOM_RESOURCE,
+                Verb.WRITE,
+                Optional.of("tenant-1"),
+                Optional.of("custom.Greeting/status"))));
   }
 
   private static RoleBinding roleBinding() {

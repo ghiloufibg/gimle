@@ -8,6 +8,8 @@ import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -71,6 +73,8 @@ public record StateSnapshot(
     Set<String> revokedCertificateSerials,
     List<WorkloadTokenRecord> workloadTokens,
     Map<String, Set<String>> nodeTaints,
+    List<KindDefinitionSpec> kindDefinitions,
+    List<CustomResource> customResources,
     List<WorkloadHealthState> workloadHealthStates,
     // Console session revocation: username -> the epoch-milli watermark set by that user's last
     // logout. A session token issued at or before its own username's watermark is rejected even
@@ -138,6 +142,8 @@ public record StateSnapshot(
         nodeTaints.entrySet().stream()
             .collect(
                 Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
+    kindDefinitions = List.copyOf(kindDefinitions);
+    customResources = List.copyOf(customResources);
     workloadHealthStates = List.copyOf(workloadHealthStates);
     sessionRevokedBeforeEpochMilli = Map.copyOf(sessionRevokedBeforeEpochMilli);
   }

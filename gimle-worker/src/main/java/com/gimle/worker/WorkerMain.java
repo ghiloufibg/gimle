@@ -18,6 +18,7 @@ import com.gimle.fabric.transport.FabricServer;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.layer.PlatformLayer;
 import com.gimle.module.leak.LeakTracker;
+import com.gimle.module.lifecycle.ControlPlaneRelayClient;
 import com.gimle.module.lifecycle.LifecycleEvent;
 import com.gimle.module.lifecycle.ModuleContext;
 import com.gimle.module.lifecycle.ModuleController;
@@ -243,6 +244,22 @@ public final class WorkerMain {
    * True when this worker was launched purely to populate a JDK AOT cache: it should complete its
    * normal pre-ready boot, send Hello, then exit cleanly rather than enter the receive loop.
    */
+  /** Bridges the worker's own control-channel relay onto the module-facing client shape. */
+  private static ControlPlaneRelayClient relayClient(ControlPlaneRelay relay) {
+    return new ControlPlaneRelayClient() {
+      @Override
+      public ModuleContext.RelayResult read(String path) {
+        return relay.request(path);
+      }
+
+      @Override
+      public ModuleContext.RelayResult putResourceStatus(
+          String kindName, Optional<String> tenantId, String name, String statusJson) {
+        return relay.requestStatusPut(kindName, tenantId, name, statusJson);
+      }
+    };
+  }
+
   private static boolean isAotTrainingMode() {
     return Boolean.getBoolean("gimle.worker.aotTraining");
   }
@@ -355,7 +372,7 @@ public final class WorkerMain {
             sink,
             leakTracker::track,
             fabricRegistry,
-            relay::request,
+            relayClient(relay),
             id ->
                 identityRegistry
                     .lookup(id)

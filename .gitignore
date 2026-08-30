@@ -11,6 +11,10 @@ claudedocs/
 # not under target/, and contains non-.log files the blanket *.log rule above doesn't catch.
 gimle-bootstrap/
 
+# A locally-run node agent's own data root (AOT cache, worker state), written under the launching
+# shell's cwd during a LOCAL_DEV.md-style walkthrough -- runtime state, same reasoning as above.
+gimle-data/
+
 # Claude Code's own worktree-isolation bookkeeping and local settings -- ephemeral harness
 # state, not authored content. Project skills under .claude/skills/ ARE authored content and
 # stay tracked (the un-ignore only works with a wildcard pattern, not a bare directory ignore).

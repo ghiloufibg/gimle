@@ -68,6 +68,8 @@ class RaftLogTest {
         Set.of(), // revokedCertificateSerials
         List.of(), // workloadTokens
         Map.of(), // nodeTaints
+        List.of(), // kindDefinitions
+        List.of(), // customResources
         List.of(), // workloadHealthStates
         Map.of()); // sessionRevokedBeforeEpochMilli
   }
@@ -115,6 +117,8 @@ class RaftLogTest {
         base.revokedCertificateSerials(),
         base.workloadTokens(),
         base.nodeTaints(),
+        base.kindDefinitions(),
+        base.customResources(),
         base.workloadHealthStates(),
         base.sessionRevokedBeforeEpochMilli());
   }

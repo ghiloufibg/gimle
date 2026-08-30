@@ -74,6 +74,14 @@ public final class ControlMessageCodec {
           line("TRACES_SNAPSHOT", escape(m.workerId()), escape(m.ndjsonPayload()));
       case ControlMessage.RelayControlPlaneRead m ->
           line("RELAY_READ", m.correlationId(), escape(m.path()));
+      case ControlMessage.RelayResourceStatusPut m ->
+          line(
+              "RELAY_STATUS_PUT",
+              m.correlationId(),
+              escape(m.kindName()),
+              escape(m.tenantId()),
+              escape(m.name()),
+              escape(m.statusJson()));
       case ControlMessage.InstallModule m ->
           line(
               "INSTALL",
@@ -183,6 +191,13 @@ public final class ControlMessageCodec {
           new ControlMessage.TracesSnapshot(unescape(field(fields, 1)), unescape(field(fields, 2)));
       case "RELAY_READ" ->
           new ControlMessage.RelayControlPlaneRead(field(fields, 1), unescape(field(fields, 2)));
+      case "RELAY_STATUS_PUT" ->
+          new ControlMessage.RelayResourceStatusPut(
+              field(fields, 1),
+              unescape(field(fields, 2)),
+              unescape(field(fields, 3)),
+              unescape(field(fields, 4)),
+              unescape(field(fields, 5)));
       case "INSTALL" ->
           new ControlMessage.InstallModule(
               field(fields, 1),

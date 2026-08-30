@@ -673,12 +673,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | New | Not Covered | — |
 | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | New | Not Covered | — |
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | New | Not Covered | — |
-| GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | New | Not Covered | — |
-| GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | New | Not Covered | — |
-| GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | New | Not Covered | — |
-| GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | New | Not Covered | — |
-| GIMLE-663 | Deleting a Role cascades to every RoleBinding naming it | New | Not Covered | — |
-| GIMLE-664 | Gateway route table reloads on a config change without a restart | New | Not Covered | — |
+| GIMLE-659 | KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued) | New | Covered | `custom-kinds.feature` — "A hosted operator reconciles a defined kind's instances, across a control-plane bounce"; `custom-kinds.feature` — "Defaults are persisted and an identical re-apply never bumps the generation" |
+| GIMLE-660 | Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op | New | Covered | `custom-kinds.feature` — "Admission validates instances against the declared schema and rejects loudly"; `custom-kinds.feature` — "Defaults are persisted and an identical re-apply never bumps the generation" |
+| GIMLE-661 | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | New | Not Covered | — |
+| GIMLE-662 | Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status | New | Covered | `custom-kinds.feature` — "A hosted operator reconciles a defined kind's instances, across a control-plane bounce" |
+| GIMLE-663 | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | New | Not Covered | — |
+| GIMLE-664 | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | New | Not Covered | — |
 | GIMLE-665 | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | New | Not Covered | — |
 | GIMLE-666 | A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event | New | Not Covered | — |
 | GIMLE-667 | Console session logout revokes the session token server-side, not just the client-side cookie | New | Not Covered | — |
@@ -688,6 +688,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-671 | A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version | New | Not Covered | — |
 | GIMLE-672 | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | New | Not Covered | — |
 | GIMLE-673 | Plain Config and ConfigMap entries have version history and rollback, the same as Secrets/SecretMaps | New | Not Covered | — |
+| GIMLE-674 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | New | Not Covered | — |
+| GIMLE-675 | DaemonSet opt-in taint toleration (tolerateAllTaints) | New | Not Covered | — |
+| GIMLE-676 | Background gossip rejoin after a seed-list join startup blip | New | Not Covered | — |
+| GIMLE-677 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | New | Not Covered | — |
+| GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | New | Not Covered | — |
+| GIMLE-679 | Gateway route table reloads on a config change without a restart | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1122,6 +1128,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `BuiltinRolesTest` (template shapes, tenant scoping), `AuthorizerTest` (binding resolution), `ApiServerAuthzTest` (template binding through the real HTTP layer)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`
 
+#### GIMLE-661 — Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only)
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: per-kind least-privilege RBAC over one CUSTOM_RESOURCE resource kind.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises the qualifier end to end: the plaintext `minimal` topology doesn't authenticate principals, so enforcement is only observable under the `mtls` topology. To close: an mtls-topology scenario binding a role qualified `custom.Greeting/status` to the operator's `svc:` principal and asserting its spec write is denied while its status write lands.
+- **Other test coverage (non-Holmgang, informational only)**: `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir)
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tenant/Permission.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`customResourceQualifier`, `requireCustomResource*`)
+
 #### GIMLE-667 — Console session logout revokes the session token server-side, not just the client-side cookie
 
 - **Category**: Security / session management
@@ -1389,6 +1404,17 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: extend the StatefulSet volume scenario to a module declaring two named volumes and assert both directories persist across a rolling update.
 - **Other test coverage (non-Holmgang, informational only)**: `ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest`
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ModuleDescriptor.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`
+
+#### GIMLE-662 — Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: the operator half of custom kinds -- the Galdr SDK poll loop and the typed status-relay write path.)_
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *A hosted operator reconciles a defined kind's instances, across a control-plane bounce*
+  - _Why this counts_: Deploys the real greeting-operator module into a tenant on a running cluster, asserts the applied Greeting's status reports timesSaid matching its spec with observedGeneration caught up to the store's generation, bounces the control plane, asserts the status survives (it lives in the store), then changes the spec and asserts the operator re-converges to the new generation -- the whole hosted-operator loop, real processes end to end.
+- **Other test coverage (non-Holmgang, informational only)**: `GaldrOperatorLoopTest` (gimle-module), `AgentRelayStatusPutTest` (gimle-agent), `ControlPlaneRelayTest` (gimle-worker), `ControlMessageCodecTest` (gimle-core)
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/galdr/GaldrOperatorLoop.java`, `gimle-worker/src/main/java/com/gimle/worker/ControlPlaneRelay.java` (`requestStatusPut`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`handleRelayStatusPut`), `gimle-examples/greeting-operator/src/main/java/com/gimle/examples/greeting/operator/GreetingOperatorHooks.java`
 
 ### gimle-os
 
@@ -2839,7 +2865,20 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`, `#two_tenants_with_an_identically_named_network_policy_never_collide`
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/TenantQuery.java`
 
-#### GIMLE-663 — Deleting a Role cascades to every RoleBinding naming it
+#### GIMLE-659 — KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued)
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: the custom-kinds (Galdr) foundation -- KindDefinition manifests as the CRD analogue.)_
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *A hosted operator reconciles a defined kind's instances, across a control-plane bounce*
+  - _Why this counts_: Applies a real KindDefinition manifest under its bare name against a running cluster's admission surface, asserts acceptance, and asserts GET /kinddefinitions lists the prefix-normalized custom.Greeting -- then the same stored definition keeps serving instances across a control-plane bounce, proving it lives in the store.
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *Defaults are persisted and an identical re-apply never bumps the generation*
+  - _Why this counts_: Re-uses the applied definition for schema-validated instance admission in a second scenario against the same pooled cluster, proving the definition is durably readable by later requests rather than an artifact of one submission.
+- **Other test coverage (non-Holmgang, informational only)**: `GaldrStateStoreTest`, `GaldrCodecTest` (gimle-mimir), `ApiServerCustomKindsTest` (gimle-controlplane), `SchemaValidatorTest` (definition-admission schema rules)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/galdr/KindDefinitionSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/KindDefinitionParser.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/kinddefinitions` routes)
+
+#### GIMLE-678 — Deleting a Role cascades to every RoleBinding naming it
 
 - **Category**: Authorization
 - **Status**: New  _(New requirement: closes FUNC-24 -- a Role's own RoleBindings previously survived its deletion, sitting inert until a new Role created under the same name silently reactivated them.)_
@@ -3149,15 +3188,6 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit)
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`, `gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java`
 
-#### GIMLE-661 — Background gossip rejoin after a seed-list join startup blip
-
-- **Category**: Networking / Cluster membership
-- **Status**: New  _(New requirement: closes FUNC-43 -- a routine container-startup networking blip during SWIM gossip join could crash the agent process outright (>=2 seeds) or silently, permanently fork a one-node cluster (1 seed). A node now keeps retrying its seed list in the background on every gossip tick until it finds a peer.)_
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.
-- **Other test coverage (non-Holmgang, informational only)**: `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.
-- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`
-
 #### GIMLE-672 — Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one
 
 - **Category**: Service fabric / gossip membership
@@ -3166,6 +3196,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
 - **Other test coverage (non-Holmgang, informational only)**: `ServiceCatalogTest` and `GossipMemberTest` gain new anti-entropy coverage. Full gimle-fabric module suite re-verified (133 tests, 0 failures/errors); the new tests confirmed to fail against the pre-fix code.
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java`, `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`, `gimle-fabric/src/main/java/com/gimle/fabric/cluster/PiggybackExtension.java`, `gimle-fabric/src/main/java/com/gimle/fabric/cluster/SwimMessage.java`
+
+#### GIMLE-676 — Background gossip rejoin after a seed-list join startup blip
+
+- **Category**: Networking / Cluster membership
+- **Status**: New  _(New requirement: closes FUNC-43 -- a routine container-startup networking blip during SWIM gossip join could crash the agent process outright (>=2 seeds) or silently, permanently fork a one-node cluster (1 seed). A node now keeps retrying its seed list in the background on every gossip tick until it finds a peer.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.
+- **Other test coverage (non-Holmgang, informational only)**: `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`
 
 ### gimle-controlplane
 
@@ -3930,23 +3969,18 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `CronJobReconcilerTest#a_firing_that_would_exceed_its_tenants_quota_is_skipped_like_a_missed_firing`; `ApiServerTest#put_a_cronjob_for_an_unknown_tenant_is_rejected`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
 
-#### GIMLE-659 — Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)
+#### GIMLE-660 — Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op
 
-- **Category**: Self-healing / Resilience
-- **Status**: New  _(New requirement: closes the self-healing coverage gap where only Deployment replicas were rescheduled through HealthReconciler's restart-budget backoff -- StatefulSet indices and DaemonSet node instances now get the same crash-loop detection and eventual reschedule.)_
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that deploys a StatefulSet (or DaemonSet) whose module crashes on start, and asserts the instance is eventually rescheduled after backoff, then permanently marked failed once its restart budget is exhausted.
-- **Other test coverage (non-Holmgang, informational only)**: `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`.
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`
-
-#### GIMLE-660 — DaemonSet opt-in taint toleration (tolerateAllTaints)
-
-- **Category**: Multi-tenancy / Self-healing
-- **Status**: New  _(New requirement: closes FUNC-55 -- a DaemonSet had no way to opt out of the same taint filter a Deployment/StatefulSet replica goes through, so it could never cover 100% of nodes in a cluster with any tenant-reserved node. Now an explicit, opt-in tolerateAllTaints field lets a genuinely cluster-wide DaemonSet bypass the taint filter.)_
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that taints a node for one tenant, deploys an untenanted DaemonSet with tolerateAllTaints: true, and asserts the tainted node still receives an assignment.
-- **Other test coverage (non-Holmgang, informational only)**: `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`.
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: admission-side schema validation and generation semantics for custom resources.)_
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *Admission validates instances against the declared schema and rejects loudly*
+  - _Why this counts_: Submits real manifests with an unknown spec field, an out-of-bounds repeat, and a missing tenant against a running cluster's admission surface and asserts each clean 400 -- the loud-rejection contract, exercised end to end.
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *Defaults are persisted and an identical re-apply never bumps the generation*
+  - _Why this counts_: Applies an instance omitting the defaulted tone, reads back the persisted default and generation 1, re-applies the identical manifest asserting the generation stays 1, then changes the spec and asserts the bump to 2 -- persisted defaults and no-op re-apply against the real store.
+- **Other test coverage (non-Holmgang, informational only)**: `SchemaValidatorTest` (gimle-mimir), `ApiServerCustomKindsTest` (gimle-controlplane), `CustomResourceCommandTest` (gimle-cli bounded 409 retry)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/galdr/SchemaValidator.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/CustomResourceManifestParser.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutCustomResource`)
 
 #### GIMLE-669 — Node-death instance eviction is throttled against the deployment's own DisruptionBudget
 
@@ -3974,6 +4008,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
 - **Other test coverage (non-Holmgang, informational only)**: `ConfigVersionStoreTest` (new) and expanded `ConfigMapStoreTest` cover listVersions ordering including the delete tombstone, rollback to an earlier version, rollback to a deleted version, rollback of an unknown version, delete-of-never-existed idempotency, and version numbering across a delete-then-recreate cycle. `ApiServerTest` gains end-to-end HTTP route coverage for both /config/* and /configmaps/*. Full gimle-controlplane/gimle-cli suites re-verified.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/config/ConfigVersionStore.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/configmap/ConfigMapStore.java` (`listVersions`, `rollback`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/config/*/versions`, `/config/*/rollback`, `/configmaps/*/versions`, `/configmaps/*/rollback`), `gimle-cli/src/main/java/com/gimle/cli/ConfigCommand.java`, `ConfigMapCommand.java` (`versions`, `rollback`)
+
+#### GIMLE-674 — Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)
+
+- **Category**: Self-healing / Resilience
+- **Status**: New  _(New requirement: closes the self-healing coverage gap where only Deployment replicas were rescheduled through HealthReconciler's restart-budget backoff -- StatefulSet indices and DaemonSet node instances now get the same crash-loop detection and eventual reschedule.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that deploys a StatefulSet (or DaemonSet) whose module crashes on start, and asserts the instance is eventually rescheduled after backoff, then permanently marked failed once its restart budget is exhausted.
+- **Other test coverage (non-Holmgang, informational only)**: `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`
+
+#### GIMLE-675 — DaemonSet opt-in taint toleration (tolerateAllTaints)
+
+- **Category**: Multi-tenancy / Self-healing
+- **Status**: New  _(New requirement: closes FUNC-55 -- a DaemonSet had no way to opt out of the same taint filter a Deployment/StatefulSet replica goes through, so it could never cover 100% of nodes in a cluster with any tenant-reserved node. Now an explicit, opt-in tolerateAllTaints field lets a genuinely cluster-wide DaemonSet bypass the taint filter.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that taints a node for one tenant, deploys an untenanted DaemonSet with tolerateAllTaints: true, and asserts the tainted node still receives an assignment.
+- **Other test coverage (non-Holmgang, informational only)**: `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`
 
 ### gimle-fafnir
 
@@ -4237,15 +4289,6 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC)
 - **Source location(s)**: `SecretMapStore#replaceAll`, `FafnirServer#handleReplaceSecretMap`, `SecretMapCommand#replace`
 
-#### GIMLE-662 — SecretMap batch handlers signal partial failure via HTTP status and CLI exit code
-
-- **Category**: Secrets / CLI parity
-- **Status**: New  _(New requirement: closes FUNC-02 -- a SecretMap batch (set/replace/rollback/seal) that failed every single key still returned HTTP 200 and exit code 0, invisible to any CI script gating on exit status.)_
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that submits a SecretMap batch with one deliberately invalid key alongside a valid one and asserts the resulting exit code (via gimle-cli) is nonzero while the valid key's own write still lands.
-- **Other test coverage (non-Holmgang, informational only)**: `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`.
-- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`, `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`
-
 #### GIMLE-671 — A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version
 
 - **Category**: Secrets / Fafnir
@@ -4254,6 +4297,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
 - **Other test coverage (non-Holmgang, informational only)**: `SecretStoreTest` covers undelete restoring the current version, restoring an explicit older version without touching the newer version's own data, undeleting a never-written key (empty), undeleting a hard-deleted secret (empty, not revived), and rejecting an unknown version number. `FafnirServerTest`/`FafnirServerSealTest` cover the HTTP route and the highestVersion wire-shape change. Full gimle-fafnir/gimle-cli/gimle-controlplane suites re-verified.
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/SecretStore.java` (`undelete`, `Meta.highestVersion`, `currentVersion`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`POST /secrets/{tenantId}/{key}/undelete`), `gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`secret undelete`)
+
+#### GIMLE-677 — SecretMap batch handlers signal partial failure via HTTP status and CLI exit code
+
+- **Category**: Secrets / CLI parity
+- **Status**: New  _(New requirement: closes FUNC-02 -- a SecretMap batch (set/replace/rollback/seal) that failed every single key still returned HTTP 200 and exit code 0, invisible to any CI script gating on exit status.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that submits a SecretMap batch with one deliberately invalid key alongside a valid one and asserts the resulting exit code (via gimle-cli) is nonzero while the valid key's own write still lands.
+- **Other test coverage (non-Holmgang, informational only)**: `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`.
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`, `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`
 
 ### gimle-andvari
 
@@ -4964,7 +5016,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `GatewayDispatcherTest` (6 relevant tests: host-constrained match, host mismatch 404, host-unconstrained route unaffected, fallthrough to host-unconstrained sibling, service route with no ready endpoint returns a clear error, cached endpoint list reused across dispatcher instances); `ServiceEndpointCacheTest` (11 tests: resolution, relay path, TTL caching/staleness fallback, error handling)
 - **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayDispatcher.java`, `gimle-gateway/src/main/java/com/gimle/gateway/GatewayRoute.java`, `gimle-gateway/src/main/java/com/gimle/gateway/GatewayRouteConfig.java`, `gimle-gateway/src/main/java/com/gimle/gateway/ServiceEndpointCache.java`
 
-#### GIMLE-664 — Gateway route table reloads on a config change without a restart
+#### GIMLE-679 — Gateway route table reloads on a config change without a restart
 
 - **Category**: Networking
 - **Status**: New  _(New requirement: closes FUNC-62 -- gateway.routes was parsed once at instance startup with no reload path, so a config update reached only whichever DaemonSet instances happened to restart.)_
@@ -5032,10 +5084,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-377 — Instance lifecycle event timeline
 
 - **Category**: CLI
-- **Status**: Modified  _(Added `--limit N`, applied client-side against the already-newest-first response.)_
+- **Status**: Modified  _(Added `--tenant <id>` -- closing a real gap the P6 Galdr watchers pass surfaced (finding F2): the CLI had no way to address a tenanted instance's own event timeline at all, since the store keys it by the exact (tenantId, deploymentName, instanceIndex) triple rather than a bare-name search. `--limit N` from the prior revision is unchanged.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Instance lifecycle event timeline".
-- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`
+- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`, `events_with_tenant_finds_that_tenants_own_timeline`, `events_without_tenant_never_finds_a_tenanted_instances_timeline`, `events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline`
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/EventsCommand.java`
 
 #### GIMLE-378 — Tenant management and quota configuration
@@ -5235,6 +5287,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang Cucumber scenario exercises CLI error-message shape -- this is a CLI-internal usability property, covered at the gimle-cli unit level and by a real end-user distribution pass, not a cluster-behavior scenario Holmgang's own scope covers.
 - **Other test coverage (non-Holmgang, informational only)**: `FlagsTest` (unit-level); a real end-user pass against the built `gimle-cli` distribution archive
 - **Source location(s)**: `Flags#parse`, every `Flags.parse` call site across `gimle-cli`
+
+#### GIMLE-663 — CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: the CLI surface over custom kinds.)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang scenarios drive the control plane's HTTP API directly, not the gimle-cli binary, so the CLI's own resolution/retry/rendering isn't exercised by any .feature scenario. To close: a scenario invoking the real CLI (the way RagnarokCliIT shells out) for kinds/get/apply against a running cluster.
+- **Other test coverage (non-Holmgang, informational only)**: `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip)
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/CustomResourceCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (custom-kind fallthrough dispatch)
 
 #### GIMLE-665 — Single-resource CLI verbs reject more than one positional argument instead of silently truncating
 
@@ -5988,6 +6049,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Covered by real Java unit tests (AgentMainTest, DomainCodecTest) and gimle-console Vitest repository tests, but no Holmgang Cucumber .feature scenario exercises the console UI's worker-id deep link against a real running cluster yet -- gimle-smoke-tests' GreeterClusterTopologyIT also runs the console's Playwright suite but does not yet assert this specific link.
 - **Other test coverage (non-Holmgang, informational only)**: AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged).
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-console/src/types/index.ts`, `components/process-picker.tsx`, `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`, `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`
+
+#### GIMLE-664 — Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: the web console's read-only custom-resources surface.)_
+- **Coverage**: Not Covered
+- **Gap note**: Console behavior isn't observable from a Holmgang .feature scenario (per the coverage rule, Vitest/Playwright don't count). To close: extend the console's Playwright E2E (driven by gimle-smoke-tests) to assert the screen against a live cluster, or add a Holmgang scenario asserting the bundled console serves the route.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests)
+- **Source location(s)**: `gimle-console/src/routes/custom-resources.tsx`, `gimle-console/src/repositories/customResources.ts`, `gimle-console/src/repositories/http/customResources.ts`, `gimle-console/src/stores/useCustomResourcesStore.ts`
 
 ### gimle-fafnir-console
 
@@ -7118,7 +7188,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**550 of 673 requirements are Not Covered.**
+**553 of 679 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7156,7 +7226,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-310 | gimle-andvari | Defense-in-depth authorization (independent re-check, `ResourceKind.ARTIFACT`) | Authorization | `AndvariServerTlsTest#a_forwarded_principal_wins_over_the_peer_certificate_and_is_re_checked`, `an_ungrouped_certificate_is_refused_by_the_independent_rbac_check` |
 | GIMLE-311 | gimle-andvari | Module-scoped permission grants | Authorization | `AndvariServerTlsTest` — `a_module_scoped_permission_grants_access_to_only_that_module`, `a_module_scoped_permission_cannot_list_the_full_catalog` |
 | GIMLE-312 | gimle-andvari | Node pull-only artifact access, scoped to active assignments | Authorization | `AndvariServerTlsTest#a_nodes_group_certificate_may_pull_only_coordinates_assigned_to_its_node` |
-| GIMLE-663 | gimle-mimir | Deleting a Role cascades to every RoleBinding naming it | Authorization | `StateStoreTest#remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role`; `AuthorizerTest#a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding`; `ApiServerAuthzTest#deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal`; `GimleCliTest#deleting_a_role_cascades_to_every_rolebinding_that_named_it`. |
+| GIMLE-678 | gimle-mimir | Deleting a Role cascades to every RoleBinding naming it | Authorization | `StateStoreTest#remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role`; `AuthorizerTest#a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding`; `ApiServerAuthzTest#deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal`; `GimleCliTest#deleting_a_role_cascades_to_every_rolebinding_that_named_it`. |
 | GIMLE-256 | gimle-controlplane | Console session login/logout/session cookie flow | Authorization / API Server | `ApiServerAuthzTest#login_session_and_logout_round_trip_with_no_client_certificate_at_all` |
 | GIMLE-251 | gimle-controlplane | WRITE/DELETE decisions durably audited (opt-in READ auditing) | Authorization / Internal-Infra | `ApiServerAuthzTest#configured_read_resource_kinds_are_audited_allowed_and_denied_reads` |
 | GIMLE-257 | gimle-controlplane | Login throttling (address + username keyed) | Authorization / Internal-Infra | Exercised via shared `LoginThrottle` mechanics (`FafnirObservabilityTest`'s equivalent); no isolated ApiServer-level test method found |
@@ -7184,7 +7254,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-374 | gimle-cli | DaemonSet resource management | CLI | `GimleCliTest.apply_then_get_daemonsets_round_trips`, `apply_then_delete_removes_the_daemonset` |
 | GIMLE-375 | gimle-cli | StatefulSet resource management | CLI | `GimleCliTest.apply_then_get_statefulsets_round_trips`, `apply_then_delete_removes_the_statefulset` |
 | GIMLE-376 | gimle-cli | Node inventory and cordon/uncordon | CLI | `GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field` |
-| GIMLE-377 | gimle-cli | Instance lifecycle event timeline | CLI | `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails` |
+| GIMLE-377 | gimle-cli | Instance lifecycle event timeline | CLI | `GimleCliTest.events_with_no_limit_returns_every_event`, `events_with_limit_caps_the_returned_list`, `events_with_a_non_numeric_limit_fails`, `events_with_tenant_finds_that_tenants_own_timeline`, `events_without_tenant_never_finds_a_tenanted_instances_timeline`, `events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline` |
 | GIMLE-378 | gimle-cli | Tenant management and quota configuration | CLI | `GimleCliTest.set_tenant_then_get_tenants_round_trips`, `set_and_delete_tenant_produce_real_json_under_json_output_format` |
 | GIMLE-379 | gimle-cli | Tenant plain configuration key/value store | CLI | `GimleCliTest.set_and_get_config_round_trips`, `set_and_delete_config_produce_real_json_under_json_output_format` |
 | GIMLE-382 | gimle-cli | Log viewing and live tailing | CLI | NONE recorded in the baseline |
@@ -7259,6 +7329,9 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
 | GIMLE-632 | gimle-console | Toast notifications render app-wide (write failures, and every other toast call site) | Console | No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged |
+| GIMLE-661 | gimle-core | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir) |
+| GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip) |
+| GIMLE-664 | gimle-console | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests) |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-636 | gimle-examples | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation. |
 | GIMLE-638 | gimle-examples | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | Documentation / Examples | Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module. |
@@ -7424,11 +7497,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-657 | gimle-controlplane | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | `ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer. |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
 | GIMLE-656 | gimle-controlplane | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically. |
-| GIMLE-660 | gimle-controlplane | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`. |
+| GIMLE-675 | gimle-controlplane | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`. |
 | GIMLE-654 | gimle-mimir | Tenant-scoped resource keying (compound (tenantId, name) store key) | Multi-tenancy / State store | `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`, `#two_tenants_with_an_identically_named_network_policy_never_collide` |
 | GIMLE-655 | gimle-os | Tenant-scoped StatefulSet persistent volume identity | Multi-tenancy / Storage | `LocalDiskVolumeManagerTest#two_tenants_with_an_identically_named_statefulset_get_distinct_directories`, `#destroying_one_tenants_volume_leaves_another_tenants_identically_named_one_intact`, `#list_allocated_reports_the_owning_tenant_for_a_tenanted_volume` |
-| GIMLE-664 | gimle-gateway | Gateway route table reloads on a config change without a restart | Networking | `GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`. |
-| GIMLE-661 | gimle-fabric | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`. |
+| GIMLE-679 | gimle-gateway | Gateway route table reloads on a config change without a restart | Networking | `GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`. |
+| GIMLE-676 | gimle-fabric | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`. |
 | GIMLE-623 | gimle-fabric | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit) |
 | GIMLE-626 | gimle-agent | Bifrost locality-preferred forwarding and ClientIP session affinity | Networking / Services | `BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints) |
 | GIMLE-628 | gimle-controlplane | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Networking / Services | `ServiceSpecTest`, `ApiServerServicesTest` (round trip, mixed-shape rejection), `SkaldServerTest` (CNAME and SRV external answers) |
@@ -7544,7 +7617,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-218 | gimle-controlplane | DaemonSet eligible-node enumeration (`eligibleNodes`) | Scheduling | `SchedulerTest` — `eligible_nodes_returns_every_node_that_passes_every_filter`, `eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies`; `DaemonSetReconcilerTest#places_an_assignment_on_every_registered_node` |
 | GIMLE-215 | gimle-controlplane | Tier 2/3 node-level tenant isolation | Scheduling / Multi-tenancy | `SchedulerTest` — `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant` |
 | GIMLE-217 | gimle-controlplane | StatefulSet sticky node placement | Scheduling / Orchestration | `SchedulerTest` — `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone` |
-| GIMLE-662 | gimle-fafnir | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`. |
+| GIMLE-677 | gimle-fafnir | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`. |
 | GIMLE-671 | gimle-fafnir | A soft-deleted flat Secret can be undeleted, restoring the current or an explicit earlier version | Secrets / Fafnir | `SecretStoreTest` covers undelete restoring the current version, restoring an explicit older version without touching the newer version's own data, undeleting a never-written key (empty), undeleting a hard-deleted secret (empty, not revived), and rejecting an unknown version number. `FafnirServerTest`/`FafnirServerSealTest` cover the HTTP route and the highestVersion wire-shape change. Full gimle-fafnir/gimle-cli/gimle-controlplane suites re-verified. |
 | GIMLE-588 | gimle-fafnir | SecretMap store and `/secretmaps/*` API | Secrets Management | `SecretMapCodecTest`, `SecretMapStoreTest` (including a concurrency regression test mirroring `ConfigMapStoreTest`'s own), `FafnirServerSecretMapTest` (HTTP-level CRUD, authz, and reserved-prefix rejection). |
 | GIMLE-589 | gimle-mimir | Deployment `secretMapRefs` field with admission-time collision rejection | Secrets Management | `SecretMapRefsPluginTest` covers empty refs, no-tenant rejection, unknown-name rejection, cross-SecretMap key collision, SecretMap-vs-ConfigMap collision, SecretMap-vs-flat-config collision, and SecretMap-vs-flat-secret collision. `DomainCodecTest`/`DeploymentManifestParserTest` cover the wire/YAML round trip. |
@@ -7569,7 +7642,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-667 | gimle-core | Console session logout revokes the session token server-side, not just the client-side cookie | Security / session management | `ApiServerAuthzTest#login_session_and_logout_round_trip_with_no_client_certificate_at_all` (the old, already-issued cookie is rejected with 401 when replayed after logout), `FafnirServerAuthTest`/`AndvariServerAuthTest`'s own equivalent round-trip tests (a revoked cookie resolves to the plaintext-mode "anonymous" carve-out rather than "admin"), `SessionTokensTest` (issued-at round-trips through verify). Full suite across gimle-core/gimle-mimir/gimle-controlplane/gimle-fafnir/gimle-andvari re-verified. |
 | GIMLE-122 | gimle-agent | Vessel crash respawn resets probe initial-delay clock | Self-Healing | NONE recorded in the baseline |
 | GIMLE-631 | gimle-controlplane | StatefulSet/DaemonSet machine-level self-healing on node death | Self-Healing | `StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest` |
-| GIMLE-659 | gimle-controlplane | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`. |
+| GIMLE-674 | gimle-controlplane | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`. |
 | GIMLE-613 | gimle-skald | DNS-over-TCP fallback with UDP truncation | Service Discovery / DNS | `SkaldServerTest` (TCP round-trip, sequential queries per connection, TCP NXDOMAIN), `DnsCodecTest` (TC flag) |
 | GIMLE-620 | gimle-skald | SRV records and headless A answers | Service Discovery / DNS | `SkaldServerTest` (headless A, SRV per endpoint, dashed endpoint names) |
 | GIMLE-181 | gimle-fabric | Same-Worker Direct Invocation Tier | Service Fabric | `FabricServiceRegistryTest#same_worker_tier_wins_over_same_machine_and_remote` |

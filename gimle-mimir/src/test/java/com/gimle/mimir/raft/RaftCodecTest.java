@@ -22,6 +22,13 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.galdr.KindNames;
+import com.gimle.mimir.galdr.KindScope;
+import com.gimle.mimir.galdr.PrintColumn;
+import com.gimle.mimir.galdr.SchemaField;
+import com.gimle.mimir.galdr.SchemaModel;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -347,6 +354,26 @@ class RaftCodecTest {
                     "orders#node-1", "ab12cd", Optional.of("tenant-1"), "orders", 9_999L)),
             Map.of("node-1", Set.of("tenant-1", "tenant-2")),
             List.of(
+                new KindDefinitionSpec(
+                    "custom.Greeting",
+                    KindScope.TENANT,
+                    "a greeting this cluster should keep saying",
+                    new KindNames(Optional.of("greetings"), List.of("gr")),
+                    new SchemaModel(
+                        List.of(
+                            new SchemaField.StringField(
+                                "message", true, Optional.empty(), OptionalInt.empty()))),
+                    List.of(new PrintColumn("MESSAGE", "spec.message")),
+                    2L)),
+            List.of(
+                new CustomResource(
+                    "custom.Greeting",
+                    "hello-world",
+                    Optional.of("tenant-1"),
+                    new byte[] {123, 125},
+                    new byte[0],
+                    1L)),
+            List.of(
                 new WorkloadHealthState(
                     "StatefulSet", "orders", "0", 2, 100L, 200L, true, false, Optional.empty())),
             Map.of("alice", 42_000L));
@@ -386,6 +413,16 @@ class RaftCodecTest {
     assertEquals(snapshot.workloadTokens(), decoded.workloadTokens());
     assertEquals(snapshot.jobRunSummaries(), decoded.jobRunSummaries());
     assertEquals(snapshot.nodeTaints(), decoded.nodeTaints());
+    assertEquals(snapshot.kindDefinitions(), decoded.kindDefinitions());
+    assertEquals(1, decoded.customResources().size());
+    CustomResource decodedResource = decoded.customResources().get(0);
+    CustomResource originalResource = snapshot.customResources().get(0);
+    assertEquals(originalResource.kindName(), decodedResource.kindName());
+    assertEquals(originalResource.name(), decodedResource.name());
+    assertEquals(originalResource.tenantId(), decodedResource.tenantId());
+    assertEquals(originalResource.generation(), decodedResource.generation());
+    assertArrayEquals(originalResource.specJson(), decodedResource.specJson());
+    assertArrayEquals(originalResource.statusJson(), decodedResource.statusJson());
     assertEquals(
         snapshot.sessionRevokedBeforeEpochMilli(), decoded.sessionRevokedBeforeEpochMilli());
   }

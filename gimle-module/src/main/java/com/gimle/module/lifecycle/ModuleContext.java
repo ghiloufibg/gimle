@@ -106,7 +106,24 @@ public interface ModuleContext {
    */
   RelayResult relayControlPlaneRead(String path);
 
-  /** The outcome of one {@link #relayControlPlaneRead} call: an HTTP status code and body. */
+  /**
+   * The one write the relay mechanism carries: reports {@code statusJson} as the status
+   * sub-document of one custom resource, forwarded by this instance's agent as {@code PUT
+   * /resources/{kindName}/{name}/status} under the instance's own workload-identity token and
+   * checked server-side against the separate {@code {kind}/status} RBAC grant -- status only, never
+   * spec; there is no relay surface for a module to alter desired state. {@code tenantId} is the
+   * resource's own tenant (empty for a Cluster-scoped kind), carried typed rather than spliced into
+   * a path, so the agent can validate every segment before assembling the real request. Never
+   * throws for an ordinary failure, the same values-not-exceptions posture {@link
+   * #relayControlPlaneRead} has.
+   */
+  RelayResult reportResourceStatus(
+      String kindName, Optional<String> tenantId, String name, String statusJson);
+
+  /**
+   * The outcome of one {@link #relayControlPlaneRead}/{@link #reportResourceStatus} call: an HTTP
+   * status code and body.
+   */
   record RelayResult(int status, String body) {}
 
   /**

@@ -7,11 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.fafnir.FafnirClient;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.Json;
 import com.gimle.fafnir.FafnirCrypto;
 import com.gimle.fafnir.FafnirServer;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreTransport;
@@ -34,6 +37,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -182,6 +186,34 @@ class GimleCliTest {
             .POST(HttpRequest.BodyPublishers.ofString(Json.write(body)))
             .build(),
         HttpResponse.BodyHandlers.discarding());
+  }
+
+  /**
+   * Appends one instance event under a real tenant, bypassing both the CLI and the HTTP relay --
+   * {@code POST /nodes/{id}/events} always resolves its own tenant from the deployment's current
+   * {@code InstanceAssignment} (there is no way to declare one over that route), and this test
+   * class runs no real scheduler to produce one. Proposing {@link
+   * StateMutation.AppendInstanceEvent} directly against the real store is the shortest path to a
+   * tenanted event: {@code storeClient} is the same collaborator {@link #startServer} wires the
+   * real {@link ApiServer} against.
+   */
+  private void appendTenantedInstanceEvent(
+      String tenantId,
+      String deploymentName,
+      int instanceIndex,
+      String id,
+      long occurredAtEpochMilli) {
+    storeClient.propose(
+        new StateMutation.AppendInstanceEvent(
+            Optional.of(tenantId),
+            new InstanceEvent(
+                id,
+                deploymentName,
+                instanceIndex,
+                InstanceEventKind.ACTIVE,
+                "instance became active",
+                Optional.empty(),
+                occurredAtEpochMilli)));
   }
 
   private Path writeManifest(String name, int replicas) throws IOException {
@@ -700,6 +732,30 @@ class GimleCliTest {
 
     assertEquals(1, run("get", "rolebinding", "b1"));
     assertEquals(1, run("get", "rolebinding", "b2"));
+  }
+
+  @Test
+  void set_role_carries_a_custom_resource_qualifier_through_to_the_stored_role() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "role",
+            "greeting-operator-role",
+            "--permission",
+            "custom_resource:write:acme:custom.Greeting/status",
+            "--permission",
+            // Empty tenant segment: cluster-wide, still kind-qualified.
+            "custom_resource:read::custom.Greeting");
+    assertEquals(0, setExit, () -> stderr());
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "role", "greeting-operator-role");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"qualifier\":\"custom.Greeting/status\""), stdout());
+    assertTrue(stdout().contains("\"tenantScope\":\"acme\""), stdout());
+    assertTrue(stdout().contains("\"qualifier\":\"custom.Greeting\""), stdout());
+
+    run("delete", "role", "greeting-operator-role");
   }
 
   @Test
@@ -1404,6 +1460,39 @@ class GimleCliTest {
     int exit = run("events", "orders-service", "0", "--limit", "not-a-number");
     assertEquals(1, exit);
     assertTrue(stderr().contains("--limit"));
+  }
+
+  // ---- events --tenant -- previously unsupported by this command ----
+
+  @Test
+  void events_with_tenant_finds_that_tenants_own_timeline() throws Exception {
+    appendTenantedInstanceEvent("acme", "orders-service", 0, "evt-acme", 1_000L);
+
+    int exit = run("events", "orders-service", "0", "--tenant", "acme");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("evt-acme"));
+  }
+
+  @Test
+  void events_without_tenant_never_finds_a_tenanted_instances_timeline() throws Exception {
+    appendTenantedInstanceEvent("acme", "orders-service", 0, "evt-acme-only", 1_000L);
+
+    int exit = run("events", "orders-service", "0");
+    assertEquals(0, exit, stderr());
+    // The untenanted namespace is a distinct bucket, not a bare-name search across tenants --
+    // omitting --tenant must never surface another tenant's own timeline.
+    assertFalse(stdout().contains("evt-acme-only"));
+  }
+
+  @Test
+  void events_with_the_wrong_tenant_does_not_see_a_different_tenants_timeline() throws Exception {
+    appendTenantedInstanceEvent("acme", "orders-service", 0, "evt-acme-private", 1_000L);
+    appendTenantedInstanceEvent("beta", "orders-service", 0, "evt-beta-private", 2_000L);
+
+    int exit = run("events", "orders-service", "0", "--tenant", "beta");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("evt-beta-private"));
+    assertFalse(stdout().contains("evt-acme-private"));
   }
 
   // ---- apply -f against an unreadable manifest file -- the reason is stated, not just the path

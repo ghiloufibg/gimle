@@ -624,3 +624,58 @@ export interface ArtifactVersion {
   /** "JAR" (a single module/vessel jar) or "BUNDLE" (a zipped multi-file application). */
   kind?: "JAR" | "BUNDLE";
 }
+
+/* ---------------------------------------------------------------------------
+ * Custom kinds (Galdr)
+ * ------------------------------------------------------------------------ */
+
+/**
+ * One field of a KindDefinition's declared schema, as `/kinddefinitions` renders it. The shape is
+ * recursive (`items` for lists, `fields` for objects) and deliberately loose beyond the common
+ * attributes -- the console renders the schema, it never re-validates against it.
+ */
+export interface KindSchemaField {
+  name: string;
+  type: "string" | "int" | "double" | "bool" | "enum" | "list" | "object";
+  required?: boolean;
+  default?: unknown;
+  values?: string[];
+  min?: number;
+  max?: number;
+  maxLength?: number;
+  minItems?: number;
+  maxItems?: number;
+  items?: KindSchemaField;
+  fields?: KindSchemaField[];
+}
+
+/** A dotted path into an instance's spec/status, rendered as an extra table column. */
+export interface KindPrintColumn {
+  name: string;
+  path: string;
+}
+
+/** One stored KindDefinition -- the schema teaching the cluster a new kind. */
+export interface KindDefinitionSummary {
+  kindName: string;
+  scope: "Tenant" | "Cluster";
+  description: string;
+  names: { plural?: string; shortNames: string[] };
+  schema: { fields: KindSchemaField[] };
+  printColumns: KindPrintColumn[];
+  generation: number;
+}
+
+/**
+ * One custom resource with spec and status side by side. `status` is null until an operator first
+ * reports one -- the server never fabricates an empty object -- and `tenantId` is absent for an
+ * instance of a Cluster-scoped kind.
+ */
+export interface CustomResourceItem {
+  kind: string;
+  name: string;
+  tenantId?: string;
+  generation: number;
+  spec: Record<string, unknown>;
+  status: Record<string, unknown> | null;
+}

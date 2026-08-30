@@ -46,18 +46,42 @@ class MutationBatchTest {
   @Test
   void a_batch_applies_its_mutations_in_order() {
     StateStore store = new StateStore();
-    // Put then remove the same key: only in-order application leaves the store empty.
+    // Put then remove the same key: only in-order application leaves the store empty. Unguarded
+    // mutations on purpose -- a guarded member's precondition is checked against the pre-batch
+    // state (see Batch#applyTo), so a batch must never carry a guarded member that depends on an
+    // earlier member's own effect.
     new StateMutation.Batch(
             List.of(
-                new StateMutation.PutDeployment(deployment("orders-service"), 0),
-                new StateMutation.PutDeployment(deployment("catalog-service"), 0),
-                new StateMutation.RemoveDeployment(Optional.empty(), "orders-service", 1)))
+                new StateMutation.PutService(service("orders-service")),
+                new StateMutation.PutService(service("catalog-service")),
+                new StateMutation.RemoveService(Optional.empty(), "orders-service")))
         .applyTo(store);
 
-    assertTrue(store.getDeployment(Optional.empty(), "orders-service").isEmpty());
+    assertTrue(store.getService(Optional.empty(), "orders-service").isEmpty());
     assertEquals(
-        Optional.of(deployment("catalog-service")),
-        store.getDeployment(Optional.empty(), "catalog-service"));
+        Optional.of(service("catalog-service")),
+        store.getService(Optional.empty(), "catalog-service"));
+  }
+
+  @Test
+  void one_stale_guarded_member_rejects_the_whole_batch_before_anything_applies() {
+    StateStore store = new StateStore();
+    MutationOutcome outcome =
+        new StateMutation.Batch(
+                List.of(
+                    new StateMutation.PutService(service("orders-service")),
+                    // Stale CAS: nothing exists, so expecting generation 1 must reject.
+                    new StateMutation.PutDeployment(deployment("catalog-service"), 1)))
+            .applyTo(store);
+
+    assertTrue(outcome instanceof MutationOutcome.Rejected);
+    // The unguarded member ahead of the stale one must not have applied either.
+    assertTrue(store.getService(Optional.empty(), "orders-service").isEmpty());
+  }
+
+  private static com.gimle.mimir.manifest.ServiceSpec service(String name) {
+    return new com.gimle.mimir.manifest.ServiceSpec(
+        name, Optional.empty(), java.util.Set.of(name), 8080, 8080);
   }
 
   @Test

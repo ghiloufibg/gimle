@@ -102,6 +102,83 @@ class ControlPlaneRelayTest {
 
   @Test
   @Timeout(10)
+  void a_status_put_rides_the_same_pending_future_machinery_as_a_read() throws Exception {
+    socketPath = freshSocketPath();
+    server = ServerSocketChannel.open(StandardProtocolFamily.UNIX);
+    server.bind(UnixDomainSocketAddress.of(socketPath));
+
+    try (ControlChannelClient channel =
+            ControlChannelClient.connectWithRetry(
+                UnixDomainSocketAddress.of(socketPath),
+                Duration.ofMillis(20),
+                Duration.ofSeconds(5));
+        SocketChannel serverSide = server.accept()) {
+      ControlPlaneRelay relay = new ControlPlaneRelay(channel, Duration.ofSeconds(30));
+      Thread relayReader = Thread.ofVirtual().start(() -> pumpRelayResults(channel, relay));
+
+      try {
+        CompletableFuture<ModuleContext.RelayResult> future =
+            CompletableFuture.supplyAsync(
+                () ->
+                    relay.requestStatusPut(
+                        "custom.Greeting",
+                        java.util.Optional.of("acme"),
+                        "hello",
+                        "{\"timesSaid\":3}"));
+
+        ControlMessage sent = readMessage(serverSide);
+        assertTrue(sent instanceof ControlMessage.RelayResourceStatusPut);
+        ControlMessage.RelayResourceStatusPut request =
+            (ControlMessage.RelayResourceStatusPut) sent;
+        assertEquals("custom.Greeting", request.kindName());
+        assertEquals("acme", request.tenantId());
+        assertEquals("hello", request.name());
+        assertEquals("{\"timesSaid\":3}", request.statusJson());
+
+        writeMessage(
+            serverSide,
+            new ControlMessage.RelayControlPlaneResult(request.correlationId(), 200, "{}"));
+
+        ModuleContext.RelayResult result = future.get(9, java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(200, result.status());
+        assertEquals("{}", result.body());
+        assertEquals(0, relay.pendingRequestCount(), "the completed entry must not linger");
+      } finally {
+        relayReader.interrupt();
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_cluster_scoped_status_put_carries_an_empty_tenant_field_on_the_wire() throws Exception {
+    socketPath = freshSocketPath();
+    server = ServerSocketChannel.open(StandardProtocolFamily.UNIX);
+    server.bind(UnixDomainSocketAddress.of(socketPath));
+
+    try (ControlChannelClient channel =
+            ControlChannelClient.connectWithRetry(
+                UnixDomainSocketAddress.of(socketPath),
+                Duration.ofMillis(20),
+                Duration.ofSeconds(5));
+        SocketChannel serverSide = server.accept()) {
+      ControlPlaneRelay relay = new ControlPlaneRelay(channel, Duration.ofMillis(200));
+
+      // Nothing ever answers, so the caller times out -- this test only cares what went on the
+      // wire for an empty tenant, and that the timeout path cleans up for a status put too.
+      ModuleContext.RelayResult result =
+          relay.requestStatusPut("custom.ClusterThing", java.util.Optional.empty(), "wide", "{}");
+
+      assertEquals(504, result.status());
+      assertEquals(0, relay.pendingRequestCount(), "a timed-out entry must not leak");
+      ControlMessage sent = readMessage(serverSide);
+      assertTrue(sent instanceof ControlMessage.RelayResourceStatusPut);
+      assertEquals("", ((ControlMessage.RelayResourceStatusPut) sent).tenantId());
+    }
+  }
+
+  @Test
+  @Timeout(10)
   void no_response_times_out_and_still_leaves_no_pending_entry() throws Exception {
     socketPath = freshSocketPath();
     server = ServerSocketChannel.open(StandardProtocolFamily.UNIX);

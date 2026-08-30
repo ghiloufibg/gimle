@@ -106,7 +106,10 @@ public final class BuiltinRoles {
           ResourceKind.NETWORK_POLICY,
           ResourceKind.LIMIT_RANGE,
           ResourceKind.LOGS,
-          ResourceKind.ARTIFACT);
+          ResourceKind.ARTIFACT,
+          // A tenant's own custom-resource instances -- an unqualified grant, so it covers every
+          // custom kind's specs (never status writes; see Permission's own qualifier javadoc).
+          ResourceKind.CUSTOM_RESOURCE);
 
   /** What the edit template may write and delete on top of everything view can read. */
   private static final Set<ResourceKind> TENANT_EDITABLE_KINDS =
@@ -120,7 +123,8 @@ public final class BuiltinRoles {
           ResourceKind.SECRET,
           ResourceKind.SECRETMAP,
           ResourceKind.SERVICE,
-          ResourceKind.ARTIFACT);
+          ResourceKind.ARTIFACT,
+          ResourceKind.CUSTOM_RESOURCE);
 
   /** The tenant guardrails only the admin template may write and delete. */
   private static final Set<ResourceKind> TENANT_ADMIN_ONLY_KINDS =

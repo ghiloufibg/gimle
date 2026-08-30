@@ -28,6 +28,13 @@ import com.gimle.core.vessel.VesselFileMount;
 import com.gimle.core.vessel.VesselProbeSpec;
 import com.gimle.core.vessel.VesselProbes;
 import com.gimle.core.vessel.VesselSpec;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.galdr.KindNames;
+import com.gimle.mimir.galdr.KindScope;
+import com.gimle.mimir.galdr.PrintColumn;
+import com.gimle.mimir.galdr.SchemaField;
+import com.gimle.mimir.galdr.SchemaModel;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.ConcurrencyPolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
@@ -64,6 +71,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -968,13 +976,15 @@ public final class DomainCodec {
     out.writeUTF(permission.resource().name());
     out.writeUTF(permission.verb().name());
     writeOptionalString(out, permission.tenantScope());
+    writeOptionalString(out, permission.qualifier());
   }
 
   public static Permission readPermission(DataInputStream in) throws IOException {
     ResourceKind resource = ResourceKind.valueOf(in.readUTF());
     Verb verb = Verb.valueOf(in.readUTF());
     Optional<String> tenantScope = readOptionalString(in);
-    return new Permission(resource, verb, tenantScope);
+    Optional<String> qualifier = readOptionalString(in);
+    return new Permission(resource, verb, tenantScope, qualifier);
   }
 
   public static void writeRoleBinding(DataOutputStream out, RoleBinding binding)
@@ -1306,6 +1316,227 @@ public final class DomainCodec {
 
   public static Optional<Duration> readOptionalDuration(DataInputStream in) throws IOException {
     return readOptionalLong(in).map(Duration::ofSeconds);
+  }
+
+  // ---- custom kinds (Galdr) ----
+
+  private static final byte SCHEMA_FIELD_STRING = 0;
+  private static final byte SCHEMA_FIELD_INT = 1;
+  private static final byte SCHEMA_FIELD_DOUBLE = 2;
+  private static final byte SCHEMA_FIELD_BOOL = 3;
+  private static final byte SCHEMA_FIELD_ENUM = 4;
+  private static final byte SCHEMA_FIELD_LIST = 5;
+  private static final byte SCHEMA_FIELD_OBJECT = 6;
+
+  public static void writeKindDefinitionSpec(DataOutputStream out, KindDefinitionSpec spec)
+      throws IOException {
+    out.writeUTF(spec.kindName());
+    out.writeUTF(spec.scope().name());
+    out.writeUTF(spec.description());
+    writeOptionalString(out, spec.names().plural());
+    out.writeInt(spec.names().shortNames().size());
+    for (String shortName : spec.names().shortNames()) {
+      out.writeUTF(shortName);
+    }
+    writeSchemaFieldList(out, spec.schema().fields());
+    out.writeInt(spec.printColumns().size());
+    for (PrintColumn column : spec.printColumns()) {
+      out.writeUTF(column.name());
+      out.writeUTF(column.path());
+    }
+    out.writeLong(spec.generation());
+  }
+
+  public static KindDefinitionSpec readKindDefinitionSpec(DataInputStream in) throws IOException {
+    String kindName = in.readUTF();
+    KindScope scope = KindScope.valueOf(in.readUTF());
+    String description = in.readUTF();
+    Optional<String> plural = readOptionalString(in);
+    int shortNameCount = in.readInt();
+    List<String> shortNames = new ArrayList<>();
+    for (int i = 0; i < shortNameCount; i++) {
+      shortNames.add(in.readUTF());
+    }
+    List<SchemaField> fields = readSchemaFieldList(in);
+    int printColumnCount = in.readInt();
+    List<PrintColumn> printColumns = new ArrayList<>();
+    for (int i = 0; i < printColumnCount; i++) {
+      printColumns.add(new PrintColumn(in.readUTF(), in.readUTF()));
+    }
+    long generation = in.readLong();
+    return new KindDefinitionSpec(
+        kindName,
+        scope,
+        description,
+        new KindNames(plural, shortNames),
+        new SchemaModel(fields),
+        printColumns,
+        generation);
+  }
+
+  private static void writeSchemaFieldList(DataOutputStream out, List<SchemaField> fields)
+      throws IOException {
+    out.writeInt(fields.size());
+    for (SchemaField field : fields) {
+      writeSchemaField(out, field);
+    }
+  }
+
+  private static List<SchemaField> readSchemaFieldList(DataInputStream in) throws IOException {
+    int count = in.readInt();
+    List<SchemaField> fields = new ArrayList<>();
+    for (int i = 0; i < count; i++) {
+      fields.add(readSchemaField(in));
+    }
+    return fields;
+  }
+
+  /**
+   * Recursive over {@link SchemaField.ListField}'s item schema and {@link
+   * SchemaField.ObjectField}'s nested fields -- recursion depth is bounded by the schema depth cap
+   * {@code SchemaValidator} enforces before any schema is ever stored, so a legitimately-stored
+   * schema can never overflow this reader's stack.
+   */
+  private static void writeSchemaField(DataOutputStream out, SchemaField field) throws IOException {
+    switch (field) {
+      case SchemaField.StringField f -> {
+        out.writeByte(SCHEMA_FIELD_STRING);
+        out.writeUTF(f.name());
+        out.writeBoolean(f.required());
+        writeOptionalString(out, f.defaultValue());
+        writeOptionalInt(out, f.maxLength());
+      }
+      case SchemaField.IntField f -> {
+        out.writeByte(SCHEMA_FIELD_INT);
+        out.writeUTF(f.name());
+        out.writeBoolean(f.required());
+        writeOptionalLongValue(out, f.defaultValue());
+        writeOptionalLongValue(out, f.min());
+        writeOptionalLongValue(out, f.max());
+      }
+      case SchemaField.DoubleField f -> {
+        out.writeByte(SCHEMA_FIELD_DOUBLE);
+        out.writeUTF(f.name());
+        out.writeBoolean(f.required());
+        writeOptionalDouble(out, f.defaultValue());
+        writeOptionalDouble(out, f.min());
+        writeOptionalDouble(out, f.max());
+      }
+      case SchemaField.BoolField f -> {
+        out.writeByte(SCHEMA_FIELD_BOOL);
+        out.writeUTF(f.name());
+        out.writeBoolean(f.required());
+        out.writeBoolean(f.defaultValue().isPresent());
+        if (f.defaultValue().isPresent()) {
+          out.writeBoolean(f.defaultValue().get());
+        }
+      }
+      case SchemaField.EnumField f -> {
+        out.writeByte(SCHEMA_FIELD_ENUM);
+        out.writeUTF(f.name());
+        out.writeBoolean(f.required());
+        writeOptionalString(out, f.defaultValue());
+        out.writeInt(f.values().size());
+        for (String value : f.values()) {
+          out.writeUTF(value);
+        }
+      }
+      case SchemaField.ListField f -> {
+        out.writeByte(SCHEMA_FIELD_LIST);
+        out.writeUTF(f.name());
+        writeSchemaField(out, f.items());
+        writeOptionalInt(out, f.minItems());
+        writeOptionalInt(out, f.maxItems());
+      }
+      case SchemaField.ObjectField f -> {
+        out.writeByte(SCHEMA_FIELD_OBJECT);
+        out.writeUTF(f.name());
+        writeSchemaFieldList(out, f.fields());
+      }
+    }
+  }
+
+  private static SchemaField readSchemaField(DataInputStream in) throws IOException {
+    byte tag = in.readByte();
+    return switch (tag) {
+      case SCHEMA_FIELD_STRING ->
+          new SchemaField.StringField(
+              in.readUTF(), in.readBoolean(), readOptionalString(in), readOptionalInt(in));
+      case SCHEMA_FIELD_INT ->
+          new SchemaField.IntField(
+              in.readUTF(),
+              in.readBoolean(),
+              readOptionalLongValue(in),
+              readOptionalLongValue(in),
+              readOptionalLongValue(in));
+      case SCHEMA_FIELD_DOUBLE ->
+          new SchemaField.DoubleField(
+              in.readUTF(),
+              in.readBoolean(),
+              readOptionalDouble(in),
+              readOptionalDouble(in),
+              readOptionalDouble(in));
+      case SCHEMA_FIELD_BOOL -> {
+        String name = in.readUTF();
+        boolean required = in.readBoolean();
+        Optional<Boolean> defaultValue =
+            in.readBoolean() ? Optional.of(in.readBoolean()) : Optional.empty();
+        yield new SchemaField.BoolField(name, required, defaultValue);
+      }
+      case SCHEMA_FIELD_ENUM -> {
+        String name = in.readUTF();
+        boolean required = in.readBoolean();
+        Optional<String> defaultValue = readOptionalString(in);
+        int valueCount = in.readInt();
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < valueCount; i++) {
+          values.add(in.readUTF());
+        }
+        yield new SchemaField.EnumField(name, required, defaultValue, values);
+      }
+      case SCHEMA_FIELD_LIST -> {
+        String name = in.readUTF();
+        SchemaField items = readSchemaField(in);
+        yield new SchemaField.ListField(name, items, readOptionalInt(in), readOptionalInt(in));
+      }
+      case SCHEMA_FIELD_OBJECT -> {
+        String name = in.readUTF();
+        yield new SchemaField.ObjectField(name, readSchemaFieldList(in));
+      }
+      default -> throw new IllegalArgumentException("unknown schema field tag: " + tag);
+    };
+  }
+
+  private static void writeOptionalLongValue(DataOutputStream out, OptionalLong value)
+      throws IOException {
+    out.writeBoolean(value.isPresent());
+    if (value.isPresent()) {
+      out.writeLong(value.getAsLong());
+    }
+  }
+
+  private static OptionalLong readOptionalLongValue(DataInputStream in) throws IOException {
+    return in.readBoolean() ? OptionalLong.of(in.readLong()) : OptionalLong.empty();
+  }
+
+  public static void writeCustomResource(DataOutputStream out, CustomResource resource)
+      throws IOException {
+    out.writeUTF(resource.kindName());
+    out.writeUTF(resource.name());
+    writeOptionalString(out, resource.tenantId());
+    writeBytes(out, resource.specJson());
+    writeBytes(out, resource.statusJson());
+    out.writeLong(resource.generation());
+  }
+
+  public static CustomResource readCustomResource(DataInputStream in) throws IOException {
+    String kindName = in.readUTF();
+    String name = in.readUTF();
+    Optional<String> tenantId = readOptionalString(in);
+    byte[] specJson = readBytes(in);
+    byte[] statusJson = readBytes(in);
+    long generation = in.readLong();
+    return new CustomResource(kindName, name, tenantId, specJson, statusJson, generation);
   }
 
   public static void writeBytes(DataOutputStream out, byte[] bytes) throws IOException {

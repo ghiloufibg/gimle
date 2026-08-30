@@ -2911,6 +2911,8 @@ public final class AgentMain {
                   });
         } else if (message instanceof ControlMessage.RelayControlPlaneRead relayRead) {
           handleRelayRead(relayRead, connection, httpClient, baseUrl, instance, nodeId);
+        } else if (message instanceof ControlMessage.RelayResourceStatusPut statusPut) {
+          handleRelayStatusPut(statusPut, connection, httpClient, baseUrl, instance, nodeId);
         }
       }
       log.info("instance {} control channel closed", key);
@@ -3009,6 +3011,91 @@ public final class AgentMain {
    * the separate {@code ".."} rejection at the call site above.
    */
   private static final Pattern RELAYABLE_PATH_PATTERN = Pattern.compile("^/[!-~&&[^#]]*$");
+
+  /**
+   * One path segment of a relayed status put's typed fields (kind name, resource name, tenant id):
+   * allowed identifier characters only, and never a whole segment that resolves as "here"/"up a
+   * level" -- the same shape discipline {@link #RELAY_WHITELIST_PATTERN} applies, enforced per
+   * field since this agent assembles the real path itself.
+   */
+  private static final Pattern STATUS_PUT_SEGMENT_PATTERN =
+      Pattern.compile("^(?!\\.{1,2}$)[a-zA-Z0-9._-]+$");
+
+  /**
+   * The one write the relay mechanism carries: a hosted operator's status report for one custom
+   * resource, assembled into {@code PUT /resources/{kind}/{name}/status} by this agent from the
+   * message's typed fields -- never a raw worker-supplied path -- and always under the instance's
+   * own workload-identity token, so the control plane's separate {@code {kind}/status} RBAC grant
+   * is what actually decides. An untenanted instance has no workload identity to mint (the mint
+   * endpoint refuses it), so it is refused locally: there is no anonymous status-reporting path.
+   */
+  private static void handleRelayStatusPut(
+      ControlMessage.RelayResourceStatusPut request,
+      WorkerConnection connection,
+      HttpClient httpClient,
+      URI baseUrl,
+      SupervisedInstance instance,
+      String nodeId) {
+    if (instance.assigned.tenantId().isEmpty()) {
+      sendRelayResult(
+          connection,
+          request.correlationId(),
+          403,
+          "status reporting requires a workload identity; this instance is untenanted");
+      return;
+    }
+    if (!STATUS_PUT_SEGMENT_PATTERN.matcher(request.kindName()).matches()
+        || !STATUS_PUT_SEGMENT_PATTERN.matcher(request.name()).matches()
+        || (!request.tenantId().isEmpty()
+            && !STATUS_PUT_SEGMENT_PATTERN.matcher(request.tenantId()).matches())) {
+      log.warn(
+          "rejecting malformed status-put fields: kind={} name={} tenant={}",
+          request.kindName(),
+          request.name(),
+          request.tenantId());
+      sendRelayResult(
+          connection, request.correlationId(), 400, "malformed status-put kind/name/tenant field");
+      return;
+    }
+    Optional<String> workloadToken = workloadTokenFor(instance, nodeId, httpClient, baseUrl);
+    if (workloadToken.isEmpty()) {
+      sendRelayResult(
+          connection,
+          request.correlationId(),
+          502,
+          "no workload identity available for this instance; status report refused");
+      return;
+    }
+    String path =
+        "/resources/"
+            + request.kindName()
+            + "/"
+            + request.name()
+            + "/status"
+            + (request.tenantId().isEmpty() ? "" : "?tenant=" + request.tenantId());
+    try {
+      HttpRequest httpRequest =
+          HttpRequest.newBuilder(baseUrl.resolve(path))
+              .timeout(HTTP_REQUEST_TIMEOUT)
+              .header("Authorization", "Bearer " + workloadToken.get())
+              .PUT(
+                  HttpRequest.BodyPublishers.ofString(request.statusJson(), StandardCharsets.UTF_8))
+              .build();
+      HttpResponse<String> response =
+          httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      sendRelayResult(connection, request.correlationId(), response.statusCode(), response.body());
+    } catch (IOException | InterruptedException e) {
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      log.warn("status-put relay to {} failed: {}", path, e.getMessage());
+      sendRelayResult(
+          connection,
+          request.correlationId(),
+          502,
+          "agent could not reach the control plane: " + e.getMessage());
+    }
+  }
 
   /** A minted workload token and when it stops verifying -- see {@link #workloadTokenFor}. */
   private record MintedWorkloadToken(String token, long expiresAtEpochMilli) {}

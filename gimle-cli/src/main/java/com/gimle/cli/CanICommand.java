@@ -72,20 +72,22 @@ public final class CanICommand {
 
   private static ResourceKind parseResource(String raw) {
     String normalized = normalize(raw);
-    try {
-      return ResourceKind.valueOf(normalized);
-    } catch (IllegalArgumentException first) {
-      // Tolerate the plural nouns the CLI's own get/set/delete verbs use (deployments, roles...).
-      if (normalized.endsWith("S")) {
-        try {
-          return ResourceKind.valueOf(normalized.substring(0, normalized.length() - 1));
-        } catch (IllegalArgumentException ignored) {
-          // fall through to the error below, naming the original input
-        }
+    String singular =
+        normalized.endsWith("S") ? normalized.substring(0, normalized.length() - 1) : normalized;
+    for (ResourceKind kind : ResourceKind.values()) {
+      // Compare with underscores stripped as well, so the run-together nouns the CLI's own verbs
+      // use (kinddefinition, rolebinding) spell valid questions here too, plural or not.
+      String kindName = kind.name();
+      String compact = kindName.replace("_", "");
+      if (kindName.equals(normalized)
+          || kindName.equals(singular)
+          || compact.equals(normalized)
+          || compact.equals(singular)) {
+        return kind;
       }
-      throw new CliException(
-          "unknown resource: " + raw + " (expected one of " + names(ResourceKind.values()) + ")");
     }
+    throw new CliException(
+        "unknown resource: " + raw + " (expected one of " + names(ResourceKind.values()) + ")");
   }
 
   private static String normalize(String raw) {
