@@ -6,6 +6,9 @@ import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
+import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.manifest.StatefulSetSpec;
@@ -25,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,6 +80,19 @@ import org.slf4j.LoggerFactory;
  * index as missing and lets {@link #placeIndex} either land it back on the same node once it
  * recovers, or leave it unplaced-and-retrying exactly as this class's own sticky-placement javadoc
  * already documents, never silently relocated to a different node.
+ *
+ * <p><b>Crash-loop backoff</b>: {@link #isReady}'s own node-heartbeat lookup only ever answers "is
+ * this index caught up and ready" -- it never distinguished "still starting" from "the worker
+ * reported this instance {@code FAILED}", so an index whose module crashed on every restart wedged
+ * the entire {@code OrderedReady} scan behind it forever, since a mismatched-version rolling update
+ * is the only thing that ever removed a present-but-not-ready assignment. {@link #isCrashLooping}
+ * plus {@link WorkloadCrashLoopBackoff} (this class's own StatefulSet-keyed instance, distinct from
+ * {@link HealthReconciler}'s Deployment-only one) closes that gap the same shape {@link
+ * HealthReconciler} already established for Deployment: back off, then release the stale assignment
+ * so the ordinary missing-index path above gives it a fresh placement attempt (on the same sticky
+ * node, per this class's own sticky-placement contract), or give up permanently once the restart
+ * budget is exhausted. A permanently-failed index is never skipped past -- the scan simply stops at
+ * it, same as any other not-yet-ready index, preserving {@code OrderedReady} exactly.
  */
 public final class StatefulSetReconciler {
 
@@ -85,6 +102,8 @@ public final class StatefulSetReconciler {
   public static final Duration DEFAULT_NODE_DARK_TIMEOUT =
       DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT;
 
+  private static final String WORKLOAD_KIND = "StatefulSet";
+
   private final StoreReader store;
   private final Scheduler scheduler;
   private final MutationSink mutations;
@@ -92,6 +111,7 @@ public final class StatefulSetReconciler {
   private final Duration placementGracePeriod;
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
+  private final WorkloadCrashLoopBackoff crashLoopBackoff;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public StatefulSetReconciler(StateStore store, Scheduler scheduler) {
@@ -141,6 +161,7 @@ public final class StatefulSetReconciler {
     this.placementGracePeriod = placementGracePeriod;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
+    this.crashLoopBackoff = new WorkloadCrashLoopBackoff(store);
   }
 
   public void reconcileOnce() {
@@ -231,6 +252,10 @@ public final class StatefulSetReconciler {
         placeIndex(spec, descriptor, index);
         return;
       }
+      String slot = String.valueOf(index);
+      if (crashLoopBackoff.isPermanentlyFailed(WORKLOAD_KIND, spec.name(), slot, spec.tenantId())) {
+        return; // never skip past a stuck index -- see class javadoc's "Crash-loop backoff" note.
+      }
       if (nodeIsGenuinelyGone(assignment.get().nodeId(), now)) {
         log.warn(
             "statefulset {} index {} on node {} is no longer confirmed by a heartbeat; releasing"
@@ -242,10 +267,81 @@ public final class StatefulSetReconciler {
             new StateMutation.RemoveStatefulSetAssignment(spec.tenantId(), spec.name(), index));
         return; // one destructive step per tick -- see class javadoc.
       }
+      if (isCrashLooping(assignment.get())) {
+        handleCrashLoop(spec, index, slot, now);
+        return; // one destructive step per tick -- see class javadoc.
+      }
       if (!isReady(assignment.get())) {
         return;
       }
+      crashLoopBackoff
+          .handleHealthyObserved(WORKLOAD_KIND, spec.name(), slot, spec.tenantId())
+          .ifPresent(mutations::propose);
     }
+  }
+
+  /**
+   * Persists the {@link WorkloadCrashLoopBackoff} verdict for a crash-looping index and, if it says
+   * to act now, either releases the stale assignment for re-placement or gives up on it permanently
+   * -- mirrors {@link HealthReconciler#handleUnhealthy}'s own three outcomes exactly.
+   */
+  private void handleCrashLoop(StatefulSetSpec spec, int index, String slot, Instant now) {
+    WorkloadCrashLoopBackoff.Evaluation evaluation =
+        crashLoopBackoff.handleFailureObserved(
+            WORKLOAD_KIND, spec.name(), slot, spec.tenantId(), now);
+    List<StateMutation> batch = new ArrayList<>();
+    batch.add(evaluation.stateMutation());
+    if (evaluation.permanentlyFailed()) {
+      log.error(
+          "statefulset {} index {} exhausted its restart budget; giving up on rescheduling it",
+          spec.name(),
+          index);
+      batch.add(
+          new StateMutation.AppendInstanceEvent(
+              spec.tenantId(),
+              new InstanceEvent(
+                  UUID.randomUUID().toString(),
+                  spec.name(),
+                  index,
+                  InstanceEventKind.TRANSITION_FAILED,
+                  "exhausted its restart budget; giving up on rescheduling it",
+                  Optional.empty(),
+                  clock.millis())));
+    } else if (evaluation.shouldRemoveAssignmentNow()) {
+      log.warn(
+          "statefulset {} index {} crash-looped; releasing its assignment for re-placement (its"
+              + " sticky node binding is preserved)",
+          spec.name(),
+          index);
+      batch.add(new StateMutation.RemoveStatefulSetAssignment(spec.tenantId(), spec.name(), index));
+    }
+    mutations.proposeAll(batch);
+  }
+
+  /**
+   * True once the node's own heartbeat reports THIS index as {@code FAILED} -- distinct from merely
+   * not-yet-ready (still starting, or between a scale/rollout step and its next heartbeat), which
+   * {@link #isReady} alone cannot tell apart. See class javadoc's "Crash-loop backoff" note.
+   */
+  private boolean isCrashLooping(StatefulSetAssignment assignment) {
+    return findObservation(assignment)
+        .filter(obs -> "FAILED".equals(obs.lifecycleState()))
+        .isPresent();
+  }
+
+  private Optional<InstanceObservation> findObservation(StatefulSetAssignment assignment) {
+    return store
+        .getNodeHeartbeat(assignment.nodeId())
+        .map(ObservedHeartbeat::heartbeat)
+        .map(NodeHeartbeat::instances)
+        .orElse(List.of())
+        .stream()
+        .filter(
+            obs ->
+                obs.deploymentName().equals(assignment.statefulSetName())
+                    && obs.instanceIndex() == assignment.instanceIndex()
+                    && obs.tenantId().equals(assignment.tenantId()))
+        .findFirst();
   }
 
   /**

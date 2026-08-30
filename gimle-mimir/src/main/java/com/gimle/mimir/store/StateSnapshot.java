@@ -70,7 +70,8 @@ public record StateSnapshot(
     Map<String, String> limitRangeViolations,
     Set<String> revokedCertificateSerials,
     List<WorkloadTokenRecord> workloadTokens,
-    Map<String, Set<String>> nodeTaints) {
+    Map<String, Set<String>> nodeTaints,
+    List<WorkloadHealthState> workloadHealthStates) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -133,5 +134,6 @@ public record StateSnapshot(
         nodeTaints.entrySet().stream()
             .collect(
                 Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> Set.copyOf(e.getValue())));
+    workloadHealthStates = List.copyOf(workloadHealthStates);
   }
 }

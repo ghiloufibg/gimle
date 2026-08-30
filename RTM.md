@@ -673,6 +673,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | New | Not Covered | — |
 | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | New | Not Covered | — |
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | New | Not Covered | — |
+| GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3861,6 +3862,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `CronJobReconcilerTest#a_firing_that_would_exceed_its_tenants_quota_is_skipped_like_a_missed_firing`; `ApiServerTest#put_a_cronjob_for_an_unknown_tenant_is_rejected`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
 
+#### GIMLE-659 — Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)
+
+- **Category**: Self-healing / Resilience
+- **Status**: New  _(New requirement: closes the self-healing coverage gap where only Deployment replicas were rescheduled through HealthReconciler's restart-budget backoff -- StatefulSet indices and DaemonSet node instances now get the same crash-loop detection and eventual reschedule.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that deploys a StatefulSet (or DaemonSet) whose module crashes on start, and asserts the instance is eventually rescheduled after backoff, then permanently marked failed once its restart budget is exhausted.
+- **Other test coverage (non-Holmgang, informational only)**: `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -6968,7 +6978,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**535 of 658 requirements are Not Covered.**
+**536 of 659 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7408,6 +7418,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-634 | gimle-mimir | The control plane's own leaf certificate may read the artifact registry with no default RoleBinding | Security / RBAC | `AuthorizerTest` (a_controlplane_principal_may_read_artifacts_unscoped_with_no_role_binding_at_all, a_controlplane_principal_may_never_write_or_delete_an_artifact, a_controlplane_principal_is_denied_every_non_artifact_resource); `PkiBootstrapMainTest#the_control_plane_leaf_carries_the_controlplane_group_but_other_roles_do_not`; `AndvariServerTlsTest#a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete` |
 | GIMLE-122 | gimle-agent | Vessel crash respawn resets probe initial-delay clock | Self-Healing | NONE recorded in the baseline |
 | GIMLE-631 | gimle-controlplane | StatefulSet/DaemonSet machine-level self-healing on node death | Self-Healing | `StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest` |
+| GIMLE-659 | gimle-controlplane | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`. |
 | GIMLE-613 | gimle-skald | DNS-over-TCP fallback with UDP truncation | Service Discovery / DNS | `SkaldServerTest` (TCP round-trip, sequential queries per connection, TCP NXDOMAIN), `DnsCodecTest` (TC flag) |
 | GIMLE-620 | gimle-skald | SRV records and headless A answers | Service Discovery / DNS | `SkaldServerTest` (headless A, SRV per endpoint, dashed endpoint names) |
 | GIMLE-181 | gimle-fabric | Same-Worker Direct Invocation Tier | Service Fabric | `FabricServiceRegistryTest#same_worker_tier_wins_over_same_machine_and_remote` |

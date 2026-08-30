@@ -24,6 +24,7 @@ import com.gimle.mimir.store.LeaseGrant;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.WorkloadHealthState;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -171,6 +172,12 @@ public final class StoreNode implements StoreRpcHandler {
                   r.tenantId(), r.deploymentName(), r.instanceIndex()));
       case StoreRpc.ListReconcilerInstanceStates r ->
           new StoreRpc.ReconcilerInstanceStateListResult(store.listReconcilerInstanceStates());
+      case StoreRpc.GetWorkloadHealthState r ->
+          workloadHealthStateResult(
+              store.getWorkloadHealthState(
+                  r.tenantId(), r.workloadKind(), r.workloadName(), r.slot()));
+      case StoreRpc.ListWorkloadHealthStates r ->
+          new StoreRpc.WorkloadHealthStateListResult(store.listWorkloadHealthStates());
       case StoreRpc.ListInstanceEvents r ->
           new StoreRpc.InstanceEventListResult(
               store.listInstanceEvents(r.tenantId(), r.deploymentName(), r.instanceIndex()));
@@ -429,6 +436,13 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.ReconcilerInstanceStateResult(true, v))
         .orElseGet(() -> new StoreRpc.ReconcilerInstanceStateResult(false, null));
+  }
+
+  private static StoreRpc.WorkloadHealthStateResult workloadHealthStateResult(
+      Optional<WorkloadHealthState> value) {
+    return value
+        .map(v -> new StoreRpc.WorkloadHealthStateResult(true, v))
+        .orElseGet(() -> new StoreRpc.WorkloadHealthStateResult(false, null));
   }
 
   private static StoreRpc.ControllerRevisionResult controllerRevisionResult(

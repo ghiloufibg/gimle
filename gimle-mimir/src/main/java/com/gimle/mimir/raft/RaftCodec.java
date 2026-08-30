@@ -27,6 +27,7 @@ import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -131,6 +132,8 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_WORKLOAD_TOKEN = 59;
   private static final byte MUT_PUT_JOB_RUN_SUMMARY = 60;
   private static final byte MUT_PUT_NODE_TAINT = 61;
+  private static final byte MUT_PUT_WORKLOAD_HEALTH_STATE = 62;
+  private static final byte MUT_REMOVE_WORKLOAD_HEALTH_STATE = 63;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -541,6 +544,17 @@ public final class RaftCodec {
         out.writeUTF(m.deploymentName());
         out.writeInt(m.instanceIndex());
       }
+      case StateMutation.PutWorkloadHealthState m -> {
+        out.writeByte(MUT_PUT_WORKLOAD_HEALTH_STATE);
+        DomainCodec.writeWorkloadHealthState(out, m.state());
+      }
+      case StateMutation.RemoveWorkloadHealthState m -> {
+        out.writeByte(MUT_REMOVE_WORKLOAD_HEALTH_STATE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
+        out.writeUTF(m.workloadKind());
+        out.writeUTF(m.workloadName());
+        out.writeUTF(m.slot());
+      }
       case StateMutation.PutNodeCordon m -> {
         out.writeByte(MUT_PUT_NODE_CORDON);
         out.writeUTF(m.nodeId());
@@ -796,6 +810,15 @@ public final class RaftCodec {
         String deploymentName = in.readUTF();
         yield new StateMutation.RemoveReconcilerInstanceState(
             tenantId, deploymentName, in.readInt());
+      }
+      case MUT_PUT_WORKLOAD_HEALTH_STATE ->
+          new StateMutation.PutWorkloadHealthState(DomainCodec.readWorkloadHealthState(in));
+      case MUT_REMOVE_WORKLOAD_HEALTH_STATE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String workloadKind = in.readUTF();
+        String workloadName = in.readUTF();
+        yield new StateMutation.RemoveWorkloadHealthState(
+            tenantId, workloadKind, workloadName, in.readUTF());
       }
       case MUT_PUT_NODE_CORDON -> new StateMutation.PutNodeCordon(in.readUTF(), in.readBoolean());
       case MUT_PUT_NODE_TAINT ->
@@ -1096,6 +1119,10 @@ public final class RaftCodec {
           out.writeUTF(tenantId);
         }
       }
+      out.writeInt(snapshot.workloadHealthStates().size());
+      for (WorkloadHealthState state : snapshot.workloadHealthStates()) {
+        DomainCodec.writeWorkloadHealthState(out, state);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1331,6 +1358,11 @@ public final class RaftCodec {
         }
         nodeTaints.put(nodeId, tenantIds);
       }
+      List<WorkloadHealthState> workloadHealthStates = new ArrayList<>();
+      int workloadHealthStateCount = in.readInt();
+      for (int i = 0; i < workloadHealthStateCount; i++) {
+        workloadHealthStates.add(DomainCodec.readWorkloadHealthState(in));
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1369,7 +1401,8 @@ public final class RaftCodec {
           limitRangeViolations,
           revokedCertificateSerials,
           workloadTokens,
-          nodeTaints);
+          nodeTaints,
+          workloadHealthStates);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

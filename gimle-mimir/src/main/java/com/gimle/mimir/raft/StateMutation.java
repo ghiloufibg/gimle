@@ -24,6 +24,7 @@ import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.time.Instant;
 import java.util.List;
@@ -661,6 +662,26 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeReconcilerInstanceState(tenantId, deploymentName, instanceIndex);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /** The {@link WorkloadHealthState} equivalent of {@link PutReconcilerInstanceState}. */
+  record PutWorkloadHealthState(WorkloadHealthState state) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putWorkloadHealthState(state);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /** The {@link WorkloadHealthState} equivalent of {@link RemoveReconcilerInstanceState}. */
+  record RemoveWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.removeWorkloadHealthState(tenantId, workloadKind, workloadName, slot);
       return MutationOutcome.accepted();
     }
   }

@@ -668,6 +668,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Complete | Partial |
 | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | Complete | Yes |
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | Admission / Multi-tenancy | Complete | Yes |
+| GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5235,6 +5236,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given tenant "tight" has a quota too small for the CronJob's own jobTemplate; When a scheduled firing comes due; Then no JobSpec is materialized, but cronJobLastSchedule still advances so the firing is never retried.
   Given a CronJob manifest names a tenantId that does not exist; When it is PUT; Then admission rejects it with 409, the same as a directly-submitted Deployment/Job/DaemonSet/StatefulSet would be.
+  ```
+
+#### GIMLE-659 — Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)
+
+- **Category**: Self-healing / Resilience
+- **User story**: As a platform operator, I want a StatefulSet index or DaemonSet node instance that crashes on every restart to be backed off and eventually rescheduled, the same way a Deployment replica already is via HealthReconciler, so that a bad artifact wedges only that one workload's healing instead of leaving OrderedReady (or a DaemonSet node's own assignment) stuck forever with no automated recovery.
+- **Status**: Complete. `StatefulSetReconciler`'s OrderedReady scan and `DaemonSetReconciler`'s per-node eviction pass previously only ever checked `isReady` (the node's own heartbeat reporting `ready=true`), never `lifecycleState`, so an index/node instance the worker reported `FAILED` sat there forever: nothing but a rolling-update version mismatch or an eligibility change ever removed an existing assignment, unlike a Deployment replica, which `HealthReconciler` already reschedules through an exponential, capped restart budget. Fixed via a new `WorkloadCrashLoopBackoff` (`gimle-controlplane`), the StatefulSet/DaemonSet-keyed counterpart of `HealthReconciler`'s own bookkeeping -- backed by a new persisted `WorkloadHealthState` record (`gimle-mimir`, full `StateStore`/`StateSnapshot`/`DomainCodec`/`StateMutation`/`RaftCodec`/`StoreReader`/`StoreRpc`/`StoreCodec`/`StoreClient`/`StoreNode` plumbing keyed by `(workloadKind, workloadName, slot, tenantId)`, deliberately separate from Deployment's own `ReconcilerInstanceState` since a StatefulSet and Deployment can share a name and a DaemonSet's slot is a node id, not an `int` instance index). `StatefulSetReconciler`'s ordered scan now checks each present index for a `FAILED` observation before checking readiness: a crash-looping index is backed off and, once the delay elapses, released for the ordinary missing-index path to re-place on the same sticky node; OrderedReady itself is preserved exactly -- a permanently-failed index is never skipped past, the scan simply stops at it, same as any other not-yet-ready index. `DaemonSetReconciler`'s eviction pass does the same for a still-eligible node's crash-looping instance, releasing its stale assignment so the same tick's placement pass re-adds a fresh one to the very same node -- there is nowhere else for a DaemonSet assignment to go. Both give up permanently (mirroring `HealthReconciler`'s own posture exactly) once the restart budget is exhausted, leaving the stale, still-`FAILED` assignment in place forever and appending a durable `TRANSITION_FAILED` `InstanceEvent`, rather than retrying in a tight loop.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`
+- **Test coverage**: `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot` (extended for `WorkloadHealthState`).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck.
+  Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node.
+  Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again.
   ```
 
 ### gimle-fafnir

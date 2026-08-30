@@ -27,6 +27,7 @@ import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadHealthState;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -176,6 +177,10 @@ public final class StoreCodec {
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
   private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
   private static final byte TAG_GET_NODE_TAINTS = 121;
+  private static final byte TAG_GET_WORKLOAD_HEALTH_STATE = 122;
+  private static final byte TAG_WORKLOAD_HEALTH_STATE_RESULT = 123;
+  private static final byte TAG_LIST_WORKLOAD_HEALTH_STATES = 124;
+  private static final byte TAG_WORKLOAD_HEALTH_STATE_LIST_RESULT = 125;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -432,6 +437,14 @@ public final class StoreCodec {
         }
         case StoreRpc.ListReconcilerInstanceStates v ->
             out.writeByte(TAG_LIST_RECONCILER_INSTANCE_STATES);
+        case StoreRpc.GetWorkloadHealthState v -> {
+          out.writeByte(TAG_GET_WORKLOAD_HEALTH_STATE);
+          DomainCodec.writeOptionalString(out, v.tenantId());
+          out.writeUTF(v.workloadKind());
+          out.writeUTF(v.workloadName());
+          out.writeUTF(v.slot());
+        }
+        case StoreRpc.ListWorkloadHealthStates v -> out.writeByte(TAG_LIST_WORKLOAD_HEALTH_STATES);
         case StoreRpc.ListInstanceEvents v -> {
           out.writeByte(TAG_LIST_INSTANCE_EVENTS);
           DomainCodec.writeOptionalString(out, v.tenantId());
@@ -799,6 +812,20 @@ public final class StoreCodec {
             DomainCodec.writeReconcilerInstanceState(out, s);
           }
         }
+        case StoreRpc.WorkloadHealthStateResult v -> {
+          out.writeByte(TAG_WORKLOAD_HEALTH_STATE_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeWorkloadHealthState(out, v.value());
+          }
+        }
+        case StoreRpc.WorkloadHealthStateListResult v -> {
+          out.writeByte(TAG_WORKLOAD_HEALTH_STATE_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (WorkloadHealthState s : v.values()) {
+            DomainCodec.writeWorkloadHealthState(out, s);
+          }
+        }
         case StoreRpc.InstanceEventListResult v -> {
           out.writeByte(TAG_INSTANCE_EVENT_LIST_RESULT);
           out.writeInt(v.values().size());
@@ -934,6 +961,10 @@ public final class StoreCodec {
             new StoreRpc.GetReconcilerInstanceState(
                 DomainCodec.readOptionalString(in), in.readUTF(), in.readInt());
         case TAG_LIST_RECONCILER_INSTANCE_STATES -> new StoreRpc.ListReconcilerInstanceStates();
+        case TAG_GET_WORKLOAD_HEALTH_STATE ->
+            new StoreRpc.GetWorkloadHealthState(
+                DomainCodec.readOptionalString(in), in.readUTF(), in.readUTF(), in.readUTF());
+        case TAG_LIST_WORKLOAD_HEALTH_STATES -> new StoreRpc.ListWorkloadHealthStates();
         case TAG_ADD_SERVER ->
             new StoreRpc.AddServer(in.readUTF(), in.readUTF(), in.readInt(), in.readInt());
         case TAG_REMOVE_SERVER -> new StoreRpc.RemoveServer(in.readUTF());
@@ -1237,6 +1268,19 @@ public final class StoreCodec {
             values.add(DomainCodec.readReconcilerInstanceState(in));
           }
           yield new StoreRpc.ReconcilerInstanceStateListResult(values);
+        }
+        case TAG_WORKLOAD_HEALTH_STATE_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.WorkloadHealthStateResult(
+              present, present ? DomainCodec.readWorkloadHealthState(in) : null);
+        }
+        case TAG_WORKLOAD_HEALTH_STATE_LIST_RESULT -> {
+          int count = in.readInt();
+          List<WorkloadHealthState> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readWorkloadHealthState(in));
+          }
+          yield new StoreRpc.WorkloadHealthStateListResult(values);
         }
         case TAG_INSTANCE_EVENT_LIST_RESULT -> {
           int count = in.readInt();

@@ -17,6 +17,7 @@ import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -81,6 +82,27 @@ class DaemonSetReconcilerTest {
                     "ACTIVE",
                     true,
                     true,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0))));
+  }
+
+  /** Reports {@code assignment}'s own instance as {@code FAILED} rather than merely not ready. */
+  private static void reportFailed(StateStore store, DaemonSetAssignment assignment) {
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            assignment.nodeId(),
+            new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
+            List.of(
+                new InstanceObservation(
+                    assignment.daemonSetName(),
+                    0,
+                    assignment.moduleId(),
+                    "FAILED",
+                    true,
+                    false,
                     0,
                     0,
                     0,
@@ -357,5 +379,137 @@ class DaemonSetReconcilerTest {
         store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
     assertEquals(1, assignments.size());
     assertEquals("node-b", assignments.get(0).nodeId());
+  }
+
+  @Test
+  void a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses(TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    DaemonSetReconciler reconciler =
+        new DaemonSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            DaemonSetReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            DaemonSetReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            clock);
+    reconciler.reconcileOnce();
+    DaemonSetAssignment placed =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").get(0);
+    reportFailed(store, placed);
+
+    reconciler.reconcileOnce(); // first failure observed: starts the backoff, doesn't act yet
+    assertEquals(1, store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size());
+
+    // One nanosecond short of WorkloadCrashLoopBackoff's default 2-second initial delay.
+    clock.advance(Duration.ofSeconds(2).minusNanos(1));
+    reconciler.reconcileOnce();
+    assertEquals(
+        1,
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size(),
+        "the backoff has not elapsed yet, so nothing should have been rescheduled");
+
+    clock.advance(Duration.ofNanos(1));
+    reconciler.reconcileOnce();
+
+    // The stale assignment is released, and the same tick's placement pass re-adds a fresh one
+    // to the very same (still-eligible) node -- there is nowhere else for it to go.
+    List<DaemonSetAssignment> after =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
+    assertEquals(1, after.size());
+    assertEquals("node-a", after.get(0).nodeId());
+  }
+
+  @Test
+  void a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    // A generous, non-default node-dark timeout keeps every attempt's backoff (up to a capped
+    // 60s) from ever being mistaken for the node itself going dark -- this test is about the
+    // restart budget, not node darkness.
+    DaemonSetReconciler reconciler =
+        new DaemonSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            Duration.ofMinutes(10),
+            Duration.ofMinutes(10),
+            clock);
+
+    Duration initialDelay = Duration.ofSeconds(2);
+    int maxAttemptsPerWindow = 5;
+
+    reconciler.reconcileOnce(); // places the assignment
+    for (int attempt = 1; attempt <= maxAttemptsPerWindow + 1; attempt++) {
+      DaemonSetAssignment current =
+          store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
+              .filter(a -> a.nodeId().equals("node-a"))
+              .findFirst()
+              .orElseThrow();
+      reportFailed(store, current);
+      reconciler.reconcileOnce(); // records the failure, starts this attempt's backoff
+      Duration delay =
+          initialDelay.multipliedBy(
+              (long) Math.pow(2.0, Math.min(attempt, maxAttemptsPerWindow) - 1));
+      clock.advance(delay.compareTo(Duration.ofMinutes(1)) > 0 ? Duration.ofMinutes(1) : delay);
+      reconciler.reconcileOnce(); // releases and re-places it (attempts 1-5), or gives up (6th)
+    }
+
+    // Gave up: the stale, still-FAILED assignment is left exactly where it is -- never removed --
+    // the same "leaves it FAILED forever" posture HealthReconciler takes. One more tick changes
+    // nothing, proving the give-up is permanent, not merely this tick's.
+    reconciler.reconcileOnce();
+    List<DaemonSetAssignment> afterGivingUp =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter");
+    assertEquals(
+        1, afterGivingUp.size(), "a permanently-failed node keeps its stale assignment in place");
+    assertEquals("node-a", afterGivingUp.get(0).nodeId());
+    assertTrue(
+        store
+            .getWorkloadHealthState(Optional.empty(), "DaemonSet", "node-exporter", "node-a")
+            .orElseThrow()
+            .permanentlyFailed());
+  }
+
+  @Test
+  void converges_correctly_from_a_persisted_permanently_failed_workload_health_state(
+      TestClock clock) {
+    // A brand-new reconciler must respect a permanently-failed node recorded under a previous
+    // reconciler-leader term, with no history of its own.
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    registerNode(store, "node-a");
+    DaemonSetSpec spec = daemonSet("node-exporter", jar, PlacementConstraints.NONE);
+    store.putDaemonSetSpec(spec);
+    store.putDaemonSetAssignment(
+        new DaemonSetAssignment("node-exporter", "node-a", spec.moduleId(), spec.artifactPath()));
+    store.putWorkloadHealthState(
+        new WorkloadHealthState(
+            "DaemonSet", "node-exporter", "node-a", 5, 0L, 0L, false, true, Optional.empty()));
+
+    // Threads the same TestClock through the reconciler as the store -- a reconciler defaulted to
+    // Clock.systemUTC() would see the store's TestClock-stamped heartbeat as impossibly stale and
+    // evict it as a dark node, unrelated to the permanently-failed check this test is about.
+    new DaemonSetReconciler(
+            store,
+            scheduler,
+            mutation -> mutation.applyTo(store),
+            DaemonSetReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            DaemonSetReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+            clock)
+        .reconcileOnce();
+
+    assertEquals(
+        1,
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size(),
+        "a permanently-failed node's stale assignment is left in place, not torn down");
   }
 }

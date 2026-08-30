@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 658,
+    "totalRequirements": 659,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 535,
+    "notCoveredByAutomatedTest": 536,
     "releaseReadinessPercent": 18.7
   },
   "items": [
@@ -7240,6 +7240,17 @@
       "category": "Admission / Multi-tenancy",
       "feature": "CronJob-generated Jobs run through tenant quota/limit-range admission",
       "step": "Given tenant \"tight\" has a quota too small for the CronJob's own jobTemplate; When a scheduled firing comes due; Then no JobSpec is materialized, but cronJobLastSchedule still advances so the firing is never retried. Given a CronJob manifest names a tenantId that does not exist; When it is PUT; Then admission rejects it with 409, the same as a directly-submitted Deployment/Job/DaemonSet/StatefulSet would be.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-659",
+      "module": "gimle-controlplane",
+      "category": "Self-healing / Resilience",
+      "feature": "Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)",
+      "step": "Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck. Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node. Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

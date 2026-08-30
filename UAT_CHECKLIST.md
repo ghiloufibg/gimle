@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 658
+- **Total requirements**: 659
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 535
+- **Not covered by automated test**: 536
 - **Release-readiness (automated coverage)**: 18.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 60 | 35 | 25 | 58.3% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 81 | 14 | 67 | 17.3% |
+| gimle-controlplane | 82 | 14 | 68 | 17.1% |
 | gimle-fafnir | 26 | 11 | 15 | 42.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -1118,6 +1118,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-631 | StatefulSet/DaemonSet machine-level self-healing on node death | Given a StatefulSet index assigned to a node that has gone dark past nodeDarkTimeout + placementGracePeriod, When the reconciler ticks, Then that index's assignment is released while its sticky node binding survives, and the next tick re-places it on the same node once its heartbeat is fresh again. Given a StatefulSet index assigned to a node merely dark within the grace period, When the reconciler ticks, Then the assignment is left untouched -- a transient partition never relocates sticky data. Given a DaemonSet assignment evicted because its node fell out of eligibility, When the eviction is logged, Then the log line names the specific reason (heartbeat loss, cordon, or a placement-requirement mismatch), not just that an eviction happened. | No |
+
+#### Self-healing / Resilience
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck. Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node. Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again. | No |
 
 #### Storage / Operations
 

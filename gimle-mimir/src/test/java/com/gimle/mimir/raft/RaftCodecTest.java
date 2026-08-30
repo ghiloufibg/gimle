@@ -32,6 +32,7 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -344,7 +345,10 @@ class RaftCodecTest {
             List.of(
                 new WorkloadTokenRecord(
                     "orders#node-1", "ab12cd", Optional.of("tenant-1"), "orders", 9_999L)),
-            Map.of("node-1", Set.of("tenant-1", "tenant-2")));
+            Map.of("node-1", Set.of("tenant-1", "tenant-2")),
+            List.of(
+                new WorkloadHealthState(
+                    "StatefulSet", "orders", "0", 2, 100L, 200L, true, false, Optional.empty())));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -357,6 +361,7 @@ class RaftCodecTest {
     assertEquals(snapshot.effectiveReplicas(), decoded.effectiveReplicas());
     assertEquals(snapshot.tenants(), decoded.tenants());
     assertEquals(snapshot.quotaViolatingDeployments(), decoded.quotaViolatingDeployments());
+    assertEquals(snapshot.workloadHealthStates(), decoded.workloadHealthStates());
     assertEquals(1, decoded.configEntries().size());
     assertEquals(
         snapshot.configEntries().get(0).tenantId(), decoded.configEntries().get(0).tenantId());

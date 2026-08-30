@@ -103,6 +103,7 @@ public final class StateStore implements StoreReader {
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
   private final Map<String, Boolean> nodeCordons = new ConcurrentHashMap<>();
   private final Map<String, Set<String>> nodeTaints = new ConcurrentHashMap<>();
+  private final Map<String, WorkloadHealthState> workloadHealthStates = new ConcurrentHashMap<>();
   private final Map<String, Boolean> revokedCertificateSerials = new ConcurrentHashMap<>();
   private final Map<String, WorkloadTokenRecord> workloadTokens = new ConcurrentHashMap<>();
   private final Map<String, ConfigEntry> configEntries = new ConcurrentHashMap<>();
@@ -1025,6 +1026,33 @@ public final class StateStore implements StoreReader {
     return List.copyOf(reconcilerInstanceStates.values());
   }
 
+  /**
+   * The {@link WorkloadHealthState} equivalent of {@link #putReconcilerInstanceState} for a
+   * StatefulSet index or DaemonSet node-instance -- see that record's own javadoc for why it's a
+   * separate resource kind rather than reusing {@link ReconcilerInstanceState}.
+   */
+  public void putWorkloadHealthState(WorkloadHealthState state) {
+    workloadHealthStates.put(
+        workloadHealthKey(
+            state.tenantId(), state.workloadKind(), state.workloadName(), state.slot()),
+        state);
+  }
+
+  public Optional<WorkloadHealthState> getWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot) {
+    return Optional.ofNullable(
+        workloadHealthStates.get(workloadHealthKey(tenantId, workloadKind, workloadName, slot)));
+  }
+
+  public void removeWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot) {
+    workloadHealthStates.remove(workloadHealthKey(tenantId, workloadKind, workloadName, slot));
+  }
+
+  public List<WorkloadHealthState> listWorkloadHealthStates() {
+    return List.copyOf(workloadHealthStates.values());
+  }
+
   // ---- per-instance lifecycle event log ----
 
   /**
@@ -1250,7 +1278,8 @@ public final class StateStore implements StoreReader {
         Map.copyOf(limitRangeViolations),
         Set.copyOf(revokedCertificateSerials.keySet()),
         List.copyOf(workloadTokens.values()),
-        nodeTaintsSnapshot());
+        nodeTaintsSnapshot(),
+        List.copyOf(workloadHealthStates.values()));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1323,6 +1352,7 @@ public final class StateStore implements StoreReader {
     roleBindings.clear();
     accounts.clear();
     reconcilerInstanceStates.clear();
+    workloadHealthStates.clear();
     rollingIndices.clear();
     surgeIndices.clear();
     effectiveReplicas.clear();
@@ -1392,6 +1422,7 @@ public final class StateStore implements StoreReader {
     snapshot.roleBindings().forEach(this::putRoleBinding);
     snapshot.accounts().forEach(this::putAccount);
     snapshot.reconcilerInstanceStates().forEach(this::putReconcilerInstanceState);
+    snapshot.workloadHealthStates().forEach(this::putWorkloadHealthState);
     // A direct bulk put rather than replaying through putInstanceEvent one event at a time --
     // StateSnapshot#instanceEvents is already keyed and ordered (oldest-first) exactly the way
     // this store's own instanceEvents field is, retention-cap-pruned by whichever replica took
@@ -1473,6 +1504,16 @@ public final class StateStore implements StoreReader {
   private static String reconcilerStateKey(
       Optional<String> tenantId, String deploymentName, int instanceIndex) {
     return scopedKey(tenantId, deploymentName) + "#" + instanceIndex;
+  }
+
+  /**
+   * {@code workloadKind} prefixes the key (rather than trailing it, as {@code slot} does) so a
+   * Deployment- and StatefulSet-shaped key can never collide even when the tenant, name, and slot
+   * all happen to coincide -- see {@link WorkloadHealthState}'s own javadoc.
+   */
+  private static String workloadHealthKey(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot) {
+    return workloadKind + "#" + scopedKey(tenantId, workloadName) + "#" + slot;
   }
 
   private static String instanceEventsKey(

@@ -165,6 +165,11 @@ public interface StoreReader {
 
   List<ReconcilerInstanceState> listReconcilerInstanceStates();
 
+  Optional<WorkloadHealthState> getWorkloadHealthState(
+      Optional<String> tenantId, String workloadKind, String workloadName, String slot);
+
+  List<WorkloadHealthState> listWorkloadHealthStates();
+
   List<InstanceEvent> listInstanceEvents(
       Optional<String> tenantId, String deploymentName, int instanceIndex);
 

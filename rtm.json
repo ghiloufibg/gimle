@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 658,
+  "requirementCount": 659,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11376,6 +11376,24 @@
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-659",
+      "module": "gimle-controlplane",
+      "feature": "Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment)",
+      "category": "Self-healing / Resilience",
+      "status": "New",
+      "statusNote": "New requirement: closes the self-healing coverage gap where only Deployment replicas were rescheduled through HealthReconciler's restart-budget backoff -- StatefulSet indices and DaemonSet node instances now get the same crash-loop detection and eventual reschedule.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that deploys a StatefulSet (or DaemonSet) whose module crashes on start, and asserts the instance is eventually rescheduled after backoff, then permanently marked failed once its restart budget is exhausted.",
+      "otherTestCoverage": "`StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/WorkloadCrashLoopBackoff.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`"
       ]
     }
   ]

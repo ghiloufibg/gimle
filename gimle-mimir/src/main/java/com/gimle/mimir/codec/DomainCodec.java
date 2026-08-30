@@ -50,6 +50,7 @@ import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StatefulSetAssignment;
+import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -1143,6 +1144,41 @@ public final class DomainCodec {
         pendingRetry,
         permanentlyFailed,
         firstSeenMissingAtEpochMilli,
+        tenantId);
+  }
+
+  public static void writeWorkloadHealthState(DataOutputStream out, WorkloadHealthState state)
+      throws IOException {
+    out.writeUTF(state.workloadKind());
+    out.writeUTF(state.workloadName());
+    out.writeUTF(state.slot());
+    out.writeInt(state.attemptsInWindow());
+    out.writeLong(state.windowStartEpochMilli());
+    out.writeLong(state.nextAllowedAttemptEpochMilli());
+    out.writeBoolean(state.pendingRetry());
+    out.writeBoolean(state.permanentlyFailed());
+    writeOptionalString(out, state.tenantId());
+  }
+
+  public static WorkloadHealthState readWorkloadHealthState(DataInputStream in) throws IOException {
+    String workloadKind = in.readUTF();
+    String workloadName = in.readUTF();
+    String slot = in.readUTF();
+    int attemptsInWindow = in.readInt();
+    long windowStartEpochMilli = in.readLong();
+    long nextAllowedAttemptEpochMilli = in.readLong();
+    boolean pendingRetry = in.readBoolean();
+    boolean permanentlyFailed = in.readBoolean();
+    Optional<String> tenantId = readOptionalString(in);
+    return new WorkloadHealthState(
+        workloadKind,
+        workloadName,
+        slot,
+        attemptsInWindow,
+        windowStartEpochMilli,
+        nextAllowedAttemptEpochMilli,
+        pendingRetry,
+        permanentlyFailed,
         tenantId);
   }
 
