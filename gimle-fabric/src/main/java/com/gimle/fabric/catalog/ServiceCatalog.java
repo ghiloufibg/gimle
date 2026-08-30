@@ -17,6 +17,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
@@ -35,6 +36,10 @@ public final class ServiceCatalog implements PiggybackExtension {
   private static final Logger log = LoggerFactory.getLogger(ServiceCatalog.class);
   private static final int DEFAULT_MAX_PIGGYBACK_DELTAS = 8;
   private static final int MAX_RETAINED_RECENT_DELTAS = 256;
+
+  /** See {@link #currentFullStatePayload()}. */
+  private static final int MAX_FULL_STATE_PAGE = 128;
+
   private static final Comparator<ServiceEndpoint> ENDPOINT_ORDER =
       Comparator.<ServiceEndpoint, String>comparing(e -> e.node().nodeId())
           .thenComparing(ServiceEndpoint::workerId);
@@ -44,6 +49,7 @@ public final class ServiceCatalog implements PiggybackExtension {
       new ConcurrentHashMap<>();
   private final Deque<CatalogDelta> recentDeltas = new ArrayDeque<>();
   private final AtomicLong localVersionCounter = new AtomicLong();
+  private final AtomicInteger fullStatePageOffset = new AtomicInteger();
   private final List<Consumer<CatalogDelta>> listeners = new CopyOnWriteArrayList<>();
 
   /**
@@ -310,6 +316,41 @@ public final class ServiceCatalog implements PiggybackExtension {
     return result;
   }
 
+  /**
+   * Every entry this catalog has ever applied, across every export -- present and tombstoned alike
+   * -- as a {@link CatalogDelta} carrying its own real version. Unlike {@link #allPresentDeltas()},
+   * nothing here is filtered on {@code present()} or node availability: this is the full-state
+   * source of truth {@link #currentFullStatePayload()} paginates over, the catalog's counterpart to
+   * {@code GossipMember}'s own membership table (which likewise retains {@code DEAD} entries, not
+   * only {@code ALIVE} ones, until they're separately reaped) -- a peer that missed a tombstone
+   * entirely needs to actually receive it to correct a stale "present" entry, not merely receive
+   * whatever is currently present.
+   */
+  private List<CatalogDelta> allDeltas() {
+    List<CatalogDelta> result = new ArrayList<>();
+    for (Map.Entry<ServiceExport, Map<InstanceKey, VersionedEntry>> exportEntry :
+        byExport.entrySet()) {
+      for (Map.Entry<InstanceKey, VersionedEntry> instanceEntry :
+          exportEntry.getValue().entrySet()) {
+        InstanceKey key = instanceEntry.getKey();
+        VersionedEntry versioned = instanceEntry.getValue();
+        ServiceEndpoint endpoint = versioned.endpoint();
+        result.add(
+            new CatalogDelta(
+                exportEntry.getKey(),
+                key.nodeId(),
+                key.workerId(),
+                key.moduleId(),
+                versioned.version(),
+                versioned.present(),
+                endpoint.node(),
+                endpoint.udsPath(),
+                endpoint.tcpAddress()));
+      }
+    }
+    return result;
+  }
+
   // ---- PiggybackExtension: this catalog's slot on the gossip channel ----
 
   @Override
@@ -319,6 +360,35 @@ public final class ServiceCatalog implements PiggybackExtension {
       snapshot = recentDeltas.stream().limit(maxPiggybackDeltas).toList();
     }
     return ServiceCatalogCodec.encode(snapshot);
+  }
+
+  /**
+   * The anti-entropy backstop for the catalog, ridden only by {@code SyncRequest}/{@code
+   * SyncResponse}: a genuine snapshot of {@link #allDeltas()}, capped to {@link
+   * #MAX_FULL_STATE_PAGE} entries per exchange the same way {@code GossipMember#currentFullState}
+   * caps the membership table -- {@code GossipMember}'s receive loop shares the same fixed
+   * 65535-byte UDP buffer, so an unbounded catalog is the identical fragmentation/drop risk. A
+   * catalog larger than one page rotates which slice it sends on successive syncs (via {@link
+   * #fullStatePageOffset}) so the whole catalog still gets exchanged over a handful of anti-entropy
+   * rounds rather than the same head slice forever. Unlike {@link #currentPayload()} (the top
+   * {@link #maxPiggybackDeltas} most-recently-changed entries, reused verbatim on every ordinary
+   * gossip message), this always reflects everything currently known -- including an entry that
+   * fell out of that bounded window many changes ago.
+   */
+  @Override
+  public byte[] currentFullStatePayload() {
+    List<CatalogDelta> all = allDeltas();
+    List<CatalogDelta> page;
+    if (all.size() <= MAX_FULL_STATE_PAGE) {
+      page = all;
+    } else {
+      int start = Math.floorMod(fullStatePageOffset.getAndAdd(MAX_FULL_STATE_PAGE), all.size());
+      page = new ArrayList<>(MAX_FULL_STATE_PAGE);
+      for (int i = 0; i < MAX_FULL_STATE_PAGE; i++) {
+        page.add(all.get((start + i) % all.size()));
+      }
+    }
+    return ServiceCatalogCodec.encode(page);
   }
 
   @Override

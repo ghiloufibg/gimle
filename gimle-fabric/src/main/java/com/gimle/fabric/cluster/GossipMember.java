@@ -464,7 +464,7 @@ public final class GossipMember implements AutoCloseable {
     try {
       send(
           target.id().gossipAddress(),
-          new SwimMessage.SyncRequest(nextSeq(), currentFullState(), catalogPayload()));
+          new SwimMessage.SyncRequest(nextSeq(), currentFullState(), catalogFullStatePayload()));
     } catch (IOException e) {
       log.warn(
           "{}: failed to send anti-entropy sync to {}: {}",
@@ -798,7 +798,8 @@ public final class GossipMember implements AutoCloseable {
         try {
           send(
               source,
-              new SwimMessage.SyncResponse(req.seq(), currentFullState(), catalogPayload()));
+              new SwimMessage.SyncResponse(
+                  req.seq(), currentFullState(), catalogFullStatePayload()));
         } catch (IOException e) {
           log.warn(
               "{}: failed to reply to an anti-entropy sync from {}: {}",
@@ -1008,6 +1009,14 @@ public final class GossipMember implements AutoCloseable {
 
   private byte[] catalogPayload() {
     return catalogExtension.currentPayload();
+  }
+
+  /**
+   * The catalog's own anti-entropy backstop, ridden only by {@code SyncRequest}/{@code
+   * SyncResponse} -- see {@link PiggybackExtension#currentFullStatePayload()}.
+   */
+  private byte[] catalogFullStatePayload() {
+    return catalogExtension.currentFullStatePayload();
   }
 
   private void send(InetSocketAddress address, SwimMessage message) throws IOException {
