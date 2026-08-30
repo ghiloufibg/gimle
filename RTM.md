@@ -694,6 +694,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-677 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | New | Not Covered | — |
 | GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | New | Not Covered | — |
 | GIMLE-679 | Gateway route table reloads on a config change without a restart | New | Not Covered | — |
+| GIMLE-680 | Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4027,6 +4028,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`
 
+#### GIMLE-680 — Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick
+
+- **Category**: Workloads / Job
+- **Status**: New  _(New requirement: closes FUNC-51 -- JobReconciler#retryOrFail immediately called planPlacement for the next attempt in the same batch that removed the failed run, with no delay, timer, or backoff gate of any kind, so a Job whose module crashes on startup got re-placed on literally the very next reconcile tick, forever, until backoffLimit was exhausted. Fixed by gating a within-budget retry through the same WorkloadCrashLoopBackoff/WorkloadHealthState machinery StatefulSetReconciler/DaemonSetReconciler already use, persisted so a reconciler-leader failover resumes an in-progress wait.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `JobReconcilerTest#a_failed_attempt_is_not_retried_before_its_backoff_elapses` and `#a_failed_attempt_is_retried_once_its_backoff_elapses` (the boundary on both sides of the initial 2-second delay, driven by TestClock), `#backoff_bookkeeping_survives_a_reconciler_reconstruction_against_the_same_store`, `#converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states`, and `#a_run_on_a_genuinely_gone_node_is_retried_once_the_grace_period_and_backoff_elapse` updated to reflect the new gate. Full gimle-mimir/gimle-controlplane module suites re-verified.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/JobReconciler.java` (`retryOrFail`, `WORKLOAD_KIND`, `BACKOFF_SLOT`, `crashLoopBackoff`)
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -7188,7 +7198,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**553 of 679 requirements are Not Covered.**
+**554 of 680 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7745,3 +7755,4 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-666 | gimle-worker | A liveness/readiness probe class that fails to load forces the module to FAILED with a durable event | Worker runtime / health | `WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified. |
 | GIMLE-601 | gimle-mimir | ControllerRevision history and Deployment/StatefulSet/DaemonSet rollback | Workload Lifecycle | `ControllerRevisionTest`, `StateStoreTest` (append/list/get, retention pruning, snapshot round-trip), `DomainCodecTest`/`RaftCodecTest` (wire round-trip for all three embedded spec kinds), `ApiServerDeploymentRollbackTest`, `ApiServerStatefulSetDaemonSetRollbackTest` -- all real, no mocks (real `StateStore`/`ApiServer`/`HttpClient`). |
 | GIMLE-670 | gimle-controlplane | CronJob prunes its own terminal generated Jobs to configurable successful/failed history limits | Workloads / CronJob | `CronJobReconcilerTest#repeated_real_firings_marked_terminal_converge_to_the_default_history_limits` (6 firings, 4 succeeded/2 failed, converges to the default 3/1 limits, oldest pruned first) plus `CronJobManifestParserTest` coverage for the new fields' parsing and defaults. Full gimle-mimir/gimle-controlplane suites re-verified. |
+| GIMLE-680 | gimle-controlplane | Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick | Workloads / Job | `JobReconcilerTest#a_failed_attempt_is_not_retried_before_its_backoff_elapses` and `#a_failed_attempt_is_retried_once_its_backoff_elapses` (the boundary on both sides of the initial 2-second delay, driven by TestClock), `#backoff_bookkeeping_survives_a_reconciler_reconstruction_against_the_same_store`, `#converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states`, and `#a_run_on_a_genuinely_gone_node_is_retried_once_the_grace_period_and_backoff_elapse` updated to reflect the new gate. Full gimle-mimir/gimle-controlplane module suites re-verified. |

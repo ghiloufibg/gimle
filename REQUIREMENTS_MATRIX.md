@@ -689,6 +689,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-677 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | Complete | Yes |
 | GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | Authorization | Complete | Yes |
 | GIMLE-679 | Gateway route table reloads on a config change without a restart | Networking | Complete | Yes |
+| GIMLE-680 | Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick | Workloads / Job | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5470,6 +5471,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be.
   Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node.
   Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false.
+  ```
+
+#### GIMLE-680 — Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick
+
+- **Category**: Workloads / Job
+- **User story**: As a platform operator running a Job whose module crashes on startup (a bad artifact, not a transient node problem), I want each retry attempt delayed by an exponential backoff, so the job doesn't burn through its entire backoffLimit in a tight loop on literally the next reconcile tick.
+- **Status**: Complete. JobReconciler#retryOrFail immediately called planPlacement for the next attempt in the same batch that removed the failed run, with no delay, timer, or backoff gate of any kind -- since ControlPlaneMain's reconcile loop ticks every RECONCILE_INTERVAL (2 seconds), a Job whose module crashes on startup got re-placed on literally the very next tick, forever, until backoffLimit attempts were exhausted. Fixed: retryOrFail now gates a within-budget retry through the same WorkloadCrashLoopBackoff/WorkloadHealthState machinery StatefulSetReconciler/DaemonSetReconciler already use for their own crash-loop backoff, keyed by ("Job", spec.name(), a constant single slot, spec.tenantId()) since a Job never has more than one non-terminal run at a time. The crash-loop backoff's own budget-exhaustion path is configured unreachable (an effectively-unbounded attempt count across an effectively-unbounded window) so JobReconciler's existing explicit backoffLimit check remains the sole authority on when to give up, preserving that behavior exactly. A retry within budget but still waiting out its backoff leaves the failed run on record (not removed) so the next tick re-evaluates the same wait against a freshly read clock; only once the backoff elapses does the same one-batch retry-placement-plus-removal commit as before. Backoff bookkeeping is persisted through StoreReader/MutationSink as a WorkloadHealthState, not held in a local map, so a reconciler-leader failover resumes an in-progress wait rather than re-granting a full delay schedule to an already-crash-looping job.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/JobReconciler.java` (`retryOrFail`, `WORKLOAD_KIND`, `BACKOFF_SLOT`, `crashLoopBackoff`)
+- **Test coverage**: `JobReconcilerTest#a_failed_attempt_is_not_retried_before_its_backoff_elapses` and `#a_failed_attempt_is_retried_once_its_backoff_elapses` (the boundary on both sides of the initial 2-second delay, driven by TestClock), `#backoff_bookkeeping_survives_a_reconciler_reconstruction_against_the_same_store` (a fresh JobReconciler against the same store resumes an in-progress wait rather than restarting it), `#converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states` (an overdue persisted retry fires on a brand-new reconciler's very first tick; a freshly observed failure with no persisted state starts its own backoff rather than retrying immediately), and `#a_run_on_a_genuinely_gone_node_is_retried_once_the_grace_period_and_backoff_elapse` updated to reflect the new gate. `exhausting_the_backoff_limit_marks_the_job_permanently_failed` re-verified unchanged: backoffLimit exhaustion is checked before the backoff gate and still fails the job on the very next tick. Full gimle-mimir/gimle-controlplane module suites re-verified.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Job attempt that just failed, within its backoffLimit; When the reconciler ticks again before the attempt's exponential backoff delay has elapsed; Then no new attempt is placed and the failed run stays on record.
+  Given a Job attempt waiting out its retry backoff; When the reconciler ticks again after the delay has elapsed; Then exactly one new attempt is placed and the failed run is removed.
+  Given a Job attempt's retry backoff bookkeeping persisted under a previous reconciler-leader term; When a freshly constructed reconciler ticks against the same store; Then it resumes the in-progress wait rather than granting a fresh delay.
   ```
 
 ### gimle-fafnir
