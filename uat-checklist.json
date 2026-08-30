@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 679,
+    "totalRequirements": 680,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 553,
-    "releaseReadinessPercent": 18.6
+    "notCoveredByAutomatedTest": 554,
+    "releaseReadinessPercent": 18.5
   },
   "items": [
     {
@@ -7471,6 +7471,17 @@
       "category": "Networking",
       "feature": "Gateway route table reloads on a config change without a restart",
       "step": "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-680",
+      "module": "gimle-controlplane",
+      "category": "Workloads / Job",
+      "feature": "Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick",
+      "step": "Given a Job attempt that just failed, within its backoffLimit; When the reconciler ticks again before the attempt's exponential backoff delay has elapsed; Then no new attempt is placed and the failed run stays on record. Given a Job attempt waiting out its retry backoff; When the reconciler ticks again after the delay has elapsed; Then exactly one new attempt is placed and the failed run is removed. Given a Job attempt's retry backoff bookkeeping persisted under a previous reconciler-leader term; When a freshly constructed reconciler ticks against the same store; Then it resumes the in-progress wait rather than granting a fresh delay.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 679,
+  "requirementCount": 680,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11766,6 +11766,21 @@
       "otherTestCoverage": "`GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`.",
       "sourceLocations": [
         "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-680",
+      "module": "gimle-controlplane",
+      "feature": "Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick",
+      "category": "Workloads / Job",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-51 -- JobReconciler#retryOrFail immediately called planPlacement for the next attempt in the same batch that removed the failed run, with no delay, timer, or backoff gate of any kind, so a Job whose module crashes on startup got re-placed on literally the very next reconcile tick, forever, until backoffLimit was exhausted. Fixed by gating a within-budget retry through the same WorkloadCrashLoopBackoff/WorkloadHealthState machinery StatefulSetReconciler/DaemonSetReconciler already use, persisted so a reconciler-leader failover resumes an in-progress wait.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`JobReconcilerTest#a_failed_attempt_is_not_retried_before_its_backoff_elapses` and `#a_failed_attempt_is_retried_once_its_backoff_elapses` (the boundary on both sides of the initial 2-second delay, driven by TestClock), `#backoff_bookkeeping_survives_a_reconciler_reconstruction_against_the_same_store`, `#converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states`, and `#a_run_on_a_genuinely_gone_node_is_retried_once_the_grace_period_and_backoff_elapse` updated to reflect the new gate. Full gimle-mimir/gimle-controlplane module suites re-verified.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/JobReconciler.java` (`retryOrFail`, `WORKLOAD_KIND`, `BACKOFF_SLOT`, `crashLoopBackoff`)"
       ]
     }
   ]

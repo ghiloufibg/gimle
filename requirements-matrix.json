@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 679,
+  "requirementCount": 680,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13453,6 +13453,26 @@
         "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart.",
         "Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving.",
         "Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-680",
+      "module": "gimle-controlplane",
+      "feature": "Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick",
+      "category": "Workloads / Job",
+      "userStory": "As a platform operator running a Job whose module crashes on startup (a bad artifact, not a transient node problem), I want each retry attempt delayed by an exponential backoff, so the job doesn't burn through its entire backoffLimit in a tight loop on literally the next reconcile tick.",
+      "statusDetail": "Complete. JobReconciler#retryOrFail immediately called planPlacement for the next attempt in the same batch that removed the failed run, with no delay, timer, or backoff gate of any kind -- since ControlPlaneMain's reconcile loop ticks every RECONCILE_INTERVAL (2 seconds), a Job whose module crashes on startup got re-placed on literally the very next tick, forever, until backoffLimit attempts were exhausted. Fixed: retryOrFail now gates a within-budget retry through the same WorkloadCrashLoopBackoff/WorkloadHealthState machinery StatefulSetReconciler/DaemonSetReconciler already use for their own crash-loop backoff, keyed by (\"Job\", spec.name(), a constant single slot, spec.tenantId()) since a Job never has more than one non-terminal run at a time. The crash-loop backoff's own budget-exhaustion path is configured unreachable (an effectively-unbounded attempt count across an effectively-unbounded window) so JobReconciler's existing explicit backoffLimit check remains the sole authority on when to give up, preserving that behavior exactly. A retry within budget but still waiting out its backoff leaves the failed run on record (not removed) so the next tick re-evaluates the same wait against a freshly read clock; only once the backoff elapses does the same one-batch retry-placement-plus-removal commit as before. Backoff bookkeeping is persisted through StoreReader/MutationSink as a WorkloadHealthState, not held in a local map, so a reconciler-leader failover resumes an in-progress wait rather than re-granting a full delay schedule to an already-crash-looping job.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/JobReconciler.java` (`retryOrFail`, `WORKLOAD_KIND`, `BACKOFF_SLOT`, `crashLoopBackoff`)"
+      ],
+      "testCoverageDetail": "`JobReconcilerTest#a_failed_attempt_is_not_retried_before_its_backoff_elapses` and `#a_failed_attempt_is_retried_once_its_backoff_elapses` (the boundary on both sides of the initial 2-second delay, driven by TestClock), `#backoff_bookkeeping_survives_a_reconciler_reconstruction_against_the_same_store` (a fresh JobReconciler against the same store resumes an in-progress wait rather than restarting it), `#converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states` (an overdue persisted retry fires on a brand-new reconciler's very first tick; a freshly observed failure with no persisted state starts its own backoff rather than retrying immediately), and `#a_run_on_a_genuinely_gone_node_is_retried_once_the_grace_period_and_backoff_elapse` updated to reflect the new gate. `exhausting_the_backoff_limit_marks_the_job_permanently_failed` re-verified unchanged: backoffLimit exhaustion is checked before the backoff gate and still fails the job on the very next tick. Full gimle-mimir/gimle-controlplane module suites re-verified.",
+      "gherkinSteps": [
+        "Given a Job attempt that just failed, within its backoffLimit; When the reconciler ticks again before the attempt's exponential backoff delay has elapsed; Then no new attempt is placed and the failed run stays on record.",
+        "Given a Job attempt waiting out its retry backoff; When the reconciler ticks again after the delay has elapsed; Then exactly one new attempt is placed and the failed run is removed.",
+        "Given a Job attempt's retry backoff bookkeeping persisted under a previous reconciler-leader term; When a freshly constructed reconciler ticks against the same store; Then it resumes the in-progress wait rather than granting a fresh delay."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

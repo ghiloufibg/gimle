@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 679
+- **Total requirements**: 680
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 553
-- **Release-readiness (automated coverage)**: 18.6%
+- **Not covered by automated test**: 554
+- **Release-readiness (automated coverage)**: 18.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 47 | 6 | 41 | 12.8% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 35 | 1 | 34 | 2.9% |
-| gimle-controlplane | 87 | 15 | 72 | 17.2% |
+| gimle-controlplane | 88 | 15 | 73 | 17.0% |
 | gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -1214,6 +1214,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-670 | CronJob prunes its own terminal generated Jobs to configurable successful/failed history limits | Given a CronJob with default history limits and more firings than those limits allow; When the reconciler ticks after each firing is marked terminal; Then only the configured number of most-recent successful and failed Jobs remain, oldest excess pruned. Given an operator lowers a CronJob's history limit below its currently accumulated terminal Job count; When the reconciler next ticks; Then it prunes down to the new, lower limit. | No |
+
+#### Workloads / Job
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-680 | Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick | Given a Job attempt that just failed, within its backoffLimit; When the reconciler ticks again before the attempt's exponential backoff delay has elapsed; Then no new attempt is placed and the failed run stays on record. Given a Job attempt waiting out its retry backoff; When the reconciler ticks again after the delay has elapsed; Then exactly one new attempt is placed and the failed run is removed. Given a Job attempt's retry backoff bookkeeping persisted under a previous reconciler-leader term; When a freshly constructed reconciler ticks against the same store; Then it resumes the in-progress wait rather than granting a fresh delay. | No |
 
 ### gimle-fafnir
 
