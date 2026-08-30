@@ -25,8 +25,8 @@ the three dedicated services rather than either client talking to them directly 
 
 ## Screens
 
-Twenty screens, each backed by a real `Http*Repository` hitting the control plane's own API — the
-same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth. Eighteen
+Twenty-one screens, each backed by a real `Http*Repository` hitting the control plane's own API — the
+same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth. Nineteen
 live under the sidebar's "Cluster" group, `Logs` is reached contextually from an
 instance/deployment rather than its own top-level nav entry, and `Control plane` sits in its own
 "System" nav group, separate from the rest:
@@ -40,6 +40,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | DaemonSets | List/create/inspect [`kind: DaemonSet`](../reference/manifest-schema.md#daemonset-manifest) per-node workloads, surfacing `placement.requiredLabels` as a first-class column since it's the primary way an operator scopes which nodes run one. |
 | StatefulSets | List/create/inspect [`kind: StatefulSet`](../reference/manifest-schema.md#statefulset-manifest) workloads, including each index's sticky `nodeId` assignment. |
 | Instances | Per-instance detail: lifecycle state, health, resource usage. |
+| Custom Resources | Instances of cluster-defined [custom kinds](./custom-kinds.md): a kind picker fed by `/kinddefinitions`, an instance table honoring each definition's own `printColumns`, and a detail pane showing spec and status side by side with the generation/observedGeneration pair made visible — the at-a-glance "has the operator caught up" signal. Deliberately read-only; authoring stays in the CLI. |
 | Nodes | Registered node agents and their reported capacity — the UI equivalent of `gimle get nodes`. |
 | Networking | Two tabs: [Services](./service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment) (the ClusterIP analogue — create/inspect/delete, plus each row's live backing endpoints) and NetworkPolicies (which other tenants may call a tenant's own Services) — the UI equivalent of `gimle get/set/delete service` and `gimle get/set/delete networkpolicy`. |
 | Topology | A real-time graph of the cluster's actual placement (which instances landed on which nodes/workers). |

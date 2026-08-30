@@ -38,6 +38,14 @@ tenant. A `Role` is a named set of permissions; a `RoleBinding` grants a `Role` 
 `user:<name>` or `group:<name>`, additive across every binding that matches a given principal, never
 subtractive.
 
+One resource kind, `CUSTOM_RESOURCE`, additionally takes an optional **qualifier** on the
+permission, giving per-kind granularity over [cluster-defined custom kinds](./custom-kinds.md)
+without a `ResourceKind` value per kind: an absent qualifier covers every kind's specs (never
+status), `custom.Greeting` covers one kind's specs, and `custom.Greeting/status` covers only that
+kind's operator-reported status sub-document — spec-write never implies status-write or the
+reverse, which is what lets an operator's workload principal report status without ever being able
+to alter desired state.
+
 `Authorizer` resolves a request in two steps:
 
 1. **Node self-service, checked first.** A `group:gimle:nodes` principal always reaches its own
