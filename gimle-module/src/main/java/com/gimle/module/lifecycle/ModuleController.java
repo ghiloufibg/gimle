@@ -52,8 +52,7 @@ public final class ModuleController {
    * (every pre-existing constructor below, and any test constructing a controller directly) --
    * matches {@link SimpleModuleContext}'s own default posture for the same collaborator.
    */
-  private static final Function<String, ModuleContext.RelayResult> NO_OP_RELAY =
-      path -> new ModuleContext.RelayResult(501, "control-plane relay is not available");
+  private static final ControlPlaneRelayClient NO_OP_RELAY = ControlPlaneRelayClient.unavailable();
 
   /**
    * The default {@code identityLookup} for a caller that doesn't wire the real registry-backed
@@ -71,7 +70,7 @@ public final class ModuleController {
   private final Consumer<LifecycleEvent> eventSink;
   private final BiConsumer<ModuleId, ModuleLayerHandle> onDisposed;
   private final ServiceRegistry serviceRegistry;
-  private final Function<String, ModuleContext.RelayResult> relay;
+  private final ControlPlaneRelayClient relay;
   private final Function<ModuleId, Optional<ModuleContext.InstanceInfo>> identityLookup;
 
   private final Map<ModuleId, ModuleLifecycleHooks> hooksByModule = new ConcurrentHashMap<>();
@@ -178,7 +177,7 @@ public final class ModuleController {
       Consumer<LifecycleEvent> eventSink,
       BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
       ServiceRegistry serviceRegistry,
-      Function<String, ModuleContext.RelayResult> relay) {
+      ControlPlaneRelayClient relay) {
     this(
         registry,
         resolver,
@@ -208,7 +207,7 @@ public final class ModuleController {
       Consumer<LifecycleEvent> eventSink,
       BiConsumer<ModuleId, ModuleLayerHandle> onDisposed,
       ServiceRegistry serviceRegistry,
-      Function<String, ModuleContext.RelayResult> relay,
+      ControlPlaneRelayClient relay,
       Function<ModuleId, Optional<ModuleContext.InstanceInfo>> identityLookup) {
     this.registry = registry;
     this.resolver = resolver;

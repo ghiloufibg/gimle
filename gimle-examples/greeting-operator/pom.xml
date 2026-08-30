@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-alpha.2</version>
+    <!-- Every sibling module lives directly under the repo root, where the default "../pom.xml"
+         already finds the aggregator; this one lives two directories down
+         (gimle-examples/greeting-operator/), so it needs saying explicitly. -->
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>greeting-operator</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Example: greeting-operator</name>
+  <description>
+    A real, deployable operator module -- the controller half of the custom-kind pattern: an
+    ordinary hosted module (deployed by manifest, tiered, probed, supervised like anything else,
+    never control-plane code) whose onStart hook runs a GaldrOperatorLoop over kind
+    custom.Greeting, saying each Greeting's message its declared number of times and reporting
+    {timesSaid, observedGeneration} back as the resource's status through the agent-mediated,
+    workload-identity-authorized status relay. The same requires-static posture greeter-provider
+    documents applies to com.gimle.module and org.slf4j here.
+  </description>
+
+  <properties>
+    <!-- Sample/demo code, not part of Gimle's platform API surface: excluded from the aggregate
+         Javadoc the docs site publishes (see the root pom's maven-javadoc-plugin pluginManagement
+         entry). -->
+    <maven.javadoc.skip>true</maven.javadoc.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+</project>

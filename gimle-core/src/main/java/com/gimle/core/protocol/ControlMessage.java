@@ -150,6 +150,18 @@ public sealed interface ControlMessage {
    */
   record RelayControlPlaneRead(String correlationId, String path) implements ControlMessage {}
 
+  /**
+   * A hosted operator module's status report for one custom resource, relayed through its agent as
+   * {@code PUT /resources/{kindName}/{name}/status} under the instance's own workload-identity
+   * token -- the one write the relay mechanism carries, deliberately typed field-by-field rather
+   * than as a raw path+body so the agent can validate each segment before assembling the real
+   * request. {@code tenantId} is blank for an untenanted (Cluster-scoped) resource. Answered with
+   * the same {@link RelayControlPlaneResult} a read gets, matched by {@code correlationId}.
+   */
+  record RelayResourceStatusPut(
+      String correlationId, String kindName, String tenantId, String name, String statusJson)
+      implements ControlMessage {}
+
   // Agent -> Worker
   /**
    * {@code deploymentName}/{@code instanceIndex} are this instance's placement identity, already

@@ -17,6 +17,7 @@ module com.gimle.module {
   exports com.gimle.module.resolve;
   exports com.gimle.module.layer;
   exports com.gimle.module.lifecycle;
+  exports com.gimle.module.galdr;
   exports com.gimle.module.leak;
   exports com.gimle.module.probe;
 }

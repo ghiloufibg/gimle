@@ -59,16 +59,38 @@ final class ControlPlaneRelay {
    * path, so a timed-out call never leaks a map entry.
    */
   ModuleContext.RelayResult request(String path) {
+    return exchange(
+        "read " + path,
+        correlationId -> new ControlMessage.RelayControlPlaneRead(correlationId, path));
+  }
+
+  /**
+   * The status-write sibling of {@link #request}: sends a {@code RelayResourceStatusPut} and blocks
+   * for the same {@code RelayControlPlaneResult} shape a read gets, over the identical
+   * pending-future machinery -- the agent answers both message kinds with one result type, matched
+   * by correlation id.
+   */
+  ModuleContext.RelayResult requestStatusPut(
+      String kindName, java.util.Optional<String> tenantId, String name, String statusJson) {
+    return exchange(
+        "status put for " + kindName + "/" + name,
+        correlationId ->
+            new ControlMessage.RelayResourceStatusPut(
+                correlationId, kindName, tenantId.orElse(""), name, statusJson));
+  }
+
+  private ModuleContext.RelayResult exchange(
+      String what, java.util.function.Function<String, ControlMessage> message) {
     String correlationId = UUID.randomUUID().toString();
     CompletableFuture<ControlMessage.RelayControlPlaneResult> future = new CompletableFuture<>();
     pending.put(correlationId, future);
     try {
-      channel.send(new ControlMessage.RelayControlPlaneRead(correlationId, path));
+      channel.send(message.apply(correlationId));
       ControlMessage.RelayControlPlaneResult result =
           future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
       return new ModuleContext.RelayResult(result.status(), result.body());
     } catch (IOException e) {
-      log.warn("failed to send control-plane relay request for {}: {}", path, e.getMessage());
+      log.warn("failed to send control-plane relay request for {}: {}", what, e.getMessage());
       return new ModuleContext.RelayResult(
           502, "worker could not send the relay request: " + e.getMessage());
     } catch (TimeoutException e) {

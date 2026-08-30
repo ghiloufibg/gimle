@@ -177,7 +177,7 @@ class SimpleModuleContextTest {
             new SimpleServiceRegistry(),
             new java.util.concurrent.ConcurrentHashMap<>(),
             Map.of(),
-            path -> new ModuleContext.RelayResult(501, "unused"),
+            SimpleModuleContext.readOnly(path -> new ModuleContext.RelayResult(501, "unused")),
             identity::get);
 
     assertEquals(Optional.empty(), ctx.instanceInfo());
