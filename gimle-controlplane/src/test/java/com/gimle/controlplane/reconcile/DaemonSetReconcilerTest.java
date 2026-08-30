@@ -548,7 +548,16 @@ class DaemonSetReconcilerTest {
         new DaemonSetAssignment("node-exporter", "node-a", spec.moduleId(), spec.artifactPath()));
     store.putWorkloadHealthState(
         new WorkloadHealthState(
-            "DaemonSet", "node-exporter", "node-a", 5, 0L, 0L, false, true, Optional.empty()));
+            "DaemonSet",
+            "node-exporter",
+            "node-a",
+            5,
+            0L,
+            0L,
+            false,
+            true,
+            WorkloadHealthState.ABSENT,
+            Optional.empty()));
 
     // Threads the same TestClock through the reconciler as the store -- a reconciler defaulted to
     // Clock.systemUTC() would see the store's TestClock-stamped heartbeat as impossibly stale and

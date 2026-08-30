@@ -12,6 +12,7 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
 import com.gimle.mimir.manifest.PlacementConstraints;
@@ -72,6 +73,22 @@ class DeploymentReconcilerRollingUpdateTest {
         Optional.of(disruption));
   }
 
+  /**
+   * A {@link DeploymentReconciler} threaded with a {@link TestClock} so a test can advance past
+   * {@link DeploymentReconciler#READINESS_STABILIZATION_WINDOW} without any real waiting -- every
+   * test in this file that expects an in-flight migration to actually clear needs this rather than
+   * the plain two-arg (real-clock) constructor.
+   */
+  private static DeploymentReconciler deploymentReconciler(
+      StateStore store, Scheduler scheduler, TestClock clock) {
+    return new DeploymentReconciler(
+        store,
+        scheduler,
+        mutation -> mutation.applyTo(store),
+        DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+        clock);
+  }
+
   private static void registerNode(StateStore store, String nodeId) {
     store.putNodeRegistration(
         new NodeRegistration(
@@ -128,10 +145,10 @@ class DeploymentReconcilerRollingUpdateTest {
   }
 
   @Test
-  void a_module_id_change_migrates_exactly_one_index_at_a_time() {
-    StateStore store = new StateStore();
+  void a_module_id_change_migrates_exactly_one_index_at_a_time(TestClock clock) {
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
-    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
     registerNode(store, "node-a");
 
     Path jarV1 = buildFixtureJar();
@@ -158,20 +175,25 @@ class DeploymentReconcilerRollingUpdateTest {
     assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
     markReady(store, "node-a", "orders-service", 0, v2.moduleId());
-    // A single tick both clears index 0 (now confirmed ready) and, since budget is freed in the
-    // very same tick, immediately starts index 1's migration -- DeploymentReconciler's continuous
-    // top-up model, not a settle-then-scan one.
+    // Readiness must hold continuously for the full stabilization window before the migration
+    // counts as complete: one tick records when it was first observed ready (and does not clear
+    // yet), then once the window elapses a further tick both clears index 0 and, since budget is
+    // freed in that very same tick, immediately starts index 1's migration --
+    // DeploymentReconciler's
+    // continuous top-up model, not a settle-then-scan one.
+    reconciler.reconcileOnce();
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
     reconciler.reconcileOnce();
     assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 0).moduleId());
     assertEquals(Set.of(1), store.getRollingIndices(Optional.empty(), "orders-service"));
   }
 
   @Test
-  void mid_rollout_state_survives_a_simulated_reconciler_restart() {
+  void mid_rollout_state_survives_a_simulated_reconciler_restart(TestClock clock) {
     Path storeDir = tempDir.resolve("store-restart");
-    StateStore store = new StateStore();
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
-    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
     registerNode(store, "node-a");
 
     Path jarV1 = buildFixtureJar();
@@ -191,7 +213,7 @@ class DeploymentReconcilerRollingUpdateTest {
     // Simulate a control-plane restart: a fresh DeploymentReconciler with no in-memory history at
     // all, against the same store -- the store (gimle-mimir) is its own process and doesn't
     // restart with a control-plane replica.
-    DeploymentReconciler restartedReconciler = new DeploymentReconciler(store, scheduler);
+    DeploymentReconciler restartedReconciler = deploymentReconciler(store, scheduler, clock);
 
     assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
     restartedReconciler.reconcileOnce();
@@ -200,7 +222,24 @@ class DeploymentReconcilerRollingUpdateTest {
     assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
     markReady(store, "node-a", "orders-service", 0, v2.moduleId());
-    restartedReconciler.reconcileOnce(); // clears index 0, immediately tops up with index 1
+    // First observation of readiness: records the stabilization timer (persisted via
+    // ReconcilerInstanceState) but does not clear yet -- a single ready heartbeat is never enough.
+    restartedReconciler.reconcileOnce();
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
+
+    // A SECOND restart, with the window not yet elapsed: the freshly-reconstructed reconciler has
+    // no in-memory history of its own at all, so this only proves the timer genuinely survived if
+    // it still refuses to clear before the window elapses.
+    DeploymentReconciler restartedAgain = deploymentReconciler(store, scheduler, clock);
+    restartedAgain.reconcileOnce();
+    assertEquals(
+        Set.of(0),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
+        "the persisted stabilization timer must not restart from scratch just because the"
+            + " reconciler-leader failed over again");
+
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
+    restartedAgain.reconcileOnce(); // clears index 0, immediately tops up with index 1
     assertEquals(Set.of(1), store.getRollingIndices(Optional.empty(), "orders-service"));
     assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
   }
@@ -289,10 +328,11 @@ class DeploymentReconcilerRollingUpdateTest {
    */
   @Test
   void
-      a_version_submitted_while_the_prior_rollout_is_still_confirming_does_not_deadlock_future_rollouts() {
-    StateStore store = new StateStore();
+      a_version_submitted_while_the_prior_rollout_is_still_confirming_does_not_deadlock_future_rollouts(
+          TestClock clock) {
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
-    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
     registerNode(store, "node-a");
 
     Path jarV1 = buildFixtureJar();
@@ -307,16 +347,19 @@ class DeploymentReconcilerRollingUpdateTest {
     reconciler.reconcileOnce(); // starts rolling index 0 forward to v2
     assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
 
-    // Index 0 becomes ready on v2 -- but a THIRD version is submitted before the next reconcile
-    // tick runs, racing ahead of the check that would otherwise have cleared the in-flight marker.
+    // Index 0 becomes ready on v2 -- but a THIRD version is submitted before the readiness window
+    // elapses, racing ahead of the check that would otherwise have cleared the in-flight marker.
     markReady(store, "node-a", "orders-service", 0, v2.moduleId());
+    reconciler.reconcileOnce(); // first observation: starts the stabilization timer, no clear yet
     Path jarV3 = buildFixtureJar();
     DeploymentSpec v3 = deployment("orders-service", 1, jarV3);
     store.putDeployment(v3);
 
-    // Must still clear: index 0 IS ready, just not yet on v3 -- and because budget frees up in the
-    // very same tick (continuous top-up), the v2->v3 mismatch is detected and re-placed immediately
-    // too, rather than deadlocking on the completed-but-now-stale v2 migration.
+    // Must still clear once the window elapses: index 0 IS ready, just not yet on v3 -- and
+    // because budget frees up in that very same tick (continuous top-up), the v2->v3 mismatch is
+    // detected and re-placed immediately too, rather than deadlocking on the completed-but-now-
+    // stale v2 migration.
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
     reconciler.reconcileOnce();
     assertEquals(
         Set.of(0),
@@ -330,6 +373,8 @@ class DeploymentReconcilerRollingUpdateTest {
 
     markReady(store, "node-a", "orders-service", 0, v3.moduleId());
     reconciler.reconcileOnce();
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce();
     assertEquals(
         Set.of(),
         store.getRollingIndices(Optional.empty(), "orders-service"),
@@ -338,10 +383,11 @@ class DeploymentReconcilerRollingUpdateTest {
   }
 
   @Test
-  void disruption_max_unavailable_caps_concurrent_migrations_and_tops_up_as_each_completes() {
-    StateStore store = new StateStore();
+  void disruption_max_unavailable_caps_concurrent_migrations_and_tops_up_as_each_completes(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
-    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
     registerNode(store, "node-a");
 
     Path jarV1 = buildFixtureJar();
@@ -376,7 +422,9 @@ class DeploymentReconcilerRollingUpdateTest {
             .min(Integer::compare)
             .orElseThrow();
     markReady(store, "node-a", "orders-service", firstInFlight, v2.moduleId());
-    reconciler.reconcileOnce();
+    reconciler.reconcileOnce(); // first observation: starts the stabilization timer
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce(); // stabilized: clears and tops up in the same tick
     assertEquals(
         2,
         store.getRollingIndices(Optional.empty(), "orders-service").size(),
@@ -388,19 +436,21 @@ class DeploymentReconcilerRollingUpdateTest {
                 .count()
             >= 1);
 
-    // Drain the remaining migrations to completion, one tick at a time, marking whichever indices
-    // are currently in flight as ready -- the deployment must fully converge to v2 without ever
-    // exceeding the budget along the way (already asserted above) and without ever stalling.
-    // Completion is "no index still in flight," not "every assignment already shows v2's
-    // moduleId" -- placement applies v2 immediately regardless of readiness, so the latter can
-    // turn true a tick before the in-flight set itself actually empties.
-    // 10 is a generous safety margin, not a tight bound: at this point 1 of 5 indices is already
-    // fully migrated and 2 more are in flight, so each further tick clears up to maxUnavailable=2
-    // and immediately tops back up, needing at most 2 more ticks to finish the remaining 4 -- the
-    // loop exists to guard against a stalled/non-converging bug turning into an infinite loop, not
-    // because this scenario is expected to need anywhere near 10.
+    // Drain the remaining migrations to completion, marking whichever indices are currently in
+    // flight as ready and advancing the clock by a full stabilization window before every
+    // reconcile -- the deployment must fully converge to v2 without ever exceeding the budget
+    // along the way (already asserted above) and without ever stalling. Completion is "no index
+    // still in flight," not "every assignment already shows v2's moduleId" -- placement applies v2
+    // immediately regardless of readiness, so the latter can turn true a tick before the in-flight
+    // set itself actually empties.
+    // 40 is a generous safety margin, not a tight bound: readiness now needs to hold across two
+    // ticks (one to record when an index was first observed ready, one more after the window
+    // elapses to confirm it stayed ready), roughly doubling the tick count the maxUnavailable
+    // budget alone would need to drain the remaining 4 indices -- the loop exists to guard against
+    // a stalled/non-converging bug turning into an infinite loop, not because this scenario is
+    // expected to need anywhere near 40.
     for (int tick = 0;
-        tick < 10 && !store.getRollingIndices(Optional.empty(), "orders-service").isEmpty();
+        tick < 40 && !store.getRollingIndices(Optional.empty(), "orders-service").isEmpty();
         tick++) {
       markManyReady(
           store,
@@ -408,6 +458,7 @@ class DeploymentReconcilerRollingUpdateTest {
           "orders-service",
           v2.moduleId(),
           store.getRollingIndices(Optional.empty(), "orders-service"));
+      clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
       reconciler.reconcileOnce();
     }
     assertTrue(
@@ -426,10 +477,10 @@ class DeploymentReconcilerRollingUpdateTest {
    * current.
    */
   @Test
-  void a_same_module_id_artifact_path_change_also_triggers_a_rollout() {
-    StateStore store = new StateStore();
+  void a_same_module_id_artifact_path_change_also_triggers_a_rollout(TestClock clock) {
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
-    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
     registerNode(store, "node-a");
 
     Path jarV1 = buildFixtureJar();
@@ -469,6 +520,8 @@ class DeploymentReconcilerRollingUpdateTest {
         "a same-moduleId, different-artifactPath re-apply must still trigger a rollout");
 
     markReady(store, "node-a", "orders-service", 0, moduleId);
+    reconciler.reconcileOnce(); // records the stabilization timer, doesn't clear yet
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
     reconciler.reconcileOnce();
     assertEquals(Set.of(), store.getRollingIndices(Optional.empty(), "orders-service"));
     assertEquals(
@@ -492,10 +545,11 @@ class DeploymentReconcilerRollingUpdateTest {
    * reacts to that state correctly.
    */
   @Test
-  void a_permanently_failed_in_flight_index_frees_the_rolling_budget_instead_of_wedging_forever() {
-    StateStore store = new StateStore();
+  void a_permanently_failed_in_flight_index_frees_the_rolling_budget_instead_of_wedging_forever(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
-    DeploymentReconciler reconciler = new DeploymentReconciler(store, scheduler);
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
     registerNode(store, "node-a");
 
     Path jarV1 = buildFixtureJar();
@@ -550,6 +604,8 @@ class DeploymentReconcilerRollingUpdateTest {
         "the freed budget must already be spent placing v1 at index 0");
 
     markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+    reconciler.reconcileOnce(); // records the stabilization timer, doesn't clear yet
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
     reconciler.reconcileOnce();
     assertEquals(
         Set.of(),

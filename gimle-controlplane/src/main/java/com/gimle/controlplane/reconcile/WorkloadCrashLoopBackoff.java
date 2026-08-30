@@ -85,7 +85,9 @@ final class WorkloadCrashLoopBackoff {
         return new Evaluation(
             false,
             true,
-            saveMutation(state(workloadKind, workloadName, slot, tenantId, tracker, false, true)));
+            saveMutation(
+                state(
+                    workloadKind, workloadName, slot, tenantId, tracker, false, true, persisted)));
       }
       pendingRetry = true;
     }
@@ -95,12 +97,14 @@ final class WorkloadCrashLoopBackoff {
       return new Evaluation(
           true,
           false,
-          saveMutation(state(workloadKind, workloadName, slot, tenantId, tracker, false, false)));
+          saveMutation(
+              state(workloadKind, workloadName, slot, tenantId, tracker, false, false, persisted)));
     }
     return new Evaluation(
         false,
         false,
-        saveMutation(state(workloadKind, workloadName, slot, tenantId, tracker, true, false)));
+        saveMutation(
+            state(workloadKind, workloadName, slot, tenantId, tracker, true, false, persisted)));
   }
 
   /**
@@ -126,6 +130,7 @@ final class WorkloadCrashLoopBackoff {
                 WorkloadHealthState.ABSENT,
                 false,
                 persisted.permanentlyFailed(),
+                persisted.firstContinuousReadyAtEpochMilli(),
                 tenantId)));
   }
 
@@ -155,7 +160,8 @@ final class WorkloadCrashLoopBackoff {
       Optional<String> tenantId,
       RestartTracker tracker,
       boolean pendingRetry,
-      boolean permanentlyFailed) {
+      boolean permanentlyFailed,
+      WorkloadHealthState previous) {
     return new WorkloadHealthState(
         workloadKind,
         workloadName,
@@ -167,6 +173,7 @@ final class WorkloadCrashLoopBackoff {
             : tracker.nextAllowedAttempt().toEpochMilli(),
         pendingRetry,
         permanentlyFailed,
+        previous.firstContinuousReadyAtEpochMilli(),
         tenantId);
   }
 
@@ -193,6 +200,7 @@ final class WorkloadCrashLoopBackoff {
                     WorkloadHealthState.ABSENT,
                     false,
                     false,
+                    WorkloadHealthState.ABSENT,
                     tenantId));
   }
 }

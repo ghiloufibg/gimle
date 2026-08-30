@@ -177,6 +177,7 @@ public final class HealthReconciler {
             false,
             persisted.permanentlyFailed(),
             persisted.firstSeenMissingAtEpochMilli(),
+            persisted.firstContinuousReadyAtEpochMilli(),
             assignment.tenantId()));
   }
 
@@ -270,6 +271,7 @@ public final class HealthReconciler {
         pendingRetry,
         permanentlyFailed,
         previous.firstSeenMissingAtEpochMilli(),
+        previous.firstContinuousReadyAtEpochMilli(),
         assignment.tenantId());
   }
 
@@ -301,6 +303,7 @@ public final class HealthReconciler {
         ReconcilerInstanceState.ABSENT,
         false,
         false,
+        ReconcilerInstanceState.ABSENT,
         ReconcilerInstanceState.ABSENT,
         assignment.tenantId());
   }
