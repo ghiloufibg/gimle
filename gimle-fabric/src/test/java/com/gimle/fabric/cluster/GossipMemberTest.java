@@ -214,6 +214,69 @@ class GossipMemberTest {
   }
 
   @Test
+  @Timeout(30)
+  void anti_entropy_sync_recovers_a_catalog_entry_that_fell_out_of_the_piggyback_window()
+      throws Exception {
+    // A short antiEntropyInterval so a real SyncRequest/SyncResponse round trip fires within the
+    // test's own timeout, without needing to wait out the multi-second production default.
+    GossipConfig config =
+        new GossipConfig(
+            Duration.ofMillis(50),
+            Duration.ofMillis(40),
+            Duration.ofMillis(200),
+            2,
+            6,
+            Duration.ofMillis(150),
+            Duration.ofSeconds(30));
+
+    GossipMember a = newMember("node-a", config);
+    GossipMember b = newMember("node-b", config);
+
+    ServiceExport early = new ServiceExport("com.gimle.example.Early", Version.parse("1.0.0"));
+    ModuleId module = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+
+    ServiceCatalog catalogOnA = new ServiceCatalog();
+    a.attachCatalog(catalogOnA);
+
+    // Register "early" first, then churn enough further registrations that it falls out of the
+    // default 8-entry recent-delta piggyback window entirely before node-b ever joins -- so node-b
+    // can never learn of it via ordinary piggyback traffic, no matter how long it gossips.
+    catalogOnA.localRegister(
+        a.self(), "worker-early", module, early, Optional.empty(), new InetSocketAddress(9000));
+    for (int i = 0; i < 10; i++) {
+      ServiceExport churn =
+          new ServiceExport("com.gimle.example.Churn" + i, Version.parse("1.0.0"));
+      catalogOnA.localRegister(
+          a.self(),
+          "worker-" + i,
+          module,
+          churn,
+          Optional.empty(),
+          new InetSocketAddress(9100 + i));
+    }
+
+    ServiceCatalog catalogOnB = new ServiceCatalog();
+    b.attachCatalog(catalogOnB);
+
+    a.start();
+    b.start();
+    b.join(List.of(a.self().gossipAddress()));
+
+    // node-b converges on node-a's membership via ordinary gossip well before anti-entropy could
+    // possibly be involved -- but "early" never rides the bounded piggyback window (it fell out
+    // before node-b ever joined), so it must still be missing at this point.
+    Await.until(
+        () -> b.memberState("node-a").map(s -> s.status() == MemberStatus.ALIVE).orElse(false),
+        Duration.ofSeconds(5));
+    assertTrue(catalogOnB.endpointsFor(early).isEmpty());
+
+    // Only the periodic anti-entropy SyncRequest/SyncResponse exchange can now teach node-b about
+    // "early": ordinary piggyback traffic never carries it again once it's fallen out of the top-8
+    // window, no matter how many more protocol periods elapse.
+    Await.until(() -> !catalogOnB.endpointsFor(early).isEmpty(), Duration.ofSeconds(10));
+  }
+
+  @Test
   void a_long_dead_member_is_eventually_forgotten_not_kept_forever() throws IOException {
     // Driven directly via mergeAll (same technique the self-refutation tests below use) rather
     // than a real multi-node kill-and-detect scenario: with a second live peer still gossiping,
