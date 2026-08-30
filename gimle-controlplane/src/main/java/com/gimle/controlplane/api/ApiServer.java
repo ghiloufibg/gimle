@@ -4499,9 +4499,40 @@ public final class ApiServer implements AutoCloseable {
     respondJson(exchange, 200, roleToJson(role.get()));
   }
 
+  /**
+   * {@code StateMutation.RemoveRole} itself cascades the actual removal of every {@code
+   * RoleBinding} naming this Role atomically -- the security fix, see its own javadoc -- so
+   * correctness here does not depend on the list taken below. That list is purely for the
+   * operator-facing response and this call's own audit trail: it is read moments before the delete
+   * is proposed, not inside the same mutation, so a binding created in the narrow window between
+   * the two (still cascaded by the mutation itself, just silently) would not appear in {@code
+   * removedRoleBindings} or get its own audit event here. An acceptable gap for a best-effort
+   * report, not for the guarantee the fix actually depends on.
+   */
   private void handleDeleteRole(HttpExchange exchange, String name) throws IOException {
+    List<RoleBinding> cascaded =
+        storeClient.listRoleBindings().stream()
+            .filter(binding -> binding.roleName().equals(name))
+            .toList();
     storeClient.propose(new StateMutation.RemoveRole(name));
-    respond(exchange, 200, "ok");
+    resolvePrincipal(exchange)
+        .ifPresent(
+            principal -> {
+              for (RoleBinding binding : cascaded) {
+                recordAuditEventBestEffort(
+                    principal,
+                    ResourceKind.ROLE_BINDING,
+                    Verb.DELETE,
+                    Optional.empty(),
+                    Optional.of(binding.id()),
+                    true,
+                    AuditOutcome.APPLIED);
+              }
+            });
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("status", "ok");
+    body.put("removedRoleBindings", cascaded.stream().map(RoleBinding::id).toList());
+    respondJson(exchange, 200, body);
   }
 
   private static Map<String, Object> roleToJson(Role role) {

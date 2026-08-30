@@ -622,10 +622,38 @@ class GimleCliTest {
     assertTrue(stdout().contains("\"tenantScope\":\"acme\""));
 
     int deleteExit = run("delete", "role", "deployment-reader");
-    assertEquals(0, deleteExit);
+    assertEquals(0, deleteExit, errBuffer::toString);
     outBuffer.reset();
     int getAfterDeleteExit = run("get", "role", "deployment-reader");
     assertEquals(1, getAfterDeleteExit);
+  }
+
+  @Test
+  void deleting_a_role_cascades_to_every_rolebinding_that_named_it() throws Exception {
+    // FUNC-24 regression: roleName is a plain string resolved by name at authorize-time, not an
+    // immutable ID -- a binding left behind after its Role is deleted would silently reactivate
+    // the moment anyone later PUTs a new Role under the same name.
+    assertEquals(
+        0, run("set", "role", "reviewer", "--permission", "deployment:read"), errBuffer::toString);
+    assertEquals(
+        0,
+        run("set", "rolebinding", "b1", "--subject", "user:alice", "--role", "reviewer"),
+        errBuffer::toString);
+    assertEquals(
+        0,
+        run("set", "rolebinding", "b2", "--subject", "group:reviewers", "--role", "reviewer"),
+        errBuffer::toString);
+
+    outBuffer.reset();
+    int deleteExit = run("delete", "role", "reviewer");
+    assertEquals(0, deleteExit);
+    String out = stdout();
+    // The operator is told which bindings were revoked, not left to discover it later.
+    assertTrue(out.contains("b1"), out);
+    assertTrue(out.contains("b2"), out);
+
+    assertEquals(1, run("get", "rolebinding", "b1"));
+    assertEquals(1, run("get", "rolebinding", "b2"));
   }
 
   @Test

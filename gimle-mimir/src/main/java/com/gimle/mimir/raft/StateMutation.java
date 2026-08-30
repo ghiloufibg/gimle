@@ -608,10 +608,15 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
+  // Cascades to every RoleBinding naming this Role, not just the Role itself -- see
+  // StateStore#removeRoleBindingsForRole's own javadoc for why leaving one behind is a
+  // silent-reactivation trap, not just clutter, and why the cascade belongs in this single
+  // mutation rather than a second proposal from the caller.
   record RemoveRole(String name) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeRole(name);
+      store.removeRoleBindingsForRole(name);
       return MutationOutcome.accepted();
     }
   }

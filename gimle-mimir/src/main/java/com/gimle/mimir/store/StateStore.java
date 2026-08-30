@@ -959,6 +959,32 @@ public final class StateStore implements StoreReader {
     roles.remove(name);
   }
 
+  /**
+   * Removes every {@link RoleBinding} whose {@code roleName} equals {@code name}, returning the
+   * ones removed. Called from {@code StateMutation.RemoveRole}'s own {@code applyTo} so a Role's
+   * deletion and its bindings' cleanup commit as a single Raft log entry -- {@code
+   * RoleBinding.roleName} is a plain string resolved by name at authorize-time, not an immutable
+   * ID, so a binding left behind after its Role is deleted sits inert only until someone later
+   * {@code PUT}s a <i>new</i> Role under the same name, at which point it silently reactivates with
+   * whatever permissions that new Role grants. Doing this here, inside the mutation that deletes
+   * the Role, rather than as a separate proposal from the caller, means no window exists where the
+   * Role is gone but a stale binding naming it still is not.
+   */
+  public List<RoleBinding> removeRoleBindingsForRole(String name) {
+    List<RoleBinding> removed = new ArrayList<>();
+    roleBindings
+        .values()
+        .removeIf(
+            binding -> {
+              if (!binding.roleName().equals(name)) {
+                return false;
+              }
+              removed.add(binding);
+              return true;
+            });
+    return List.copyOf(removed);
+  }
+
   // ---- role bindings ----
 
   public void putRoleBinding(RoleBinding binding) {

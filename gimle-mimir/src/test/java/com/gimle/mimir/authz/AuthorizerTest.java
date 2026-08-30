@@ -17,6 +17,7 @@ import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.StatefulSetSpec;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.DaemonSetAssignment;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
@@ -162,6 +163,40 @@ class AuthorizerTest {
     assertFalse(
         authorizer.authorize(
             bob, ResourceKind.DEPLOYMENT, Verb.WRITE, Optional.empty(), Optional.empty()));
+    assertFalse(
+        authorizer.authorize(
+            bob, ResourceKind.TENANT, Verb.READ, Optional.empty(), Optional.empty()));
+  }
+
+  @Test
+  void a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding() {
+    // FUNC-24 regression: RoleBinding.roleName is a plain string resolved by name at
+    // authorize-time, not an immutable ID -- confirms StateMutation.RemoveRole's own cascade is
+    // what actually closes the resurrection gap, not merely that store.removeRole(name) ran.
+    StateStore store = new StateStore();
+    store.putRole(
+        new Role(
+            "deployment-reader", Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("bob"), "deployment-reader"));
+    Authorizer authorizer = new Authorizer(store);
+    Principal bob = new Principal("bob", Set.of());
+    assertTrue(
+        authorizer.authorize(
+            bob, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty(), Optional.empty()));
+
+    // A real delete goes through the cascading mutation, not a bare store.removeRole call.
+    new StateMutation.RemoveRole("deployment-reader").applyTo(store);
+    assertTrue(store.listRoleBindings().isEmpty());
+
+    // A later, unrelated Role happens to be created under the same name with different grants.
+    store.putRole(
+        new Role("deployment-reader", Set.of(Permission.unscoped(ResourceKind.TENANT, Verb.READ))));
+
+    // Bob's old binding is gone, not silently reactivated with the new Role's permissions.
+    assertFalse(
+        authorizer.authorize(
+            bob, ResourceKind.DEPLOYMENT, Verb.READ, Optional.empty(), Optional.empty()));
     assertFalse(
         authorizer.authorize(
             bob, ResourceKind.TENANT, Verb.READ, Optional.empty(), Optional.empty()));

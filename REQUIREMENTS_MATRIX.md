@@ -672,6 +672,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | Complete | Yes |
 | GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | Complete | Yes |
 | GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | Complete | Yes |
+| GIMLE-663 | Deleting a Role cascades to every RoleBinding naming it | Authorization | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3734,6 +3735,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given tenant A and tenant B each submit a Deployment named "orders-service"; When both are stored; Then each tenant's own GET resolves only its own spec, and the untenanted namespace sees neither.
+  ```
+
+#### GIMLE-663 — Deleting a Role cascades to every RoleBinding naming it
+
+- **Category**: Authorization
+- **User story**: As a platform operator deleting a Role that is no longer needed, I want every RoleBinding naming that Role to be revoked atomically as part of the same delete, so a stale binding cannot silently reactivate with a new set of permissions if someone later creates an unrelated Role under the same name.
+- **Status**: Complete. ApiServer#handleDeleteRole (and the underlying StateMutation.RemoveRole it proposes) previously removed only the Role itself, leaving every RoleBinding whose roleName referenced it dangling -- inert clutter until a later, unrelated `PUT /roles/{name}` under the same name (roleName is a plain string resolved by name at Authorizer#authorize-time, not an immutable ID) silently reactivated it with whatever permissions the new Role happened to grant, with no audit trail tying the resurrection back to the original grant decision. Fixed at the store layer, not just the API: StateStore#removeRoleBindingsForRole removes every binding naming a given Role, and StateMutation.RemoveRole#applyTo now calls it alongside store.removeRole so the Role's deletion and its bindings' cleanup commit as a single atomic Raft log entry -- no window exists where the Role is gone but a stale binding naming it is not. ApiServer#handleDeleteRole additionally lists the bindings about to be cascaded before proposing the delete (informational only -- the mutation's own atomic cascade is what actually guarantees no resurrection, not this list), reports their ids in the response body as `removedRoleBindings`, and records its own ROLE_BINDING:DELETE audit event for each one, attributed to the caller who deleted the Role. gimle-cli's RolesCommand#delete surfaces exactly which bindings were revoked to the operator instead of a bare "deleted".
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`removeRoleBindingsForRole`), `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`RemoveRole`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleDeleteRole`), `gimle-cli/src/main/java/com/gimle/cli/RolesCommand.java` (`delete`)
+- **Test coverage**: `StateStoreTest#remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role`; `AuthorizerTest#a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding` (confirmed to fail against the pre-fix code -- bob's old binding would otherwise grant the newly-recreated Role's permissions); `ApiServerAuthzTest#deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal` (asserts the response body's removedRoleBindings, the store reflecting the cascade, and the per-binding audit events); `GimleCliTest#deleting_a_role_cascades_to_every_rolebinding_that_named_it` end to end through GimleCli#run.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked.
+  Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated.
+  Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event.
   ```
 
 ### gimle-fabric

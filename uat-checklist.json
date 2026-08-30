@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 662,
+    "totalRequirements": 663,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 539,
+    "notCoveredByAutomatedTest": 540,
     "releaseReadinessPercent": 18.6
   },
   "items": [
@@ -7284,6 +7284,17 @@
       "category": "Secrets / CLI parity",
       "feature": "SecretMap batch handlers signal partial failure via HTTP status and CLI exit code",
       "step": "Given a SecretMap set/replace/seal/rollback batch where every key succeeds; Then the HTTP response is 200 and the CLI exits 0. Given the same batch where at least one key fails; Then the HTTP response is 207 Multi-Status, the CLI still prints every key's own outcome, and the process exits nonzero -- so a CI script gating on exit status catches the failure. Given the console's existing SecretMap read/write flows; Then a 207 response is treated identically to 200 (both fall in the 2xx range fetch's own res.ok already accepts), so no console-side change was needed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-663",
+      "module": "gimle-mimir",
+      "category": "Authorization",
+      "feature": "Deleting a Role cascades to every RoleBinding naming it",
+      "step": "Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked. Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated. Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

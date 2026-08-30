@@ -556,6 +556,86 @@ class ApiServerAuthzTest {
   }
 
   /**
+   * FUNC-24 regression: deleting a Role used to leave every {@code RoleBinding} naming it dangling
+   * -- a silent-reactivation trap the moment a new Role was later created under the same name,
+   * since {@code RoleBinding.roleName} is a plain string, not an immutable ID. {@code
+   * StateMutation.RemoveRole} now cascades the removal atomically (covered directly against the
+   * store in {@code StateStoreTest}/{@code AuthorizerTest}); this pins the HTTP-layer half: the
+   * response reports exactly which bindings were revoked, and each cascaded removal gets its own
+   * audit event attributed to the caller who deleted the Role.
+   */
+  @Test
+  void deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("admin", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "role-admin",
+            java.util.Set.of(
+                Permission.unscoped(ResourceKind.ROLE, Verb.WRITE),
+                Permission.unscoped(ResourceKind.ROLE, Verb.DELETE))));
+    store.putRoleBinding(
+        new RoleBinding("admin-binding", RoleBinding.userSubject("admin"), "role-admin"));
+    store.putRole(
+        new Role(
+            "reviewer", java.util.Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ))));
+    store.putRoleBinding(new RoleBinding("b1", RoleBinding.userSubject("alice"), "reviewer"));
+    store.putRoleBinding(new RoleBinding("b2", RoleBinding.groupSubject("reviewers"), "reviewer"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "admin", "pw");
+
+      HttpRequest deleteRequest =
+          HttpRequest.newBuilder(URI.create(baseUrl + "/roles/reviewer"))
+              .header("Cookie", cookie)
+              .DELETE()
+              .build();
+      HttpResponse<String> response =
+          client.send(deleteRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, response.statusCode());
+      Map<String, Object> responseBody = Json.asObject(Json.parse(response.body()));
+      List<Object> removedRoleBindings = Json.asArray(responseBody.get("removedRoleBindings"));
+      assertEquals(java.util.Set.of("b1", "b2"), java.util.Set.copyOf(removedRoleBindings));
+
+      // The store itself reflects the cascade, not just the response body.
+      assertTrue(store.getRole("reviewer").isEmpty());
+      assertTrue(store.getRoleBinding("b1").isEmpty());
+      assertTrue(store.getRoleBinding("b2").isEmpty());
+
+      // Every audit event attributes to "admin" -- the caller who deleted the Role -- including
+      // the two cascaded ROLE_BINDING removals, not just the ROLE:DELETE decision itself.
+      List<AuditEvent> events = listAuditEvents(store);
+      assertEquals(3, events.size());
+      assertTrue(events.stream().allMatch(e -> e.principal().equals("admin")));
+      assertEquals(1, events.stream().filter(e -> e.resourceKind().equals("ROLE")).count());
+      List<AuditEvent> bindingEvents =
+          events.stream().filter(e -> e.resourceKind().equals("ROLE_BINDING")).toList();
+      assertEquals(2, bindingEvents.size());
+      assertTrue(bindingEvents.stream().allMatch(AuditEvent::allowed));
+      assertTrue(bindingEvents.stream().allMatch(e -> e.verb().equals("DELETE")));
+      assertEquals(
+          java.util.Set.of("b1", "b2"),
+          bindingEvents.stream()
+              .map(e -> e.targetId().orElseThrow())
+              .collect(java.util.stream.Collectors.toSet()));
+    }
+  }
+
+  /**
    * {@code gimle.controlplane.audit.readResourceKinds} opts a resource kind into READ-decision
    * auditing too, both allowed and denied -- but only for the kind(s) named, and a bare 401 stays
    * unaudited regardless, exactly like the WRITE/DELETE path already pinned above. Uses {@code
