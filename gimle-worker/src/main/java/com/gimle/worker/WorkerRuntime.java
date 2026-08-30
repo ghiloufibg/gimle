@@ -217,39 +217,90 @@ public final class WorkerRuntime {
     // passed probeInterval unchanged here.
     Duration initialDelay = descriptor.healthProbes().initialDelay().orElse(probeInterval);
 
-    descriptor
-        .healthProbes()
-        .livenessClass()
-        .ifPresent(
-            className -> {
-              LivenessProbe probe = instantiate(id, className, handle, LivenessProbe.class);
-              probeLoop.start(
-                  probeKey(id, "liveness"),
-                  scheduler,
-                  probe::isAlive,
-                  probeInterval,
-                  probeTimeout,
-                  initialDelay,
-                  alive -> onLivenessResult(id, alive));
-            });
+    Optional<String> livenessClassName = descriptor.healthProbes().livenessClass();
+    if (livenessClassName.isPresent()) {
+      Optional<LivenessProbe> probe =
+          instantiateProbeOrFail(
+              id, "liveness", livenessClassName.get(), handle, LivenessProbe.class);
+      if (probe.isEmpty()) {
+        // Already forced to FAILED inside instantiateProbeOrFail -- an instance that never gets a
+        // liveness probe registered has nothing further worth wiring up.
+        return;
+      }
+      probeLoop.start(
+          probeKey(id, "liveness"),
+          scheduler,
+          probe.get()::isAlive,
+          probeInterval,
+          probeTimeout,
+          initialDelay,
+          alive -> onLivenessResult(id, alive));
+    }
 
-    descriptor
-        .healthProbes()
-        .readinessClass()
-        .ifPresent(
-            className -> {
-              ReadinessProbe probe = instantiate(id, className, handle, ReadinessProbe.class);
-              probeLoop.start(
-                  probeKey(id, "readiness"),
-                  scheduler,
-                  probe::isReady,
-                  probeInterval,
-                  probeTimeout,
-                  initialDelay,
-                  ready -> onReadinessResult(id, ready));
-            });
+    Optional<String> readinessClassName = descriptor.healthProbes().readinessClass();
+    if (readinessClassName.isPresent()) {
+      Optional<ReadinessProbe> probe =
+          instantiateProbeOrFail(
+              id, "readiness", readinessClassName.get(), handle, ReadinessProbe.class);
+      if (probe.isEmpty()) {
+        return;
+      }
+      probeLoop.start(
+          probeKey(id, "readiness"),
+          scheduler,
+          probe.get()::isReady,
+          probeInterval,
+          probeTimeout,
+          initialDelay,
+          ready -> onReadinessResult(id, ready));
+    }
 
     descriptor.jobHooksClass().ifPresent(className -> runJobHooks(id, className, handle, mdcTags));
+  }
+
+  /**
+   * A probe class that fails to load or construct is discovered only after {@code
+   * ModuleController#start} has already called {@code registry.markActive} and begun emitting the
+   * {@code Active} event this method (called from {@link #onActive}) is reacting to -- without
+   * this, {@link #instantiate}'s exception would propagate out of {@link #onActive} straight into
+   * {@code ModuleController#emit}'s generic event-sink catch, which only logs it and drops it on
+   * the floor. The instance would then sit ACTIVE forever with no probe loop ever registered and no
+   * operator-visible signal that anything went wrong -- a manifest typo in {@code
+   * health.liveness}/{@code health.readiness} silently stranding the instance. Forcing it to FAILED
+   * here instead mirrors {@link #restartModule}'s own budget-exhaustion escalation: the same {@code
+   * controller.forceFailed} call, the same durable {@code TransitionFailed} event on the far end.
+   */
+  private <T> Optional<T> instantiateProbeOrFail(
+      ModuleId id,
+      String probeKind,
+      String className,
+      ModuleLayerHandle handle,
+      Class<T> expectedType) {
+    try {
+      return Optional.of(instantiate(id, className, handle, expectedType));
+    } catch (RuntimeException e) {
+      log.error(
+          "module {} failed to load its {} probe class {}: {}",
+          id,
+          probeKind,
+          className,
+          e.getMessage());
+      try {
+        controller.forceFailed(
+            id,
+            "failed to load " + probeKind + " probe class " + className + ": " + e.getMessage());
+      } catch (RuntimeException forceFailedFailure) {
+        // Best-effort, matching restartModule's own forceFailed guard: a concurrent transition
+        // (e.g. a racing uninstall) can move this module off ACTIVE before this call lands, and
+        // losing that race must not crash the worker tick.
+        log.warn(
+            "could not force module {} to FAILED after {} probe load failure: {}",
+            id,
+            probeKind,
+            forceFailedFailure.getMessage());
+      }
+      return Optional.empty();
+    }
   }
 
   /**

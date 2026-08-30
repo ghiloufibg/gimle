@@ -429,7 +429,21 @@ public final class WorkerMain {
       Set<ModuleId> activeModules,
       ControlChannelClient channel,
       InstanceIdentityRegistry identityRegistry) {
-    runtimeRef.get().onLifecycleEvent(event);
+    // Reported before runtimeRef's own reaction below runs, not after: WorkerRuntime#onActive can
+    // itself synchronously force a further transition (a probe class that fails to load drives the
+    // module straight to FAILED before onLifecycleEvent returns), which recurses back into this
+    // same method for that transition's own event. Sending this event's messages first guarantees
+    // a nested FAILED report is sent -- and therefore observed by the agent -- strictly after this
+    // one, instead of this event's now-stale "ACTIVE" send landing second and silently overwriting
+    // the agent's already-correct "FAILED" view.
+    sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
+    identityRegistry
+        .lookup(event.id())
+        .ifPresent(
+            identity ->
+                sendQuietly(
+                    channel,
+                    new ControlMessage.InstanceEventOccurred(instanceEventFor(event, identity))));
     if (event instanceof LifecycleEvent.Active active) {
       activeModules.add(active.id());
     } else if (event instanceof LifecycleEvent.Uninstalled uninstalled) {
@@ -440,14 +454,7 @@ public final class WorkerMain {
       // above.
       activeModules.remove(completed.id());
     }
-    sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
-    identityRegistry
-        .lookup(event.id())
-        .ifPresent(
-            identity ->
-                sendQuietly(
-                    channel,
-                    new ControlMessage.InstanceEventOccurred(instanceEventFor(event, identity))));
+    runtimeRef.get().onLifecycleEvent(event);
   }
 
   private static final Duration METRICS_REPORT_INTERVAL = Duration.ofSeconds(5);
