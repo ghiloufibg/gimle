@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 658,
-    "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 535,
-    "releaseReadinessPercent": 18.7
+    "totalRequirements": 664,
+    "coveredByAutomatedTest": 126,
+    "notCoveredByAutomatedTest": 538,
+    "releaseReadinessPercent": 19.0
   },
   "items": [
     {
@@ -7240,6 +7240,72 @@
       "category": "Admission / Multi-tenancy",
       "feature": "CronJob-generated Jobs run through tenant quota/limit-range admission",
       "step": "Given tenant \"tight\" has a quota too small for the CronJob's own jobTemplate; When a scheduled firing comes due; Then no JobSpec is materialized, but cronJobLastSchedule still advances so the firing is never retried. Given a CronJob manifest names a tenantId that does not exist; When it is PUT; Then admission rejects it with 409, the same as a directly-submitted Deployment/Job/DaemonSet/StatefulSet would be.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-659",
+      "module": "gimle-mimir",
+      "category": "Custom Kinds (Galdr)",
+      "feature": "KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued)",
+      "step": "Given a running cluster; When a KindDefinition named \"Greeting\" is applied; Then the submission is accepted and the kind catalog lists \"custom.Greeting\". Given a stored definition with live instances; When its deletion is attempted; Then it is refused until the instances are deleted first.",
+      "automatedCoverage": true,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-660",
+      "module": "gimle-controlplane",
+      "category": "Custom Kinds (Galdr)",
+      "feature": "Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op",
+      "step": "Given a defined Greeting kind; When an instance with an unknown spec field, an out-of-bounds value, or a missing tenant is submitted; Then each is rejected with a 400. Given an applied instance omitting a defaulted field; Then the stored spec carries the default and generation 1; When the identical manifest is re-applied; Then the generation is still 1; When the spec changes; Then the generation becomes 2.",
+      "automatedCoverage": true,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-661",
+      "module": "gimle-core",
+      "category": "Custom Kinds (Galdr)",
+      "feature": "Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only)",
+      "step": "Given a role granting WRITE on CustomResource qualified \"custom.Greeting/status\"; When its principal PUTs an instance's spec; Then the write is denied; When it PUTs the instance's status; Then the write is allowed.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-662",
+      "module": "gimle-module",
+      "category": "Custom Kinds (Galdr)",
+      "feature": "Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status",
+      "step": "Given a defined Greeting kind and an applied instance; When the greeting-operator module is deployed for the tenant; Then the instance's status reports timesSaid matching its spec with observedGeneration caught up. Given the operator has reported; When the control plane is bounced and the spec's repeat changes; Then the reported status catches up with the new generation.",
+      "automatedCoverage": true,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-663",
+      "module": "gimle-cli",
+      "category": "Custom Kinds (Galdr)",
+      "feature": "CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables",
+      "step": "Given a defined Greeting kind declaring plural \"greetings\" and shortName \"gr\"; When `gimle get greetings` or `gimle get gr` runs; Then the same instances render with the definition's own printColumns.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-664",
+      "module": "gimle-console",
+      "category": "Custom Kinds (Galdr)",
+      "feature": "Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal",
+      "step": "Given a defined kind with instances; When the Custom Resources screen loads; Then the kind picker lists the kind and its table renders the declared printColumns; When an instance row is opened; Then spec and status render side by side with the caught-up signal.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

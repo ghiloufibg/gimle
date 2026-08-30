@@ -6,31 +6,31 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 658
-- **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 535
-- **Release-readiness (automated coverage)**: 18.7%
+- **Total requirements**: 664
+- **Covered by automated (Holmgang Cucumber) test**: 126
+- **Not covered by automated test**: 538
+- **Release-readiness (automated coverage)**: 19.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 43 | 15 | 28 | 34.9% |
-| gimle-module | 25 | 11 | 14 | 44.0% |
+| gimle-core | 44 | 15 | 29 | 34.1% |
+| gimle-module | 26 | 12 | 14 | 46.2% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 46 | 6 | 40 | 13.0% |
-| gimle-mimir | 60 | 35 | 25 | 58.3% |
+| gimle-mimir | 61 | 36 | 25 | 59.0% |
 | gimle-fabric | 33 | 1 | 32 | 3.0% |
-| gimle-controlplane | 81 | 14 | 67 | 17.3% |
+| gimle-controlplane | 82 | 15 | 67 | 18.3% |
 | gimle-fafnir | 26 | 11 | 15 | 42.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 16 | 0 | 16 | 0.0% |
-| gimle-cli | 29 | 0 | 29 | 0.0% |
+| gimle-cli | 30 | 0 | 30 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 33 | 0 | 33 | 0.0% |
+| gimle-console | 34 | 0 | 34 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -58,6 +58,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-038 | Tenant-scoped config/secret entry model | Given ConfigEntry{encrypted:true}, When constructed and value() accessed, Then a defensive clone is returned each time. | Yes |
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-661 | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Given a role granting WRITE on CustomResource qualified "custom.Greeting/status"; When its principal PUTs an instance's spec; Then the write is denied; When it PUTs the instance's status; Then the write is allowed. | No |
 
 #### Internal/Infra
 
@@ -201,6 +207,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-036 | Bounded-retry-with-backoff restart policy (CrashLoopBackOff-equivalent) | Given a tracker with maxAttemptsPerWindow=3, When a 4th failure is recorded within the window, Then recordFailureAndCheckShouldRetry returns false. | Yes |
 
 ### gimle-module
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-662 | Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status | Given a defined Greeting kind and an applied instance; When the greeting-operator module is deployed for the tenant; Then the instance's status reports timesSaid matching its spec with observedGeneration caught up. Given the operator has reported; When the control plane is bounced and the spec's repeat changes; Then the reported status catches up with the new generation. | Yes |
 
 #### Module System
 
@@ -647,6 +659,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | Given a manifest with no apiVersion field, When it is submitted, Then it is parsed with the kind's v1alpha1 ruleset -- identical to today's behavior, permanently. Given a manifest declaring apiVersion v9, When it is submitted, Then the control plane rejects it with 400 naming the kind's supported versions, never silently defaulting. Given a manifest declaring a blank or non-string apiVersion, When it is submitted, Then it is rejected outright. | Yes |
 | [ ] | GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | Given a v1alpha1 manifest naming a local artifactPath, When it is applied, Then it is accepted and the operator sees a deprecation warning on stderr explaining the cwd-relative hazard and the registry migration. Given a v1 manifest naming an artifactPath, When it is applied, Then it is rejected with 400 and an error pointing at the registry migration. Given a module pushed to the artifact registry, When a v1 coordinate-only deployment for it is applied, Then it is accepted and reaches ACTIVE on a real worker. | Yes |
 
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-659 | KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued) | Given a running cluster; When a KindDefinition named "Greeting" is applied; Then the submission is accepted and the kind catalog lists "custom.Greeting". Given a stored definition with live instances; When its deletion is attempted; Then it is refused until the instances are deleted first. | Yes |
+
 #### Internal-Infra
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -930,6 +948,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-581 | ConfigMap store and API with optimistic-concurrency writes | Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote. | No |
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-660 | Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op | Given a defined Greeting kind; When an instance with an unknown spec field, an out-of-bounds value, or a missing tenant is submitted; Then each is rejected with a 400. Given an applied instance omitting a defaulted field; Then the stored spec carries the default and generation 1; When the identical manifest is re-applied; Then the generation is still 1; When the spec changes; Then the generation becomes 2. | Yes |
 
 #### Governance
 
@@ -1458,6 +1482,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-637 | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | Given a StatefulSet with 3 desired replicas and none yet placed, When "gimle get statefulsets" runs with the default table output, Then the row shows replicas "0/3" and health "UNPLACED(3)" rather than a raw JSON blob for the spec/instances/unplacedCount fields. Given an applied DaemonSet, When "gimle get daemonsets" or "gimle get daemonset <name>" runs with the default table output, Then the row shows the module coordinate and a health column with no raw JSON braces or brackets in any cell. Given the same resources, When "-o json" is passed instead, Then the full nested spec/instances shape -- including each instance's own nodeId -- is returned unchanged, exactly as before this fix. | No |
 
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-663 | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Given a defined Greeting kind declaring plural "greetings" and shortName "gr"; When `gimle get greetings` or `gimle get gr` runs; Then the same instances render with the definition's own printColumns. | No |
+
 #### Internal-Infra
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1559,6 +1589,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-632 | Toast notifications render app-wide (write failures, and every other toast call site) | Given a read-only account's New Deployment submit is refused with 403, When the control plane's response comes back, Then a visible error toast appears -- the page's own text is no longer byte-for-byte identical before and after the submit. | No |
+
+#### Custom Kinds (Galdr)
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-664 | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Given a defined kind with instances; When the Custom Resources screen loads; Then the kind picker lists the kind and its table renders the declared printColumns; When an instance row is opened; Then spec and status render side by side with the caught-up signal. | No |
 
 #### Observability
 

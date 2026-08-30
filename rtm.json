@@ -11377,6 +11377,137 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
       ]
+    },
+    {
+      "id": "GIMLE-659",
+      "module": "gimle-mimir",
+      "feature": "KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued)",
+      "category": "Custom Kinds (Galdr)",
+      "status": "New",
+      "statusNote": "New requirement: the custom-kinds (Galdr) foundation -- KindDefinition manifests as the CRD analogue.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "A hosted operator reconciles a defined kind's instances, across a control-plane bounce",
+          "whyThisCounts": "Applies a real KindDefinition manifest under its bare name against a running cluster's admission surface, asserts acceptance, and asserts GET /kinddefinitions lists the prefix-normalized custom.Greeting -- then the same stored definition keeps serving instances across a control-plane bounce, proving it lives in the store."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "Defaults are persisted and an identical re-apply never bumps the generation",
+          "whyThisCounts": "Re-uses the applied definition for schema-validated instance admission in a second scenario against the same pooled cluster, proving the definition is durably readable by later requests rather than an artifact of one submission."
+        }
+      ],
+      "gapNote": "",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/galdr/KindDefinitionSpec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/KindDefinitionParser.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/kinddefinitions` routes)"
+      ],
+      "otherTestCoverage": "`GaldrStateStoreTest`, `GaldrCodecTest` (gimle-mimir), `ApiServerCustomKindsTest` (gimle-controlplane), `SchemaValidatorTest` (definition-admission schema rules)"
+    },
+    {
+      "id": "GIMLE-660",
+      "module": "gimle-controlplane",
+      "feature": "Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op",
+      "category": "Custom Kinds (Galdr)",
+      "status": "New",
+      "statusNote": "New requirement: admission-side schema validation and generation semantics for custom resources.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "Admission validates instances against the declared schema and rejects loudly",
+          "whyThisCounts": "Submits real manifests with an unknown spec field, an out-of-bounds repeat, and a missing tenant against a running cluster's admission surface and asserts each clean 400 -- the loud-rejection contract, exercised end to end."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "Defaults are persisted and an identical re-apply never bumps the generation",
+          "whyThisCounts": "Applies an instance omitting the defaulted tone, reads back the persisted default and generation 1, re-applies the identical manifest asserting the generation stays 1, then changes the spec and asserts the bump to 2 -- persisted defaults and no-op re-apply against the real store."
+        }
+      ],
+      "gapNote": "",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/galdr/SchemaValidator.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/CustomResourceManifestParser.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutCustomResource`)"
+      ],
+      "otherTestCoverage": "`SchemaValidatorTest` (gimle-mimir), `ApiServerCustomKindsTest` (gimle-controlplane), `CustomResourceCommandTest` (gimle-cli bounded 409 retry)"
+    },
+    {
+      "id": "GIMLE-661",
+      "module": "gimle-core",
+      "feature": "Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only)",
+      "category": "Custom Kinds (Galdr)",
+      "status": "New",
+      "statusNote": "New requirement: per-kind least-privilege RBAC over one CUSTOM_RESOURCE resource kind.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises the qualifier end to end: the plaintext `minimal` topology doesn't authenticate principals, so enforcement is only observable under the `mtls` topology. To close: an mtls-topology scenario binding a role qualified `custom.Greeting/status` to the operator's `svc:` principal and asserting its spec write is denied while its status write lands.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/tenant/Permission.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`customResourceQualifier`, `requireCustomResource*`)"
+      ],
+      "otherTestCoverage": "`CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir)"
+    },
+    {
+      "id": "GIMLE-662",
+      "module": "gimle-module",
+      "feature": "Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status",
+      "category": "Custom Kinds (Galdr)",
+      "status": "New",
+      "statusNote": "New requirement: the operator half of custom kinds -- the Galdr SDK poll loop and the typed status-relay write path.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/custom-kinds.feature",
+          "scenario": "A hosted operator reconciles a defined kind's instances, across a control-plane bounce",
+          "whyThisCounts": "Deploys the real greeting-operator module into a tenant on a running cluster, asserts the applied Greeting's status reports timesSaid matching its spec with observedGeneration caught up to the store's generation, bounces the control plane, asserts the status survives (it lives in the store), then changes the spec and asserts the operator re-converges to the new generation -- the whole hosted-operator loop, real processes end to end."
+        }
+      ],
+      "gapNote": "",
+      "sourceLocations": [
+        "`gimle-module/src/main/java/com/gimle/module/galdr/GaldrOperatorLoop.java`",
+        "`gimle-worker/src/main/java/com/gimle/worker/ControlPlaneRelay.java` (`requestStatusPut`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`handleRelayStatusPut`)",
+        "`gimle-examples/greeting-operator/src/main/java/com/gimle/examples/greeting/operator/GreetingOperatorHooks.java`"
+      ],
+      "otherTestCoverage": "`GaldrOperatorLoopTest` (gimle-module), `AgentRelayStatusPutTest` (gimle-agent), `ControlPlaneRelayTest` (gimle-worker), `ControlMessageCodecTest` (gimle-core)"
+    },
+    {
+      "id": "GIMLE-663",
+      "module": "gimle-cli",
+      "feature": "CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables",
+      "category": "Custom Kinds (Galdr)",
+      "status": "New",
+      "statusNote": "New requirement: the CLI surface over custom kinds.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Holmgang scenarios drive the control plane's HTTP API directly, not the gimle-cli binary, so the CLI's own resolution/retry/rendering isn't exercised by any .feature scenario. To close: a scenario invoking the real CLI (the way RagnarokCliIT shells out) for kinds/get/apply against a running cluster.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/CustomResourceCommand.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (custom-kind fallthrough dispatch)"
+      ],
+      "otherTestCoverage": "`CustomResourceCommandTest` (gimle-cli)"
+    },
+    {
+      "id": "GIMLE-664",
+      "module": "gimle-console",
+      "feature": "Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal",
+      "category": "Custom Kinds (Galdr)",
+      "status": "New",
+      "statusNote": "New requirement: the web console's read-only custom-resources surface.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Console behavior isn't observable from a Holmgang .feature scenario (per the coverage rule, Vitest/Playwright don't count). To close: extend the console's Playwright E2E (driven by gimle-smoke-tests) to assert the screen against a live cluster, or add a Holmgang scenario asserting the bundled console serves the route.",
+      "sourceLocations": [
+        "`gimle-console/src/routes/custom-resources.tsx`",
+        "`gimle-console/src/repositories/customResources.ts`",
+        "`gimle-console/src/repositories/http/customResources.ts`",
+        "`gimle-console/src/stores/useCustomResourcesStore.ts`"
+      ],
+      "otherTestCoverage": "gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests)"
     }
   ]
 }

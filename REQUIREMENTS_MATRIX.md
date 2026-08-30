@@ -668,6 +668,12 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Complete | Partial |
 | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | Complete | Yes |
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | Admission / Multi-tenancy | Complete | Yes |
+| GIMLE-659 | KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued) | Custom Kinds (Galdr) | Complete | Yes |
+| GIMLE-660 | Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op | Custom Kinds (Galdr) | Complete | Yes |
+| GIMLE-661 | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | Complete | Partial |
+| GIMLE-662 | Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status | Custom Kinds (Galdr) | Complete | Yes |
+| GIMLE-663 | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | Complete | Partial |
+| GIMLE-664 | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | Complete | Partial |
 
 ## Detailed Requirements
 
@@ -1234,6 +1240,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a RoleBinding to tenant-view:acme, When its subject GETs /deployments, Then the response is 200 listing exactly tenant acme's deployments -- never another tenant's or an untenanted one, and never a 403.
   ```
 
+#### GIMLE-661 — Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only)
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a platform operator, I want to grant an operator's workload principal write access to exactly one kind's status sub-document -- and a tenant admin write access to its specs -- so that per-kind least privilege works without a ResourceKind value per kind, and an operator can never alter desired state.
+- **Status**: Complete. `Permission` carries an optional qualifier over `ResourceKind.CUSTOM_RESOURCE`: absent covers every kind's specs (never status), `{kind}` one kind's specs, `{kind}/status` only that kind's status (`Permission.STATUS_QUALIFIER_SUFFIX`); `Authorizer` matches it on every custom-resource request, spec-write never covering status nor the reverse; audit rows record the qualified `CustomResource:{kind}` string.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tenant/Permission.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`customResourceQualifier`, `requireCustomResource*`)
+- **Test coverage**: `CustomResourceQualifierAuthzTest` (gimle-controlplane): qualifier matching for absent/{kind}/{kind}-status shapes, spec-WRITE never covering status and the reverse, a svc: workload principal authorized purely by its bindings.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a role granting WRITE on CustomResource qualified "custom.Greeting/status"; When its principal PUTs an instance's spec; Then the write is denied; When it PUTs the instance's status; Then the write is allowed.
+  ```
+
 ### gimle-module
 
 #### GIMLE-043 — Module dependency resolution with cycle detection
@@ -1562,6 +1581,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a module declaring volumes data and wal, When its instance resolves, Then each named volume gets its own directory under the instance's placement identity and dataDirectory(name) answers each path.
   Given a single-volume module using the volume: shorthand, When it resolves, Then dataDirectory() answers that sole volume's path unchanged.
+  ```
+
+#### GIMLE-662 — Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a module author, I want to write an operator as an ordinary hosted module -- a Galdr SDK poll loop reading my kind's full instance set and a reportStatus call per resource -- so that reconciling a custom kind needs no new deployment model, network identity, or watch machinery.
+- **Status**: Complete. `GaldrOperatorLoop`/`GaldrResource`/`GaldrSpec` (gimle-module) poll `/resources/{kind}` via `ModuleContext.relayControlPlaneRead` -- full recompute per tick, exponential backoff on failed polls, a reconciler exception poisoning only its own tick, the caller's MDC carried onto the loop thread so operator logging stays that instance's own APPLICATION log; `ModuleContext.reportResourceStatus` travels the control channel as typed fields (`ControlMessage.RelayResourceStatusPut`), and the agent validates each segment, mints the instance's workload-identity token, and issues `PUT /resources/{kind}/{name}/status` itself -- an untenanted instance is refused locally, and status writes never bump the generation. `gimle-examples/greeting-operator` is the reference operator.
+- **Confidence**: High
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/galdr/GaldrOperatorLoop.java`, `gimle-worker/src/main/java/com/gimle/worker/ControlPlaneRelay.java` (`requestStatusPut`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`handleRelayStatusPut`), `gimle-examples/greeting-operator/src/main/java/com/gimle/examples/greeting/operator/GreetingOperatorHooks.java`
+- **Test coverage**: `GaldrOperatorLoopTest` (convergence from arbitrary states, poisoned tick, backoff, MDC propagation), `AgentRelayStatusPutTest` (untenanted 403, malformed-field 400, minted-token happy path, mint-failure 502), `ControlPlaneRelayTest`/`ControlMessageCodecTest` (wire round-trips), Holmgang `custom-kinds.feature` (a real deployed operator's status landing and re-converging across a control-plane bounce).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a defined Greeting kind and an applied instance; When the greeting-operator module is deployed for the tenant; Then the instance's status reports timesSaid matching its spec with observedGeneration caught up.
+  Given the operator has reported; When the control plane is bounced and the spec's repeat changes; Then the reported status catches up with the new generation.
   ```
 
 ### gimle-os
@@ -3732,6 +3765,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given tenant A and tenant B each submit a Deployment named "orders-service"; When both are stored; Then each tenant's own GET resolves only its own spec, and the untenanted namespace sees neither.
   ```
 
+#### GIMLE-659 — KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued)
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a platform operator, I want to teach a running cluster a new resource kind by applying a KindDefinition manifest -- name, scope, declared CLI names, schema, printColumns -- so that domain resources get schema, storage, RBAC, and CLI/console visibility without platform code changes or restarts.
+- **Status**: Complete. `KindDefinitionParser` (gimle-controlplane) parses/validates the manifest and normalizes a bare kind name to the mandatory dot prefix (`Greeting` -> `custom.Greeting`, warning surfaced); `KindDefinitionSpec` (gimle-mimir) travels the Raft log via `StateMutation.PutKindDefinition`/`RemoveKindDefinition` and lands in `StateSnapshot`; `GET /kinddefinitions` serves the catalog; a definition with live instances refuses deletion at both the API and store levels; a schema-changing re-apply re-validates every stored instance (409 with violator list on a breaking change, atomic default backfill on a compatible one).
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/galdr/KindDefinitionSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/KindDefinitionParser.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/kinddefinitions` routes)
+- **Test coverage**: `GaldrStateStoreTest`/`GaldrCodecTest` (gimle-mimir: mutation round-trips, snapshot/restore, delete-with-instances refused), `ApiServerCustomKindsTest` (admission, prefix normalization warning, re-PUT revalidation + backfill, violator-list 409), Holmgang `custom-kinds.feature` (live cluster end to end).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running cluster; When a KindDefinition named "Greeting" is applied; Then the submission is accepted and the kind catalog lists "custom.Greeting".
+  Given a stored definition with live instances; When its deletion is attempted; Then it is refused until the instances are deleted first.
+  ```
+
 ### gimle-fabric
 
 #### GIMLE-181 — Same-Worker Direct Invocation Tier
@@ -5235,6 +5282,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given tenant "tight" has a quota too small for the CronJob's own jobTemplate; When a scheduled firing comes due; Then no JobSpec is materialized, but cronJobLastSchedule still advances so the firing is never retried.
   Given a CronJob manifest names a tenantId that does not exist; When it is PUT; Then admission rejects it with 409, the same as a directly-submitted Deployment/Job/DaemonSet/StatefulSet would be.
+  ```
+
+#### GIMLE-660 — Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a resource author, I want my custom-resource manifest validated against its kind's declared schema at apply time -- typo'd fields and out-of-bounds values rejected loudly, declared defaults filled in and persisted, tenant scoping enforced -- so that the stored spec is always complete and correct, and re-applying the same manifest changes nothing.
+- **Status**: Complete. `CustomResourceManifestParser` reserves the manifest root (kind/apiVersion/name/tenantId/spec); `SchemaValidator` (gimle-mimir) validates and defaults the spec tree per the definition's schema (unknown keys rejected, bounds inclusive, required-xor-default, depth cap, 256 KiB caps); admission persists the canonical defaulted JSON bytes, so an identical re-apply is a byte-equality no-op with no generation bump, while a changed spec bumps the store-assigned generation under a CAS guard (structured 409 on a lost race, bounded-retried by the CLI).
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/galdr/SchemaValidator.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/CustomResourceManifestParser.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutCustomResource`)
+- **Test coverage**: `SchemaValidatorTest` (table-driven happy/failure pairs per type, unknown-key rejection, default persistence, depth cap, size caps), `ApiServerCustomKindsTest` (tenant-scope enforcement both ways, no-op re-apply, CAS 409), Holmgang `custom-kinds.feature` (live admission rejections and generation semantics).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a defined Greeting kind; When an instance with an unknown spec field, an out-of-bounds value, or a missing tenant is submitted; Then each is rejected with a 400.
+  Given an applied instance omitting a defaulted field; Then the stored spec carries the default and generation 1; When the identical manifest is re-applied; Then the generation is still 1; When the spec changes; Then the generation becomes 2.
   ```
 
 ### gimle-fafnir
@@ -7117,6 +7178,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a command like "secret set default my-secret hunter2" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does.
   ```
 
+#### GIMLE-663 — CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a resource author, I want `gimle apply/get/delete` to work with my custom kind's own declared names the moment its definition is applied -- `gimle get greetings`, `gimle get gr` -- with tables showing my kind's own declared columns, so the CLI needs no release to learn a new kind.
+- **Status**: Complete. `CustomResourceCommand` (gimle-cli): `gimle kinds` lists the catalog; unrecognized get/delete nouns resolve exact-prefixed-name -> plural -> shortNames from one catalog fetch; `apply -f` routes `kind: KindDefinition` and any dotted kind name; a retryable concurrent-modification 409 is resent a bounded number of times while schema/violator 409s surface immediately; tables render NAME/TENANT/GENERATION plus printColumns via a dotted-path resolver (unresolved path = empty cell); `-o json` emits spec and status verbatim.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/CustomResourceCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (custom-kind fallthrough dispatch)
+- **Test coverage**: `CustomResourceCommandTest` (gimle-cli): noun resolution order, bounded retry exhaustion surfacing the conflict, immediate surfacing of non-retryable 409s, printColumns rendering, kinds listing.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a defined Greeting kind declaring plural "greetings" and shortName "gr"; When `gimle get greetings` or `gimle get gr` runs; Then the same instances render with the definition's own printColumns.
+  ```
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -8196,6 +8270,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API.
   Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value.
   Given an instance detail page shows a real workerId, When the operator clicks "Worker metrics" or "Worker traces", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing.
+  ```
+
+#### GIMLE-664 — Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal
+
+- **Category**: Custom Kinds (Galdr)
+- **User story**: As a platform operator, I want a read-only console screen listing each defined kind's instances with its own declared columns, and a detail pane showing spec and status side by side with the generation/observedGeneration pair visible, so I can see at a glance whether each operator has caught up.
+- **Status**: Complete. `gimle-console`: `CustomResourcesRepository` (Http over `/kinddefinitions` + `/resources/{kind}`, Mock for tests), `useCustomResourcesStore` (Zustand), and the `/custom-resources` route -- a kind picker, an instance table rendering NAME/TENant/GENERATION plus printColumns via the same dotted-path resolution the CLI uses, a caught-up/behind/no-status operator badge, and a YAML-rendered spec/status detail pane. Deliberately read-only; authoring stays in the CLI.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/routes/custom-resources.tsx`, `gimle-console/src/repositories/customResources.ts`, `gimle-console/src/repositories/http/customResources.ts`, `gimle-console/src/stores/useCustomResourcesStore.ts`
+- **Test coverage**: Vitest: `customResources.test.ts` (Mock), `http/customResources.test.ts` (routes/encoding/error propagation), `useCustomResourcesStore.test.ts` (load/select/refresh/error surfacing), `-custom-resources.test.ts` (dotted-path resolver and YAML rendering).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a defined kind with instances; When the Custom Resources screen loads; Then the kind picker lists the kind and its table renders the declared printColumns; When an instance row is opened; Then spec and status render side by side with the caught-up signal.
   ```
 
 ### gimle-fafnir-console

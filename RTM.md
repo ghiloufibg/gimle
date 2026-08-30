@@ -673,6 +673,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-656 | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | New | Not Covered | — |
 | GIMLE-657 | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | New | Not Covered | — |
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | New | Not Covered | — |
+| GIMLE-659 | KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued) | New | Covered | `custom-kinds.feature` — "A hosted operator reconciles a defined kind's instances, across a control-plane bounce"; `custom-kinds.feature` — "Defaults are persisted and an identical re-apply never bumps the generation" |
+| GIMLE-660 | Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op | New | Covered | `custom-kinds.feature` — "Admission validates instances against the declared schema and rejects loudly"; `custom-kinds.feature` — "Defaults are persisted and an identical re-apply never bumps the generation" |
+| GIMLE-661 | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | New | Not Covered | — |
+| GIMLE-662 | Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status | New | Covered | `custom-kinds.feature` — "A hosted operator reconciles a defined kind's instances, across a control-plane bounce" |
+| GIMLE-663 | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | New | Not Covered | — |
+| GIMLE-664 | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1107,6 +1113,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `BuiltinRolesTest` (template shapes, tenant scoping), `AuthorizerTest` (binding resolution), `ApiServerAuthzTest` (template binding through the real HTTP layer)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`
 
+#### GIMLE-661 — Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only)
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: per-kind least-privilege RBAC over one CUSTOM_RESOURCE resource kind.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises the qualifier end to end: the plaintext `minimal` topology doesn't authenticate principals, so enforcement is only observable under the `mtls` topology. To close: an mtls-topology scenario binding a role qualified `custom.Greeting/status` to the operator's `svc:` principal and asserting its spec write is denied while its status write lands.
+- **Other test coverage (non-Holmgang, informational only)**: `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir)
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tenant/Permission.java`, `gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`customResourceQualifier`, `requireCustomResource*`)
+
 ### gimle-module
 
 #### GIMLE-043 — Module dependency resolution with cycle detection
@@ -1365,6 +1380,17 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: extend the StatefulSet volume scenario to a module declaring two named volumes and assert both directories persist across a rolling update.
 - **Other test coverage (non-Holmgang, informational only)**: `ModuleDescriptorParserTest`, `LocalDiskVolumeManagerTest`, `SimpleModuleContextTest`, `ControlMessageCodecTest`
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ModuleDescriptor.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-module/src/main/java/com/gimle/module/lifecycle/SimpleModuleContext.java`
+
+#### GIMLE-662 — Operator status loop: a hosted module polls its kind through the workload-identity relay and reports per-resource status
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: the operator half of custom kinds -- the Galdr SDK poll loop and the typed status-relay write path.)_
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *A hosted operator reconciles a defined kind's instances, across a control-plane bounce*
+  - _Why this counts_: Deploys the real greeting-operator module into a tenant on a running cluster, asserts the applied Greeting's status reports timesSaid matching its spec with observedGeneration caught up to the store's generation, bounces the control plane, asserts the status survives (it lives in the store), then changes the spec and asserts the operator re-converges to the new generation -- the whole hosted-operator loop, real processes end to end.
+- **Other test coverage (non-Holmgang, informational only)**: `GaldrOperatorLoopTest` (gimle-module), `AgentRelayStatusPutTest` (gimle-agent), `ControlPlaneRelayTest` (gimle-worker), `ControlMessageCodecTest` (gimle-core)
+- **Source location(s)**: `gimle-module/src/main/java/com/gimle/module/galdr/GaldrOperatorLoop.java`, `gimle-worker/src/main/java/com/gimle/worker/ControlPlaneRelay.java` (`requestStatusPut`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`handleRelayStatusPut`), `gimle-examples/greeting-operator/src/main/java/com/gimle/examples/greeting/operator/GreetingOperatorHooks.java`
 
 ### gimle-os
 
@@ -2797,6 +2823,19 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`, `#two_tenants_with_an_identically_named_network_policy_never_collide`
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/TenantQuery.java`
 
+#### GIMLE-659 — KindDefinition mechanism: a manifest teaches the cluster a new custom kind (prefix-normalized, durably stored, catalogued)
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: the custom-kinds (Galdr) foundation -- KindDefinition manifests as the CRD analogue.)_
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *A hosted operator reconciles a defined kind's instances, across a control-plane bounce*
+  - _Why this counts_: Applies a real KindDefinition manifest under its bare name against a running cluster's admission surface, asserts acceptance, and asserts GET /kinddefinitions lists the prefix-normalized custom.Greeting -- then the same stored definition keeps serving instances across a control-plane bounce, proving it lives in the store.
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *Defaults are persisted and an identical re-apply never bumps the generation*
+  - _Why this counts_: Re-uses the applied definition for schema-validated instance admission in a second scenario against the same pooled cluster, proving the definition is durably readable by later requests rather than an artifact of one submission.
+- **Other test coverage (non-Holmgang, informational only)**: `GaldrStateStoreTest`, `GaldrCodecTest` (gimle-mimir), `ApiServerCustomKindsTest` (gimle-controlplane), `SchemaValidatorTest` (definition-admission schema rules)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/galdr/KindDefinitionSpec.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/KindDefinitionParser.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/kinddefinitions` routes)
+
 ### gimle-fabric
 
 #### GIMLE-181 — Same-Worker Direct Invocation Tier
@@ -3860,6 +3899,19 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario firing a CronJob against a tenant already at its quota ceiling and asserting the firing is skipped rather than materializing an over-quota Job.
 - **Other test coverage (non-Holmgang, informational only)**: `CronJobReconcilerTest#a_firing_that_would_exceed_its_tenants_quota_is_skipped_like_a_missed_firing`; `ApiServerTest#put_a_cronjob_for_an_unknown_tenant_is_rejected`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`
+
+#### GIMLE-660 — Schema-validated custom-resource admission: defaults persisted, unknown keys and bound violations rejected, tenant scope enforced, identical re-apply a generation no-op
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: admission-side schema validation and generation semantics for custom resources.)_
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *Admission validates instances against the declared schema and rejects loudly*
+  - _Why this counts_: Submits real manifests with an unknown spec field, an out-of-bounds repeat, and a missing tenant against a running cluster's admission surface and asserts each clean 400 -- the loud-rejection contract, exercised end to end.
+  - `gimle-holmgang/src/test/resources/features/custom-kinds.feature` — Scenario: *Defaults are persisted and an identical re-apply never bumps the generation*
+  - _Why this counts_: Applies an instance omitting the defaulted tone, reads back the persisted default and generation 1, re-applies the identical manifest asserting the generation stays 1, then changes the spec and asserts the bump to 2 -- persisted defaults and no-op re-apply against the real store.
+- **Other test coverage (non-Holmgang, informational only)**: `SchemaValidatorTest` (gimle-mimir), `ApiServerCustomKindsTest` (gimle-controlplane), `CustomResourceCommandTest` (gimle-cli bounded 409 retry)
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/galdr/SchemaValidator.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/galdr/CustomResourceManifestParser.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePutCustomResource`)
 
 ### gimle-fafnir
 
@@ -5095,6 +5147,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FlagsTest` (unit-level); a real end-user pass against the built `gimle-cli` distribution archive
 - **Source location(s)**: `Flags#parse`, every `Flags.parse` call site across `gimle-cli`
 
+#### GIMLE-663 — CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: the CLI surface over custom kinds.)_
+- **Coverage**: Not Covered
+- **Gap note**: Holmgang scenarios drive the control plane's HTTP API directly, not the gimle-cli binary, so the CLI's own resolution/retry/rendering isn't exercised by any .feature scenario. To close: a scenario invoking the real CLI (the way RagnarokCliIT shells out) for kinds/get/apply against a running cluster.
+- **Other test coverage (non-Holmgang, informational only)**: `CustomResourceCommandTest` (gimle-cli)
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/CustomResourceCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (custom-kind fallthrough dispatch)
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -5838,6 +5899,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Covered by real Java unit tests (AgentMainTest, DomainCodecTest) and gimle-console Vitest repository tests, but no Holmgang Cucumber .feature scenario exercises the console UI's worker-id deep link against a real running cluster yet -- gimle-smoke-tests' GreeterClusterTopologyIT also runs the console's Playwright suite but does not yet assert this specific link.
 - **Other test coverage (non-Holmgang, informational only)**: AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged).
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-console/src/types/index.ts`, `components/process-picker.tsx`, `components/instances-table.tsx`, `routes/deployments.$name.tsx`, `routes/instances.$name.$idx.tsx`, `routes/metrics.tsx`, `routes/traces.tsx`, `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets,instances}.ts`, `repositories/instances.ts`, `repositories/fixture.ts`
+
+#### GIMLE-664 — Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal
+
+- **Category**: Custom Kinds (Galdr)
+- **Status**: New  _(New requirement: the web console's read-only custom-resources surface.)_
+- **Coverage**: Not Covered
+- **Gap note**: Console behavior isn't observable from a Holmgang .feature scenario (per the coverage rule, Vitest/Playwright don't count). To close: extend the console's Playwright E2E (driven by gimle-smoke-tests) to assert the screen against a live cluster, or add a Holmgang scenario asserting the bundled console serves the route.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests)
+- **Source location(s)**: `gimle-console/src/routes/custom-resources.tsx`, `gimle-console/src/repositories/customResources.ts`, `gimle-console/src/repositories/http/customResources.ts`, `gimle-console/src/stores/useCustomResourcesStore.ts`
 
 ### gimle-fafnir-console
 
@@ -6968,7 +7038,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**535 of 658 requirements are Not Covered.**
+**538 of 664 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7106,6 +7176,9 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
 | GIMLE-632 | gimle-console | Toast notifications render app-wide (write failures, and every other toast call site) | Console | No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged |
+| GIMLE-661 | gimle-core | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir) |
+| GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli) |
+| GIMLE-664 | gimle-console | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests) |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-636 | gimle-examples | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation. |
 | GIMLE-638 | gimle-examples | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | Documentation / Examples | Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module. |
