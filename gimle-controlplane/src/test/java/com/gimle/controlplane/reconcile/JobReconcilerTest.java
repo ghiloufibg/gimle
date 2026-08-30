@@ -284,6 +284,7 @@ class JobReconcilerTest {
             now - 30_000,
             true,
             false,
+            WorkloadHealthState.ABSENT,
             Optional.empty()));
 
     // 2. Failed, never tracked before -- starts a fresh backoff, must not retry yet.
