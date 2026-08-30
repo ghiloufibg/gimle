@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 681
+- **Total requirements**: 683
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 555
-- **Release-readiness (automated coverage)**: 18.5%
+- **Not covered by automated test**: 557
+- **Release-readiness (automated coverage)**: 18.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 48 | 6 | 42 | 12.5% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 35 | 1 | 34 | 2.9% |
-| gimle-controlplane | 88 | 15 | 73 | 17.0% |
+| gimle-controlplane | 90 | 15 | 75 | 16.7% |
 | gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -1071,6 +1071,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-669 | Node-death instance eviction is throttled against the deployment's own DisruptionBudget | Given a deployment with DisruptionBudget maxUnavailable N and more than N replicas gone stale on a dead node past their grace period; When the reconciler ticks; Then at most N of them are released for re-placement this tick, the rest deferred to a later tick. Given a deployment assignment deferred by an exhausted disruption budget; When a later tick has budget again; Then it is released without having to wait out a fresh grace period. | No |
+| [ ] | GIMLE-682 | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | Given a Deployment rolling from one module version to another with the default DisruptionBudget (maxUnavailable: 1); When the in-flight replacement reports ready once and then immediately flaps back to not-ready, repeatedly, across several reconcile ticks; Then the rolling-update budget stays fully consumed and no second index ever begins migrating. Given the same rollout; When the replacement is instead genuinely, continuously ready for the full stabilization window; Then its migration slot is correctly freed and the next mismatched index's migration starts immediately. Given a StatefulSet rolling update (structurally one migration at a time via OrderedReady); When its in-flight replacement flaps the same way; Then the rolling marker never clears and the next index is never touched. | No |
+| [ ] | GIMLE-683 | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement. | No |
 
 #### Reconciliation
 

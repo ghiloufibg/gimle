@@ -1152,6 +1152,7 @@ public final class DomainCodec {
     out.writeBoolean(state.pendingRetry());
     out.writeBoolean(state.permanentlyFailed());
     out.writeLong(state.firstSeenMissingAtEpochMilli());
+    out.writeLong(state.firstContinuousReadyAtEpochMilli());
     writeOptionalString(out, state.tenantId());
   }
 
@@ -1165,6 +1166,7 @@ public final class DomainCodec {
     boolean pendingRetry = in.readBoolean();
     boolean permanentlyFailed = in.readBoolean();
     long firstSeenMissingAtEpochMilli = in.readLong();
+    long firstContinuousReadyAtEpochMilli = in.readLong();
     Optional<String> tenantId = readOptionalString(in);
     return new ReconcilerInstanceState(
         deploymentName,
@@ -1175,6 +1177,7 @@ public final class DomainCodec {
         pendingRetry,
         permanentlyFailed,
         firstSeenMissingAtEpochMilli,
+        firstContinuousReadyAtEpochMilli,
         tenantId);
   }
 
@@ -1188,6 +1191,7 @@ public final class DomainCodec {
     out.writeLong(state.nextAllowedAttemptEpochMilli());
     out.writeBoolean(state.pendingRetry());
     out.writeBoolean(state.permanentlyFailed());
+    out.writeLong(state.firstContinuousReadyAtEpochMilli());
     writeOptionalString(out, state.tenantId());
   }
 
@@ -1200,6 +1204,7 @@ public final class DomainCodec {
     long nextAllowedAttemptEpochMilli = in.readLong();
     boolean pendingRetry = in.readBoolean();
     boolean permanentlyFailed = in.readBoolean();
+    long firstContinuousReadyAtEpochMilli = in.readLong();
     Optional<String> tenantId = readOptionalString(in);
     return new WorkloadHealthState(
         workloadKind,
@@ -1210,6 +1215,7 @@ public final class DomainCodec {
         nextAllowedAttemptEpochMilli,
         pendingRetry,
         permanentlyFailed,
+        firstContinuousReadyAtEpochMilli,
         tenantId);
   }
 

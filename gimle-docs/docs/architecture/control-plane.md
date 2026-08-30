@@ -267,7 +267,12 @@ disruption](../reference/manifest-schema.md#deployment-manifest-disruption). Eac
 index/node is checked for readiness every tick; a freed slot is topped up with a new migration the
 moment budget allows, including within the same tick a prior one clears, so the effective
 `maxUnavailable` count stays continuously in flight rather than draining a whole batch before the
-next one starts.
+next one starts. "Ready" itself requires more than the single latest heartbeat: `DeploymentReconciler`
+and `StatefulSetReconciler` (via their shared-shape `isReady`) only clear an in-flight migration once
+the replacement has been observed continuously ready for a stabilization window, persisted so the
+timer survives a reconciler-leader failover — a replacement that flaps between ready and not-ready
+during startup can never free its slot on a single lucky reading, which would otherwise let the next
+migration start before the current one has genuinely stabilized.
 
 `maxSurge` (provisioning a replacement before removing the original) is implemented for
 `DeploymentReconciler` only — `DaemonSetReconciler` still rejects a nonzero value outright, since a

@@ -25,6 +25,13 @@ import java.util.Optional;
  * @param permanentlyFailed "restart budget exhausted, giving up" flag -- the owning reconciler
  *     stops attempting a fresh placement for this slot once set, the same posture {@code
  *     HealthReconciler} already takes for a Deployment instance.
+ * @param firstContinuousReadyAtEpochMilli {@code StatefulSetReconciler#isReady}'s own readiness-
+ *     stabilization timer start -- when this slot was first observed continuously {@code ready}
+ *     since the last time it was observed not-ready; {@link #ABSENT} if it is not currently
+ *     observed ready at all. Owned exclusively by that readiness-stabilization logic; {@code
+ *     WorkloadCrashLoopBackoff} (shared with {@code DaemonSetReconciler}) never touches it, the
+ *     same "each writer starts from the currently persisted record" discipline {@link
+ *     ReconcilerInstanceState} already established for its own multiple owners.
  */
 public record WorkloadHealthState(
     String workloadKind,
@@ -35,6 +42,7 @@ public record WorkloadHealthState(
     long nextAllowedAttemptEpochMilli,
     boolean pendingRetry,
     boolean permanentlyFailed,
+    long firstContinuousReadyAtEpochMilli,
     Optional<String> tenantId) {
 
   /** Sentinel for an unset timestamp field -- {@code Optional} doesn't survive the wire codec. */
@@ -61,6 +69,7 @@ public record WorkloadHealthState(
         && windowStartEpochMilli == ABSENT
         && nextAllowedAttemptEpochMilli == ABSENT
         && !pendingRetry
-        && !permanentlyFailed;
+        && !permanentlyFailed
+        && firstContinuousReadyAtEpochMilli == ABSENT;
   }
 }

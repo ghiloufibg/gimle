@@ -26,6 +26,11 @@ import java.util.Optional;
  * @param permanentlyFailed {@code HealthReconciler}'s "restart budget exhausted, giving up" flag.
  * @param firstSeenMissingAtEpochMilli {@code ReplicaCountReconciler}'s grace-period timer start;
  *     {@link #ABSENT} if the instance is currently confirmed by its node's heartbeat.
+ * @param firstContinuousReadyAtEpochMilli {@code DeploymentReconciler#isReady}'s own readiness-
+ *     stabilization timer start -- when this instance was first observed continuously {@code ready}
+ *     since the last time it was observed not-ready; {@link #ABSENT} if it is not currently
+ *     observed ready at all. Owned exclusively by that readiness-stabilization logic, the same as
+ *     {@code firstSeenMissingAtEpochMilli} is owned exclusively by {@code ReplicaCountReconciler}.
  */
 public record ReconcilerInstanceState(
     String deploymentName,
@@ -36,6 +41,7 @@ public record ReconcilerInstanceState(
     boolean pendingRetry,
     boolean permanentlyFailed,
     long firstSeenMissingAtEpochMilli,
+    long firstContinuousReadyAtEpochMilli,
     Optional<String> tenantId) {
 
   /** Sentinel for an unset timestamp field -- {@code Optional} doesn't survive the wire codec. */
@@ -47,7 +53,11 @@ public record ReconcilerInstanceState(
     }
   }
 
-  /** Back-compat: defaults {@code tenantId} to {@code Optional.empty()} (untenanted). */
+  /**
+   * Back-compat: defaults {@code tenantId} to {@code Optional.empty()} (untenanted) and {@code
+   * firstContinuousReadyAtEpochMilli} to {@link #ABSENT}, for the many existing callers that
+   * predate both fields.
+   */
   public ReconcilerInstanceState(
       String deploymentName,
       int instanceIndex,
@@ -66,6 +76,7 @@ public record ReconcilerInstanceState(
         pendingRetry,
         permanentlyFailed,
         firstSeenMissingAtEpochMilli,
+        ABSENT,
         Optional.empty());
   }
 
@@ -76,6 +87,7 @@ public record ReconcilerInstanceState(
         && nextAllowedAttemptEpochMilli == ABSENT
         && !pendingRetry
         && !permanentlyFailed
-        && firstSeenMissingAtEpochMilli == ABSENT;
+        && firstSeenMissingAtEpochMilli == ABSENT
+        && firstContinuousReadyAtEpochMilli == ABSENT;
   }
 }

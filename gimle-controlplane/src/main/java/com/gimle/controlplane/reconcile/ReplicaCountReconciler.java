@@ -332,6 +332,7 @@ public final class ReplicaCountReconciler {
         state.pendingRetry(),
         state.permanentlyFailed(),
         firstSeenMissingAtEpochMilli,
+        state.firstContinuousReadyAtEpochMilli(),
         state.tenantId());
   }
 
@@ -363,6 +364,7 @@ public final class ReplicaCountReconciler {
         ReconcilerInstanceState.ABSENT,
         false,
         false,
+        ReconcilerInstanceState.ABSENT,
         ReconcilerInstanceState.ABSENT,
         assignment.tenantId());
   }
