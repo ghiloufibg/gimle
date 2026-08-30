@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 680,
+  "requirementCount": 681,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11781,6 +11781,21 @@
       "otherTestCoverage": "`JobReconcilerTest#a_failed_attempt_is_not_retried_before_its_backoff_elapses` and `#a_failed_attempt_is_retried_once_its_backoff_elapses` (the boundary on both sides of the initial 2-second delay, driven by TestClock), `#backoff_bookkeeping_survives_a_reconciler_reconstruction_against_the_same_store`, `#converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states`, and `#a_run_on_a_genuinely_gone_node_is_retried_once_the_grace_period_and_backoff_elapse` updated to reflect the new gate. Full gimle-mimir/gimle-controlplane module suites re-verified.",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/JobReconciler.java` (`retryOrFail`, `WORKLOAD_KIND`, `BACKOFF_SLOT`, `crashLoopBackoff`)"
+      ]
+    },
+    {
+      "id": "GIMLE-681",
+      "module": "gimle-agent",
+      "feature": "Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath",
+      "category": "Worker Supervision",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-73 -- requiresVesselReplacement compared only moduleId and artifactPath, copied verbatim from the module-hosting requiresReplacement check, so an operator's edit to a Vessel's own manifest-embedded vessel: block (env, args, jvmFlags, files, probes, resource request/limit) was never detected and never applied to the already-running process.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that deploys a Vessel workload, edits its manifest's vessel: block (e.g. an env var) through the real API without changing moduleId/artifactPath, and asserts the running process is restarted with the new value observable (e.g. via the env var surfacing in the vessel's own log or a probe endpoint).",
+      "otherTestCoverage": "`AgentMainTest#a_vessel_env_var_change_at_the_same_key_requires_replacement`, `#a_vessel_probe_change_at_the_same_key_requires_replacement`, `#an_unchanged_vessel_assignment_at_the_same_key_never_requires_replacement`, `#requires_replacement_for_module_hosting_ignores_vessel_and_is_unaffected`.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`requiresVesselReplacement`, `reconcileVesselAssignment`)"
       ]
     }
   ]

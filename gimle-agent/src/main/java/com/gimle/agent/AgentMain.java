@@ -1531,8 +1531,11 @@ public final class AgentMain {
    * ModuleArtifactReader} read (there is no {@code gimle-module.yaml}), no Tier 1 density reuse (a
    * vessel is always its own dedicated process), no rename-in-place (a vessel surge/promotion
    * simply restarts, a documented simplification -- see this change's own final report). {@code
-   * requiresVesselReplacement} mirrors {@link #requiresReplacement}'s exact moduleId/artifactPath
-   * comparison.
+   * requiresVesselReplacement} mirrors {@link #requiresReplacement}'s moduleId/artifactPath
+   * comparison but additionally compares {@code vessel()} itself: unlike a module, a vessel has no
+   * {@code gimle-module.yaml} of its own, so its entire runtime config (env, args, jvmFlags, files,
+   * probes, resource request/limit) lives directly in the manifest's own {@code vessel:} block and
+   * would otherwise never be detected as changed.
    */
   private static void reconcileVesselAssignment(
       AssignedInstance assigned,
@@ -1581,7 +1584,8 @@ public final class AgentMain {
 
   static boolean requiresVesselReplacement(AssignedInstance assigned, SupervisedVessel existing) {
     return !existing.assigned.moduleId().equals(assigned.moduleId())
-        || !existing.assigned.artifactPath().equals(assigned.artifactPath());
+        || !existing.assigned.artifactPath().equals(assigned.artifactPath())
+        || !existing.assigned.vessel().equals(assigned.vessel());
   }
 
   /**

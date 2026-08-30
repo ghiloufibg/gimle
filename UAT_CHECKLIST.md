@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 680
+- **Total requirements**: 681
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 554
+- **Not covered by automated test**: 555
 - **Release-readiness (automated coverage)**: 18.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -18,7 +18,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 23 | 2 | 21 | 8.7% |
-| gimle-agent | 47 | 6 | 41 | 12.8% |
+| gimle-agent | 48 | 6 | 42 | 12.5% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 35 | 1 | 34 | 2.9% |
 | gimle-controlplane | 88 | 15 | 73 | 17.0% |
@@ -624,6 +624,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-111 | Instance rename-in-place (no restart) | Given an assignment carries a renamedFromInstanceIndex pointing at an already-supervised, matching-module instance When findRenameSource finds it and renameInPlace runs Then supervised/instanceShippers/capacityTracker are re-keyed and instance.assigned is updated in place And if the worker is already connected, ControlMessage.RenameInstance is sent so its own identity registry follows Given no matching source exists (already renamed, or gone) Then it falls through to the ordinary start path | No |
 | [ ] | GIMLE-118 | Vessel process supervision (plain-jar workload as its own dedicated process) | Given an assignment carries a VesselSpec When reconcileVesselAssignment runs (entirely separate from the module path) Then startVesselInstance spawns `java <ResourceLimiter flags> <vessel.jvmFlags> -jar <jar> <vessel.args>` via VesselProcessSupervisor And stdout/stderr is captured unconditionally as this instance's own APPLICATION log (no JSON-sniffing, unlike a real worker) And a crash restarts via the same RestartTracker-driven backoff/give-up policy as WorkerProcessSupervisor | No |
 | [ ] | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Given a running cluster from topology "minimal", And module "greeter-provider" version "1.0.0" deployed with 1 replica as "sleipnir-greeter", Then within 60s deployment "sleipnir-greeter" is ACTIVE, And within 30s node "node-0" logs "AOT cache ineligible: directory on worker classpath", And node "node-0" has no AOT cache files. | Yes |
+| [ ] | GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | Given a Vessel instance already running under a fixed key with a given vessel: configuration; When the control plane's assignment for that key is re-polled with the same moduleId/artifactPath but an edited vessel: block (env, args, jvmFlags, files, probes, or resource request/limit); Then the agent detects the drift and restarts the process with the new configuration. Given a Vessel instance already running under a fixed key; When the control plane's assignment for that key is re-polled with an identical vessel: block; Then the agent does not restart the process. Given a hosted-module instance already running under a fixed key; When its assignment is re-polled with an unrelated vessel() value present but the same moduleId/artifactPath; Then requiresReplacement still returns false, since module runtime config comes from the artifact's own gimle-module.yaml rather than from vessel(). | No |
 
 #### Worker Supervision / Config
 

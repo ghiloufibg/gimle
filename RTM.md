@@ -695,6 +695,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | New | Not Covered | — |
 | GIMLE-679 | Gateway route table reloads on a config change without a restart | New | Not Covered | — |
 | GIMLE-680 | Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick | New | Not Covered | — |
+| GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2243,6 +2244,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
 - **Other test coverage (non-Holmgang, informational only)**: `BifrostLiveConnectionPolicyTest#removing_a_callers_tenant_from_the_allow_list_closes_its_already_open_connection`, `#a_brand_new_deny_policy_closes_an_already_open_connection_to_a_previously_unrestricted_service`, `#an_open_connection_is_never_closed_across_poll_ticks_that_leave_the_policy_unchanged` (a real TLS-terminating listener against a backend streaming continuously, so bytes stopping mid-stream is directly observable). Full gimle-agent module suite re-verified.
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java` (`openConnections`, `enforceCurrentPolicy`, `OpenConnection`)
+
+#### GIMLE-681 — Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath
+
+- **Category**: Worker Supervision
+- **Status**: New  _(New requirement: closes FUNC-73 -- requiresVesselReplacement compared only moduleId and artifactPath, copied verbatim from the module-hosting requiresReplacement check, so an operator's edit to a Vessel's own manifest-embedded vessel: block (env, args, jvmFlags, files, probes, resource request/limit) was never detected and never applied to the already-running process.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that deploys a Vessel workload, edits its manifest's vessel: block (e.g. an env var) through the real API without changing moduleId/artifactPath, and asserts the running process is restarted with the new value observable (e.g. via the env var surfacing in the vessel's own log or a probe endpoint).
+- **Other test coverage (non-Holmgang, informational only)**: `AgentMainTest#a_vessel_env_var_change_at_the_same_key_requires_replacement`, `#a_vessel_probe_change_at_the_same_key_requires_replacement`, `#an_unchanged_vessel_assignment_at_the_same_key_never_requires_replacement`, `#requires_replacement_for_module_hosting_ignores_vessel_and_is_unaffected`.
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`requiresVesselReplacement`, `reconcileVesselAssignment`)
 
 ### gimle-mimir
 
@@ -7198,7 +7208,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**554 of 680 requirements are Not Covered.**
+**555 of 681 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7747,6 +7757,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-110 | gimle-agent | Tier 1 density — shared-worker reuse for multiple module instances | Worker Supervision | `AgentMainTest#a_worker_already_hosting_the_same_module_is_never_reused_for_another_replica`, `#a_worker_at_the_density_cap_is_not_reused`, `#a_worker_with_no_established_connection_yet_is_never_reused`; `Tier1DensityIntegrationTest#two_modules_share_one_worker_process_and_survive_one_being_stopped` |
 | GIMLE-111 | gimle-agent | Instance rename-in-place (no restart) | Worker Supervision | `AgentMainTest#find_rename_source_finds_the_already_supervised_instance_at_the_hinted_index`, `#find_rename_source_is_empty_without_a_rename_hint`, `#find_rename_source_falls_back_when_the_hinted_source_key_is_not_supervised`, `#find_rename_source_falls_back_when_the_source_runs_a_different_module`, `#rename_in_place_rekeys_supervised_and_shippers_and_updates_the_assigned_identity`, `#rename_in_place_notifies_the_connected_worker_of_its_new_identity` |
 | GIMLE-118 | gimle-agent | Vessel process supervision (plain-jar workload as its own dedicated process) | Worker Supervision | `VesselProcessSupervisorTest#captures_stdout_lines_as_the_instance_application_log`, `#a_crashed_vessel_process_is_respawned`, `#exhausting_the_restart_budget_reports_it_and_stops_respawning` |
+| GIMLE-681 | gimle-agent | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | Worker Supervision | `AgentMainTest#a_vessel_env_var_change_at_the_same_key_requires_replacement`, `#a_vessel_probe_change_at_the_same_key_requires_replacement`, `#an_unchanged_vessel_assignment_at_the_same_key_never_requires_replacement`, `#requires_replacement_for_module_hosting_ignores_vessel_and_is_unaffected`. |
 | GIMLE-106 | gimle-agent | Machine-level capacity tracking and admission (memory/CPU) | Worker Supervision / Config | `CapacityTrackerTest#try_assign_succeeds_within_capacity_and_is_reflected_in_the_snapshot`, `#try_assign_fails_once_it_would_exceed_total_capacity`, `#try_assign_rejects_a_key_already_holding_a_reservation`, `#release_frees_the_reservation_for_reuse`, `#rekey_moves_the_reservation_to_the_new_key_without_changing_total_usage`, `#rekey_is_a_noop_when_the_old_key_holds_no_reservation` |
 | GIMLE-079 | gimle-worker | Worker JVM control-channel bootstrap | Worker Supervision / Internal-Infra | `ControlChannelClientTest#connect_with_retry_succeeds_once_the_listener_is_up`, `#connect_with_retry_gives_up_after_its_timeout_if_nothing_ever_listens`, `AgentWorkerIntegrationTest#agent_spawns_a_real_worker_and_installs_a_module_over_the_control_channel` (gimle-agent) |
 | GIMLE-101 | gimle-agent | Node agent registration and repeating reconcile/heartbeat/rotate tick loop | Worker Supervision / Internal-Infra | `AgentWorkerIntegrationTest#agent_spawns_a_real_worker_and_installs_a_module_over_the_control_channel`, `ControlPlaneAgentWorkerIntegrationTest#control_plane_places_replicas_on_real_agents_and_reschedules_after_an_agent_is_killed` |
