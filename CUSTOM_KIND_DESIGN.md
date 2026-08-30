@@ -441,7 +441,8 @@ plus that policy discussion.
   race (409) triggers a bounded client-side retry of the read-validate-apply loop, surfacing the
   conflict only if it's exhausted.
 - **`gimle kinds`** — lists KindDefinitions: prefixed name, declared plural/short names, scope,
-  instance count, description.
+  instance count, description. Its delete counterpart is `gimle delete kinddefinition <kind>`,
+  surfacing the server's while-instances-exist refusal as the conflict it is.
 - **`gimle get/delete <kind> [name]`** — the existing noun dispatch falls through to the generic
   path for custom kinds, resolving the noun against the definitions catalog in a fixed order:
   exact prefixed kind name, then declared `plural`, then declared `shortNames` (Kubernetes'
