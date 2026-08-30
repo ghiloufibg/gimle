@@ -61,8 +61,9 @@ import org.slf4j.LoggerFactory;
  * not yet dark past {@code nodeDarkTimeout + placementGracePeriod}), the run is left alone even if
  * its last-known observation is stuck mid-lifecycle -- the same "don't relocate off a merely-dark
  * node" safety property {@code DaemonSetReconciler} now also has. Once the node has been dark that
- * long, though, {@link #isGenuinelyGone} treats the run as lost -- retried if {@code backoffLimit}
- * allows, permanently failed otherwise -- via the same {@link #retryOrFail} path a {@code FAILED}
+ * long, though, {@link #isGenuinelyGone} treats the run as lost -- retried (after an exponential
+ * backoff delay, see {@link #retryOrFail}'s own javadoc) if {@code backoffLimit} allows,
+ * permanently failed otherwise -- via the same {@link #retryOrFail} path a {@code FAILED}
  * observation already takes. Without this, a run whose node vanished for good (not merely
  * partitioned) would sit forever in whatever non-terminal state its last heartbeat reported, with
  * no path back to health at all.
@@ -79,6 +80,41 @@ public final class JobReconciler {
   public static final Duration DEFAULT_NODE_DARK_TIMEOUT =
       DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT;
 
+  /**
+   * The {@link WorkloadCrashLoopBackoff} kind discriminator for a Job's own retry-backoff
+   * bookkeeping -- distinct from {@code "StatefulSet"}/{@code "DaemonSet"} so a same-named Job and
+   * StatefulSet in the same tenant can never collide (see {@code WorkloadHealthState}'s own javadoc
+   * for why the discriminator exists at all).
+   */
+  private static final String WORKLOAD_KIND = "Job";
+
+  /**
+   * A Job has at most one non-terminal run at a time -- see class javadoc -- so its retry-backoff
+   * bookkeeping needs no per-index slot the way a StatefulSet index or DaemonSet node does; this
+   * constant fills {@code WorkloadHealthState}'s required, non-blank slot field.
+   */
+  private static final String BACKOFF_SLOT = "0";
+
+  /**
+   * Matches {@link HealthReconciler}'s own defaults exactly -- the same "a bad artifact shouldn't
+   * be retried in a tight loop" reasoning applies identically to a Job attempt.
+   */
+  private static final Duration BACKOFF_INITIAL_DELAY = Duration.ofSeconds(2);
+
+  private static final double BACKOFF_MULTIPLIER = 2.0;
+  private static final Duration BACKOFF_CAP = Duration.ofMinutes(1);
+
+  /**
+   * {@link WorkloadCrashLoopBackoff}'s own budget-exhaustion path is deliberately unreachable here:
+   * {@link #retryOrFail}'s explicit {@code backoffLimit} check is the one and only authority on
+   * when to give up, exactly as it was before this class started gating retries on backoff at all.
+   * An effectively-unbounded attempt count across an effectively-unbounded window means that path
+   * never fires first.
+   */
+  private static final int BACKOFF_UNBOUNDED_ATTEMPTS = Integer.MAX_VALUE;
+
+  private static final Duration BACKOFF_UNBOUNDED_WINDOW = Duration.ofDays(3650);
+
   private final StoreReader store;
   private final Scheduler scheduler;
   private final MutationSink mutations;
@@ -86,6 +122,7 @@ public final class JobReconciler {
   private final Duration placementGracePeriod;
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
+  private final WorkloadCrashLoopBackoff crashLoopBackoff;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public JobReconciler(StateStore store, Scheduler scheduler) {
@@ -135,6 +172,14 @@ public final class JobReconciler {
     this.placementGracePeriod = placementGracePeriod;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
+    this.crashLoopBackoff =
+        new WorkloadCrashLoopBackoff(
+            store,
+            BACKOFF_INITIAL_DELAY,
+            BACKOFF_MULTIPLIER,
+            BACKOFF_CAP,
+            BACKOFF_UNBOUNDED_ATTEMPTS,
+            BACKOFF_UNBOUNDED_WINDOW);
   }
 
   public void reconcileOnce() {
@@ -266,7 +311,15 @@ public final class JobReconciler {
   /**
    * Shared by a {@code FAILED} observation and a genuinely-gone node (see {@link
    * #reconcileCurrentRun}): retries with a fresh attempt if {@code backoffLimit} allows, otherwise
-   * marks the job permanently failed. Either way {@code run}'s own entry is removed.
+   * marks the job permanently failed.
+   *
+   * <p>A retry within budget is further gated on {@link WorkloadCrashLoopBackoff}'s own exponential
+   * delay -- without it, this method used to place the next attempt on the very next tick (every
+   * {@code RECONCILE_INTERVAL}), so a job whose module crashes on startup retried in a tight loop
+   * until {@code backoffLimit} ran out. The failed run's own entry is only removed once the backoff
+   * has actually elapsed; while still waiting, it's left on record so the next tick re-evaluates
+   * the same wait against a freshly read clock rather than losing track of which attempt is
+   * pending.
    */
   private void retryOrFail(JobSpec spec, JobRun run) {
     int nextAttempt = run.attempt() + 1;
@@ -285,6 +338,34 @@ public final class JobReconciler {
               new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt())));
       return;
     }
+
+    WorkloadCrashLoopBackoff.Evaluation evaluation =
+        crashLoopBackoff.handleFailureObserved(
+            WORKLOAD_KIND, spec.name(), BACKOFF_SLOT, spec.tenantId(), clock.instant());
+    if (evaluation.permanentlyFailed()) {
+      // Unreachable in practice -- see BACKOFF_UNBOUNDED_ATTEMPTS/BACKOFF_UNBOUNDED_WINDOW's own
+      // javadoc for why. Handled anyway rather than assumed away.
+      log.error(
+          "job {} attempt {} was reported as exhausting its restart budget despite remaining"
+              + " backoffLimit headroom; marking permanently failed",
+          spec.name(),
+          run.attempt());
+      String reason = "exhausted its restart budget";
+      mutations.proposeAll(
+          List.of(
+              evaluation.stateMutation(),
+              new StateMutation.PutJobPhase(spec.tenantId(), spec.name(), JobPhase.FAILED),
+              new StateMutation.PutJobRunSummary(
+                  new JobRunSummary(
+                      run.jobName(), run.attempt(), run.nodeId(), reason, run.tenantId())),
+              new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt())));
+      return;
+    }
+    if (!evaluation.shouldRemoveAssignmentNow()) {
+      mutations.propose(evaluation.stateMutation());
+      return;
+    }
+
     // The retry placement and the failed attempt's removal commit as one batch, so no crash can
     // ever leave zero runs on record for a non-terminal job (which would lose the attempt
     // counter). A placement that could not schedule this tick still removes the failed attempt on
@@ -292,6 +373,7 @@ public final class JobReconciler {
     List<StateMutation> retry = new ArrayList<>();
     planPlacement(spec, nextAttempt, run.startedAt()).ifPresent(retry::add);
     retry.add(new StateMutation.RemoveJobRun(run.tenantId(), run.jobName(), run.attempt()));
+    retry.add(evaluation.stateMutation());
     mutations.proposeAll(retry);
   }
 

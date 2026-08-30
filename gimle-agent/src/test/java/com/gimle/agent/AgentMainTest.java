@@ -12,6 +12,10 @@ import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.ControlMessage;
+import com.gimle.core.vessel.VesselEnvValue;
+import com.gimle.core.vessel.VesselProbeSpec;
+import com.gimle.core.vessel.VesselProbes;
+import com.gimle.core.vessel.VesselSpec;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
@@ -30,6 +34,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -736,6 +741,158 @@ class AgentMainTest {
             "provider-deployment", 0, v1.id(), "/does/not/matter.jar", Optional.empty());
 
     assertFalse(AgentMain.requiresReplacement(sameAssignmentAgain, existing));
+  }
+
+  // ---- requiresVesselReplacement: a Vessel's runtime config lives directly in its own manifest
+  // {@code vessel:} block (env/args/jvmFlags/files/probes/resources), not in a gimle-module.yaml
+  // read off artifactPath the way a hosted module's does -- so this comparison must catch a
+  // vessel() change on top of moduleId/artifactPath, or an edited env var/probe/mount is silently
+  // never applied to the already-running process. ----
+
+  private static VesselSpec vesselSpec(String greetingEnvValue) {
+    return new VesselSpec(
+        List.of(),
+        List.of(),
+        Map.of("GREETING", new VesselEnvValue.Literal(greetingEnvValue)),
+        List.of(),
+        VesselProbes.NONE,
+        REQUEST,
+        LIMIT);
+  }
+
+  private static SupervisedVessel supervisedVessel(AssignedInstance assigned) {
+    return new SupervisedVessel(
+        assigned, assigned.vessel().orElseThrow(), null, null, Map.of(), List.of(), Instant.now());
+  }
+
+  @Test
+  void a_vessel_env_var_change_at_the_same_key_requires_replacement() {
+    ModuleDescriptor descriptor = descriptor("gateway-vessel", IsolationTier.TIER_2);
+    AssignedInstance original =
+        new AssignedInstance(
+            "gateway-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("hello")));
+    SupervisedVessel existing = supervisedVessel(original);
+
+    // Same moduleId/artifactPath -- only the vessel's own env value changed, exactly what an
+    // operator editing the manifest's vessel: block looks like on the wire.
+    AssignedInstance edited =
+        new AssignedInstance(
+            "gateway-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("goodbye")));
+
+    assertTrue(AgentMain.requiresVesselReplacement(edited, existing));
+  }
+
+  @Test
+  void a_vessel_probe_change_at_the_same_key_requires_replacement() {
+    ModuleDescriptor descriptor = descriptor("gateway-vessel", IsolationTier.TIER_2);
+    // An http probe rung requires at least one {port: ...} env entry to dial -- add one here so
+    // withLivenessProbe below is itself a valid VesselSpec.
+    VesselSpec withoutProbes =
+        new VesselSpec(
+            List.of(),
+            List.of(),
+            Map.of(
+                "GREETING", new VesselEnvValue.Literal("hello"),
+                "PORT", new VesselEnvValue.PortAllocation(OptionalInt.empty())),
+            List.of(),
+            VesselProbes.NONE,
+            REQUEST,
+            LIMIT);
+    AssignedInstance original =
+        new AssignedInstance(
+            "gateway-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(withoutProbes));
+    SupervisedVessel existing = supervisedVessel(original);
+
+    VesselSpec withLivenessProbe =
+        new VesselSpec(
+            withoutProbes.args(),
+            withoutProbes.jvmFlags(),
+            withoutProbes.env(),
+            withoutProbes.files(),
+            new VesselProbes(Optional.of(new VesselProbeSpec.Http("/health")), Optional.empty()),
+            withoutProbes.resourceRequest(),
+            withoutProbes.resourceLimit());
+    AssignedInstance edited =
+        new AssignedInstance(
+            "gateway-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(withLivenessProbe));
+
+    assertTrue(AgentMain.requiresVesselReplacement(edited, existing));
+  }
+
+  @Test
+  void an_unchanged_vessel_assignment_at_the_same_key_never_requires_replacement() {
+    ModuleDescriptor descriptor = descriptor("gateway-vessel", IsolationTier.TIER_2);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "gateway-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("hello")));
+    SupervisedVessel existing = supervisedVessel(assigned);
+
+    // A fresh AssignedInstance/VesselSpec with identical field values, not the same object --
+    // this is what a real re-fetch of unchanged desired state actually looks like, and must not
+    // be mistaken for drift on every poll.
+    AssignedInstance sameAssignmentAgain =
+        new AssignedInstance(
+            "gateway-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("hello")));
+
+    assertFalse(AgentMain.requiresVesselReplacement(sameAssignmentAgain, existing));
+  }
+
+  @Test
+  void requires_replacement_for_module_hosting_ignores_vessel_and_is_unaffected() {
+    // Guards against requiresVesselReplacement's vessel() comparison ever being merged into
+    // requiresReplacement by mistake: a hosted module's runtime config comes entirely from its
+    // artifact's own gimle-module.yaml, so a vessel() difference here must stay irrelevant to it.
+    ModuleDescriptor v1 = descriptor("provider", IsolationTier.TIER_2);
+    AssignedInstance assignedV1 = assignedInstance("provider-deployment", v1, Optional.empty());
+    SupervisedInstance existing = supervisedInstance(assignedV1, v1, null);
+
+    AssignedInstance assignedWithVessel =
+        new AssignedInstance(
+            "provider-deployment",
+            0,
+            v1.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("hello")));
+
+    assertFalse(AgentMain.requiresReplacement(assignedWithVessel, existing));
   }
 
   // ---- findRenameSource / renameInPlace: surge promotion retargeting an already-running worker

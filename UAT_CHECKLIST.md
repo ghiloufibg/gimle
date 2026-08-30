@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 679
+- **Total requirements**: 683
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 553
-- **Release-readiness (automated coverage)**: 18.6%
+- **Not covered by automated test**: 557
+- **Release-readiness (automated coverage)**: 18.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -18,10 +18,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 23 | 2 | 21 | 8.7% |
-| gimle-agent | 47 | 6 | 41 | 12.8% |
+| gimle-agent | 48 | 6 | 42 | 12.5% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 35 | 1 | 34 | 2.9% |
-| gimle-controlplane | 87 | 15 | 72 | 17.2% |
+| gimle-controlplane | 90 | 15 | 75 | 16.7% |
 | gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
@@ -624,6 +624,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-111 | Instance rename-in-place (no restart) | Given an assignment carries a renamedFromInstanceIndex pointing at an already-supervised, matching-module instance When findRenameSource finds it and renameInPlace runs Then supervised/instanceShippers/capacityTracker are re-keyed and instance.assigned is updated in place And if the worker is already connected, ControlMessage.RenameInstance is sent so its own identity registry follows Given no matching source exists (already renamed, or gone) Then it falls through to the ordinary start path | No |
 | [ ] | GIMLE-118 | Vessel process supervision (plain-jar workload as its own dedicated process) | Given an assignment carries a VesselSpec When reconcileVesselAssignment runs (entirely separate from the module path) Then startVesselInstance spawns `java <ResourceLimiter flags> <vessel.jvmFlags> -jar <jar> <vessel.args>` via VesselProcessSupervisor And stdout/stderr is captured unconditionally as this instance's own APPLICATION log (no JSON-sniffing, unlike a real worker) And a crash restarts via the same RestartTracker-driven backoff/give-up policy as WorkerProcessSupervisor | No |
 | [ ] | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Given a running cluster from topology "minimal", And module "greeter-provider" version "1.0.0" deployed with 1 replica as "sleipnir-greeter", Then within 60s deployment "sleipnir-greeter" is ACTIVE, And within 30s node "node-0" logs "AOT cache ineligible: directory on worker classpath", And node "node-0" has no AOT cache files. | Yes |
+| [ ] | GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | Given a Vessel instance already running under a fixed key with a given vessel: configuration; When the control plane's assignment for that key is re-polled with the same moduleId/artifactPath but an edited vessel: block (env, args, jvmFlags, files, probes, or resource request/limit); Then the agent detects the drift and restarts the process with the new configuration. Given a Vessel instance already running under a fixed key; When the control plane's assignment for that key is re-polled with an identical vessel: block; Then the agent does not restart the process. Given a hosted-module instance already running under a fixed key; When its assignment is re-polled with an unrelated vessel() value present but the same moduleId/artifactPath; Then requiresReplacement still returns false, since module runtime config comes from the artifact's own gimle-module.yaml rather than from vessel(). | No |
 
 #### Worker Supervision / Config
 
@@ -1070,6 +1071,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-669 | Node-death instance eviction is throttled against the deployment's own DisruptionBudget | Given a deployment with DisruptionBudget maxUnavailable N and more than N replicas gone stale on a dead node past their grace period; When the reconciler ticks; Then at most N of them are released for re-placement this tick, the rest deferred to a later tick. Given a deployment assignment deferred by an exhausted disruption budget; When a later tick has budget again; Then it is released without having to wait out a fresh grace period. | No |
+| [ ] | GIMLE-682 | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | Given a Deployment rolling from one module version to another with the default DisruptionBudget (maxUnavailable: 1); When the in-flight replacement reports ready once and then immediately flaps back to not-ready, repeatedly, across several reconcile ticks; Then the rolling-update budget stays fully consumed and no second index ever begins migrating. Given the same rollout; When the replacement is instead genuinely, continuously ready for the full stabilization window; Then its migration slot is correctly freed and the next mismatched index's migration starts immediately. Given a StatefulSet rolling update (structurally one migration at a time via OrderedReady); When its in-flight replacement flaps the same way; Then the rolling marker never clears and the next index is never touched. | No |
+| [ ] | GIMLE-683 | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement. | No |
 
 #### Reconciliation
 
@@ -1214,6 +1217,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-670 | CronJob prunes its own terminal generated Jobs to configurable successful/failed history limits | Given a CronJob with default history limits and more firings than those limits allow; When the reconciler ticks after each firing is marked terminal; Then only the configured number of most-recent successful and failed Jobs remain, oldest excess pruned. Given an operator lowers a CronJob's history limit below its currently accumulated terminal Job count; When the reconciler next ticks; Then it prunes down to the new, lower limit. | No |
+
+#### Workloads / Job
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-680 | Job retry attempts are gated by exponential backoff instead of retrying every reconcile tick | Given a Job attempt that just failed, within its backoffLimit; When the reconciler ticks again before the attempt's exponential backoff delay has elapsed; Then no new attempt is placed and the failed run stays on record. Given a Job attempt waiting out its retry backoff; When the reconciler ticks again after the delay has elapsed; Then exactly one new attempt is placed and the failed run is removed. Given a Job attempt's retry backoff bookkeeping persisted under a previous reconciler-leader term; When a freshly constructed reconciler ticks against the same store; Then it resumes the in-progress wait rather than granting a fresh delay. | No |
 
 ### gimle-fafnir
 

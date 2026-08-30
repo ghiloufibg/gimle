@@ -56,6 +56,23 @@ class StatefulSetReconcilerTest {
         Optional.empty());
   }
 
+  /**
+   * A {@link StatefulSetReconciler} threaded with a {@link TestClock} so a test can advance past
+   * {@link StatefulSetReconciler#READINESS_STABILIZATION_WINDOW} without any real waiting -- every
+   * test in this file that expects {@code OrderedReady} to move past a just-readied index needs
+   * this rather than the plain two-arg (real-clock) constructor.
+   */
+  private static StatefulSetReconciler statefulSetReconciler(
+      StateStore store, Scheduler scheduler, TestClock clock) {
+    return new StatefulSetReconciler(
+        store,
+        scheduler,
+        mutation -> mutation.applyTo(store),
+        StatefulSetReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+        StatefulSetReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+        clock);
+  }
+
   private static void registerNode(StateStore store, String nodeId) {
     store.putNodeRegistration(
         new NodeRegistration(
@@ -94,6 +111,44 @@ class StatefulSetReconcilerTest {
             "ACTIVE",
             true,
             true,
+            0,
+            0,
+            0,
+            0,
+            0));
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            assignment.nodeId(),
+            new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
+            merged));
+  }
+
+  /**
+   * Reports {@code assignment}'s own instance as still present and alive but no longer {@code
+   * ready} -- a flap, not a disappearance -- mirroring {@code reportReady}'s merge shape exactly.
+   */
+  private static void reportNotReady(StateStore store, StatefulSetAssignment assignment) {
+    List<InstanceObservation> existing =
+        store
+            .getNodeHeartbeat(assignment.nodeId())
+            .map(ObservedHeartbeat::heartbeat)
+            .map(NodeHeartbeat::instances)
+            .orElse(List.of());
+    List<InstanceObservation> merged = new ArrayList<>();
+    for (InstanceObservation obs : existing) {
+      if (!(obs.deploymentName().equals(assignment.statefulSetName())
+          && obs.instanceIndex() == assignment.instanceIndex())) {
+        merged.add(obs);
+      }
+    }
+    merged.add(
+        new InstanceObservation(
+            assignment.statefulSetName(),
+            assignment.instanceIndex(),
+            assignment.moduleId(),
+            "ACTIVE",
+            true,
+            false,
             0,
             0,
             0,
@@ -186,19 +241,24 @@ class StatefulSetReconcilerTest {
   }
 
   @Test
-  void places_index_one_once_index_zero_becomes_ready() {
-    StateStore store = new StateStore();
+  void places_index_one_once_index_zero_becomes_ready(TestClock clock) {
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     store.putStatefulSetSpec(statefulSet("orders", jar, 2));
     registerNode(store, "node-a");
     registerNode(store, "node-b");
-    StatefulSetReconciler reconciler = new StatefulSetReconciler(store, scheduler);
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
     reconciler.reconcileOnce();
     StatefulSetAssignment index0 =
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
 
     reportReady(store, index0);
+    // Readiness must hold continuously for the full stabilization window before OrderedReady will
+    // move past index 0: one tick records when it was first observed ready, a further tick once
+    // the window elapses confirms it stayed ready and places index 1.
+    reconciler.reconcileOnce();
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
     reconciler.reconcileOnce();
 
     List<StatefulSetAssignment> assignments =
@@ -235,8 +295,8 @@ class StatefulSetReconcilerTest {
   }
 
   @Test
-  void scale_down_removes_the_highest_index_first_one_at_a_time() {
-    StateStore store = new StateStore();
+  void scale_down_removes_the_highest_index_first_one_at_a_time(TestClock clock) {
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");
@@ -244,9 +304,14 @@ class StatefulSetReconcilerTest {
     registerNode(store, "node-c");
     StatefulSetSpec spec = statefulSet("orders", jar, 3);
     store.putStatefulSetSpec(spec);
-    StatefulSetReconciler reconciler = new StatefulSetReconciler(store, scheduler);
-    // Drive all three indices up, reporting each ready before the next is attempted.
-    for (int i = 0; i < 3; i++) {
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
+    // Drive all three indices up, reporting each ready before the next is attempted. Placing an
+    // index takes one tick; OrderedReady then needs a further tick to record when it was first
+    // observed continuously ready, plus one more once the stabilization window elapses to actually
+    // move on to the next index -- six iterations covers three indices' worth of that two-tick-per-
+    // index cadence with room to spare.
+    for (int i = 0; i < 6; i++) {
+      clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
       reconciler.reconcileOnce();
       List<StatefulSetAssignment> current =
           store.listStatefulSetAssignmentsFor(Optional.empty(), "orders");
@@ -270,20 +335,22 @@ class StatefulSetReconcilerTest {
   }
 
   @Test
-  void scaling_back_up_after_scale_down_reuses_the_same_sticky_node() {
-    StateStore store = new StateStore();
+  void scaling_back_up_after_scale_down_reuses_the_same_sticky_node(TestClock clock) {
+    StateStore store = new StateStore(clock);
     Scheduler scheduler = new Scheduler();
     Path jar = buildFixtureJar();
     registerNode(store, "node-a");
     registerNode(store, "node-b");
     StatefulSetSpec spec = statefulSet("orders", jar, 2);
     store.putStatefulSetSpec(spec);
-    StatefulSetReconciler reconciler = new StatefulSetReconciler(store, scheduler);
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
     reconciler.reconcileOnce();
     reportReady(
         store,
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow());
-    reconciler.reconcileOnce();
+    reconciler.reconcileOnce(); // records index 0's stabilization timer, doesn't place index 1 yet
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce(); // index 0 stabilized: places index 1
     StatefulSetAssignment index1 =
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).orElseThrow();
     String index1Node = index1.nodeId();
@@ -625,12 +692,230 @@ class StatefulSetReconcilerTest {
             jar.toAbsolutePath().toString()));
     store.putWorkloadHealthState(
         new WorkloadHealthState(
-            "StatefulSet", "orders", "0", 5, 0L, 0L, false, true, Optional.empty()));
+            "StatefulSet",
+            "orders",
+            "0",
+            5,
+            0L,
+            0L,
+            false,
+            true,
+            WorkloadHealthState.ABSENT,
+            Optional.empty()));
 
     new StatefulSetReconciler(store, scheduler).reconcileOnce();
 
     assertTrue(
         indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).isPresent(),
         "a permanently-failed index's stale assignment is left in place, not torn down");
+  }
+
+  /**
+   * GIMLE-683 (FUNC-74): {@code isReady} used to be a pure point-in-time read of the latest
+   * heartbeat's {@code ready} flag -- an index that happened to report ready on exactly one
+   * heartbeat, then flapped straight back to not-ready, looked indistinguishable from a genuinely
+   * stable one, letting {@code OrderedReady} move on to the next index prematurely.
+   */
+  @Test
+  void an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_stabilized(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putStatefulSetSpec(statefulSet("orders", jar, 2));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment index0 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+
+    // One lucky ready heartbeat, immediately followed by a flap back to not-ready.
+    reportReady(store, index0);
+    reconciler.reconcileOnce();
+    reportNotReady(store, index0);
+    reconciler.reconcileOnce();
+
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isEmpty(),
+        "a single ready heartbeat immediately followed by a flap back to not-ready must never let"
+            + " OrderedReady move past index 0");
+
+    // Even once a full stabilization window's worth of time has passed, the flap must have reset
+    // the timer -- there is no continuously-ready observation left to have stabilized.
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce();
+    assertTrue(
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).isEmpty());
+  }
+
+  /**
+   * GIMLE-682 (FUNC-66): the rolling-update marker must never clear because of a flapping-but-
+   * never-stabilized replacement -- otherwise the next index would start rolling forward while the
+   * current one hasn't genuinely proven itself, defeating the whole point of {@code OrderedReady}'s
+   * one-index-at-a-time throttle (StatefulSet's structural equivalent of {@code maxUnavailable:
+   * 1}).
+   */
+  @Test
+  void a_flapping_replacement_during_a_rolling_update_never_lets_the_next_index_start_rolling_too(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jarV1 = buildFixtureJar();
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    StatefulSetSpec v1 = statefulSet("orders", jarV1, 2);
+    store.putStatefulSetSpec(v1);
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment index0 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    reportReady(store, index0);
+    reconciler.reconcileOnce(); // records index 0's stabilization timer, doesn't place index 1 yet
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce(); // index 0 stabilized: places index 1
+    StatefulSetAssignment index1 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).orElseThrow();
+    String index1Node = index1.nodeId();
+    reportReady(store, index1);
+
+    Path jarV2 = buildFixtureJar();
+    StatefulSetSpec v2 = statefulSet("orders", jarV2, 2);
+    store.putStatefulSetSpec(v2);
+    reconciler.reconcileOnce(); // removes and re-places index 0 on v2, marks it rolling
+    assertEquals(Optional.of(0), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+    StatefulSetAssignment rolledIndex0 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+
+    // Several flap cycles on the replacement -- if a single ready heartbeat could ever clear the
+    // rolling marker, index 1 would start rolling forward too even though index 0 never genuinely
+    // stabilized.
+    for (int flap = 0; flap < 5; flap++) {
+      reportReady(store, rolledIndex0);
+      reconciler.reconcileOnce();
+      reportNotReady(store, rolledIndex0);
+      reconciler.reconcileOnce();
+    }
+
+    assertEquals(
+        Optional.of(0),
+        store.getRollingStatefulSetIndex(Optional.empty(), "orders"),
+        "the rolling marker must never clear because of a flapping-but-never-stabilized"
+            + " replacement");
+    StatefulSetAssignment index1AfterFlapping =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).orElseThrow();
+    assertEquals(
+        v1.moduleId(),
+        index1AfterFlapping.moduleId(),
+        "index 1 must never start rolling forward while index 0's replacement is still flapping");
+    assertEquals(index1Node, index1AfterFlapping.nodeId());
+  }
+
+  /**
+   * The happy path this fix must not regress: a replacement that is genuinely, continuously ready
+   * for the full stabilization window is still correctly recognized as complete, clearing the
+   * rolling marker and letting the next mismatched index start its own migration.
+   */
+  @Test
+  void
+      a_genuinely_continuously_ready_replacement_completes_the_rolling_update_and_hands_off_to_the_next_index(
+          TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jarV1 = buildFixtureJar();
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    StatefulSetSpec v1 = statefulSet("orders", jarV1, 2);
+    store.putStatefulSetSpec(v1);
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment index0 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    reportReady(store, index0);
+    reconciler.reconcileOnce(); // records index 0's stabilization timer, doesn't place index 1 yet
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce(); // index 0 stabilized: places index 1
+    StatefulSetAssignment index1 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 1).orElseThrow();
+    reportReady(store, index1);
+
+    Path jarV2 = buildFixtureJar();
+    StatefulSetSpec v2 = statefulSet("orders", jarV2, 2);
+    store.putStatefulSetSpec(v2);
+    reconciler.reconcileOnce(); // removes and re-places index 0 on v2, marks it rolling
+    assertEquals(Optional.of(0), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+    StatefulSetAssignment rolledIndex0 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+
+    reportReady(store, rolledIndex0);
+    reconciler.reconcileOnce(); // first observation: records the stabilization timer
+    assertEquals(
+        Optional.of(0),
+        store.getRollingStatefulSetIndex(Optional.empty(), "orders"),
+        "a single ready heartbeat is not yet proof of stability");
+
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce(); // stabilized: clears the rolling marker
+    assertEquals(Optional.empty(), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+
+    // A further tick picks up index 1's own mismatch now that index 0's migration is done --
+    // proving the freed slot genuinely hands off rather than staying wedged.
+    reconciler.reconcileOnce();
+    assertEquals(Optional.of(1), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+  }
+
+  /**
+   * The readiness-stabilization timer is persisted through {@link WorkloadHealthState} precisely so
+   * a reconciler-leader failover doesn't restart it from scratch -- a brand-new reconciler
+   * instance, with no in-memory history at all, must still refuse to clear the rolling marker
+   * before the window it didn't itself start has elapsed, and must still clear it once that
+   * persisted window does elapse.
+   */
+  @Test
+  void
+      the_readiness_stabilization_timer_survives_a_reconciler_reconstruction_against_the_same_store(
+          TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    Path jarV1 = buildFixtureJar();
+    registerNode(store, "node-a");
+    StatefulSetSpec v1 = statefulSet("orders", jarV1, 1);
+    store.putStatefulSetSpec(v1);
+    StatefulSetReconciler reconciler = statefulSetReconciler(store, scheduler, clock);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment index0 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    reportReady(store, index0);
+
+    Path jarV2 = buildFixtureJar();
+    StatefulSetSpec v2 = statefulSet("orders", jarV2, 1);
+    store.putStatefulSetSpec(v2);
+    reconciler.reconcileOnce(); // removes and re-places index 0 on v2, marks it rolling
+    assertEquals(Optional.of(0), store.getRollingStatefulSetIndex(Optional.empty(), "orders"));
+    StatefulSetAssignment rolledIndex0 =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+
+    reportReady(store, rolledIndex0);
+    reconciler.reconcileOnce(); // records the stabilization timer via WorkloadHealthState
+
+    // Simulate a control-plane restart: a fresh StatefulSetReconciler with no in-memory history at
+    // all, against the same store -- the store (gimle-mimir) is its own process and doesn't
+    // restart with a control-plane replica.
+    StatefulSetReconciler resumed = statefulSetReconciler(store, scheduler, clock);
+
+    resumed.reconcileOnce();
+    assertEquals(
+        Optional.of(0),
+        store.getRollingStatefulSetIndex(Optional.empty(), "orders"),
+        "the resumed reconciler has no in-memory history of its own, but must not treat that as a"
+            + " fresh start for a timer that already exists in the store");
+
+    clock.advance(StatefulSetReconciler.READINESS_STABILIZATION_WINDOW);
+    resumed.reconcileOnce();
+    assertEquals(
+        Optional.empty(),
+        store.getRollingStatefulSetIndex(Optional.empty(), "orders"),
+        "the resumed reconciler must complete the rolling update once the persisted timer's window"
+            + " elapses, proving the timer -- not just the ready flag -- survived the restart");
   }
 }

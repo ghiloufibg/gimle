@@ -9,6 +9,7 @@ import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceEventKind;
+import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
@@ -81,6 +82,58 @@ class DeploymentReconcilerTest {
             nodeId,
             new ResourceUsageSnapshot(freeMemoryBytes, 0, freeCpuMillicores, 0),
             List.of()));
+  }
+
+  /** A {@link DeploymentReconciler} threaded with {@code clock} rather than a real one. */
+  private static DeploymentReconciler deploymentReconciler(
+      StateStore store, Scheduler scheduler, TestClock clock) {
+    return new DeploymentReconciler(
+        store,
+        scheduler,
+        mutation -> mutation.applyTo(store),
+        DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT,
+        clock);
+  }
+
+  private static void markReady(
+      StateStore store,
+      String nodeId,
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId) {
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            nodeId,
+            new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
+            List.of(
+                new InstanceObservation(
+                    deploymentName, instanceIndex, moduleId, "ACTIVE", true, true))));
+  }
+
+  /**
+   * Reports the same index as still present and alive but no longer {@code ready} -- a flap, not a
+   * disappearance (that's {@code ReplicaCountReconciler}'s concern, not this reconciler's).
+   */
+  private static void markNotReady(
+      StateStore store,
+      String nodeId,
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId) {
+    store.putNodeHeartbeat(
+        new NodeHeartbeat(
+            nodeId,
+            new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
+            List.of(
+                new InstanceObservation(
+                    deploymentName, instanceIndex, moduleId, "ACTIVE", true, false))));
+  }
+
+  private static InstanceAssignment assignmentAt(StateStore store, String name, int index) {
+    return store.listAssignmentsFor(Optional.empty(), name).stream()
+        .filter(a -> a.instanceIndex() == index)
+        .findFirst()
+        .orElseThrow();
   }
 
   /**
@@ -339,5 +392,196 @@ class DeploymentReconcilerTest {
     assertEquals(
         InstanceEventKind.TRANSITION_FAILED,
         store.listInstanceEvents(Optional.empty(), "orders-service", 0).get(0).kind());
+  }
+
+  /**
+   * GIMLE-683 (FUNC-74): {@code isReady} used to be a pure point-in-time read of the latest
+   * heartbeat's {@code ready} flag -- a freshly-placed replacement that happened to report ready on
+   * exactly one heartbeat, then flapped straight back to not-ready, looked indistinguishable from a
+   * genuinely stable one. A single lucky reading must never be mistaken for a completed migration.
+   */
+  @Test
+  void
+      an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_a_completed_migration(
+          TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+
+    Path jarV1 = buildFixtureJar();
+    DeploymentSpec v1 = deployment("orders-service", 1, jarV1, PlacementConstraints.NONE);
+    store.putDeployment(v1);
+    reconciler.reconcileOnce();
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+
+    Path jarV2 = buildFixtureJar();
+    DeploymentSpec v2 = deployment("orders-service", 1, jarV2, PlacementConstraints.NONE);
+    store.putDeployment(v2);
+    reconciler.reconcileOnce(); // starts rolling index 0 forward to v2
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
+
+    // One lucky ready heartbeat, immediately followed by a flap back to not-ready.
+    markReady(store, "node-a", "orders-service", 0, v2.moduleId());
+    reconciler.reconcileOnce();
+    markNotReady(store, "node-a", "orders-service", 0, v2.moduleId());
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        Set.of(0),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
+        "a single ready heartbeat immediately followed by a flap back to not-ready must never be"
+            + " mistaken for a genuinely completed migration");
+
+    // Even once a full stabilization window's worth of time has passed, the flap must have reset
+    // the timer -- there is no continuously-ready observation left to have stabilized.
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce();
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
+  }
+
+  /**
+   * GIMLE-682 (FUNC-66): {@code handleRollingUpdate} throttles concurrent migrations to {@code
+   * maxUnavailable}, but only because it trusts {@code isReady} to mean "genuinely stable" -- a
+   * flapping replacement that clears its slot on a lucky reading would let the next migration start
+   * even though {@code maxUnavailable} was configured as conservatively as possible (the default,
+   * {@code 1}). This proves the throttle survives repeated flapping, not just a single false clear.
+   */
+  @Test
+  void a_flapping_replacement_never_lets_a_second_migration_overlap_with_the_first(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+
+    Path jarV1 = buildFixtureJar();
+    DeploymentSpec v1 = deployment("orders-service", 2, jarV1, PlacementConstraints.NONE);
+    store.putDeployment(v1);
+    reconciler.reconcileOnce();
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+    markReady(store, "node-a", "orders-service", 1, v1.moduleId());
+
+    Path jarV2 = buildFixtureJar();
+    DeploymentSpec v2 = deployment("orders-service", 2, jarV2, PlacementConstraints.NONE);
+    store.putDeployment(v2);
+    reconciler.reconcileOnce(); // starts rolling index 0 forward; default maxUnavailable is 1
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
+    assertEquals(v1.moduleId(), assignmentAt(store, "orders-service", 1).moduleId());
+
+    // Several flap cycles: ready, then immediately not-ready again -- if a single ready heartbeat
+    // could ever free the migration slot, index 1 would start migrating on one of these ticks even
+    // though index 0 never genuinely stabilized.
+    for (int flap = 0; flap < 5; flap++) {
+      markReady(store, "node-a", "orders-service", 0, v2.moduleId());
+      reconciler.reconcileOnce();
+      markNotReady(store, "node-a", "orders-service", 0, v2.moduleId());
+      reconciler.reconcileOnce();
+    }
+
+    assertEquals(
+        Set.of(0),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
+        "maxUnavailable: 1 must never be exceeded because of a flapping-but-never-stabilized"
+            + " replacement");
+    assertEquals(
+        v1.moduleId(),
+        assignmentAt(store, "orders-service", 1).moduleId(),
+        "index 1 must never start migrating while index 0's replacement is still flapping");
+  }
+
+  /**
+   * The happy path this fix must not regress: a replacement that is genuinely, continuously ready
+   * for the full stabilization window is still correctly recognized as complete, freeing its budget
+   * slot for the next migration.
+   */
+  @Test
+  void a_genuinely_continuously_ready_replacement_completes_the_migration_and_frees_the_budget(
+      TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+
+    Path jarV1 = buildFixtureJar();
+    DeploymentSpec v1 = deployment("orders-service", 2, jarV1, PlacementConstraints.NONE);
+    store.putDeployment(v1);
+    reconciler.reconcileOnce();
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+    markReady(store, "node-a", "orders-service", 1, v1.moduleId());
+
+    Path jarV2 = buildFixtureJar();
+    DeploymentSpec v2 = deployment("orders-service", 2, jarV2, PlacementConstraints.NONE);
+    store.putDeployment(v2);
+    reconciler.reconcileOnce(); // starts rolling index 0 forward
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
+
+    markReady(store, "node-a", "orders-service", 0, v2.moduleId());
+    reconciler.reconcileOnce(); // first observation: records the stabilization timer
+    assertEquals(
+        Set.of(0),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
+        "a single ready heartbeat is not yet proof of stability");
+
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
+    reconciler.reconcileOnce();
+    assertEquals(
+        Set.of(1),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
+        "a genuinely, continuously ready replacement must free its migration slot once the"
+            + " stabilization window elapses, immediately starting the next migration");
+    assertEquals(v2.moduleId(), assignmentAt(store, "orders-service", 0).moduleId());
+  }
+
+  /**
+   * The readiness-stabilization timer is persisted through {@link
+   * com.gimle.mimir.store.ReconcilerInstanceState} precisely so a reconciler-leader failover
+   * doesn't restart it from scratch -- a brand-new reconciler instance, with no in-memory history
+   * at all, must still refuse to clear the migration before the window it didn't itself start has
+   * elapsed, and must still clear it once that persisted window does elapse.
+   */
+  @Test
+  void
+      the_readiness_stabilization_timer_survives_a_reconciler_reconstruction_against_the_same_store(
+          TestClock clock) {
+    StateStore store = new StateStore(clock);
+    Scheduler scheduler = new Scheduler();
+    DeploymentReconciler reconciler = deploymentReconciler(store, scheduler, clock);
+    registerNode(store, "node-a", 500L * 1024 * 1024, 4000);
+
+    Path jarV1 = buildFixtureJar();
+    DeploymentSpec v1 = deployment("orders-service", 1, jarV1, PlacementConstraints.NONE);
+    store.putDeployment(v1);
+    reconciler.reconcileOnce();
+    markReady(store, "node-a", "orders-service", 0, v1.moduleId());
+
+    Path jarV2 = buildFixtureJar();
+    DeploymentSpec v2 = deployment("orders-service", 1, jarV2, PlacementConstraints.NONE);
+    store.putDeployment(v2);
+    reconciler.reconcileOnce(); // starts rolling index 0 forward
+    assertEquals(Set.of(0), store.getRollingIndices(Optional.empty(), "orders-service"));
+
+    markReady(store, "node-a", "orders-service", 0, v2.moduleId());
+    reconciler.reconcileOnce(); // records the stabilization timer via ReconcilerInstanceState
+
+    // Simulate a control-plane restart: a fresh DeploymentReconciler with no in-memory history at
+    // all, against the same store -- the store (gimle-mimir) is its own process and doesn't
+    // restart with a control-plane replica.
+    DeploymentReconciler resumed = deploymentReconciler(store, scheduler, clock);
+
+    resumed.reconcileOnce();
+    assertEquals(
+        Set.of(0),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
+        "the resumed reconciler has no in-memory history of its own, but must not treat that as a"
+            + " fresh start for a timer that already exists in the store");
+
+    clock.advance(DeploymentReconciler.READINESS_STABILIZATION_WINDOW);
+    resumed.reconcileOnce();
+    assertEquals(
+        Set.of(),
+        store.getRollingIndices(Optional.empty(), "orders-service"),
+        "the resumed reconciler must complete the migration once the persisted timer's window"
+            + " elapses, proving the timer -- not just the ready flag -- survived the restart");
   }
 }

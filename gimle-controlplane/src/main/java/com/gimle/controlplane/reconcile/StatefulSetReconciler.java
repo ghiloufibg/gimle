@@ -18,6 +18,7 @@ import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.StoreReader;
+import com.gimle.mimir.store.WorkloadHealthState;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -101,6 +102,13 @@ public final class StatefulSetReconciler {
   /** Matches {@link DeploymentReconciler#DEFAULT_NODE_DARK_TIMEOUT} exactly -- see its own note. */
   public static final Duration DEFAULT_NODE_DARK_TIMEOUT =
       DeploymentReconciler.DEFAULT_NODE_DARK_TIMEOUT;
+
+  /**
+   * Matches {@link DeploymentReconciler#READINESS_STABILIZATION_WINDOW} exactly -- see its own
+   * note.
+   */
+  public static final Duration READINESS_STABILIZATION_WINDOW =
+      DeploymentReconciler.READINESS_STABILIZATION_WINDOW;
 
   private static final String WORKLOAD_KIND = "StatefulSet";
 
@@ -393,19 +401,22 @@ public final class StatefulSetReconciler {
       // The sticky binding is written unconditionally, even when nodeId already equals
       // stickyNodeId -- a first-ever placement (stickyNodeId empty) is exactly when it needs
       // recording for the first time, and re-writing an unchanged value on every later tick is
-      // harmless. One batch: the assignment and its binding belong together.
-      mutations.proposeAll(
-          List.of(
-              new StateMutation.PutStatefulSetAssignment(
-                  new StatefulSetAssignment(
-                      spec.name(),
-                      index,
-                      nodeId,
-                      spec.moduleId(),
-                      spec.artifactPath(),
-                      spec.tenantId())),
-              new StateMutation.PutStatefulSetIndexNode(
-                  spec.tenantId(), spec.name(), index, nodeId)));
+      // harmless. One batch: the assignment, its binding, and clearing this index's own stale
+      // readiness timer (see clearReadinessTimer's own javadoc) all belong together.
+      List<StateMutation> batch = new ArrayList<>();
+      batch.add(
+          new StateMutation.PutStatefulSetAssignment(
+              new StatefulSetAssignment(
+                  spec.name(),
+                  index,
+                  nodeId,
+                  spec.moduleId(),
+                  spec.artifactPath(),
+                  spec.tenantId())));
+      batch.add(
+          new StateMutation.PutStatefulSetIndexNode(spec.tenantId(), spec.name(), index, nodeId));
+      clearReadinessTimer(spec.tenantId(), spec.name(), index, batch);
+      mutations.proposeAll(batch);
     } catch (GimleSchedulingException e) {
       // Left unplaced; the next tick retries from the same full snapshot -- matches every other
       // reconciler's "a missed placement this tick is indistinguishable from a retried one"
@@ -458,11 +469,37 @@ public final class StatefulSetReconciler {
   }
 
   /**
-   * True only once the node's own heartbeat reports THIS index as both {@code ready} and actually
-   * running {@code assignment}'s own {@code moduleId} -- mirrors {@link
-   * DeploymentReconciler#isReady} exactly.
+   * True only once the node's own heartbeat has reported THIS index as both {@code ready} and
+   * actually running {@code assignment}'s own {@code moduleId}, continuously, for at least {@link
+   * #READINESS_STABILIZATION_WINDOW} -- mirrors {@link DeploymentReconciler#isReady} exactly,
+   * including persisting its stabilization timer, except keyed into {@link WorkloadHealthState}
+   * (this class's own {@code "StatefulSet"}-keyed slot) rather than {@link
+   * ReconcilerInstanceState}, since a StatefulSet can share a name with a Deployment -- see {@link
+   * WorkloadHealthState}'s own javadoc. {@link WorkloadCrashLoopBackoff} never touches this field;
+   * each writer starts from the currently persisted record so neither ever clobbers the other's
+   * bookkeeping.
    */
   private boolean isReady(StatefulSetAssignment assignment) {
+    boolean currentlyObservedReady = isCurrentlyObservedReady(assignment);
+    Instant now = clock.instant();
+    WorkloadHealthState persisted = currentReadinessState(assignment);
+    if (!currentlyObservedReady) {
+      if (persisted.firstContinuousReadyAtEpochMilli() != WorkloadHealthState.ABSENT) {
+        saveReadinessState(withFirstContinuousReadyAt(persisted, WorkloadHealthState.ABSENT));
+      }
+      return false;
+    }
+    long firstContinuousReadyAtEpochMilli = persisted.firstContinuousReadyAtEpochMilli();
+    if (firstContinuousReadyAtEpochMilli == WorkloadHealthState.ABSENT) {
+      firstContinuousReadyAtEpochMilli = now.toEpochMilli();
+      saveReadinessState(withFirstContinuousReadyAt(persisted, firstContinuousReadyAtEpochMilli));
+    }
+    return !now.isBefore(
+        Instant.ofEpochMilli(firstContinuousReadyAtEpochMilli)
+            .plus(READINESS_STABILIZATION_WINDOW));
+  }
+
+  private boolean isCurrentlyObservedReady(StatefulSetAssignment assignment) {
     return store
         .getNodeHeartbeat(assignment.nodeId())
         .map(ObservedHeartbeat::heartbeat)
@@ -476,6 +513,82 @@ public final class StatefulSetReconciler {
                     && obs.tenantId().equals(assignment.tenantId())
                     && obs.moduleId().equals(assignment.moduleId())
                     && obs.ready());
+  }
+
+  private WorkloadHealthState currentReadinessState(StatefulSetAssignment assignment) {
+    return store
+        .getWorkloadHealthState(
+            assignment.tenantId(),
+            WORKLOAD_KIND,
+            assignment.statefulSetName(),
+            String.valueOf(assignment.instanceIndex()))
+        .orElseGet(() -> emptyReadinessState(assignment));
+  }
+
+  private static WorkloadHealthState emptyReadinessState(StatefulSetAssignment assignment) {
+    return new WorkloadHealthState(
+        WORKLOAD_KIND,
+        assignment.statefulSetName(),
+        String.valueOf(assignment.instanceIndex()),
+        0,
+        WorkloadHealthState.ABSENT,
+        WorkloadHealthState.ABSENT,
+        false,
+        false,
+        WorkloadHealthState.ABSENT,
+        assignment.tenantId());
+  }
+
+  private static WorkloadHealthState withFirstContinuousReadyAt(
+      WorkloadHealthState state, long firstContinuousReadyAtEpochMilli) {
+    return new WorkloadHealthState(
+        state.workloadKind(),
+        state.workloadName(),
+        state.slot(),
+        state.attemptsInWindow(),
+        state.windowStartEpochMilli(),
+        state.nextAllowedAttemptEpochMilli(),
+        state.pendingRetry(),
+        state.permanentlyFailed(),
+        firstContinuousReadyAtEpochMilli,
+        state.tenantId());
+  }
+
+  private void saveReadinessState(WorkloadHealthState state) {
+    mutations.propose(readinessSaveMutation(state));
+  }
+
+  private static StateMutation readinessSaveMutation(WorkloadHealthState state) {
+    if (state.isEmpty()) {
+      return new StateMutation.RemoveWorkloadHealthState(
+          state.tenantId(), state.workloadKind(), state.workloadName(), state.slot());
+    }
+    return new StateMutation.PutWorkloadHealthState(state);
+  }
+
+  /**
+   * Appends a mutation clearing {@code index}'s persisted readiness-stabilization timer to {@code
+   * batch}, if one is currently set -- called wherever {@link #placeIndex} writes a brand-new
+   * instance for an index (fresh placement, rolling-update re-placement, sticky re-placement after
+   * a node-dark eviction or crash-loop release). Mirrors {@link
+   * DeploymentReconciler#clearReadinessTimer} exactly, and exists for the identical reason: {@link
+   * #isReady}'s persisted timer is keyed only by index/slot, not by {@code moduleId}, and is only
+   * ever reset by {@code isReady} itself on an explicit not-ready observation -- which a same-tick
+   * remove-then-replace never produces. Left uncleared, a replacement's very first {@code ready}
+   * heartbeat would be compared against a stabilization clock that started ticking for whoever
+   * previously occupied this index, letting it appear already stabilized before running for even
+   * one heartbeat.
+   */
+  private void clearReadinessTimer(
+      Optional<String> tenantId, String statefulSetName, int index, List<StateMutation> batch) {
+    store
+        .getWorkloadHealthState(tenantId, WORKLOAD_KIND, statefulSetName, String.valueOf(index))
+        .filter(state -> state.firstContinuousReadyAtEpochMilli() != WorkloadHealthState.ABSENT)
+        .ifPresent(
+            state ->
+                batch.add(
+                    readinessSaveMutation(
+                        withFirstContinuousReadyAt(state, WorkloadHealthState.ABSENT))));
   }
 
   /**

@@ -375,7 +375,16 @@ class RaftCodecTest {
                     1L)),
             List.of(
                 new WorkloadHealthState(
-                    "StatefulSet", "orders", "0", 2, 100L, 200L, true, false, Optional.empty())),
+                    "StatefulSet",
+                    "orders",
+                    "0",
+                    2,
+                    100L,
+                    200L,
+                    true,
+                    false,
+                    WorkloadHealthState.ABSENT,
+                    Optional.empty())),
             Map.of("alice", 42_000L));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);

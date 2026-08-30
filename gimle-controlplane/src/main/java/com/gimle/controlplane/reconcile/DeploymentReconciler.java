@@ -70,6 +70,17 @@ public final class DeploymentReconciler {
    */
   public static final Duration DEFAULT_NODE_DARK_TIMEOUT = Duration.ofSeconds(15);
 
+  /**
+   * How long an instance must be observed continuously {@code ready} before {@link #isReady} will
+   * report it ready at all. A single {@code ready} heartbeat is not proof of genuine stability -- a
+   * freshly-placed replacement can flap between ready and not-ready while it's still starting up,
+   * and clearing an in-flight migration's marker on the very first lucky reading silently defeats
+   * the whole point of {@link com.gimle.mimir.manifest.DisruptionBudget#maxUnavailable}: a
+   * still-flapping replacement would free its migration slot immediately, letting the next
+   * migration start before the current one has actually stabilized.
+   */
+  public static final Duration READINESS_STABILIZATION_WINDOW = Duration.ofSeconds(10);
+
   private final StoreReader store;
   private final Scheduler scheduler;
   private final MutationSink mutations;
@@ -337,6 +348,12 @@ public final class DeploymentReconciler {
                     spec.artifactPath(),
                     OptionalInt.empty(),
                     spec.tenantId())));
+        // A fresh instance at this index -- whatever readiness-stabilization timer isReady may
+        // have persisted for whoever previously occupied this index (a prior moduleId, torn down
+        // by a rolling update, or nobody at all) must not leak into this new one's own readiness
+        // evaluation. See clearReadinessTimer's own javadoc for why this can't be left to isReady
+        // itself to notice on its own.
+        clearReadinessTimer(spec.tenantId(), spec.name(), index, placements);
       } catch (GimleSchedulingException e) {
         // Left unplaced; the next tick retries from the same full snapshot, no special-cased
         // retry bookkeeping needed -- this is what "level-triggered, converge from any snapshot"
@@ -576,6 +593,11 @@ public final class DeploymentReconciler {
             new StateMutation.RemoveAssignment(spec.tenantId(), spec.name(), surgeIndex));
         settlements.add(
             new StateMutation.RemoveSurgeIndex(spec.tenantId(), spec.name(), surgeIndex));
+        // targetIndex now carries a genuinely new instance (retargeted from surgeIndex) -- any
+        // stale readiness-stabilization timer left over from whoever previously occupied
+        // targetIndex must not leak into this one's own readiness evaluation. See
+        // clearReadinessTimer's own javadoc.
+        clearReadinessTimer(spec.tenantId(), spec.name(), targetIndex, settlements);
         inFlight.remove(surgeIndex);
       }
       // Otherwise: still waiting for the surge instance to report ready.
@@ -632,14 +654,44 @@ public final class DeploymentReconciler {
   }
 
   /**
-   * True only once the node's own heartbeat reports THIS index as both {@code ready} and actually
-   * running {@code assignment}'s own {@code moduleId} -- checking {@code ready} alone would false-
-   * positive on the exact heartbeat cycle a rollout starts: the previous, still-{@code ready} old
-   * instance's last-received observation would otherwise look indistinguishable from the new one
-   * already having landed, letting {@link #handleRollingUpdate} clear this index's in-flight marker
-   * and move on to the next index before the replacement has even been placed, let alone started.
+   * True only once the node's own heartbeat has reported THIS index as both {@code ready} and
+   * actually running {@code assignment}'s own {@code moduleId}, continuously, for at least {@link
+   * #READINESS_STABILIZATION_WINDOW} -- checking the latest heartbeat alone would false-positive on
+   * the exact heartbeat cycle a rollout starts (the previous, still-{@code ready} old instance's
+   * last-received observation would otherwise look indistinguishable from the new one already
+   * having landed) AND on a freshly-placed replacement that flaps ready/not-ready a few times while
+   * still starting up before settling. Either false-positive lets {@link #handleRollingUpdate}
+   * clear this index's in-flight marker and move on to the next index before the replacement has
+   * genuinely stabilized, defeating {@code maxUnavailable}'s whole point.
+   *
+   * <p>The first-continuously-ready timestamp is persisted via {@link ReconcilerInstanceState} (a
+   * field owned exclusively by this method, the same "each writer starts from the currently
+   * persisted record" discipline that record's other owners already follow) so a reconciler-leader
+   * failover doesn't restart the stabilization window from scratch, and is reset to {@link
+   * ReconcilerInstanceState#ABSENT} the instant the instance is observed not-ready again -- any
+   * flap, however brief, forces the whole window to start over.
    */
   private boolean isReady(InstanceAssignment assignment) {
+    boolean currentlyObservedReady = isCurrentlyObservedReady(assignment);
+    Instant now = clock.instant();
+    ReconcilerInstanceState persisted = currentReadinessState(assignment);
+    if (!currentlyObservedReady) {
+      if (persisted.firstContinuousReadyAtEpochMilli() != ReconcilerInstanceState.ABSENT) {
+        saveReadinessState(withFirstContinuousReadyAt(persisted, ReconcilerInstanceState.ABSENT));
+      }
+      return false;
+    }
+    long firstContinuousReadyAtEpochMilli = persisted.firstContinuousReadyAtEpochMilli();
+    if (firstContinuousReadyAtEpochMilli == ReconcilerInstanceState.ABSENT) {
+      firstContinuousReadyAtEpochMilli = now.toEpochMilli();
+      saveReadinessState(withFirstContinuousReadyAt(persisted, firstContinuousReadyAtEpochMilli));
+    }
+    return !now.isBefore(
+        Instant.ofEpochMilli(firstContinuousReadyAtEpochMilli)
+            .plus(READINESS_STABILIZATION_WINDOW));
+  }
+
+  private boolean isCurrentlyObservedReady(InstanceAssignment assignment) {
     return store
         .getNodeHeartbeat(assignment.nodeId())
         .map(ObservedHeartbeat::heartbeat)
@@ -653,6 +705,80 @@ public final class DeploymentReconciler {
                     && obs.tenantId().equals(assignment.tenantId())
                     && obs.moduleId().equals(assignment.moduleId())
                     && obs.ready());
+  }
+
+  private ReconcilerInstanceState currentReadinessState(InstanceAssignment assignment) {
+    return store
+        .getReconcilerInstanceState(
+            assignment.tenantId(), assignment.deploymentName(), assignment.instanceIndex())
+        .orElseGet(() -> emptyReadinessState(assignment));
+  }
+
+  private static ReconcilerInstanceState emptyReadinessState(InstanceAssignment assignment) {
+    return new ReconcilerInstanceState(
+        assignment.deploymentName(),
+        assignment.instanceIndex(),
+        0,
+        ReconcilerInstanceState.ABSENT,
+        ReconcilerInstanceState.ABSENT,
+        false,
+        false,
+        ReconcilerInstanceState.ABSENT,
+        ReconcilerInstanceState.ABSENT,
+        assignment.tenantId());
+  }
+
+  private static ReconcilerInstanceState withFirstContinuousReadyAt(
+      ReconcilerInstanceState state, long firstContinuousReadyAtEpochMilli) {
+    return new ReconcilerInstanceState(
+        state.deploymentName(),
+        state.instanceIndex(),
+        state.attemptsInWindow(),
+        state.windowStartEpochMilli(),
+        state.nextAllowedAttemptEpochMilli(),
+        state.pendingRetry(),
+        state.permanentlyFailed(),
+        state.firstSeenMissingAtEpochMilli(),
+        firstContinuousReadyAtEpochMilli,
+        state.tenantId());
+  }
+
+  private void saveReadinessState(ReconcilerInstanceState state) {
+    mutations.propose(readinessSaveMutation(state));
+  }
+
+  private static StateMutation readinessSaveMutation(ReconcilerInstanceState state) {
+    if (state.isEmpty()) {
+      return new StateMutation.RemoveReconcilerInstanceState(
+          state.tenantId(), state.deploymentName(), state.instanceIndex());
+    }
+    return new StateMutation.PutReconcilerInstanceState(state);
+  }
+
+  /**
+   * Appends a mutation clearing {@code instanceIndex}'s persisted readiness-stabilization timer to
+   * {@code batch}, if one is currently set -- called wherever a brand-new instance is written for
+   * an index (fresh placement, rolling-update re-placement, surge promotion). Without this, {@link
+   * #isReady}'s own persisted timer survives untouched across a version change (it's keyed only by
+   * index, not by {@code moduleId}, and {@code isReady} itself only ever resets it on an explicit
+   * not-ready observation -- which a same-tick remove-then-replace never produces): a replacement
+   * instance's very first {@code ready} heartbeat would then be compared against a stabilization
+   * clock that started ticking for the *previous* occupant of this index, letting it appear already
+   * stabilized before it has run for even one heartbeat.
+   */
+  private void clearReadinessTimer(
+      Optional<String> tenantId,
+      String deploymentName,
+      int instanceIndex,
+      List<StateMutation> batch) {
+    store
+        .getReconcilerInstanceState(tenantId, deploymentName, instanceIndex)
+        .filter(state -> state.firstContinuousReadyAtEpochMilli() != ReconcilerInstanceState.ABSENT)
+        .ifPresent(
+            state ->
+                batch.add(
+                    readinessSaveMutation(
+                        withFirstContinuousReadyAt(state, ReconcilerInstanceState.ABSENT))));
   }
 
   private static List<Integer> missingIndices(int replicas, Set<Integer> existingIndices) {
