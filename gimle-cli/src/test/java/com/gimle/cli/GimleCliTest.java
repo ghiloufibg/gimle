@@ -629,6 +629,30 @@ class GimleCliTest {
   }
 
   @Test
+  void set_role_carries_a_custom_resource_qualifier_through_to_the_stored_role() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "role",
+            "greeting-operator-role",
+            "--permission",
+            "custom_resource:write:acme:custom.Greeting/status",
+            "--permission",
+            // Empty tenant segment: cluster-wide, still kind-qualified.
+            "custom_resource:read::custom.Greeting");
+    assertEquals(0, setExit, () -> stderr());
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "role", "greeting-operator-role");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"qualifier\":\"custom.Greeting/status\""), stdout());
+    assertTrue(stdout().contains("\"tenantScope\":\"acme\""), stdout());
+    assertTrue(stdout().contains("\"qualifier\":\"custom.Greeting\""), stdout());
+
+    run("delete", "role", "greeting-operator-role");
+  }
+
+  @Test
   void set_rolebinding_then_get_rolebindings_round_trips_then_delete() throws Exception {
     int setExit =
         run("set", "rolebinding", "b1", "--subject", "user:alice", "--role", "cluster-admin");

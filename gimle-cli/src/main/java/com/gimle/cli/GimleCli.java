@@ -103,7 +103,7 @@ import java.util.Map;
  *   gimle artifact delete &lt;moduleId&gt; &lt;version&gt;
  *   gimle logs &lt;target&gt; [--category=CAT] [--follow|-f] [--since=&lt;cursor&gt;]
  *   gimle get roles [name]
- *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;] [--permission ...]
+ *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;[:&lt;qualifier&gt;]] [--permission ...]
  *   gimle delete role &lt;name&gt;
  *   gimle get rolebindings [id]
  *   gimle set rolebinding &lt;id&gt; --subject user:&lt;name&gt;|group:&lt;name&gt; --role &lt;name&gt;
@@ -661,7 +661,7 @@ public final class GimleCli {
           Map.entry("config", "usage: gimle set config <tenantId> <key> <value> [--encrypted]"),
           Map.entry(
               "role",
-              "usage: gimle set role <name> --permission <resource>:<verb>[:<tenant>]"
+              "usage: gimle set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]]"
                   + " [--permission ...]"),
           Map.entry(
               "rolebinding",
@@ -865,7 +865,7 @@ public final class GimleCli {
                      [--since <epochMillis>] [--limit N]
           logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
           get roles [name]
-          set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
+          set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] [--permission ...]
           delete role <name>
           get rolebindings [id]
           set rolebinding <id> --subject user:<name>|group:<name> --role <name>

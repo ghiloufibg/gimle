@@ -99,6 +99,20 @@ class CanICommandTest {
     assertEquals(
         0, run("can-i", "read", "network-policy", "--server", serverAddress), errBuffer::toString);
     assertEquals("yes", outBuffer.toString(StandardCharsets.UTF_8).strip());
+
+    // The run-together spellings the CLI's own verbs use (gimle delete kinddefinition,
+    // set rolebinding) must spell valid questions here too, singular and plural alike.
+    outBuffer.reset();
+    assertEquals(
+        0,
+        run("can-i", "write", "kinddefinitions", "--server", serverAddress),
+        errBuffer::toString);
+    assertEquals("yes", outBuffer.toString(StandardCharsets.UTF_8).strip());
+
+    outBuffer.reset();
+    assertEquals(
+        0, run("can-i", "delete", "rolebinding", "--server", serverAddress), errBuffer::toString);
+    assertEquals("yes", outBuffer.toString(StandardCharsets.UTF_8).strip());
   }
 
   @Test
