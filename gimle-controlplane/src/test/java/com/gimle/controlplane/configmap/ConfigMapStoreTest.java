@@ -140,7 +140,7 @@ class ConfigMapStoreTest {
   }
 
   @Test
-  void listVersions_shows_every_stamped_version_oldest_first_including_the_delete_tombstone() {
+  void list_versions_shows_every_stamped_version_oldest_first_including_the_delete_tombstone() {
     store.put("acme", "app-config", Map.of("a", "1"), OptionalInt.empty());
     store.patch("acme", "app-config", Map.of("b", "2"), 1);
     store.delete("acme", "app-config");

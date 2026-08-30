@@ -82,7 +82,7 @@ class ConfigVersionStoreTest {
   }
 
   @Test
-  void listVersions_shows_every_stamped_version_oldest_first_including_the_delete_tombstone() {
+  void list_versions_shows_every_stamped_version_oldest_first_including_the_delete_tombstone() {
     store.put("acme", "log-level", "info");
     store.put("acme", "log-level", "debug");
     store.delete("acme", "log-level");
