@@ -5153,7 +5153,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Status**: New  _(New requirement: the CLI surface over custom kinds.)_
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang scenarios drive the control plane's HTTP API directly, not the gimle-cli binary, so the CLI's own resolution/retry/rendering isn't exercised by any .feature scenario. To close: a scenario invoking the real CLI (the way RagnarokCliIT shells out) for kinds/get/apply against a running cluster.
-- **Other test coverage (non-Holmgang, informational only)**: `CustomResourceCommandTest` (gimle-cli)
+- **Other test coverage (non-Holmgang, informational only)**: `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip)
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/CustomResourceCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (custom-kind fallthrough dispatch)
 
 ### gimle-hilmir
@@ -7177,7 +7177,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
 | GIMLE-632 | gimle-console | Toast notifications render app-wide (write failures, and every other toast call site) | Console | No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged |
 | GIMLE-661 | gimle-core | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir) |
-| GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli) |
+| GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip) |
 | GIMLE-664 | gimle-console | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests) |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-636 | gimle-examples | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation. |

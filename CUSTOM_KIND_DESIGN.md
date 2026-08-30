@@ -679,8 +679,12 @@ through the CLI is exactly who should check the screen reflects it.
 - **GOV-5** Audit the whole session. *Oracle:* definition PUTs, instance PUT/DELETEs, and
   status PUTs all appear with `CustomResource:{kind}` (or `KIND_DEFINITION`) and the true
   mTLS principal — including the operator's `svc:` identity on status rows.
-- **GOV-6** Delete a tenant owning custom resources. *Oracle:* its instances are gone with
-  the rest of its state; no orphan rows readable under the dead tenant ID afterward.
+- **GOV-6** Delete a tenant owning custom resources. *Oracle:* consistent with the platform's
+  own tenant-deletion semantics — `RemoveTenant` deliberately does not cascade workloads, and
+  custom resources follow that same path (see "Tenant deletion" above): the instances remain
+  stored under the dead tenant id, still listable/deletable by an operator, and if tenant
+  deletion ever gains a real cascade, custom resources ride it. What must *not* happen: a
+  half-deleted state, or the rows becoming unreachable to cleanup.
 
 **Breaker — races, garbage, and bounces**
 

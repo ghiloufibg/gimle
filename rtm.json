@@ -11489,7 +11489,7 @@
         "`gimle-cli/src/main/java/com/gimle/cli/CustomResourceCommand.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (custom-kind fallthrough dispatch)"
       ],
-      "otherTestCoverage": "`CustomResourceCommandTest` (gimle-cli)"
+      "otherTestCoverage": "`CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip)"
     },
     {
       "id": "GIMLE-664",

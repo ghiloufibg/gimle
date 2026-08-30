@@ -103,7 +103,10 @@ gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                   [--since <epochMillis>] [--limit N]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
 gimle get roles [name]
-gimle set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
+gimle set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] [--permission ...]
+                       (qualifier narrows a custom_resource grant to one kind, e.g.
+                        custom_resource:write:team-a:custom.Greeting/status; leave the tenant
+                        segment empty for a cluster-wide qualified grant: custom_resource:read::custom.Greeting)
 gimle delete role <name>
 gimle get rolebindings [id]
 gimle set rolebinding <id> --subject user:<name>|group:<name> --role <name>

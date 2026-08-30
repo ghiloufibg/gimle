@@ -103,7 +103,10 @@ The operator SDK (`com.gimle.module.galdr`) is a for-loop, not a framework: `Gal
 polls the full current set every tick and hands it to a reconciler — full recompute per tick,
 never a delta, so [convergence from any starting state](../concepts/level-triggered-reconciliation.md)
 is inherited, not engineered. A failed poll backs off exponentially and recovers on the next
-success; a reconciler exception poisons only its own tick. There is deliberately **no watch API**:
+success; a reconciler exception poisons only its own tick — but it abandons the rest of that
+tick's list, so an operator that must keep serving healthy resources while one is poisoned wraps
+its per-resource work in its own try/catch, the way the example operator does. There is
+deliberately **no watch API**:
 nothing in Gimlé watches, and introducing an edge-triggered path for the least-trusted consumers
 first would invert the platform's hardest-won correctness property.
 
