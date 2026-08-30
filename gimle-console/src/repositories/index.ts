@@ -22,6 +22,7 @@ import { HttpAccountsRepository } from "./http/accounts";
 import { HttpArtifactsRepository } from "./http/artifacts";
 import { HttpServicesRepository } from "./http/services";
 import { HttpNetworkPoliciesRepository } from "./http/networkPolicies";
+import { HttpCustomResourcesRepository } from "./http/customResources";
 
 export const deploymentsRepo = new HttpDeploymentsRepository();
 export const jobsRepo = new HttpJobsRepository();
@@ -46,3 +47,4 @@ export const accountsRepo = new HttpAccountsRepository();
 export const artifactsRepo = new HttpArtifactsRepository();
 export const servicesRepo = new HttpServicesRepository();
 export const networkPoliciesRepo = new HttpNetworkPoliciesRepository();
+export const customResourcesRepo = new HttpCustomResourcesRepository();

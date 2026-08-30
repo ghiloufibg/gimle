@@ -21,6 +21,7 @@ import {
   Package,
   FileJson,
   KeySquare,
+  Puzzle,
 } from "lucide-react";
 
 import gimleMark from "@/assets/gimle-alt-badge.png";
@@ -51,6 +52,7 @@ const items = [
   { title: "DaemonSets", url: "/daemonsets", icon: LayoutGrid },
   { title: "StatefulSets", url: "/statefulsets", icon: Database },
   { title: "Instances", url: "/instances", icon: Cpu },
+  { title: "Custom Resources", url: "/custom-resources", icon: Puzzle },
   { title: "Nodes", url: "/nodes", icon: Server },
   { title: "Networking", url: "/networking", icon: Waypoints },
   { title: "Tenants", url: "/tenants", icon: Users },
