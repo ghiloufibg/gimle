@@ -48,6 +48,8 @@ class CronJobManifestParserTest {
     assertTrue(spec.startingDeadline().isEmpty());
     assertEquals(ConcurrencyPolicy.ALLOW, spec.concurrencyPolicy());
     assertEquals(Optional.of("default"), spec.tenantId());
+    assertEquals(3, spec.successfulJobsHistoryLimit(), "matches Kubernetes CronJob's own default");
+    assertEquals(1, spec.failedJobsHistoryLimit(), "matches Kubernetes CronJob's own default");
   }
 
   @Test
@@ -71,6 +73,8 @@ class CronJobManifestParserTest {
                 startingDeadlineSeconds: 300
                 concurrencyPolicy: Forbid
                 tenantId: acme
+                successfulJobsHistoryLimit: 5
+                failedJobsHistoryLimit: 2
                 """));
 
     assertEquals(3, spec.jobTemplate().backoffLimit());
@@ -80,6 +84,8 @@ class CronJobManifestParserTest {
     assertEquals(Duration.ofSeconds(300), spec.startingDeadline().orElseThrow());
     assertEquals(ConcurrencyPolicy.FORBID, spec.concurrencyPolicy());
     assertEquals("acme", spec.tenantId().orElseThrow());
+    assertEquals(5, spec.successfulJobsHistoryLimit());
+    assertEquals(2, spec.failedJobsHistoryLimit());
   }
 
   @Test
@@ -219,6 +225,65 @@ class CronJobManifestParserTest {
                       artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
                       backoffLimit: -1
                     """)));
+  }
+
+  @Test
+  void negative_successful_jobs_history_limit_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            CronJobManifestParser.parse(
+                yaml(
+                    """
+                    name: nightly-cleanup
+                    schedule: "0 2 * * *"
+                    jobTemplate:
+                      module:
+                        name: com.gimle.example.cleanup
+                        version: 1.0.0
+                      artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+                    successfulJobsHistoryLimit: -1
+                    """)));
+  }
+
+  @Test
+  void negative_failed_jobs_history_limit_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            CronJobManifestParser.parse(
+                yaml(
+                    """
+                    name: nightly-cleanup
+                    schedule: "0 2 * * *"
+                    jobTemplate:
+                      module:
+                        name: com.gimle.example.cleanup
+                        version: 1.0.0
+                      artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+                    failedJobsHistoryLimit: -1
+                    """)));
+  }
+
+  @Test
+  void zero_jobs_history_limits_are_allowed_and_mean_keep_none() {
+    CronJobSpec spec =
+        CronJobManifestParser.parse(
+            yaml(
+                """
+                name: nightly-cleanup
+                schedule: "0 2 * * *"
+                jobTemplate:
+                  module:
+                    name: com.gimle.example.cleanup
+                    version: 1.0.0
+                  artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+                successfulJobsHistoryLimit: 0
+                failedJobsHistoryLimit: 0
+                """));
+
+    assertEquals(0, spec.successfulJobsHistoryLimit());
+    assertEquals(0, spec.failedJobsHistoryLimit());
   }
 
   @Test

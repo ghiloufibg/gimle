@@ -20,8 +20,11 @@ import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
@@ -45,7 +48,22 @@ class CronJobReconcilerTest {
         .build(tempDir, uniqueName + ".jar");
   }
 
+  /** Kubernetes' own CronJob defaults: 3 succeeded / 1 failed kept, see {@link CronJobSpec}. */
+  private static final int DEFAULT_SUCCESSFUL_LIMIT = 3;
+
+  private static final int DEFAULT_FAILED_LIMIT = 1;
+
   private CronJobSpec cronJob(String name, Path jar, String schedule, ConcurrencyPolicy policy) {
+    return cronJob(name, jar, schedule, policy, DEFAULT_SUCCESSFUL_LIMIT, DEFAULT_FAILED_LIMIT);
+  }
+
+  private CronJobSpec cronJob(
+      String name,
+      Path jar,
+      String schedule,
+      ConcurrencyPolicy policy,
+      int successfulJobsHistoryLimit,
+      int failedJobsHistoryLimit) {
     JobTemplate template =
         new JobTemplate(
             new ModuleId(jar.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0")),
@@ -53,13 +71,35 @@ class CronJobReconcilerTest {
             PlacementConstraints.NONE,
             Optional.empty(),
             6);
-    return new CronJobSpec(name, schedule, template, Optional.empty(), policy, Optional.empty());
+    return new CronJobSpec(
+        name,
+        schedule,
+        template,
+        Optional.empty(),
+        policy,
+        Optional.empty(),
+        successfulJobsHistoryLimit,
+        failedJobsHistoryLimit);
   }
 
   private static List<JobSpec> generatedJobsFor(StateStore store, String cronJobName) {
     return store.listJobSpecs().stream()
         .filter(s -> s.name().startsWith(cronJobName + "-"))
         .toList();
+  }
+
+  /**
+   * The job {@code CronJobReconciler#planFiring} most recently generated, identified by the {@code
+   * epochSeconds} suffix its own name carries -- {@code generatedJobsFor} reads {@code
+   * store.listJobSpecs()}, backed by a {@code ConcurrentHashMap}, so its iteration order is not
+   * insertion order and the last element of that list is not reliably the most recently fired job.
+   */
+  private static JobSpec mostRecentlyFired(List<JobSpec> generated) {
+    return generated.stream()
+        .max(
+            Comparator.comparingLong(
+                s -> Long.parseLong(s.name().substring(s.name().lastIndexOf('-') + 1))))
+        .orElseThrow();
   }
 
   @Test
@@ -138,7 +178,9 @@ class CronJobReconcilerTest {
             template,
             Optional.of(Duration.ofMinutes(5)),
             ConcurrencyPolicy.ALLOW,
-            Optional.empty());
+            Optional.empty(),
+            DEFAULT_SUCCESSFUL_LIMIT,
+            DEFAULT_FAILED_LIMIT);
     store.putCronJobSpec(spec);
     CronJobReconciler reconciler =
         new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
@@ -336,6 +378,149 @@ class CronJobReconcilerTest {
         store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow());
   }
 
+  private JobSpec terminalJob(String cronJobName, CronJobSpec ownerSpec, long epochSecond) {
+    return new JobSpec(
+        cronJobName + "-" + epochSecond,
+        ownerSpec.jobTemplate().moduleId(),
+        ownerSpec.jobTemplate().artifactPath(),
+        PlacementConstraints.NONE,
+        Optional.empty(),
+        6,
+        ownerSpec.tenantId(),
+        Optional.empty());
+  }
+
+  /**
+   * Simulates a control-plane restart landing on a snapshot with far more accumulated terminal Jobs
+   * than the currently-configured limits allow -- e.g. right after an operator lowers {@code
+   * successfulJobsHistoryLimit}/{@code failedJobsHistoryLimit} on an already-long-running CronJob.
+   * A single tick, with nothing newly due (the schedule never fires), must still prune down to
+   * exactly the configured limit per outcome, oldest-first, while leaving alone both the
+   * still-non-terminal job and a different CronJob's own terminal job that happens to be under its
+   * own limit already.
+   */
+  @Test
+  void
+      an_arbitrary_starting_snapshot_with_far_more_terminal_jobs_than_configured_converges_by_pruning_the_oldest_first() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    // Never fires -- isolates pruning from this tick's own firing logic, the same trick
+    // trigger_now_fires_immediately_and_does_not_touch_last_schedule_time already relies on.
+    CronJobSpec spec = cronJob("nightly-cleanup", jar, "0 0 30 2 *", ConcurrencyPolicy.ALLOW, 2, 1);
+    store.putCronJobSpec(spec);
+
+    for (long epoch : List.of(100L, 200L, 300L, 400L, 500L)) {
+      JobSpec job = terminalJob("nightly-cleanup", spec, epoch);
+      store.putJobSpec(job);
+      store.putJobPhase(Optional.empty(), job.name(), JobPhase.SUCCEEDED);
+    }
+    for (long epoch : List.of(150L, 250L, 350L)) {
+      JobSpec job = terminalJob("nightly-cleanup", spec, epoch);
+      store.putJobSpec(job);
+      store.putJobPhase(Optional.empty(), job.name(), JobPhase.FAILED);
+    }
+    JobSpec nonTerminal = terminalJob("nightly-cleanup", spec, 600L);
+    store.putJobSpec(nonTerminal); // no phase recorded -- still running
+
+    CronJobSpec otherSpec =
+        cronJob("other-cleanup", jar, "0 0 30 2 *", ConcurrencyPolicy.ALLOW, 1, 1);
+    store.putCronJobSpec(otherSpec);
+    JobSpec otherJob = terminalJob("other-cleanup", otherSpec, 100L);
+    store.putJobSpec(otherJob);
+    store.putJobPhase(Optional.empty(), otherJob.name(), JobPhase.SUCCEEDED);
+
+    new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock).reconcileOnce();
+
+    List<JobSpec> remainingForNightly = generatedJobsFor(store, "nightly-cleanup");
+    Set<String> remainingSucceeded =
+        remainingForNightly.stream()
+            .filter(
+                s ->
+                    store
+                        .getJobPhase(Optional.empty(), s.name())
+                        .equals(Optional.of(JobPhase.SUCCEEDED)))
+            .map(JobSpec::name)
+            .collect(Collectors.toSet());
+    Set<String> remainingFailed =
+        remainingForNightly.stream()
+            .filter(
+                s ->
+                    store
+                        .getJobPhase(Optional.empty(), s.name())
+                        .equals(Optional.of(JobPhase.FAILED)))
+            .map(JobSpec::name)
+            .collect(Collectors.toSet());
+
+    assertEquals(
+        Set.of("nightly-cleanup-400", "nightly-cleanup-500"),
+        remainingSucceeded,
+        "kept the 2 most recent SUCCEEDED jobs, pruned the 3 oldest");
+    assertEquals(
+        Set.of("nightly-cleanup-350"),
+        remainingFailed,
+        "kept the 1 most recent FAILED job, pruned the 2 oldest");
+    assertTrue(
+        store.getJobSpec(Optional.empty(), "nightly-cleanup-600").isPresent(),
+        "the still-non-terminal job must never be pruned");
+    assertTrue(
+        store.getJobSpec(Optional.empty(), "other-cleanup-100").isPresent(),
+        "a different cronjob's own terminal job, already within its own limit, must be untouched");
+  }
+
+  /**
+   * The end-to-end version of the pruning test above: real firings, real {@code JobPhase}
+   * transitions, real ticks -- rather than a hand-seeded snapshot -- converging to Kubernetes
+   * CronJob's own default limits (3 succeeded / 1 failed, see {@link CronJobSpec}).
+   */
+  @Test
+  void repeated_real_firings_marked_terminal_converge_to_the_default_history_limits() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.ALLOW));
+    CronJobReconciler reconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+    reconciler.reconcileOnce(); // baseline
+
+    // 6 firings: 4 SUCCEEDED, 2 FAILED -- both exceed the default limits (3 succeeded / 1 failed).
+    List<JobPhase> outcomes =
+        List.of(
+            JobPhase.SUCCEEDED,
+            JobPhase.FAILED,
+            JobPhase.SUCCEEDED,
+            JobPhase.SUCCEEDED,
+            JobPhase.FAILED,
+            JobPhase.SUCCEEDED);
+    for (JobPhase outcome : outcomes) {
+      clock.advance(Duration.ofMinutes(1));
+      reconciler.reconcileOnce();
+      JobSpec justFired = mostRecentlyFired(generatedJobsFor(store, "nightly-cleanup"));
+      store.putJobPhase(Optional.empty(), justFired.name(), outcome);
+      reconciler.reconcileOnce(); // prunes on the very next tick, no firing due this minute
+    }
+
+    List<JobSpec> remaining = generatedJobsFor(store, "nightly-cleanup");
+    long succeededCount =
+        remaining.stream()
+            .filter(
+                s ->
+                    store
+                        .getJobPhase(Optional.empty(), s.name())
+                        .equals(Optional.of(JobPhase.SUCCEEDED)))
+            .count();
+    long failedCount =
+        remaining.stream()
+            .filter(
+                s ->
+                    store
+                        .getJobPhase(Optional.empty(), s.name())
+                        .equals(Optional.of(JobPhase.FAILED)))
+            .count();
+    assertEquals(3, succeededCount, "converged to the default successfulJobsHistoryLimit");
+    assertEquals(1, failedCount, "converged to the default failedJobsHistoryLimit");
+  }
+
   /**
    * The generated {@link JobSpec} is a real, chargeable workload even though the {@link
    * CronJobSpec} itself is not (see {@code WorkloadResourceProfile}'s own javadoc) -- a tenant
@@ -379,7 +564,9 @@ class CronJobReconcilerTest {
         template,
         Optional.empty(),
         ConcurrencyPolicy.ALLOW,
-        Optional.of(tenantId));
+        Optional.of(tenantId),
+        DEFAULT_SUCCESSFUL_LIMIT,
+        DEFAULT_FAILED_LIMIT);
   }
 
   @Test

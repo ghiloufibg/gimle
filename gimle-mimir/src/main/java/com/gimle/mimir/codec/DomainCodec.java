@@ -363,6 +363,8 @@ public final class DomainCodec {
     writeOptionalDuration(out, spec.startingDeadline());
     out.writeUTF(spec.concurrencyPolicy().name());
     writeOptionalString(out, spec.tenantId());
+    out.writeInt(spec.successfulJobsHistoryLimit());
+    out.writeInt(spec.failedJobsHistoryLimit());
   }
 
   public static CronJobSpec readCronJobSpec(DataInputStream in) throws IOException {
@@ -372,8 +374,17 @@ public final class DomainCodec {
     Optional<Duration> startingDeadline = readOptionalDuration(in);
     ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.valueOf(in.readUTF());
     Optional<String> tenantId = readOptionalString(in);
+    int successfulJobsHistoryLimit = in.readInt();
+    int failedJobsHistoryLimit = in.readInt();
     return new CronJobSpec(
-        name, schedule, jobTemplate, startingDeadline, concurrencyPolicy, tenantId);
+        name,
+        schedule,
+        jobTemplate,
+        startingDeadline,
+        concurrencyPolicy,
+        tenantId,
+        successfulJobsHistoryLimit,
+        failedJobsHistoryLimit);
   }
 
   public static void writeDaemonSetSpec(DataOutputStream out, DaemonSetSpec spec)

@@ -429,6 +429,8 @@ jobTemplate:
 startingDeadlineSeconds: 300    # optional -- omit for no missed-schedule cutoff
 concurrencyPolicy: Forbid       # optional -- Allow (default), Forbid, or Replace
 tenantId: acme                   # optional -- applied to every Job this CronJob generates
+successfulJobsHistoryLimit: 3   # optional -- defaults to 3, matching Kubernetes CronJob
+failedJobsHistoryLimit: 1       # optional -- defaults to 1, matching Kubernetes CronJob
 ```
 
 | Field | Required | Meaning |
@@ -445,6 +447,8 @@ tenantId: acme                   # optional -- applied to every Job this CronJob
 | `startingDeadlineSeconds` | no | How late a firing may still be honored (after its own due instant) before it's logged as missed instead — matches Kubernetes CronJob's own missed-schedule handling. Omit for no cutoff. |
 | `concurrencyPolicy` | no | `Allow` (default), `Forbid` (skip this firing while the previous generated Job is still non-terminal), or `Replace` (remove the still-running Job first). Case-insensitive. |
 | `tenantId` | no | Applied to every Job this CronJob generates — omit for untenanted firings. |
+| `successfulJobsHistoryLimit` | no | How many `SUCCEEDED` generated Jobs to keep, oldest-first pruned on every reconcile tick. Defaults to `3`, matching Kubernetes CronJob's own default. `0` keeps none. Independent of `concurrencyPolicy`, which only ever governs non-terminal jobs. |
+| `failedJobsHistoryLimit` | no | Same as `successfulJobsHistoryLimit`, for `FAILED` generated Jobs. Defaults to `1`, matching Kubernetes CronJob's own default. |
 
 A cronjob's `lastScheduleTime` is read-only, computed state — never part of the manifest you submit.
 `gimle get cronjobs <name>` (or the console's CronJobs screen) is how you read it back, alongside
