@@ -256,6 +256,52 @@ class GaldrStateStoreTest {
         store.getCustomResource(KIND, Optional.empty(), "hello").orElseThrow().specJson());
   }
 
+  // ---- the definition-update-plus-backfill batch ----
+
+  @Test
+  void a_batch_of_definition_put_and_instance_backfills_applies_atomically() {
+    apply(new StateMutation.PutKindDefinition(definition(KIND), 0L));
+    apply(new StateMutation.PutCustomResource(resource("hello", "{\"a\":1}"), 0L));
+
+    MutationOutcome outcome =
+        apply(
+            new StateMutation.Batch(
+                List.of(
+                    new StateMutation.PutKindDefinition(definition(KIND), 1L),
+                    new StateMutation.PutCustomResource(
+                        resource("hello", "{\"a\":1,\"b\":2}"), 1L))));
+
+    assertTrue(accepted(outcome));
+    assertEquals(2L, store.getKindDefinitionGeneration(KIND));
+    CustomResource backfilled = store.getCustomResource(KIND, TENANT, "hello").orElseThrow();
+    assertEquals(2L, backfilled.generation());
+    assertArrayEquals("{\"a\":1,\"b\":2}".getBytes(StandardCharsets.UTF_8), backfilled.specJson());
+  }
+
+  @Test
+  void one_stale_member_rejects_the_whole_batch_with_nothing_applied() {
+    apply(new StateMutation.PutKindDefinition(definition(KIND), 0L));
+    apply(new StateMutation.PutCustomResource(resource("hello", "{\"a\":1}"), 0L));
+    // A concurrent instance write that committed after the proposer's read bumped the instance to
+    // generation 2, so the batch's backfill member is stale.
+    apply(new StateMutation.PutCustomResource(resource("hello", "{\"a\":9}"), 1L));
+
+    MutationOutcome outcome =
+        apply(
+            new StateMutation.Batch(
+                List.of(
+                    new StateMutation.PutKindDefinition(definition(KIND), 1L),
+                    new StateMutation.PutCustomResource(
+                        resource("hello", "{\"a\":1,\"b\":2}"), 1L))));
+
+    assertFalse(accepted(outcome));
+    // Nothing applied -- the definition's own put must not have landed either.
+    assertEquals(1L, store.getKindDefinitionGeneration(KIND));
+    CustomResource untouched = store.getCustomResource(KIND, TENANT, "hello").orElseThrow();
+    assertEquals(2L, untouched.generation());
+    assertArrayEquals("{\"a\":9}".getBytes(StandardCharsets.UTF_8), untouched.specJson());
+  }
+
   // ---- snapshot / restore ----
 
   @Test

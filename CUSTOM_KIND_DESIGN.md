@@ -310,10 +310,11 @@ Both handlers ride the existing machinery rather than growing parallel plumbing:
   — deliberately unlike Kubernetes' read-time defaulting, so what's stored is always exactly what's
   served. `DELETE /kinddefinitions/{kind}` is refused (409) while any instance exists: delete the
   instances first, explicitly.
-- **Tenant deletion cascades.** Removing a tenant removes its custom resources along with the rest
-  of the tenant's state, following exactly whatever `RemoveTenant` does with that tenant's
-  deployments today — verified against the actual behavior at implementation time, with custom
-  resources added to the same path rather than growing their own rule.
+- **Tenant deletion follows the platform's existing (non-cascading) rule.** Verified at
+  implementation time: `RemoveTenant` removes only the tenant object itself — a deleted tenant's
+  deployments are not store-cascaded, and custom resources deliberately follow that same path
+  rather than growing their own cascade rule. If tenant deletion ever gains a real cascade, custom
+  resources join it then, in the same change.
 
 ## RBAC & audit
 

@@ -73,5 +73,18 @@ public enum ResourceKind {
   // (TENANT_VIEWABLE_KINDS/TENANT_EDITABLE_KINDS/TENANT_ADMIN_ONLY_KINDS in BuiltinRoles) --
   // cluster-admin-only by default, the same posture BOOTSTRAP_TOKEN/CERTIFICATE_REQUEST already
   // take; an operator delegating it must create an explicit Role/RoleBinding.
-  FAULT
+  FAULT,
+  // Guards declaring/editing a KindDefinition -- the mechanism that teaches every control-plane
+  // replica a new custom resource vocabulary. Deliberately its own kind, the DAEMONSET reasoning
+  // verbatim: "may teach the whole cluster a new resource kind" is a consequential grant operators
+  // must be able to withhold independently; effectively platform-admin territory, absent from
+  // every tenant role template.
+  KIND_DEFINITION,
+  // Guards instances of user-defined kinds, tenant-scoped like DEPLOYMENT. One enum value covers
+  // every custom kind: per-kind granularity comes from Permission's optional qualifier (a kind
+  // name for that kind's spec CRUD, "{kind}/status" for only its status writes), not from
+  // widening this enum per user-defined kind -- the enum is load-bearing (BuiltinRoles, audit
+  // filters, defense-in-depth re-checks in four processes) and cannot enumerate names only known
+  // at runtime.
+  CUSTOM_RESOURCE
 }

@@ -15,6 +15,10 @@ import com.gimle.controlplane.configmap.ConfigMapCodec;
 import com.gimle.controlplane.configmap.ConfigMapStore;
 import com.gimle.controlplane.configmap.ConfigMapWriteResult;
 import com.gimle.controlplane.fafnir.FafnirClient;
+import com.gimle.controlplane.galdr.CustomResourceManifestParser;
+import com.gimle.controlplane.galdr.GaldrJson;
+import com.gimle.controlplane.galdr.GaldrKinds;
+import com.gimle.controlplane.galdr.KindDefinitionParser;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyRegistry;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
@@ -74,6 +78,10 @@ import com.gimle.core.vessel.VesselSpec;
 import com.gimle.core.web.RootRedirectHandler;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
+import com.gimle.mimir.galdr.CustomResource;
+import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.galdr.KindScope;
+import com.gimle.mimir.galdr.SchemaValidator;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
@@ -497,6 +505,11 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
     target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
     target.createContext("/authz/can-i", instrument("authz-can-i", this::handleCanI));
+    target.createContext(
+        "/kinddefinitions/", instrument("kinddefinitions", this::handleKindDefinition));
+    target.createContext(
+        "/kinddefinitions", instrument("kinddefinitions", this::handleKindDefinitionsList));
+    target.createContext("/resources/", instrument("resources", this::handleCustomResources));
     target.createContext("/volumes/", instrument("volumes", this::handleVolumeDestroy));
     target.createContext("/volumes", instrument("volumes", this::handleVolumesList));
     target.createContext(
@@ -3912,6 +3925,748 @@ public final class ApiServer implements AutoCloseable {
     respond(exchange, 200, "ok");
   }
 
+  // ---- /kinddefinitions and /resources/* (Galdr custom kinds) ----
+
+  /**
+   * {@code GET /kinddefinitions} -- readable by any authenticated principal, no RBAC walk:
+   * definitions are schemas, not data; manifest authors and the console's kind picker both need the
+   * catalog to do anything at all, the Kubernetes {@code system:discovery} posture.
+   */
+  private void handleKindDefinitionsList(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthenticated(exchange)) {
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          storeClient.listKindDefinitions().stream()
+              .sorted(Comparator.comparing(KindDefinitionSpec::kindName))
+              .map(GaldrJson::definitionToJson)
+              .toList());
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("kind definitions list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /** {@code PUT}/{@code GET}/{@code DELETE /kinddefinitions/{kind}}. */
+  private void handleKindDefinition(HttpExchange exchange) {
+    try {
+      String kindSegment = pathSegmentAfter(exchange, "/kinddefinitions/");
+      if (kindSegment.isBlank()) {
+        respond(exchange, 400, "missing kind name");
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> handlePutKindDefinition(exchange, kindSegment);
+        case "GET" -> {
+          if (requireAuthenticated(exchange)) {
+            handleGetKindDefinition(exchange, kindSegment);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(
+              exchange,
+              ResourceKind.KIND_DEFINITION,
+              Verb.DELETE,
+              Optional.empty(),
+              Optional.of(storedKindName(kindSegment)))) {
+            handleDeleteKindDefinition(exchange, storedKindName(kindSegment));
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("kind definition request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * The stored, prefixed form of a URL kind segment -- a caller addressing a definition by the
+   * unprefixed name it submitted ({@code /kinddefinitions/Greeting}) reaches the normalized {@code
+   * custom.Greeting} record, the same forgiveness the PUT's own normalization implies.
+   */
+  private static String storedKindName(String kindSegment) {
+    return kindSegment.contains(".")
+        ? kindSegment
+        : KindDefinitionParser.DEFAULT_PREFIX + kindSegment;
+  }
+
+  private void handlePutKindDefinition(HttpExchange exchange, String kindSegment)
+      throws IOException {
+    // Parse before authorizing, the same body-before-authorize order dispatchResourceRequest
+    // establishes -- though a KindDefinition is always cluster-scoped, so no tenant resolution
+    // hangs on the body here, only the fail-fast 400 for a malformed manifest.
+    KindDefinitionParser.ParsedKindDefinition parsed =
+        KindDefinitionParser.parse(exchange.getRequestBody());
+    KindDefinitionSpec submitted = parsed.spec();
+    if (!submitted.kindName().equals(kindSegment)
+        && !submitted.kindName().equals(storedKindName(kindSegment))) {
+      respond(
+          exchange,
+          400,
+          "manifest kind name '"
+              + submitted.kindName()
+              + "' does not match URL path '"
+              + kindSegment
+              + "'");
+      return;
+    }
+    Optional<Principal> auditPrincipal =
+        requireAuthorizedForWrite(exchange, ResourceKind.KIND_DEFINITION, Optional.empty());
+    if (auditPrincipal.isEmpty()) {
+      return;
+    }
+    AuditOutcome outcome = applyKindDefinition(exchange, submitted, parsed.warnings());
+    recordAuditEventBestEffort(
+        auditPrincipal.get(),
+        ResourceKind.KIND_DEFINITION,
+        Verb.WRITE,
+        Optional.empty(),
+        Optional.of(submitted.kindName()),
+        true,
+        outcome);
+  }
+
+  /**
+   * Admits one KindDefinition put: declared-name collisions, then -- on a re-PUT of a live kind --
+   * re-validation of <em>every stored instance</em> against the new schema (refusing with the
+   * violator list rather than any compatibility calculus over nested schemas: the instances
+   * themselves are the check), then a backfill of newly-defaulted fields into the stored instances,
+   * batched atomically with the definition put itself so no replica ever holds the new schema
+   * beside un-backfilled instances.
+   */
+  private AuditOutcome applyKindDefinition(
+      HttpExchange exchange, KindDefinitionSpec submitted, List<String> warnings)
+      throws IOException {
+    Optional<String> collision =
+        GaldrKinds.declaredNameCollision(submitted, storeClient.listKindDefinitions());
+    if (collision.isPresent()) {
+      respond(exchange, 409, "declared name collision: " + collision.get());
+      return AuditOutcome.REJECTED;
+    }
+    Optional<KindDefinitionSpec> existing = storeClient.getKindDefinition(submitted.kindName());
+    long expectedGeneration = existing.map(KindDefinitionSpec::generation).orElse(0L);
+    if (existing.isPresent() && existing.get().withGeneration(0L).equals(submitted)) {
+      // Identical re-definition: no mutation proposed, no generation churn -- the Andvari
+      // identical-re-push rule, so declarative re-applies never look like updates.
+      attachWarnings(exchange, warnings, "kinddefinition", submitted.kindName());
+      respond(exchange, 200, "ok");
+      return AuditOutcome.APPLIED;
+    }
+
+    List<StateMutation> backfills = new ArrayList<>();
+    if (existing.isPresent()) {
+      List<String> violators = new ArrayList<>();
+      for (CustomResource resource : storeClient.listCustomResources(submitted.kindName())) {
+        try {
+          Map<String, Object> defaulted =
+              SchemaValidator.validateAndDefault(
+                  submitted.schema(),
+                  Json.asObject(
+                      Json.parse(new String(resource.specJson(), StandardCharsets.UTF_8))));
+          byte[] canonical = GaldrJson.canonicalJson(defaulted);
+          if (!Arrays.equals(canonical, resource.specJson())) {
+            backfills.add(
+                new StateMutation.PutCustomResource(
+                    new CustomResource(
+                        resource.kindName(),
+                        resource.name(),
+                        resource.tenantId(),
+                        canonical,
+                        new byte[0],
+                        0L),
+                    resource.generation()));
+          }
+        } catch (GimleManifestException e) {
+          violators.add(
+              resource.tenantId().map(t -> t + "/").orElse("")
+                  + resource.name()
+                  + " ("
+                  + e.getMessage()
+                  + ")");
+        }
+      }
+      if (!violators.isEmpty()) {
+        respond(
+            exchange,
+            409,
+            "cannot update kind '"
+                + submitted.kindName()
+                + "': "
+                + violators.size()
+                + " stored instance(s) violate the new schema: "
+                + String.join("; ", violators));
+        return AuditOutcome.REJECTED;
+      }
+    }
+
+    StateMutation.PutKindDefinition putDefinition =
+        new StateMutation.PutKindDefinition(submitted, expectedGeneration);
+    List<StateMutation> mutations = new ArrayList<>();
+    mutations.add(putDefinition);
+    mutations.addAll(backfills);
+    MutationOutcome outcome =
+        storeClient.propose(
+            mutations.size() == 1 ? putDefinition : new StateMutation.Batch(mutations));
+    if (outcome instanceof MutationOutcome.Rejected rejected) {
+      respond(
+          exchange,
+          409,
+          "kind definition '"
+              + submitted.kindName()
+              + "' was concurrently modified since it was last read ("
+              + rejected.reason()
+              + "); re-fetch and retry");
+      return AuditOutcome.REJECTED;
+    }
+    attachWarnings(exchange, warnings, "kinddefinition", submitted.kindName());
+    respond(exchange, 200, "ok");
+    return AuditOutcome.APPLIED;
+  }
+
+  private void handleGetKindDefinition(HttpExchange exchange, String kindSegment)
+      throws IOException {
+    Optional<KindDefinitionSpec> definition =
+        storeClient.getKindDefinition(storedKindName(kindSegment));
+    if (definition.isEmpty()) {
+      // A read miss is a 404 like every other kind's, but still carries the catalog -- the same
+      // choices-in-hand contract the /resources unknown-kind 400 gives an apply.
+      respond(
+          exchange,
+          404,
+          GaldrKinds.unknownKindMessage(
+              storedKindName(kindSegment), storeClient.listKindDefinitions()));
+      return;
+    }
+    respondJson(exchange, 200, GaldrJson.definitionToJson(definition.get()));
+  }
+
+  private void handleDeleteKindDefinition(HttpExchange exchange, String kindName)
+      throws IOException {
+    if (storeClient.getKindDefinition(kindName).isEmpty()) {
+      // Idempotent delete-on-missing, the convention every other resource kind here follows.
+      respond(exchange, 200, "ok");
+      return;
+    }
+    MutationOutcome outcome = storeClient.propose(new StateMutation.RemoveKindDefinition(kindName));
+    if (outcome instanceof MutationOutcome.Rejected rejected) {
+      respond(exchange, 409, rejected.reason());
+      return;
+    }
+    respond(exchange, 200, "ok");
+  }
+
+  /**
+   * {@code /resources/{Kind}}, {@code /resources/{Kind}/{name}}, and {@code
+   * /resources/{Kind}/{name}/status} -- the generalized twin of {@link #dispatchResourceRequest},
+   * over a generic schema-validated body instead of {@code ManifestParser}'s typed workload specs.
+   * Every route resolves the kind against the live definition catalog first, so an unknown kind is
+   * a 400 carrying the catalog on every surface, not just apply.
+   */
+  private void handleCustomResources(HttpExchange exchange) {
+    try {
+      String tail = pathSegmentAfter(exchange, "/resources/");
+      if (tail.isBlank()) {
+        respond(exchange, 400, "missing kind name");
+        return;
+      }
+      String[] segments = tail.split("/", -1);
+      List<KindDefinitionSpec> definitions = storeClient.listKindDefinitions();
+      KindDefinitionSpec definition = GaldrKinds.requireDefinition(segments[0], definitions);
+      if (segments.length == 1) {
+        if (!"GET".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        handleListCustomResources(exchange, definition);
+        return;
+      }
+      String name = segments[1];
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing resource name");
+        return;
+      }
+      if (segments.length == 3 && "status".equals(segments[2])) {
+        if (!"PUT".equals(exchange.getRequestMethod())) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        handlePutCustomResourceStatus(exchange, definition, name);
+        return;
+      }
+      if (segments.length > 2) {
+        respond(exchange, 404, "unknown resource endpoint: " + segments[2]);
+        return;
+      }
+      switch (exchange.getRequestMethod()) {
+        case "PUT" -> handlePutCustomResource(exchange, definition, name);
+        case "GET" -> handleGetCustomResource(exchange, definition, name);
+        case "DELETE" -> handleDeleteCustomResource(exchange, definition, name);
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("custom resource request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleListCustomResources(HttpExchange exchange, KindDefinitionSpec definition)
+      throws IOException {
+    Optional<Predicate<Optional<String>>> readableTenant =
+        requireCustomResourceListAuthorized(exchange, definition.kindName());
+    if (readableTenant.isEmpty()) {
+      return;
+    }
+    Optional<String> tenantFilter = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    respondJson(
+        exchange,
+        200,
+        storeClient.listCustomResources(definition.kindName()).stream()
+            .filter(resource -> tenantFilter.isEmpty() || resource.tenantId().equals(tenantFilter))
+            .filter(resource -> readableTenant.get().test(resource.tenantId()))
+            .sorted(
+                Comparator.comparing((CustomResource resource) -> resource.tenantId().orElse(""))
+                    .thenComparing(CustomResource::name))
+            .map(GaldrJson::resourceToJson)
+            .toList());
+  }
+
+  private void handlePutCustomResource(
+      HttpExchange exchange, KindDefinitionSpec definition, String name) throws IOException {
+    CustomResourceManifestParser.ParsedCustomResource parsed =
+        CustomResourceManifestParser.parse(exchange.getRequestBody());
+    if (!parsed.kindName().equals(definition.kindName())) {
+      respond(
+          exchange,
+          400,
+          "manifest kind '"
+              + parsed.kindName()
+              + "' does not match /resources/"
+              + definition.kindName()
+              + " route -- instances always use the stored, prefixed kind name");
+      return;
+    }
+    if (!parsed.name().equals(name)) {
+      respond(
+          exchange,
+          400,
+          "manifest name '" + parsed.name() + "' does not match URL path '" + name + "'");
+      return;
+    }
+    if (definition.scope() == KindScope.TENANT && parsed.tenantId().isEmpty()) {
+      respond(
+          exchange,
+          400,
+          "kind '" + definition.kindName() + "' is Tenant-scoped -- tenantId is required");
+      return;
+    }
+    if (definition.scope() == KindScope.CLUSTER && parsed.tenantId().isPresent()) {
+      respond(
+          exchange,
+          400,
+          "kind '" + definition.kindName() + "' is Cluster-scoped -- tenantId must be omitted");
+      return;
+    }
+    // No second re-tenanting check needed (unlike the flat-namespace era dispatchResourceRequest
+    // documents): a custom resource's store key is (kind, tenant, name), so a PUT can only ever
+    // target the submitted tenant's own record, never overwrite a different tenant's same-named
+    // one.
+    Optional<Principal> auditPrincipal =
+        requireCustomResourceWrite(exchange, definition.kindName(), parsed.tenantId(), false);
+    if (auditPrincipal.isEmpty()) {
+      return;
+    }
+    if (rejectIfReservedSystemTenant(exchange, parsed.tenantId())) {
+      recordCustomResourceAuditBestEffort(
+          auditPrincipal.get(),
+          definition.kindName(),
+          Verb.WRITE,
+          parsed.tenantId(),
+          Optional.of(name),
+          true,
+          AuditOutcome.REJECTED);
+      return;
+    }
+    AuditOutcome outcome = applyCustomResourcePut(exchange, definition, parsed);
+    recordCustomResourceAuditBestEffort(
+        auditPrincipal.get(),
+        definition.kindName(),
+        Verb.WRITE,
+        parsed.tenantId(),
+        Optional.of(name),
+        true,
+        outcome);
+  }
+
+  private AuditOutcome applyCustomResourcePut(
+      HttpExchange exchange,
+      KindDefinitionSpec definition,
+      CustomResourceManifestParser.ParsedCustomResource parsed)
+      throws IOException {
+    byte[] canonical;
+    try {
+      Map<String, Object> defaulted =
+          SchemaValidator.validateAndDefault(definition.schema(), parsed.spec());
+      canonical = GaldrJson.canonicalJson(defaulted);
+      SchemaValidator.checkPayloadSize("spec", canonical.length);
+    } catch (GimleManifestException e) {
+      respond(exchange, 400, String.valueOf(e.getMessage()));
+      return AuditOutcome.REJECTED;
+    }
+    Optional<CustomResource> existing =
+        storeClient.getCustomResource(definition.kindName(), parsed.tenantId(), parsed.name());
+    if (existing.isPresent() && Arrays.equals(existing.get().specJson(), canonical)) {
+      // Identical canonical spec: no mutation proposed, no generation bump -- declarative
+      // re-applies never cause phantom generation/observedGeneration churn.
+      respond(exchange, 200, "ok");
+      return AuditOutcome.APPLIED;
+    }
+    long expectedGeneration = existing.map(CustomResource::generation).orElse(0L);
+    MutationOutcome outcome =
+        storeClient.propose(
+            new StateMutation.PutCustomResource(
+                new CustomResource(
+                    definition.kindName(),
+                    parsed.name(),
+                    parsed.tenantId(),
+                    canonical,
+                    new byte[0],
+                    0L),
+                expectedGeneration));
+    if (outcome instanceof MutationOutcome.Rejected rejected) {
+      respond(
+          exchange,
+          409,
+          "resource '"
+              + definition.kindName()
+              + "/"
+              + parsed.name()
+              + "' was concurrently modified since it was last read ("
+              + rejected.reason()
+              + "); re-fetch and retry");
+      return AuditOutcome.REJECTED;
+    }
+    respond(exchange, 200, "ok");
+    return AuditOutcome.APPLIED;
+  }
+
+  private void handleGetCustomResource(
+      HttpExchange exchange, KindDefinitionSpec definition, String name) throws IOException {
+    Optional<String> tenant = customResourceTenant(exchange, definition, name);
+    if (!requireCustomResourceAuthorized(
+        exchange, definition.kindName(), Verb.READ, tenant, Optional.of(name))) {
+      return;
+    }
+    Optional<CustomResource> resource =
+        storeClient.getCustomResource(definition.kindName(), tenant, name);
+    if (resource.isEmpty()) {
+      respond(exchange, 404, "no such resource: " + definition.kindName() + "/" + name);
+      return;
+    }
+    respondJson(exchange, 200, GaldrJson.resourceToJson(resource.get()));
+  }
+
+  private void handleDeleteCustomResource(
+      HttpExchange exchange, KindDefinitionSpec definition, String name) throws IOException {
+    Optional<String> tenant = customResourceTenant(exchange, definition, name);
+    if (!requireCustomResourceAuthorized(
+        exchange, definition.kindName(), Verb.DELETE, tenant, Optional.of(name))) {
+      return;
+    }
+    // Idempotent delete-on-missing, matching the majority convention across resource kinds.
+    storeClient.propose(
+        new StateMutation.RemoveCustomResource(definition.kindName(), tenant, name));
+    respond(exchange, 200, "ok");
+  }
+
+  private void handlePutCustomResourceStatus(
+      HttpExchange exchange, KindDefinitionSpec definition, String name) throws IOException {
+    Optional<String> tenant = customResourceTenant(exchange, definition, name);
+    Optional<Principal> auditPrincipal =
+        requireCustomResourceWrite(exchange, definition.kindName(), tenant, true);
+    if (auditPrincipal.isEmpty()) {
+      return;
+    }
+    AuditOutcome outcome = applyCustomResourceStatusPut(exchange, definition, tenant, name);
+    recordCustomResourceAuditBestEffort(
+        auditPrincipal.get(),
+        definition.kindName(),
+        Verb.WRITE,
+        tenant,
+        Optional.of(name + "/status"),
+        true,
+        outcome);
+  }
+
+  private AuditOutcome applyCustomResourceStatusPut(
+      HttpExchange exchange, KindDefinitionSpec definition, Optional<String> tenant, String name)
+      throws IOException {
+    byte[] canonical;
+    try {
+      Object parsed = Json.parse(readBody(exchange));
+      if (!(parsed instanceof Map)) {
+        respond(exchange, 400, "status must be a JSON object");
+        return AuditOutcome.REJECTED;
+      }
+      canonical = Json.write(parsed).getBytes(StandardCharsets.UTF_8);
+      SchemaValidator.checkPayloadSize("status", canonical.length);
+    } catch (GimleManifestException | IllegalArgumentException e) {
+      respond(exchange, 400, String.valueOf(e.getMessage()));
+      return AuditOutcome.REJECTED;
+    }
+    if (storeClient.getCustomResource(definition.kindName(), tenant, name).isEmpty()) {
+      respond(exchange, 404, "no such resource: " + definition.kindName() + "/" + name);
+      return AuditOutcome.REJECTED;
+    }
+    storeClient.propose(
+        new StateMutation.PutCustomResourceStatus(definition.kindName(), tenant, name, canonical));
+    respond(exchange, 200, "ok");
+    return AuditOutcome.APPLIED;
+  }
+
+  /**
+   * The tenant a custom-resource GET/DELETE/status-PUT resolves to: always empty for a
+   * Cluster-scoped kind; otherwise the caller's own {@code ?tenant=} taken verbatim, falling back
+   * to a bare-name search across the kind's stored instances only when no hint was declared --
+   * exactly {@link #declaredOrExistingTenant}'s convention, scoped to one kind.
+   */
+  private Optional<String> customResourceTenant(
+      HttpExchange exchange, KindDefinitionSpec definition, String name) {
+    if (definition.scope() == KindScope.CLUSTER) {
+      return Optional.empty();
+    }
+    Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    if (declared.isPresent()) {
+      return declared;
+    }
+    return storeClient.listCustomResources(definition.kindName()).stream()
+        .filter(resource -> resource.name().equals(name))
+        .map(CustomResource::tenantId)
+        .flatMap(Optional::stream)
+        .findFirst();
+  }
+
+  // ---- custom-resource authorization/audit plumbing ----
+  // Mirrors requireAuthorized/requireAuthorizedForWrite/requireListAuthorized, with two
+  // deliberate differences the design calls for: the Authorizer walk carries the request's
+  // qualifier ({kind}, or {kind}/status for a status write), and audit rows record the qualified
+  // "CustomResource:{kind}" string instead of the bare enum name -- the enum-name path used
+  // everywhere else stays untouched.
+
+  private static String customResourceQualifier(String kindName, boolean statusSubresource) {
+    return statusSubresource ? kindName + Permission.STATUS_QUALIFIER_SUFFIX : kindName;
+  }
+
+  private boolean requireCustomResourceAuthorized(
+      HttpExchange exchange,
+      String kindName,
+      Verb verb,
+      Optional<String> tenant,
+      Optional<String> targetId) {
+    if (!(exchange instanceof HttpsExchange)) {
+      if (verb == Verb.WRITE || verb == Verb.DELETE) {
+        recordCustomResourceAudit(
+            new Principal("anonymous", Set.of()),
+            kindName,
+            verb,
+            tenant,
+            targetId,
+            true,
+            AuditOutcome.APPLIED);
+      }
+      return true;
+    }
+    Optional<Principal> principal = resolvePrincipal(exchange);
+    if (principal.isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
+      return false;
+    }
+    boolean authorized =
+        authorizer.authorize(
+            principal.get(),
+            ResourceKind.CUSTOM_RESOURCE,
+            verb,
+            tenant,
+            targetId,
+            Optional.of(customResourceQualifier(kindName, false)));
+    if (verb == Verb.WRITE || verb == Verb.DELETE) {
+      recordCustomResourceAudit(
+          principal.get(),
+          kindName,
+          verb,
+          tenant,
+          targetId,
+          authorized,
+          authorized ? AuditOutcome.APPLIED : AuditOutcome.REJECTED);
+    }
+    if (!authorized) {
+      respondQuietly(exchange, 403, "forbidden");
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Deferred-audit write authorization for custom-resource spec and status puts, the {@link
+   * #requireAuthorizedForWrite} shape: a denial is recorded and answered immediately; an authorized
+   * caller is handed back for the caller to audit once the real {@link AuditOutcome} is known.
+   */
+  private Optional<Principal> requireCustomResourceWrite(
+      HttpExchange exchange, String kindName, Optional<String> tenant, boolean statusSubresource) {
+    if (!(exchange instanceof HttpsExchange)) {
+      return Optional.of(new Principal("anonymous", Set.of()));
+    }
+    Optional<Principal> principal = resolvePrincipal(exchange);
+    if (principal.isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
+      return Optional.empty();
+    }
+    boolean authorized =
+        authorizer.authorize(
+            principal.get(),
+            ResourceKind.CUSTOM_RESOURCE,
+            Verb.WRITE,
+            tenant,
+            Optional.empty(),
+            Optional.of(customResourceQualifier(kindName, statusSubresource)));
+    if (!authorized) {
+      recordCustomResourceAudit(
+          principal.get(),
+          kindName,
+          Verb.WRITE,
+          tenant,
+          Optional.empty(),
+          false,
+          AuditOutcome.REJECTED);
+      respondQuietly(exchange, 403, "forbidden");
+      return Optional.empty();
+    }
+    return principal;
+  }
+
+  /** {@link #requireListAuthorized}'s shape, carrying the kind's own qualifier per item. */
+  private Optional<Predicate<Optional<String>>> requireCustomResourceListAuthorized(
+      HttpExchange exchange, String kindName) {
+    if (!(exchange instanceof HttpsExchange)) {
+      return Optional.of(itemTenant -> true);
+    }
+    Optional<Principal> resolved = resolvePrincipal(exchange);
+    if (resolved.isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
+      return Optional.empty();
+    }
+    Principal principal = resolved.get();
+    Optional<String> qualifier = Optional.of(customResourceQualifier(kindName, false));
+    boolean unscopedRead =
+        authorizer.authorize(
+            principal,
+            ResourceKind.CUSTOM_RESOURCE,
+            Verb.READ,
+            Optional.empty(),
+            Optional.empty(),
+            qualifier);
+    boolean allowed =
+        unscopedRead || authorizer.hasAnyReadGrant(principal, ResourceKind.CUSTOM_RESOURCE);
+    if (!allowed) {
+      respondQuietly(exchange, 403, "forbidden");
+      return Optional.empty();
+    }
+    if (unscopedRead) {
+      return Optional.of(itemTenant -> true);
+    }
+    return Optional.of(
+        itemTenant ->
+            itemTenant.isPresent()
+                && authorizer.authorize(
+                    principal,
+                    ResourceKind.CUSTOM_RESOURCE,
+                    Verb.READ,
+                    itemTenant,
+                    Optional.empty(),
+                    qualifier));
+  }
+
+  private void recordCustomResourceAudit(
+      Principal principal,
+      String kindName,
+      Verb verb,
+      Optional<String> tenant,
+      Optional<String> targetId,
+      boolean allowed,
+      AuditOutcome outcome) {
+    storeClient.propose(
+        new StateMutation.AppendAuditEvent(
+            new AuditEvent(
+                UUID.randomUUID().toString(),
+                principal.name(),
+                principal.groups(),
+                "CustomResource:" + kindName,
+                verb.name(),
+                tenant,
+                targetId,
+                allowed,
+                outcome,
+                System.currentTimeMillis())));
+  }
+
+  /** {@link #recordAuditEventBestEffort}'s posture for the qualified custom-resource rows. */
+  private void recordCustomResourceAuditBestEffort(
+      Principal principal,
+      String kindName,
+      Verb verb,
+      Optional<String> tenant,
+      Optional<String> targetId,
+      boolean allowed,
+      AuditOutcome outcome) {
+    try {
+      recordCustomResourceAudit(principal, kindName, verb, tenant, targetId, allowed, outcome);
+    } catch (RuntimeException e) {
+      log.warn(
+          "failed to record audit event for {} CustomResource:{} (response already sent): {}",
+          verb,
+          kindName,
+          e.getMessage());
+    }
+  }
+
+  /**
+   * Any authenticated principal, no RBAC walk -- the {@code /kinddefinitions} read posture.
+   * Plaintext mode has no identity to check, matching {@link #requireAuthorized}'s own carve-out.
+   */
+  private boolean requireAuthenticated(HttpExchange exchange) {
+    if (!(exchange instanceof HttpsExchange)) {
+      return true;
+    }
+    if (resolvePrincipal(exchange).isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
+      return false;
+    }
+    return true;
+  }
+
   // ---- /limitranges and /limitranges/{tenantId} ----
 
   private void handleLimitRangesList(HttpExchange exchange) {
@@ -4511,6 +5266,7 @@ public final class ApiServer implements AutoCloseable {
       pm.put("resource", p.resource().name());
       pm.put("verb", p.verb().name());
       p.tenantScope().ifPresent(t -> pm.put("tenantScope", t));
+      p.qualifier().ifPresent(q -> pm.put("qualifier", q));
       permissions.add(pm);
     }
     map.put("permissions", permissions);
@@ -4526,11 +5282,13 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind resource = ResourceKind.valueOf((String) pm.get("resource"));
         Verb verb = Verb.valueOf((String) pm.get("verb"));
         Object tenantScope = pm.get("tenantScope");
+        Object qualifier = pm.get("qualifier");
         permissions.add(
             new Permission(
                 resource,
                 verb,
-                tenantScope == null ? Optional.empty() : Optional.of((String) tenantScope)));
+                tenantScope == null ? Optional.empty() : Optional.of((String) tenantScope),
+                qualifier == null ? Optional.empty() : Optional.of((String) qualifier)));
       }
     }
     return new Role(name, permissions);

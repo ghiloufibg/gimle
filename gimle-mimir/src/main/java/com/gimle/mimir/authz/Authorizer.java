@@ -49,6 +49,25 @@ public final class Authorizer {
       Verb verb,
       Optional<String> tenant,
       Optional<String> targetId) {
+    return authorize(principal, resource, verb, tenant, targetId, Optional.empty());
+  }
+
+  /**
+   * The qualifier-carrying variant for {@link ResourceKind#CUSTOM_RESOURCE} requests: {@code
+   * qualifier} is the request's own sub-scope -- the target kind name for spec operations, or
+   * {@code {kind}/status} for a status write -- matched against each {@link Permission}'s own
+   * optional qualifier per {@link Permission#covers}. Every other resource kind passes no qualifier
+   * and behaves exactly as before. The implicit {@code gimle:operators} grant remains unconditional
+   * -- the bootstrap-level operator credential is this cluster's root, above the spec/status split
+   * an explicitly-bound role is subject to.
+   */
+  public boolean authorize(
+      Principal principal,
+      ResourceKind resource,
+      Verb verb,
+      Optional<String> tenant,
+      Optional<String> targetId,
+      Optional<String> qualifier) {
     if (isNodeSelfService(principal, resource, verb, targetId)) {
       return true;
     }
@@ -77,7 +96,7 @@ public final class Authorizer {
         continue;
       }
       for (Permission permission : role.get().permissions()) {
-        if (permission.covers(resource, verb, tenant)) {
+        if (permission.covers(resource, verb, tenant, qualifier)) {
           return true;
         }
       }

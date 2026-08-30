@@ -954,13 +954,15 @@ public final class DomainCodec {
     out.writeUTF(permission.resource().name());
     out.writeUTF(permission.verb().name());
     writeOptionalString(out, permission.tenantScope());
+    writeOptionalString(out, permission.qualifier());
   }
 
   public static Permission readPermission(DataInputStream in) throws IOException {
     ResourceKind resource = ResourceKind.valueOf(in.readUTF());
     Verb verb = Verb.valueOf(in.readUTF());
     Optional<String> tenantScope = readOptionalString(in);
-    return new Permission(resource, verb, tenantScope);
+    Optional<String> qualifier = readOptionalString(in);
+    return new Permission(resource, verb, tenantScope, qualifier);
   }
 
   public static void writeRoleBinding(DataOutputStream out, RoleBinding binding)
