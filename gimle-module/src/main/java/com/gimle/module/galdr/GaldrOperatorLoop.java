@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 /**
  * The operator half of the custom-kind pattern, as a for-loop rather than a framework: a virtual
@@ -36,10 +37,22 @@ public final class GaldrOperatorLoop implements AutoCloseable {
 
   private GaldrOperatorLoop(
       ModuleContext context, String kindName, Duration pollInterval, GaldrReconciler reconciler) {
+    // MDC is thread-local, so the loop thread would otherwise start bare -- and every log line
+    // the reconciler (or this loop itself) emits would lose the instance tags the worker put on
+    // the hook thread that called start(), miscategorizing the operator's own output as platform
+    // logging instead of that instance's application log. Capture here, on the caller's thread,
+    // and re-apply inside the loop thread before its first line.
+    final Map<String, String> callerMdc = MDC.getCopyOfContextMap();
     this.thread =
         Thread.ofVirtual()
             .name("galdr-operator-" + kindName)
-            .start(() -> run(context, kindName, pollInterval, reconciler));
+            .start(
+                () -> {
+                  if (callerMdc != null) {
+                    MDC.setContextMap(callerMdc);
+                  }
+                  run(context, kindName, pollInterval, reconciler);
+                });
   }
 
   public static GaldrOperatorLoop start(

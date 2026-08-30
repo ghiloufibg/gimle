@@ -228,6 +228,32 @@ class GaldrOperatorLoopTest {
 
   @Test
   @Timeout(15)
+  void the_loop_thread_carries_the_starting_threads_mdc_tags() throws Exception {
+    ScriptedRelay relay =
+        new ScriptedRelay(
+            new ModuleContext.RelayResult(200, "[{\"name\":\"a\",\"generation\":1,\"spec\":{}}]"));
+    AtomicReference<Map<String, String>> mdcSeenInTick = new AtomicReference<>();
+
+    org.slf4j.MDC.put("gimle.deploymentName", "greeting-operator");
+    try {
+      try (GaldrOperatorLoop loop =
+          GaldrOperatorLoop.start(
+              contextOver(relay),
+              "custom.Greeting",
+              POLL_INTERVAL,
+              resources -> mdcSeenInTick.set(org.slf4j.MDC.getCopyOfContextMap()))) {
+        awaitTicksBeyond(loop, 0);
+      }
+    } finally {
+      org.slf4j.MDC.clear();
+    }
+
+    Map<String, String> seen = mdcSeenInTick.get();
+    assertTrue(seen != null && "greeting-operator".equals(seen.get("gimle.deploymentName")));
+  }
+
+  @Test
+  @Timeout(15)
   void close_stops_the_loop_promptly_even_mid_sleep() throws Exception {
     ScriptedRelay relay = new ScriptedRelay(new ModuleContext.RelayResult(200, "[]"));
     GaldrOperatorLoop loop =
