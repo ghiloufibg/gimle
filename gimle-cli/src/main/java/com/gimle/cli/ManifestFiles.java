@@ -25,13 +25,33 @@ final class ManifestFiles {
 
   private ManifestFiles() {}
 
+  /**
+   * A second {@code -f}/{@code --file} is rejected outright rather than silently discarded the way
+   * the original forward-scan-and-return-the-first-match implementation did -- {@code apply -f
+   * a.yaml -f b.yaml} used to apply only {@code a.yaml}, with {@code b.yaml} never read at all and
+   * no warning that it was ignored. {@code apply} is single-manifest by design (see this class's
+   * own javadoc); a caller with more than one manifest to apply calls {@code gimle apply -f} once
+   * per file.
+   */
   static Path requireFileFlag(List<String> args) {
+    Path found = null;
     for (int i = 0; i < args.size(); i++) {
-      if (("-f".equals(args.get(i)) || "--file".equals(args.get(i))) && i + 1 < args.size()) {
-        return Path.of(args.get(i + 1));
+      if ("-f".equals(args.get(i)) || "--file".equals(args.get(i))) {
+        if (i + 1 >= args.size()) {
+          throw new CliException(args.get(i) + " requires a value");
+        }
+        if (found != null) {
+          throw new CliException(
+              "apply accepts exactly one -f/--file per invocation -- apply each manifest with its"
+                  + " own 'gimle apply -f' call");
+        }
+        found = Path.of(args.get(i + 1));
       }
     }
-    throw new CliException("apply requires -f <manifest.yaml>");
+    if (found == null) {
+      throw new CliException("apply requires -f <manifest.yaml>");
+    }
+    return found;
   }
 
   static byte[] readManifestBytes(Path file) {

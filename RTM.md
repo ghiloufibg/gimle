@@ -679,6 +679,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | New | Not Covered | — |
 | GIMLE-663 | Deleting a Role cascades to every RoleBinding naming it | New | Not Covered | — |
 | GIMLE-664 | Gateway route table reloads on a config change without a restart | New | Not Covered | — |
+| GIMLE-665 | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -5155,6 +5156,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FlagsTest` (unit-level); a real end-user pass against the built `gimle-cli` distribution archive
 - **Source location(s)**: `Flags#parse`, every `Flags.parse` call site across `gimle-cli`
 
+#### GIMLE-665 — Single-resource CLI verbs reject more than one positional argument instead of silently truncating
+
+- **Category**: CLI / console parity
+- **Status**: New  _(New requirement: closes FUNC-44 -- requireOne, five sibling get methods, and ManifestFiles#requireFileFlag all silently kept only the first argument/-f and discarded the rest, with no warning or error.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario driving the real CLI against a real cluster with gimle delete <kind> <name> <extra> and gimle apply -f a.yaml -f b.yaml, asserting a nonzero exit and that nothing was actually deleted/applied.
+- **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest#deleting_a_tenant_with_more_than_one_positional_argument_is_rejected`, `#getting_a_tenant_with_more_than_one_positional_argument_is_rejected`, `#cordoning_with_more_than_one_positional_argument_is_rejected`, `#apply_with_more_than_one_file_flag_is_rejected_not_silently_applying_only_the_first`.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java`, `gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java`, `gimle-cli/src/main/java/com/gimle/cli/TenantsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/RolesCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/RoleBindingsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/AccountsCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/LimitRangeCommand.java`
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -7028,7 +7038,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**541 of 664 requirements are Not Covered.**
+**542 of 665 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7115,6 +7125,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-385 | gimle-cli | RBAC role binding management | CLI / Security | `GimleCliTest.set_rolebinding_then_get_rolebindings_round_trips_then_delete` |
 | GIMLE-386 | gimle-cli | Operator account management | CLI / Security | `GimleCliTest.set_account_then_get_accounts_round_trips_and_never_leaks_the_password_hash` |
 | GIMLE-387 | gimle-cli | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | CLI / Security | NONE recorded in the baseline |
+| GIMLE-665 | gimle-cli | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | CLI / console parity | `GimleCliTest#deleting_a_tenant_with_more_than_one_positional_argument_is_rejected`, `#getting_a_tenant_with_more_than_one_positional_argument_is_rejected`, `#cordoning_with_more_than_one_positional_argument_is_rejected`, `#apply_with_more_than_one_file_flag_is_rejected_not_silently_applying_only_the_first`. |
 | GIMLE-635 | gimle-hilmir | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | CLI UX | `HilmirMainTest` (top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb, top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb, enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h, enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server, disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h, disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server) |
 | GIMLE-637 | gimle-cli | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | CLI UX | `GimleCliTest` (get_statefulsets_renders_clean_table_columns_instead_of_raw_json_per_cell, get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell) |
 | GIMLE-107 | gimle-agent | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Cgroup Management | `ResourceLimitEnforcementTest#a_spawned_jvm_honors_the_computed_memory_and_processor_ceiling` (gimle-agent, real subprocess); `PortableJvmFlagsResourceLimiterTest` (gimle-os) |

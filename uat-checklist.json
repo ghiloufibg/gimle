@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 664,
+    "totalRequirements": 665,
     "coveredByAutomatedTest": 123,
-    "notCoveredByAutomatedTest": 541,
+    "notCoveredByAutomatedTest": 542,
     "releaseReadinessPercent": 18.5
   },
   "items": [
@@ -7306,6 +7306,17 @@
       "category": "Networking",
       "feature": "Gateway route table reloads on a config change without a restart",
       "step": "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-665",
+      "module": "gimle-cli",
+      "category": "CLI / console parity",
+      "feature": "Single-resource CLI verbs reject more than one positional argument instead of silently truncating",
+      "step": "Given a delete/get verb backed by requireOne or requireAtMostOne; When more than one positional name/id argument is given; Then the command is rejected with a clear \"too many arguments\" error and exits nonzero, with no request ever sent to the control plane. Given gimle apply with two -f/--file flags; When the command runs; Then it is rejected before either manifest is read, rather than silently applying only the first. Given a rejected delete or apply; Then the target resource is left completely untouched -- rejection happens client-side, before any HTTP request.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

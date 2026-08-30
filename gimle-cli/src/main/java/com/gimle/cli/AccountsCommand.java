@@ -27,11 +27,11 @@ public final class AccountsCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
+    String username = GimleCli.requireAtMostOne(args, "account");
+    if (username == null) {
       OutputFormat.printList(output, client.getList("/accounts"), out);
       return;
     }
-    String username = args.get(0);
     OutputFormat.printObject(output, client.getObject("/accounts/" + username), out);
   }
 

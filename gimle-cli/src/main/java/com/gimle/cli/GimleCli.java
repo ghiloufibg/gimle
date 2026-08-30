@@ -701,6 +701,35 @@ public final class GimleCli {
     if (args.isEmpty()) {
       throw new CliException("missing " + what + " name/id");
     }
+    return requireAtMostOne(args, what);
+  }
+
+  /**
+   * Rejects more than one positional argument outright instead of silently keeping only the first
+   * and discarding the rest -- {@code null} for an empty {@code args}, which every {@code get
+   * <kind> [name]}-style caller already treats as "list every {@code kind}" rather than an error.
+   * {@link #requireOne} builds on this for the {@code delete}-style callers that have no such
+   * empty-means-list-everything case of their own. Package-private: {@code TenantsCommand}/{@code
+   * RolesCommand}/{@code RoleBindingsCommand}/{@code AccountsCommand}/{@code LimitRangeCommand}'s
+   * own {@code get} methods call this directly for the identical reason {@code requireOne} exists
+   * -- before this, {@code gimle get tenant a b c} silently printed only {@code a}, with {@code b}
+   * and {@code c} never referenced anywhere, no different from the {@code delete} side of the same
+   * bug.
+   */
+  static String requireAtMostOne(List<String> args, String what) {
+    if (args.isEmpty()) {
+      return null;
+    }
+    if (args.size() > 1) {
+      throw new CliException(
+          "too many arguments for "
+              + what
+              + ": expected at most one name/id, got "
+              + args.size()
+              + " ("
+              + String.join(", ", args)
+              + ")");
+    }
     return args.get(0);
   }
 

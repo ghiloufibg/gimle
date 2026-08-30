@@ -674,6 +674,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-662 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | Secrets / CLI parity | Complete | Yes |
 | GIMLE-663 | Deleting a Role cascades to every RoleBinding naming it | Authorization | Complete | Yes |
 | GIMLE-664 | Gateway route table reloads on a config change without a restart | Networking | Complete | Yes |
+| GIMLE-665 | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | CLI / console parity | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -7210,6 +7211,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a command like "secret set default my-secret hunter2" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does.
+  ```
+
+#### GIMLE-665 — Single-resource CLI verbs reject more than one positional argument instead of silently truncating
+
+- **Category**: CLI / console parity
+- **User story**: As an operator running gimle delete <kind> <name> or gimle apply -f <manifest> from a script, I want a mistaken extra argument (a second name, a second -f) to fail loudly and change nothing, so a typo or a copy-paste mistake can never look like it succeeded while quietly acting on only the first argument and discarding the rest.
+- **Status**: Complete. GimleCli#requireOne -- the shared helper behind cordon/uncordon/get node-assignments/get config/delete tenant/delete limitrange/delete role/delete rolebinding/delete account -- returned args.get(0) with no check on args.size(), so gimle delete tenant a b silently deleted only "a" with "b" never referenced anywhere, no warning, no error. The five corresponding get <kind> [name] methods (TenantsCommand, RolesCommand, RoleBindingsCommand, AccountsCommand, LimitRangeCommand) shared the identical shape on their own bare-lookup path -- gimle get tenant a b silently printed only "a". Separately, ManifestFiles#requireFileFlag scanned forward for -f/--file and returned the first match found, so gimle apply -f a.yaml -f b.yaml silently applied only a.yaml, with b.yaml never read and no warning it was ignored. Fixed: requireOne now rejects more than one positional argument via a new shared GimleCli#requireAtMostOne (also called directly by the five get methods above, closing the identical gap on their side of the same bug), and requireFileFlag now rejects a second -f/--file outright. Every rejection happens client-side before any HTTP request is sent, so a rejected delete/apply changes nothing -- not a partial delete, not a partial apply.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`requireOne`, `requireAtMostOne`), `gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java` (`requireFileFlag`), `gimle-cli/src/main/java/com/gimle/cli/TenantsCommand.java`, `RolesCommand.java`, `RoleBindingsCommand.java`, `AccountsCommand.java`, `LimitRangeCommand.java` (`get`)
+- **Test coverage**: `GimleCliTest#deleting_a_tenant_with_more_than_one_positional_argument_is_rejected` (confirmed the tenant is never actually deleted -- a subsequent get still finds it), `#getting_a_tenant_with_more_than_one_positional_argument_is_rejected`, `#cordoning_with_more_than_one_positional_argument_is_rejected`, `#apply_with_more_than_one_file_flag_is_rejected_not_silently_applying_only_the_first` (confirmed neither manifest was ever applied). Full gimle-cli regression suite re-verified (77/77 GimleCliTest methods pass in isolation).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a delete/get verb backed by requireOne or requireAtMostOne; When more than one positional name/id argument is given; Then the command is rejected with a clear "too many arguments" error and exits nonzero, with no request ever sent to the control plane.
+  Given gimle apply with two -f/--file flags; When the command runs; Then it is rejected before either manifest is read, rather than silently applying only the first.
+  Given a rejected delete or apply; Then the target resource is left completely untouched -- rejection happens client-side, before any HTTP request.
   ```
 
 ### gimle-hilmir

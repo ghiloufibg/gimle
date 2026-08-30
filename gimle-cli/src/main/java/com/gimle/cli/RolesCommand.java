@@ -26,11 +26,11 @@ public final class RolesCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
+    String name = GimleCli.requireAtMostOne(args, "role");
+    if (name == null) {
       OutputFormat.printList(output, client.getList("/roles"), out);
       return;
     }
-    String name = args.get(0);
     OutputFormat.printObject(output, client.getObject("/roles/" + name), out);
   }
 

@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.api.ApiServer;
@@ -1379,6 +1380,69 @@ class GimleCliTest {
     assertEquals(1, exit);
     assertTrue(stderr().contains("could not read manifest file"), stderr());
     assertTrue(stderr().contains("is a directory"), stderr());
+  }
+
+  @Test
+  void apply_with_more_than_one_file_flag_is_rejected_not_silently_applying_only_the_first()
+      throws Exception {
+    // FUNC-44 regression: the original forward-scan implementation returned the first -f it saw
+    // and never looked further, so a second -f silently vanished with no warning.
+    Path first = writeManifest("first-service", 1);
+    Path second = writeManifest("second-service", 1);
+
+    int exit = run("apply", "-f", first.toString(), "-f", second.toString());
+
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("exactly one"), stderr());
+    outBuffer.reset();
+    // Neither manifest was ever applied -- rejected before any request was made.
+    assertEquals(0, run("get", "deployments"));
+    assertFalse(stdout().contains("first-service"), stdout());
+    assertFalse(stdout().contains("second-service"), stdout());
+  }
+
+  // ---- a single-resource CLI verb rejects more than one name/id rather than silently keeping
+  // only the first (FUNC-44) ----
+
+  @Test
+  void deleting_a_tenant_with_more_than_one_positional_argument_is_rejected() {
+    assertEquals(
+        0,
+        run(
+            "set",
+            "tenant",
+            "acme",
+            "--max-memory-bytes",
+            "1",
+            "--max-cpu-millicores",
+            "1",
+            "--max-instances",
+            "1"),
+        errBuffer::toString);
+
+    int exitCode = run("delete", "tenant", "acme", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments"), stderr());
+    outBuffer.reset();
+    // Rejected before any request was made -- "acme" was never actually deleted.
+    assertEquals(0, run("get", "tenant", "acme"));
+  }
+
+  @Test
+  void getting_a_tenant_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("get", "tenant", "acme", "unexpected-extra-argument");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments"), stderr());
+  }
+
+  @Test
+  void cordoning_with_more_than_one_positional_argument_is_rejected() {
+    int exitCode = run("cordon", "node-1", "node-2");
+
+    assertNotEquals(0, exitCode);
+    assertTrue(stderr().contains("too many arguments"), stderr());
   }
 
   // ---- -h/--help scopes to wherever it appears in the argument list ----

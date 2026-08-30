@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 664
+- **Total requirements**: 665
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 541
+- **Not covered by automated test**: 542
 - **Release-readiness (automated coverage)**: 18.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -27,7 +27,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 17 | 0 | 17 | 0.0% |
-| gimle-cli | 29 | 0 | 29 | 0.0% |
+| gimle-cli | 30 | 0 | 30 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 33 | 0 | 33 | 0.0% |
@@ -1487,6 +1487,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-385 | RBAC role binding management | Given "gimle set rolebinding b1 --subject user:alice --role cluster-admin", Then PUT /rolebindings/b1; "gimle get rolebindings" lists "user:alice". | No |
 | [ ] | GIMLE-386 | Operator account management | Given "gimle set account admin --password s3cret-password", Then PUT /accounts/admin sent; JSON output includes "username" but never "passwordHash" or the raw password. | No |
 | [ ] | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | Given "gimle cert request --purpose operator --out-cert op.crt --out-key op.key" against a trust-only connection, Then a keypair/CSR is generated locally, private key written immediately, and CSR POSTed unauthenticated to /bootstrap/csr; a due-for-renewal cred triggers a warning on any other command. | No |
+
+#### CLI / console parity
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-665 | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | Given a delete/get verb backed by requireOne or requireAtMostOne; When more than one positional name/id argument is given; Then the command is rejected with a clear "too many arguments" error and exits nonzero, with no request ever sent to the control plane. Given gimle apply with two -f/--file flags; When the command runs; Then it is rejected before either manifest is read, rather than silently applying only the first. Given a rejected delete or apply; Then the target resource is left completely untouched -- rejection happens client-side, before any HTTP request. | No |
 
 #### CLI UX
 
