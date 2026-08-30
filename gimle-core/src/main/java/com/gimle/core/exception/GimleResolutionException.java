@@ -43,6 +43,14 @@ public class GimleResolutionException extends RuntimeException {
 
   public static GimleResolutionException layerInstantiationFailed(
       ModuleId moduleId, Throwable cause) {
-    return new GimleResolutionException("failed to instantiate ModuleLayer for " + moduleId, cause);
+    // The cause's own message is folded into this one: readers of a summarized event (an instance
+    // event's causeSummary, a log line) see only the outermost message, and the JPMS layer's
+    // explanation -- a module-info name not matching the manifest's, an unsatisfiable requires --
+    // is the part a module author can actually act on.
+    return new GimleResolutionException(
+        "failed to instantiate ModuleLayer for "
+            + moduleId
+            + (cause == null || cause.getMessage() == null ? "" : ": " + cause.getMessage()),
+        cause);
   }
 }
