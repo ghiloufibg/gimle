@@ -2333,6 +2333,8 @@ public final class ApiServer implements AutoCloseable {
     spec.startingDeadline().ifPresent(d -> specMap.put("startingDeadlineSeconds", d.toSeconds()));
     specMap.put("concurrencyPolicy", spec.concurrencyPolicy().name());
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
+    specMap.put("successfulJobsHistoryLimit", spec.successfulJobsHistoryLimit());
+    specMap.put("failedJobsHistoryLimit", spec.failedJobsHistoryLimit());
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);

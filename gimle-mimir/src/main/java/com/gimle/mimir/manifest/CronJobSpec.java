@@ -16,6 +16,12 @@ import java.util.Optional;
  * reconcile tick. {@code startingDeadline}, if present, is how late (after the computed due
  * instant) a firing may still be honored before it's logged as missed instead -- matching
  * Kubernetes CronJob's own missed-schedule handling.
+ *
+ * <p>{@code successfulJobsHistoryLimit}/{@code failedJobsHistoryLimit} bound how many terminal
+ * generated {@link JobSpec}s {@code CronJobReconciler} keeps around per outcome, oldest-first --
+ * independent of {@code concurrencyPolicy}, which only ever governs non-terminal jobs. Matches
+ * Kubernetes CronJob's own field names and defaults (3 succeeded / 1 failed) exactly: without this,
+ * every firing leaves a completed {@link JobSpec} in the store forever.
  */
 public record CronJobSpec(
     String name,
@@ -23,7 +29,9 @@ public record CronJobSpec(
     JobTemplate jobTemplate,
     Optional<Duration> startingDeadline,
     ConcurrencyPolicy concurrencyPolicy,
-    Optional<String> tenantId)
+    Optional<String> tenantId,
+    int successfulJobsHistoryLimit,
+    int failedJobsHistoryLimit)
     implements WorkloadSpec {
 
   public CronJobSpec {
@@ -50,6 +58,14 @@ public record CronJobSpec(
     }
     if (tenantId == null) {
       throw new IllegalArgumentException("tenantId must be Optional.empty(), not null");
+    }
+    if (successfulJobsHistoryLimit < 0) {
+      throw new IllegalArgumentException(
+          "successfulJobsHistoryLimit must not be negative: " + successfulJobsHistoryLimit);
+    }
+    if (failedJobsHistoryLimit < 0) {
+      throw new IllegalArgumentException(
+          "failedJobsHistoryLimit must not be negative: " + failedJobsHistoryLimit);
     }
   }
 }

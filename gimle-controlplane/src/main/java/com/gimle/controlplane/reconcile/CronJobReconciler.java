@@ -16,12 +16,14 @@ import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
+import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -63,6 +65,11 @@ import org.slf4j.LoggerFactory;
  * A rejected firing is treated exactly like a missed one (logged, {@code cronJobLastSchedule} still
  * advances so it isn't retried every tick) rather than failing the whole reconcile pass -- the same
  * tolerant posture {@link #readArtifactSha256} already had for an unreadable artifact.
+ *
+ * <p>Every tick also prunes each CronJob's own terminal generated Jobs down to {@link
+ * CronJobSpec#successfulJobsHistoryLimit()}/{@link CronJobSpec#failedJobsHistoryLimit()} (see
+ * {@link #pruneJobHistory}) -- otherwise a CronJob firing on any regular schedule leaves one {@link
+ * JobSpec} in the store per firing, forever.
  */
 public final class CronJobReconciler {
 
@@ -103,6 +110,7 @@ public final class CronJobReconciler {
     for (CronJobSpec spec : store.listCronJobSpecs()) {
       try {
         reconcileCronJob(spec);
+        pruneJobHistory(spec);
       } catch (RuntimeException e) {
         // One cronjob's failure (e.g. a GimleRaftException from mutations.propose during a store
         // leader-election gap) must never abort the rest of this tick's cronjobs -- the next tick
@@ -149,6 +157,63 @@ public final class CronJobReconciler {
 
     planFiring(spec, due.get()).ifPresent(plan -> firing.addAll(plan.mutations()));
     mutations.proposeAll(firing);
+  }
+
+  /**
+   * Prunes terminal ({@code SUCCEEDED}/{@code FAILED}) generated Jobs down to {@link
+   * CronJobSpec#successfulJobsHistoryLimit()}/{@link CronJobSpec#failedJobsHistoryLimit()} per
+   * outcome, oldest-first -- entirely independent of {@link
+   * com.gimle.mimir.manifest.ConcurrencyPolicy}, which only ever governs non-terminal jobs (see
+   * {@link #planFiring}). Runs every tick regardless of whether this tick produced a new firing, so
+   * it converges from any starting state -- including one with far more accumulated terminal jobs
+   * than the current limit, e.g. right after an operator lowers it.
+   */
+  private void pruneJobHistory(CronJobSpec spec) {
+    List<JobSpec> generated =
+        store.listJobSpecs().stream()
+            .filter(
+                s -> s.name().startsWith(spec.name() + "-") && s.tenantId().equals(spec.tenantId()))
+            .toList();
+    List<StateMutation> removals = new ArrayList<>();
+    removals.addAll(
+        excessTerminalJobs(generated, JobPhase.SUCCEEDED, spec.successfulJobsHistoryLimit()));
+    removals.addAll(excessTerminalJobs(generated, JobPhase.FAILED, spec.failedJobsHistoryLimit()));
+    if (!removals.isEmpty()) {
+      mutations.proposeAll(removals);
+    }
+  }
+
+  /** The oldest-first excess of {@code generated}'s own {@code phase} jobs beyond {@code limit}. */
+  private List<StateMutation> excessTerminalJobs(
+      List<JobSpec> generated, JobPhase phase, int limit) {
+    List<JobSpec> terminalOfPhase =
+        generated.stream()
+            .filter(s -> store.getJobPhase(s.tenantId(), s.name()).equals(Optional.of(phase)))
+            .sorted(Comparator.comparingLong(CronJobReconciler::firingEpochSecond))
+            .toList();
+    if (terminalOfPhase.size() <= limit) {
+      return List.of();
+    }
+    return terminalOfPhase.stream()
+        .limit(terminalOfPhase.size() - limit)
+        .<StateMutation>map(s -> new StateMutation.RemoveJobSpec(s.tenantId(), s.name()))
+        .toList();
+  }
+
+  /**
+   * Extracts the {@code epochSeconds} suffix a generated Job's own name carries ({@code
+   * {cronJobName}-{epochSeconds}}, see {@link #planFiring}) to order terminal jobs oldest-first for
+   * history pruning. Falls back to {@code 0} for a suffix that isn't a valid number -- never
+   * produced by this reconciler itself, but harmless: such a job just sorts first, so pruning still
+   * proceeds rather than one malformed name blocking the whole tick.
+   */
+  private static long firingEpochSecond(JobSpec job) {
+    String name = job.name();
+    try {
+      return Long.parseLong(name.substring(name.lastIndexOf('-') + 1));
+    } catch (NumberFormatException e) {
+      return 0L;
+    }
   }
 
   /**

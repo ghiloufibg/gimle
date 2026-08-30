@@ -30,6 +30,11 @@ public final class CronJobManifestParser {
 
   private static final ConcurrencyPolicy DEFAULT_CONCURRENCY_POLICY = ConcurrencyPolicy.ALLOW;
 
+  /** Matches Kubernetes CronJob's own defaults exactly. */
+  private static final int DEFAULT_SUCCESSFUL_JOBS_HISTORY_LIMIT = 3;
+
+  private static final int DEFAULT_FAILED_JOBS_HISTORY_LIMIT = 1;
+
   private static final Set<String> KNOWN_FIELDS =
       Set.of(
           "name",
@@ -37,7 +42,9 @@ public final class CronJobManifestParser {
           "jobTemplate",
           "startingDeadlineSeconds",
           "concurrencyPolicy",
-          "tenantId");
+          "tenantId",
+          "successfulJobsHistoryLimit",
+          "failedJobsHistoryLimit");
 
   private CronJobManifestParser() {}
 
@@ -71,10 +78,22 @@ public final class CronJobManifestParser {
     Optional<Duration> startingDeadline = parseStartingDeadline(root);
     ConcurrencyPolicy concurrencyPolicy = parseConcurrencyPolicy(root);
     Optional<String> tenantId = ManifestFields.parseTenantId(root);
+    int successfulJobsHistoryLimit =
+        parseHistoryLimit(
+            root, "successfulJobsHistoryLimit", DEFAULT_SUCCESSFUL_JOBS_HISTORY_LIMIT);
+    int failedJobsHistoryLimit =
+        parseHistoryLimit(root, "failedJobsHistoryLimit", DEFAULT_FAILED_JOBS_HISTORY_LIMIT);
 
     try {
       return new CronJobSpec(
-          name, schedule, jobTemplate, startingDeadline, concurrencyPolicy, tenantId);
+          name,
+          schedule,
+          jobTemplate,
+          startingDeadline,
+          concurrencyPolicy,
+          tenantId,
+          successfulJobsHistoryLimit,
+          failedJobsHistoryLimit);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid cronjob manifest for " + name + ": " + e.getMessage(), e);
@@ -124,6 +143,18 @@ public final class CronJobManifestParser {
           "'concurrencyPolicy' must be one of ALLOW, FORBID, REPLACE (case-insensitive); got: "
               + s);
     }
+  }
+
+  /** Absent means {@code defaultValue} -- matches {@link #parseBackoffLimit}'s own shape. */
+  private static int parseHistoryLimit(Map<?, ?> root, String field, int defaultValue) {
+    Object value = root.get(field);
+    if (value == null) {
+      return defaultValue;
+    }
+    if (!(value instanceof Number number) || number.intValue() < 0) {
+      throw new GimleManifestException("'" + field + "' must be a non-negative number if present");
+    }
+    return number.intValue();
   }
 
   private static Optional<Duration> parseActiveDeadline(Map<?, ?> template) {
