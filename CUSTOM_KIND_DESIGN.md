@@ -518,15 +518,234 @@ slice; authoring YAML stays in the CLI where apply semantics live.
   KindDefinition mechanism, schema-validated admission, RBAC qualifier, operator status loop —
   entered in `requirements-matrix.json`/`rtm.json` with the four views regenerated, per convention.
 
-## Implementation slices
+## Implementation phases, in order
 
-| Slice | Contents | Demo at the end of it |
+Six phases, strictly ordered: each phase's exit demo is the next phase's precondition, and no
+later phase forces rework of an earlier one. Phases 1–5 are the build; phase 6 is deliberately
+not a build phase at all — it is a black-box, real-user validation pass over the finished
+feature, run by testers who never open the sources, and the feature is not "done" until it has
+survived that pass (see "Phase 6" below for its full design). Automated coverage (unit,
+integration, Holmgang) lands inside phases 1–5 per the testing plan above; phase 6 exists
+because automated suites verify what the design *says*, while a user-perspective pass verifies
+what a person actually *experiences* — the two catch disjoint failure classes, as every prior
+QA pass on this platform has demonstrated.
+
+| Phase | Contents | Builds on | Exit criterion — the demo |
+|---|---|---|---|
+| **P1 · store + schema** | `KindDefinitionSpec`/`CustomResource` records, five mutations, codecs, snapshot components, StoreReader/Client/Rpc reads; the schema model + validator with its full table-driven failure battery | — | Codec round-trips, snapshot/restore, CAS conflict, and every validator happy/failure pair green in `gimle-mimir`'s own suite |
+| **P2 · API + RBAC** | `/kinddefinitions` and `/resources/*` routes via `dispatchCustomResourceRequest`; prefix normalization + warning; defaulting/canonicalization; definition re-PUT revalidation + backfill; `KIND_DEFINITION`/`CUSTOM_RESOURCE` + the qualifier; audit rows | P1 | `curl` a definition and an instance through a real control plane; both survive a restart; a 409 violator list on a breaking re-PUT |
+| **P3 · CLI** | `apply` fallthrough with the bounded 409 retry, `gimle kinds`, generic `get/delete` with plural/shortName resolution, printColumns rendering | P2 | The walkthrough transcript, minus the SAID column |
+| **P4 · operator path** | Relay whitelist additions riding the existing workload-token bearer flow, `reportResourceStatus`, the `{kind}/status` qualifier enforcement, `GaldrOperatorLoop`, a real `gimle-examples/greeting-operator` | P3 | The walkthrough transcript, complete — hello said, status visible, operator bound by RBAC |
+| **P5 · console + docs + RTM** | Custom Resources screen; `manifest-schema.md`/`cli-reference.md`/architecture pages; requirement rows (GIMLE-654+) + the Holmgang `custom-kinds.feature` | P4 | `mvn verify` green; `-Pvalidation` proves the whole loop end to end; RTM rows claim `Covered` honestly |
+| **P6 · watchers pass** | The user-end validation pass designed below — five watcher personas plus a lead, ~40 scenarios, run against a real cluster built the way a user would build one | P5 | Every blocker/major finding fixed and re-verified against a rebuilt cluster; every minor triaged to an explicit fix/accept decision |
+| *Deferred* | Widening the relay whitelist to platform-kind writes (composite kinds — a policy decision, the identity machinery already exists); multi-version schemas; an event timeline for custom resources (status is the only observable in v1) | — | Each its own design doc |
+
+## Phase 6 · the Galdr watchers — a real-user validation pass
+
+The final phase is a scoped rerun of the platform's established multi-watcher QA format —
+independent tester personas, each handed a role and a scenario list, none permitted to read
+Gimlé's Java sources to decide whether something is a bug. Every watcher judges the way a
+customer would: from the documentation a user actually reads, from what the CLI and console
+tell them, and from whether the system does what it just said it did. This pass covers **only
+the Galdr feature surface** — everything phases 1–5 shipped — not the platform at large.
+
+### Posture
+
+- **Black-box, sources closed.** A watcher may read `manifest-schema.md`, `cli-reference.md`,
+  the console, CLI help text, and error messages — never `*.java`. "The code says it's fine"
+  is not an admissible verdict; "the error message told me what to fix" is.
+- **Objective plus oracle, not a script.** Each scenario below states what the watcher tries
+  and how they'd know it worked. The click-by-click path is the watcher's own — divergence
+  between watchers on the same objective is signal, not noise.
+- **One lead, who never tests.** The lead merges duplicate findings across watchers
+  (fingerprint: scenario domain + normalized one-line symptom; merged findings keep the
+  maximum severity and the union of reproduction steps), resolves false alarms by
+  cross-referencing watchers' own activity logs, and writes the consolidated report. A
+  disagreement between two watchers about severity is recorded, never silently resolved.
+
+### Environments
+
+| Env | Shape | What only it can test |
 |---|---|---|
-| **M1 · store + admission** | Records, mutations, codecs, snapshot, StoreReader/Client/Rpc; schema model + validator; `/kinddefinitions` and `/resources/*` routes; RBAC values + qualifier | `curl` a definition and an instance through a real control plane; both survive restart |
-| **M2 · CLI** | `apply` fallthrough with the bounded 409 retry, `gimle kinds`, generic `get/delete` with plural/shortName resolution, printColumns | The walkthrough transcript, minus the SAID column |
-| **M3 · operator path** | Relay whitelist additions riding the existing workload-token bearer flow, `reportResourceStatus`, the `{kind}/status` qualifier, `GaldrOperatorLoop`, a real `gimle-examples/greeting-operator` | The walkthrough transcript, complete — hello said, status visible, operator bound by RBAC |
-| **M4 · console + docs + RTM** | Custom Resources screen; `manifest-schema.md`/`cli-reference.md`/architecture pages; requirement rows + Holmgang feature | `mvn verify` green, `-Pvalidation` proves it end to end |
-| *Deferred* | Widening the relay whitelist to platform-kind writes (composite kinds — a policy decision, the identity machinery already exists); multi-version schemas; an event timeline for custom resources (status is the only observable in v1) | Each its own design doc |
+| **A — plaintext** | Single node via `mvn gimle:bootstrap`: store, control plane, one agent, the everyday cluster a developer first meets | All CRUD, CLI, console, operator-loop, and negative-path scenarios — the 90% of usage |
+| **B — mTLS** | Same shape brought up with real PKI, so principals are real and RBAC actually bites | Every GOV scenario: tenant isolation, the qualifier boundaries, withheld grants, audit attribution |
+
+### Watcher roster
+
+| Watcher | Persona | Scenarios |
+|---|---|---|
+| **Kind Author** | The platform admin teaching the cluster a new word — writes KindDefinitions from the docs alone, evolves them, deletes them | KIND-1…8 |
+| **Resource Author** | A tenant developer who applies instances of a kind someone else defined — never saw the schema's YAML, only its error messages | RES-1…8 |
+| **Operator Dev** | Builds and deploys the reconciler module against the SDK docs and the `greeting-operator` example | OPR-1…7 |
+| **Gatekeeper** | Whoever is accountable if tenant A reads tenant B's resources — runs entirely on Env B | GOV-1…6 |
+| **Breaker** | Mildly adversarial, reads no manual twice — races, oversized payloads, malformed input, process bounces | CHAOS-1…8 |
+| **Lead** | Never tests; dedups, adjudicates, writes the report | — |
+
+Console coverage (CON-1…4) is carried by the Resource Author and Gatekeeper rather than a
+dedicated watcher — the screen is read-only by design, and a persona that just mutated state
+through the CLI is exactly who should check the screen reflects it.
+
+### Scenario catalog
+
+**Kind Author — the definition lifecycle**
+
+- **KIND-1** Write a `Greeting`-like KindDefinition from `manifest-schema.md` alone (no
+  copy-paste of the walkthrough), apply it. *Oracle:* the prefix-normalization warning names
+  the stored name; `gimle kinds` lists it with scope, names, and a zero instance count.
+- **KIND-2** Re-apply the identical definition. *Oracle:* success, no generation churn
+  anywhere, no spurious warning difference from the first apply.
+- **KIND-3** Submit a schema where one field is both `required` and has a `default`.
+  *Oracle:* a 400 naming that field and the rule; nothing stored; `gimle kinds` unchanged.
+- **KIND-4** Submit a schema nested 9 objects deep. *Oracle:* refused at definition admission
+  with the depth cap stated, not stored and not half-stored.
+- **KIND-5** With live instances, re-PUT the definition adding one new defaulted field.
+  *Oracle:* update lands; every existing instance's `-o json` now shows the new field with
+  its default (backfilled, not read-time-defaulted); the operator needed no change.
+- **KIND-6** Re-PUT a schema an existing instance violates (tighten a `max` below a stored
+  value). *Oracle:* 409 naming the violating instance(s); the old schema still validates new
+  applies; nothing was partially updated.
+- **KIND-7** `DELETE` the definition while instances exist. *Oracle:* 409 telling the user to
+  delete instances first; after deleting them, the definition deletes cleanly; a subsequent
+  instance apply gets the unknown-kind 400 with the remaining catalog.
+- **KIND-8** Define a second kind whose declared `plural` collides with an existing kind's.
+  *Oracle:* refused at admission naming the clash; the CLI noun still resolves to the
+  original kind.
+
+**Resource Author — living with someone else's kind**
+
+- **RES-1** Apply the walkthrough's instance; read it back as `gimle get greetings`, `get
+  gr`, and `get custom.Greeting`. *Oracle:* all three resolve to the same table, rendering
+  NAME/TENANT/GENERATION plus the definition's printColumns.
+- **RES-2** Typo a spec field name. *Oracle:* 400 naming the unknown key — rejected, not
+  silently pruned; nothing stored.
+- **RES-3** Submit an out-of-set enum value and an out-of-bounds int (separately). *Oracle:*
+  each is a structured 400 naming the field and the violated constraint, understandable
+  without reading the KindDefinition YAML.
+- **RES-4** Apply a spec omitting every defaulted field. *Oracle:* `-o json` shows the stored
+  spec complete with defaults persisted — what's stored is what's served.
+- **RES-5** Apply a Tenant-scoped instance without `tenantId`, then a Cluster-scoped one with
+  it. *Oracle:* both rejected, each error stating which scope rule was violated.
+- **RES-6** Re-apply the identical spec, then change one field. *Oracle:* the identical
+  re-apply bumps nothing; the real change bumps `generation` by exactly 1, and
+  `status.observedGeneration` catches up within one operator poll interval.
+- **RES-7** Delete an instance the operator is acting on. *Oracle:* whatever the operator
+  materialized ceases on its next pass; `gimle audit --resource CustomResource:<kind>` shows
+  the create, updates, and delete.
+- **RES-8** Inspect an instance whose status the operator hasn't reported yet. *Oracle:* the
+  table renders an empty status column (not an error); `-o json` shows spec verbatim and an
+  empty status.
+
+**Operator Dev — building the controller half**
+
+- **OPR-1** Build an operator from the SDK docs and the `greeting-operator` example, deploy
+  it, bind its `svc:` principal per the walkthrough. *Oracle:* status lands on every instance
+  within one poll interval of the binding existing.
+- **OPR-2** Deploy the operator before any instance of its kind exists. *Oracle:* it idles
+  cleanly (no crash loop, no error spam); the first instance applied later is picked up on
+  the next tick with no operator restart.
+- **OPR-3** Deploy the operator with no role binding at all. *Oracle:* it reads nothing, and
+  the relay's authorization failure is visible in the module's own log as a real error — not
+  a hang, not an empty-set success.
+- **OPR-4** With the operator's token granted only `READ` + `…/status`, attempt a spec write
+  with that same identity from outside (curl with the bearer token). *Oracle:* 403 — the
+  status grant never covers spec, live, not just on paper.
+- **OPR-5** Kill the operator's worker JVM mid-loop. *Oracle:* self-healing respawns it;
+  status reporting resumes; `observedGeneration` is correct afterward — no stuck stale
+  status, no double-processing visible to the user.
+- **OPR-6** Poison one instance (a spec value the operator's own logic chokes on). *Oracle:*
+  every other instance still reconciles on every tick; the per-resource failure is visible in
+  the operator's log; the tick never dies.
+- **OPR-7** Bounce the control plane while the operator polls. *Oracle:* the loop backs off
+  and rides through; status converges after recovery; no crash-loop and no manual
+  intervention needed.
+
+**Gatekeeper — the boundaries, on Env B**
+
+- **GOV-1** As tenant B's principal, list and get tenant A's instances. *Oracle:* the list is
+  filtered per-item, the direct get is denied — for a Tenant-scoped kind, cross-tenant reads
+  simply don't happen.
+- **GOV-2** As a principal with full tenant-admin grants but no `KIND_DEFINITION`, PUT a
+  definition. *Oracle:* denied; the same principal can still `GET /kinddefinitions` (schemas
+  are discoverable, teaching the cluster new words is not).
+- **GOV-3** Bind a role qualified to one kind; act on a second kind with it. *Oracle:* the
+  qualifier confines every verb to the named kind — the second kind is untouchable.
+- **GOV-4** With spec-WRITE but no status qualifier, PUT a status; with only the status
+  qualifier, PUT a spec. *Oracle:* both denied — the split holds in both directions.
+- **GOV-5** Audit the whole session. *Oracle:* definition PUTs, instance PUT/DELETEs, and
+  status PUTs all appear with `CustomResource:{kind}` (or `KIND_DEFINITION`) and the true
+  mTLS principal — including the operator's `svc:` identity on status rows.
+- **GOV-6** Delete a tenant owning custom resources. *Oracle:* its instances are gone with
+  the rest of its state; no orphan rows readable under the dead tenant ID afterward.
+
+**Breaker — races, garbage, and bounces**
+
+- **CHAOS-1** Fire two different-spec applies at the same instance name concurrently.
+  *Oracle:* the final stored spec is exactly one of the two, never a merge; the loser either
+  retried transparently onto the winner's generation or reported a real conflict; generation
+  arithmetic adds up.
+- **CHAOS-2** Apply while bouncing the mimir leader. *Oracle:* the CLI either succeeds or
+  reports a real error — never a false success; the store converges with no torn instance.
+- **CHAOS-3** Apply a 300 KiB spec. *Oracle:* 400 at admission naming the cap; the control
+  plane and store stay healthy.
+- **CHAOS-4** Feed the apply path malformed YAML and an anchor-bomb. *Oracle:* structured
+  400s, control plane unharmed — the untrusted-input posture holds for the generic parse
+  path too.
+- **CHAOS-5** Apply and `get` against a kind that doesn't exist. *Oracle:* both produce the
+  unknown-kind message listing the defined kinds — the catalog-in-the-error contract, on
+  every surface.
+- **CHAOS-6** Restart the entire control plane. *Oracle:* definitions, instances, and
+  statuses all survive; `gimle kinds` and every instance table are byte-identical before and
+  after.
+- **CHAOS-7** Delete a kind (instances first), then redefine it under the same name with a
+  different schema. *Oracle:* the new schema alone governs new applies; nothing of the old
+  kind's data resurfaces.
+- **CHAOS-8** PUT an over-cap status, and a status for a nonexistent instance. *Oracle:*
+  structured errors for both; no stored instance's generation moved.
+
+**Console — carried by Resource Author and Gatekeeper**
+
+- **CON-1** After the CLI work above, open Custom Resources. *Oracle:* the kind picker shows
+  every definition; the instance table honors printColumns; spec and status render side by
+  side with generation/observedGeneration both visible.
+- **CON-2** Bump a spec and watch the screen. *Oracle:* observedGeneration visibly trails,
+  then catches up — the "has the operator caught up" signal a human can actually read.
+- **CON-3** View the screen with zero definitions, and with a definition that has zero
+  instances. *Oracle:* honest empty states, not errors or spinners.
+- **CON-4** On Env B as a read-only principal. *Oracle:* resources visible per RBAC; no
+  mutation affordance exists anywhere on the screen — read-only by design, verified as such.
+
+### Run plan
+
+| Wave | Runs | Depends on |
+|---|---|---|
+| **0 — bring-up** | Both environments built the way a user would build them; the operator example built from the shipped sources; nothing else | Phases 1–5 complete, `-Pvalidation` green |
+| **1 — baseline** | Kind Author, Resource Author, Operator Dev in parallel, each populating real state (definitions, instances, a live operator) | Wave 0 |
+| **2 — pressure** | Gatekeeper and Breaker in parallel, deliberately colliding with wave 1's live state rather than a clean cluster | Wave 1 |
+
+### Reporting and the exit gate
+
+Findings use the platform's established QA shape — id, one-line title stating the wrong
+behavior, severity, environment, numbered steps, expected vs. actual, evidence — under the
+established taxonomy: **blocker** (data loss, stuck state with no operator path out, or a
+security boundary that doesn't hold), **major** (a documented capability doesn't work, or
+reports success while doing the wrong thing), **minor** (works, but the error message, output
+shape, or edge-case behavior is wrong or inconsistent), **cosmetic** (presentation only).
+
+The phase — and the feature — exits when every blocker and major is fixed and re-verified
+against a rebuilt cluster, and every minor and cosmetic finding carries an explicit fix or
+accept decision. Scenarios that passed clean are reported too: a ledger of defects alone
+understates what held, and "what held up" is what the next design leans on.
+
+### Non-goals of this pass
+
+- Codec, Raft, and snapshot internals — invisible from outside the process; P1's own suite
+  and Holmgang already own them.
+- Load ceilings (how many kinds/instances before something falls over) — Surtr's job, a
+  performance exercise, not functional QA.
+- The deferred features (composite-kind writes, multi-version schemas, the event timeline) —
+  not built, nothing for a black-box tester to observe.
+- General platform regression hunting — anything reproducible with the feature absent is out
+  of scope here and belongs to the platform-wide QA program instead.
 
 Grounded against the codebase as of 2026-08-29: `StateMutation`'s 62 variants and `RaftCodec`'s
 tag table, `dispatchResourceRequest`, `Authorizer.authorize(principal, resource, verb, tenant,
