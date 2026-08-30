@@ -694,6 +694,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-677 | SecretMap batch handlers signal partial failure via HTTP status and CLI exit code | New | Not Covered | — |
 | GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | New | Not Covered | — |
 | GIMLE-679 | Gateway route table reloads on a config change without a restart | New | Not Covered | — |
+| GIMLE-682 | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | New | Not Covered | — |
+| GIMLE-683 | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4027,6 +4029,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`
 
+#### GIMLE-682 — A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement
+
+- **Category**: Reconcilers / self-healing
+- **Status**: New  _(New requirement: closes FUNC-66 -- handleRollingUpdate's maxUnavailable throttle cleared an in-flight migration's slot on isReady's single-heartbeat reading, so a flapping-but-never-stable replacement could free its slot and let the next migration start early. Fixed at its source by GIMLE-683's readiness-stabilization window, since the clear condition is exactly isReady(current).)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that drives a real rolling update against a live cluster where the replacement's readiness probe is made to flap for several probe cycles, and asserts (via the real /deployments API or gimle events) that no second index ever begins migrating until the first genuinely stabilizes.
+- **Other test coverage (non-Holmgang, informational only)**: `DeploymentReconcilerTest#a_flapping_replacement_never_lets_a_second_migration_overlap_with_the_first`, `#a_genuinely_continuously_ready_replacement_completes_the_migration_and_frees_the_budget`; `StatefulSetReconcilerTest#a_flapping_replacement_during_a_rolling_update_never_lets_the_next_index_start_rolling_too`, `#a_genuinely_continuously_ready_replacement_completes_the_rolling_update_and_hands_off_to_the_next_index`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`
+
+#### GIMLE-683 — Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat
+
+- **Category**: Reconcilers / self-healing
+- **Status**: New  _(New requirement: closes FUNC-74 -- isReady in both DeploymentReconciler and StatefulSetReconciler was a pure point-in-time read of the latest heartbeat's ready flag, with no stabilization window, letting a single lucky heartbeat (including one from a still-flapping replacement) count as proof of a completed migration. See GIMLE-682 for the paired throttling-guarantee finding this same gap produced.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that drives a real instance's readiness probe to flap for several probe cycles before genuinely stabilizing, against a live cluster, and asserts the reconciler does not treat it as ready until it has held continuously ready for the real stabilization window.
+- **Other test coverage (non-Holmgang, informational only)**: `DeploymentReconcilerTest#an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_a_completed_migration`, `#the_readiness_stabilization_timer_survives_a_reconciler_reconstruction_against_the_same_store`; `StatefulSetReconcilerTest#an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_stabilized` and its persistence-survival counterpart; `RaftCodecTest`/`StateStoreTest` round-trip coverage for the new persisted field on both `ReconcilerInstanceState` and `WorkloadHealthState`.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/ReconcilerInstanceState.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -7188,7 +7208,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**553 of 679 requirements are Not Covered.**
+**555 of 681 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7550,6 +7570,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-140 | gimle-mimir | Leader-Only-Commits-Own-Term Rule (Figure 8) | Raft Consensus | `RaftNodeSafetyMechanicsTest#the_leader_only_commits_an_entry_from_its_own_current_term` |
 | GIMLE-565 | gimle-mimir | Norn deterministic virtual-time Raft fault-injection simulation | Raft Consensus / Internal-Infra / Testing | `NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds, asserting Election Safety and Log Matching after every round plus eventual liveness after each seed's storm ends |
 | GIMLE-669 | gimle-controlplane | Node-death instance eviction is throttled against the deployment's own DisruptionBudget | Reconcilers / self-healing | `ReplicaCountReconcilerTest` gains coverage for budget throttling across multiple dead replicas, lowest-index-first ordering, budget exhaustion deferring without resetting the grace-period timer, and unthrottled behavior when no DeploymentSpec exists. Full gimle-controlplane module suite re-verified. |
+| GIMLE-682 | gimle-controlplane | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | Reconcilers / self-healing | `DeploymentReconcilerTest#a_flapping_replacement_never_lets_a_second_migration_overlap_with_the_first`, `#a_genuinely_continuously_ready_replacement_completes_the_migration_and_frees_the_budget`; `StatefulSetReconcilerTest#a_flapping_replacement_during_a_rolling_update_never_lets_the_next_index_start_rolling_too`, `#a_genuinely_continuously_ready_replacement_completes_the_rolling_update_and_hands_off_to_the_next_index`. |
+| GIMLE-683 | gimle-controlplane | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | Reconcilers / self-healing | `DeploymentReconcilerTest#an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_a_completed_migration`, `#the_readiness_stabilization_timer_survives_a_reconciler_reconstruction_against_the_same_store`; `StatefulSetReconcilerTest#an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_stabilized` and its persistence-survival counterpart; `RaftCodecTest`/`StateStoreTest` round-trip coverage for the new persisted field on both `ReconcilerInstanceState` and `WorkloadHealthState`. |
 | GIMLE-220 | gimle-controlplane | Deployment scale-down | Reconciliation | `DeploymentReconcilerTest#scale_down_removes_assignments_at_or_beyond_the_new_replica_count` |
 | GIMLE-227 | gimle-controlplane | Readiness-only failures never trigger reschedule | Reconciliation | `HealthReconcilerTest#readiness_alone_never_triggers_a_reschedule` |
 | GIMLE-240 | gimle-controlplane | CronJob missed-schedule starting-deadline handling | Reconciliation | Covered indirectly by `CronJobReconcilerTest`'s convergence/missed-schedule handling |

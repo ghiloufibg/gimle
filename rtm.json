@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 679,
+  "requirementCount": 681,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11766,6 +11766,40 @@
       "otherTestCoverage": "`GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`.",
       "sourceLocations": [
         "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-682",
+      "module": "gimle-controlplane",
+      "feature": "A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement",
+      "category": "Reconcilers / self-healing",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-66 -- handleRollingUpdate's maxUnavailable throttle cleared an in-flight migration's slot on isReady's single-heartbeat reading, so a flapping-but-never-stable replacement could free its slot and let the next migration start early. Fixed at its source by GIMLE-683's readiness-stabilization window, since the clear condition is exactly isReady(current).",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that drives a real rolling update against a live cluster where the replacement's readiness probe is made to flap for several probe cycles, and asserts (via the real /deployments API or gimle events) that no second index ever begins migrating until the first genuinely stabilizes.",
+      "otherTestCoverage": "`DeploymentReconcilerTest#a_flapping_replacement_never_lets_a_second_migration_overlap_with_the_first`, `#a_genuinely_continuously_ready_replacement_completes_the_migration_and_frees_the_budget`; `StatefulSetReconcilerTest#a_flapping_replacement_during_a_rolling_update_never_lets_the_next_index_start_rolling_too`, `#a_genuinely_continuously_ready_replacement_completes_the_rolling_update_and_hands_off_to_the_next_index`.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-683",
+      "module": "gimle-controlplane",
+      "feature": "Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat",
+      "category": "Reconcilers / self-healing",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-74 -- isReady in both DeploymentReconciler and StatefulSetReconciler was a pure point-in-time read of the latest heartbeat's ready flag, with no stabilization window, letting a single lucky heartbeat (including one from a still-flapping replacement) count as proof of a completed migration. See GIMLE-682 for the paired throttling-guarantee finding this same gap produced.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that drives a real instance's readiness probe to flap for several probe cycles before genuinely stabilizing, against a live cluster, and asserts the reconciler does not treat it as ready until it has held continuously ready for the real stabilization window.",
+      "otherTestCoverage": "`DeploymentReconcilerTest#an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_a_completed_migration`, `#the_readiness_stabilization_timer_survives_a_reconciler_reconstruction_against_the_same_store`; `StatefulSetReconcilerTest#an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_stabilized` and its persistence-survival counterpart; `RaftCodecTest`/`StateStoreTest` round-trip coverage for the new persisted field on both `ReconcilerInstanceState` and `WorkloadHealthState`.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/ReconcilerInstanceState.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`"
       ]
     }
   ]

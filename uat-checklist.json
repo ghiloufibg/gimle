@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 679,
+    "totalRequirements": 681,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 553,
-    "releaseReadinessPercent": 18.6
+    "notCoveredByAutomatedTest": 555,
+    "releaseReadinessPercent": 18.5
   },
   "items": [
     {
@@ -7471,6 +7471,28 @@
       "category": "Networking",
       "feature": "Gateway route table reloads on a config change without a restart",
       "step": "Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-682",
+      "module": "gimle-controlplane",
+      "category": "Reconcilers / self-healing",
+      "feature": "A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement",
+      "step": "Given a Deployment rolling from one module version to another with the default DisruptionBudget (maxUnavailable: 1); When the in-flight replacement reports ready once and then immediately flaps back to not-ready, repeatedly, across several reconcile ticks; Then the rolling-update budget stays fully consumed and no second index ever begins migrating. Given the same rollout; When the replacement is instead genuinely, continuously ready for the full stabilization window; Then its migration slot is correctly freed and the next mismatched index's migration starts immediately. Given a StatefulSet rolling update (structurally one migration at a time via OrderedReady); When its in-flight replacement flaps the same way; Then the rolling marker never clears and the next index is never touched.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-683",
+      "module": "gimle-controlplane",
+      "category": "Reconcilers / self-healing",
+      "feature": "Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat",
+      "step": "Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
