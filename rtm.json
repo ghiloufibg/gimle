@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 660,
+  "requirementCount": 661,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11413,6 +11413,22 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetSpec.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-661",
+      "module": "gimle-fabric",
+      "feature": "Background gossip rejoin after a seed-list join startup blip",
+      "category": "Networking / Cluster membership",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-43 -- a routine container-startup networking blip during SWIM gossip join could crash the agent process outright (>=2 seeds) or silently, permanently fork a one-node cluster (1 seed). A node now keeps retrying its seed list in the background on every gossip tick until it finds a peer.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.",
+      "otherTestCoverage": "`GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`",
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`"
       ]
     }
   ]

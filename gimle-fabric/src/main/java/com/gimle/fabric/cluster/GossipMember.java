@@ -118,6 +118,15 @@ public final class GossipMember implements AutoCloseable {
   private volatile boolean running;
   private volatile PiggybackExtension catalogExtension = PiggybackExtension.NONE;
 
+  /**
+   * The seed list {@link #join} was last called with (self-filtered, deduplicated), remembered so
+   * {@link #retrySeedsIfIsolated} can keep dialing them in the background -- see that method's own
+   * javadoc for why. Empty until {@link #join} is called at least once; a node constructed but
+   * never joined (every test that only exercises {@link #mergeAll} directly, for instance) simply
+   * never retries anything, matching {@link #join}'s own "no seeds configured" no-op.
+   */
+  private volatile List<InetSocketAddress> seeds = List.of();
+
   public GossipMember(MemberId self, GossipConfig config) throws IOException {
     this(self, config, Clock.systemUTC());
   }
@@ -212,27 +221,36 @@ public final class GossipMember implements AutoCloseable {
   }
 
   /**
-   * Number of ping-and-wait rounds {@link #join} attempts against configured seeds before giving
-   * up. A single UDP ping with no retry is fragile against exactly the kind of transient
+   * Number of ping-and-wait rounds {@link #join} attempts against configured seeds before giving up
+   * on its own synchronous attempt and falling back to {@link #retrySeedsIfIsolated}'s background
+   * retries. A single UDP ping with no retry is fragile against exactly the kind of transient
    * container-startup networking churn (a peer's hostname not yet resolvable, its network namespace
    * still initializing, its own receive loop not yet scheduled) that a multi-container
-   * Compose/Kubernetes bring-up routinely hits -- one lost packet during that narrow window would
-   * otherwise permanently and silently split the cluster in two, since nothing re-attempts a seed
-   * after {@link #join} returns: unlike SWIM's steady-state failure detection, {@link #tick}'s own
-   * probing only ever targets members already in {@link #members}, so a node that learns of no peer
-   * at join time has no organic path back into the cluster afterward.
+   * Compose/Kubernetes bring-up routinely hits.
    */
   private static final int JOIN_ATTEMPTS = 5;
 
   /**
    * Contacts every configured seed, retrying up to {@link #JOIN_ATTEMPTS} times, and blocks until
-   * at least one acks or every attempt's {@code pingTimeout} elapses. A single unreachable seed
-   * (after all attempts) is treated as this being the very first node of a new cluster rather than
-   * an error; two or more configured seeds with none reachable is a genuine failure to join.
+   * at least one acks or every attempt's {@code pingTimeout} elapses. Never throws and never
+   * distinguishes "one seed configured" from "several" -- both a single unreachable seed and every
+   * configured seed being briefly unreachable are the same underlying, unresolvable-at-join-time
+   * ambiguity ("is this genuinely the first node of a new cluster, or did every seed just not
+   * happen to answer five pings in a row"), so both fall back the same way: start running now,
+   * unjoined, and let {@link #retrySeedsIfIsolated} keep dialing this same seed list in the
+   * background on every tick until one answers -- the "organic path back" {@link #JOIN_ATTEMPTS}'s
+   * own siblings before this fix never had. This is what keeps a routine container-startup
+   * networking blip from crashing the caller (a thrown {@link GimleClusterException} used to
+   * propagate straight out of a caller like {@code AgentMain} with nothing catching it) or
+   * silently, permanently forking the cluster in two.
    */
-  public void join(List<InetSocketAddress> seeds) {
+  public void join(List<InetSocketAddress> seedsToJoin) {
     List<InetSocketAddress> others =
-        seeds.stream().distinct().filter(address -> !address.equals(self.gossipAddress())).toList();
+        seedsToJoin.stream()
+            .distinct()
+            .filter(address -> !address.equals(self.gossipAddress()))
+            .toList();
+    this.seeds = others;
     if (others.isEmpty()) {
       log.info(
           "{}: no other seeds configured; starting as the first node of a new cluster",
@@ -248,18 +266,54 @@ public final class GossipMember implements AutoCloseable {
     }
 
     if (!reachable) {
-      if (others.size() <= 1) {
-        log.info(
-            "{}: its single configured seed {} is unreachable after {} attempts; treating this as"
-                + " a legitimate empty-cluster start, not an error",
-            self.nodeId(),
-            others.get(0),
-            JOIN_ATTEMPTS);
-        return;
-      }
-      throw GimleClusterException.noReachableSeed(
-          self.nodeId(), others.stream().map(InetSocketAddress::toString).toList());
+      log.warn(
+          "{}: none of its {} configured seed(s) {} answered within {} attempts; starting"
+              + " unjoined and retrying them in the background every protocol period until one"
+              + " answers",
+          self.nodeId(),
+          others.size(),
+          others,
+          JOIN_ATTEMPTS);
     }
+  }
+
+  /**
+   * Best-effort, no-coordination-needed re-attempt at the seed list {@link #join} was last called
+   * with, run every protocol period alongside every other {@link #tick} step -- the fix for the gap
+   * {@link #JOIN_ATTEMPTS}'s own javadoc describes: unlike this method, ordinary steady-state
+   * probing ({@link #pingRandomMember}/{@link #maybeSyncWithRandomMember}) only ever targets a
+   * member already present in {@link #members}, so a node still isolated after {@link #join}
+   * returned (every seed down, not merely slow, at that moment) would otherwise stay isolated
+   * forever even once its seeds recover. A bare, unregistered {@link SwimMessage.Ping} is enough --
+   * {@link #handle}'s own {@code Ack} case falls through to {@link #markAliveDirect} for any
+   * unrecognized sequence number, the same path an ordinary probe's reply takes, so no {@code
+   * joinWaiters} bookkeeping is needed here.
+   *
+   * <p>Fires only while genuinely isolated (no other member currently known {@code ALIVE}) -- the
+   * instant any peer is known, whether from this method's own success or from any other path (a
+   * peer dialing this node first, for instance), ordinary SWIM probing and anti-entropy take over
+   * and this stops firing on its own, with nothing to clear or reset.
+   */
+  private void retrySeedsIfIsolated() {
+    List<InetSocketAddress> currentSeeds = seeds;
+    if (currentSeeds.isEmpty() || hasAnyOtherAliveMember()) {
+      return;
+    }
+    for (InetSocketAddress seed : currentSeeds) {
+      try {
+        send(seed, new SwimMessage.Ping(nextSeq(), currentPiggyback(), catalogPayload()), true);
+      } catch (IOException e) {
+        log.debug("{}: rejoin ping to seed {} failed: {}", self.nodeId(), seed, e.getMessage());
+      }
+    }
+  }
+
+  private boolean hasAnyOtherAliveMember() {
+    return members.values().stream()
+        .anyMatch(
+            member ->
+                !member.id().nodeId().equals(self.nodeId())
+                    && member.status() == MemberStatus.ALIVE);
   }
 
   /**
@@ -324,6 +378,7 @@ public final class GossipMember implements AutoCloseable {
       pingRandomMember();
       maybeSyncWithRandomMember();
       reapExpiredDeadMembers();
+      retrySeedsIfIsolated();
     } catch (RuntimeException e) {
       log.warn("{}: gossip protocol tick failed: {}", self.nodeId(), e.getMessage(), e);
     }

@@ -1,10 +1,8 @@
 package com.gimle.fabric.cluster;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
@@ -84,12 +82,41 @@ class GossipMemberTest {
 
   @Test
   @Timeout(15)
-  void multiple_unreachable_seeds_throw_gimle_cluster_exception() throws IOException {
+  void several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined()
+      throws IOException {
+    // FUNC-43: join() used to throw GimleClusterException here, and nothing anywhere caught it --
+    // a routine startup networking blip with >=1 configured seeds would crash the caller outright.
+    // It must never throw at all now: every seed unreachable, whether there's one or several, is
+    // the same unresolvable-at-join-time ambiguity, handled the same way (see join()'s own
+    // javadoc).
     GossipMember a = newMember("node-a");
     a.start();
     InetSocketAddress seed1 = new InetSocketAddress("127.0.0.1", 1);
     InetSocketAddress seed2 = new InetSocketAddress("127.0.0.1", 2);
-    assertThrows(GimleClusterException.class, () -> a.join(List.of(seed1, seed2)));
+    a.join(List.of(seed1, seed2));
+    assertEquals(MemberStatus.ALIVE, a.memberState("node-a").orElseThrow().status());
+  }
+
+  @Test
+  @Timeout(20)
+  void a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers() throws Exception {
+    // The actual gap JOIN_ATTEMPTS's own javadoc used to admit: node-a is not started at all
+    // during node-b's entire join() budget, so every attempt genuinely fails and join() returns
+    // having found nobody -- distinct from join_retries_recover_once_a_transiently_unreachable_
+    // seed_starts_receiving above, which recovers *within* a single join() call. Without
+    // retrySeedsIfIsolated running on every later tick, node-b would stay isolated forever even
+    // once node-a starts.
+    GossipMember a = newMember("node-a");
+    GossipMember b = newMember("node-b");
+    b.start();
+
+    b.join(List.of(a.self().gossipAddress()));
+    assertTrue(
+        !isAlive(b, "node-a"), "the seed genuinely wasn't up yet during join()'s own budget");
+
+    a.start(); // the seed recovers only after join() already gave up
+
+    Await.until(() -> isAlive(a, "node-b") && isAlive(b, "node-a"), Duration.ofSeconds(5));
   }
 
   @Test

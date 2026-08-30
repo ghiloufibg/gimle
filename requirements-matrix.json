@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 660,
+  "requirementCount": 661,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13051,6 +13051,26 @@
         "Given a node is tainted for tenant \"acme\"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be.",
         "Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node.",
         "Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-661",
+      "module": "gimle-fabric",
+      "feature": "Background gossip rejoin after a seed-list join startup blip",
+      "category": "Networking / Cluster membership",
+      "userStory": "As a platform operator, I want a node agent that hits a transient networking blip while joining the SWIM gossip cluster at startup to keep retrying its seed list in the background rather than crashing the agent process outright (>=2 configured seeds) or silently, permanently forking off an isolated one-node cluster (exactly 1 configured seed), so a routine container-startup race never turns into either a hard process crash or a silent split-brain that only a manual restart can fix.",
+      "statusDetail": "Complete. GossipMember.join() retried its configured seed list for a bounded 5-round window and then either threw GimleClusterException (>=2 seeds, none reachable -- uncaught anywhere in AgentMain.main, terminating the agent JVM) or silently assumed it was the first node of a brand-new cluster (exactly 1 seed unreachable) -- and either way, nothing ever re-attempted a seed afterward: tick()'s own steady-state probing (pingRandomMember/maybeSyncWithRandomMember) only ever targets a member already present in the members map, so a node that found no peer during its bounded join() window had, in JOIN_ATTEMPTS's own prior javadoc's words, 'no organic path back into the cluster afterward.' Fixed: join() no longer throws under any circumstance and no longer branches on seed count -- every 'no seed answered within the bounded window' outcome now logs a warning and lets the node keep running, unjoined, with its seed list remembered in a new volatile seeds field. A new retrySeedsIfIsolated(), invoked from every tick() alongside every other protocol-period step, re-pings that same seed list on a plain, unregistered SwimMessage.Ping whenever the node currently knows no other ALIVE member -- the existing Ack-handling path already falls through to markAliveDirect for any unrecognized sequence number, so no new bookkeeping was needed to let a reply merge the seed back into membership. The moment any peer becomes known (through this path or any other), the condition gating retrySeedsIfIsolated goes false and it stops firing on its own, with nothing to reset. GimleClusterException.noReachableSeed, now dead, was removed along with its class javadoc's stale claim that a gossip join failure was one of its intended cluster-level 'no per-request retry left to try' cases -- it explicitly is not, anymore.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java` (`join`, `retrySeedsIfIsolated`, `hasAnyOtherAliveMember`, `tick`)",
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`"
+      ],
+      "testCoverageDetail": "`GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined` (confirmed to fail against the pre-fix code, which threw `GimleClusterException`); `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers` -- the seed genuinely stays down for node-b's entire `join()` budget, `join()` returns having found nobody, and only then does the seed start, proving the background retry (not `join()`'s own internal retry loop, already covered by the pre-existing `join_retries_recover_once_a_transiently_unreachable_seed_starts_receiving`) is what eventually discovers it.",
+      "gherkinSteps": [
+        "Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running.",
+        "Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

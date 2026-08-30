@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 660
+- **Total requirements**: 661
 - **Covered by automated (Holmgang Cucumber) test**: 123
-- **Not covered by automated test**: 537
+- **Not covered by automated test**: 538
 - **Release-readiness (automated coverage)**: 18.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -20,7 +20,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-worker | 22 | 2 | 20 | 9.1% |
 | gimle-agent | 46 | 6 | 40 | 13.0% |
 | gimle-mimir | 60 | 35 | 25 | 58.3% |
-| gimle-fabric | 33 | 1 | 32 | 3.0% |
+| gimle-fabric | 34 | 1 | 33 | 2.9% |
 | gimle-controlplane | 83 | 14 | 69 | 16.9% |
 | gimle-fafnir | 26 | 11 | 15 | 42.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
@@ -804,6 +804,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-184 | Locality-Aware Load Balancing with Spillover | Given several same-machine endpoints saturated and a remote endpoint with spare capacity; When lookup selects a candidate; Then the remote tier is admitted; when a same-machine endpoint is idle, remote is never consulted. | No |
 | [ ] | GIMLE-185 | Least-Outstanding-Requests Selection | Given two candidates, one busier; When select is called; Then the less-loaded candidate is chosen; ties round-robin. | No |
+
+#### Networking / Cluster membership
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running. Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry. | No |
 
 #### Networking / Multi-tenancy
 

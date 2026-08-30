@@ -670,6 +670,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | Admission / Multi-tenancy | Complete | Yes |
 | GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | Complete | Yes |
 | GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | Complete | Yes |
+| GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -4168,6 +4169,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given an ingress rule scoped to one exported interface, When a cross-tenant call targets a different interface, Then it passes, and a call to the named interface is denied.
   Given an egress rule owned by the caller's tenant with an empty allow list, When that tenant calls a foreign-tenant callee, Then the callee's own listener denies it.
+  ```
+
+#### GIMLE-661 — Background gossip rejoin after a seed-list join startup blip
+
+- **Category**: Networking / Cluster membership
+- **User story**: As a platform operator, I want a node agent that hits a transient networking blip while joining the SWIM gossip cluster at startup to keep retrying its seed list in the background rather than crashing the agent process outright (>=2 configured seeds) or silently, permanently forking off an isolated one-node cluster (exactly 1 configured seed), so a routine container-startup race never turns into either a hard process crash or a silent split-brain that only a manual restart can fix.
+- **Status**: Complete. GossipMember.join() retried its configured seed list for a bounded 5-round window and then either threw GimleClusterException (>=2 seeds, none reachable -- uncaught anywhere in AgentMain.main, terminating the agent JVM) or silently assumed it was the first node of a brand-new cluster (exactly 1 seed unreachable) -- and either way, nothing ever re-attempted a seed afterward: tick()'s own steady-state probing (pingRandomMember/maybeSyncWithRandomMember) only ever targets a member already present in the members map, so a node that found no peer during its bounded join() window had, in JOIN_ATTEMPTS's own prior javadoc's words, 'no organic path back into the cluster afterward.' Fixed: join() no longer throws under any circumstance and no longer branches on seed count -- every 'no seed answered within the bounded window' outcome now logs a warning and lets the node keep running, unjoined, with its seed list remembered in a new volatile seeds field. A new retrySeedsIfIsolated(), invoked from every tick() alongside every other protocol-period step, re-pings that same seed list on a plain, unregistered SwimMessage.Ping whenever the node currently knows no other ALIVE member -- the existing Ack-handling path already falls through to markAliveDirect for any unrecognized sequence number, so no new bookkeeping was needed to let a reply merge the seed back into membership. The moment any peer becomes known (through this path or any other), the condition gating retrySeedsIfIsolated goes false and it stops firing on its own, with nothing to reset. GimleClusterException.noReachableSeed, now dead, was removed along with its class javadoc's stale claim that a gossip join failure was one of its intended cluster-level 'no per-request retry left to try' cases -- it explicitly is not, anymore.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java` (`join`, `retrySeedsIfIsolated`, `hasAnyOtherAliveMember`, `tick`), `gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`
+- **Test coverage**: `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined` (confirmed to fail against the pre-fix code, which threw `GimleClusterException`); `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers` -- the seed genuinely stays down for node-b's entire `join()` budget, `join()` returns having found nobody, and only then does the seed start, proving the background retry (not `join()`'s own internal retry loop, already covered by the pre-existing `join_retries_recover_once_a_transiently_unreachable_seed_starts_receiving`) is what eventually discovers it.
+- **Gherkin scenario**:
+  ```gherkin
+  Given two or more configured seeds are all unreachable when a node calls join(); Then join() returns normally rather than throwing, and the node keeps running.
+  Given a node's join() attempt fully exhausts its bounded retry window with every seed still down; When one of those seeds starts up afterward; Then the node discovers it on a later tick without any restart, via the same background retry.
   ```
 
 ### gimle-controlplane

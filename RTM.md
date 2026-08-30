@@ -675,6 +675,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-658 | CronJob-generated Jobs run through tenant quota/limit-range admission | New | Not Covered | — |
 | GIMLE-659 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | New | Not Covered | — |
 | GIMLE-660 | DaemonSet opt-in taint toleration (tolerateAllTaints) | New | Not Covered | — |
+| GIMLE-661 | Background gossip rejoin after a seed-list join startup blip | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3099,6 +3100,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a booted topology with an egress-restricted tenant, When its deployed module calls a foreign tenant's fabric service, Then the call is denied at the callee and allowed after the allow list names that tenant.
 - **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit)
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`, `gimle-core/src/main/java/com/gimle/core/tenant/NetworkPolicyRule.java`
+
+#### GIMLE-661 — Background gossip rejoin after a seed-list join startup blip
+
+- **Category**: Networking / Cluster membership
+- **Status**: New  _(New requirement: closes FUNC-43 -- a routine container-startup networking blip during SWIM gossip join could crash the agent process outright (>=2 seeds) or silently, permanently fork a one-node cluster (1 seed). A node now keeps retrying its seed list in the background on every gossip tick until it finds a peer.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.
+- **Other test coverage (non-Holmgang, informational only)**: `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`
 
 ### gimle-controlplane
 
@@ -6988,7 +6998,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**537 of 660 requirements are Not Covered.**
+**538 of 661 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7294,6 +7304,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-660 | gimle-controlplane | DaemonSet opt-in taint toleration (tolerateAllTaints) | Multi-tenancy / Self-healing | `SchedulerTest#eligible_nodes_tolerate_all_taints_bypasses_the_taint_filter_entirely`; `DaemonSetReconcilerTest#an_untenanted_daemonset_is_excluded_from_a_tainted_node_by_default`, `#a_daemonset_with_tolerate_all_taints_covers_a_tainted_node_too`; `DaemonSetManifestParserTest#tolerate_all_taints_defaults_to_false`, `#tolerate_all_taints_is_parsed_when_set_true`, `#tolerate_all_taints_rejects_a_non_boolean_value`; `DomainCodecTest#a_daemonset_spec_with_tolerate_all_taints_set_round_trips`; `ApiServerStatefulSetDaemonSetRollbackTest#rolling_back_a_daemonset_also_restores_its_previous_tolerate_all_taints_value`. |
 | GIMLE-654 | gimle-mimir | Tenant-scoped resource keying (compound (tenantId, name) store key) | Multi-tenancy / State store | `StateStoreTest#two_tenants_with_an_identically_named_deployment_never_collide`, `#two_tenants_with_an_identically_named_service_never_collide`, `#two_tenants_with_an_identically_named_network_policy_never_collide` |
 | GIMLE-655 | gimle-os | Tenant-scoped StatefulSet persistent volume identity | Multi-tenancy / Storage | `LocalDiskVolumeManagerTest#two_tenants_with_an_identically_named_statefulset_get_distinct_directories`, `#destroying_one_tenants_volume_leaves_another_tenants_identically_named_one_intact`, `#list_allocated_reports_the_owning_tenant_for_a_tenanted_volume` |
+| GIMLE-661 | gimle-fabric | Background gossip rejoin after a seed-list join startup blip | Networking / Cluster membership | `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`. |
 | GIMLE-623 | gimle-fabric | NetworkPolicy interface scoping and egress enforcement | Networking / Multi-tenancy | `FabricServerTest` (interface scoping, egress deny/allow, same-tenant egress, callee-side scoping limit) |
 | GIMLE-626 | gimle-agent | Bifrost locality-preferred forwarding and ClientIP session affinity | Networking / Services | `BifrostProxyTest` (locality preference, fallback, affinity pinning), `ApiServerServicesTest`/`ServiceReconcilerTest` (nodeId-attributed endpoints) |
 | GIMLE-628 | gimle-controlplane | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Networking / Services | `ServiceSpecTest`, `ApiServerServicesTest` (round trip, mixed-shape rejection), `SkaldServerTest` (CNAME and SRV external answers) |
