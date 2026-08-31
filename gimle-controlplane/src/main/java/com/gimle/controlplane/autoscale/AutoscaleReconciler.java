@@ -48,8 +48,8 @@ import org.slf4j.LoggerFactory;
  * node's last-known {@link InstanceObservation} values stay frozen and still marked ready in the
  * store until {@code ReplicaCountReconciler} actually evicts the stale assignment, and this
  * reconciler would keep averaging that frozen, no-longer-real data into every scale decision for
- * the whole window in between. {@link #readyInstanceObservations} applies the identical
- * {@code nodeDarkTimeout} gate.
+ * the whole window in between. {@link #readyInstanceObservations} applies the identical {@code
+ * nodeDarkTimeout} gate.
  */
 public final class AutoscaleReconciler {
 

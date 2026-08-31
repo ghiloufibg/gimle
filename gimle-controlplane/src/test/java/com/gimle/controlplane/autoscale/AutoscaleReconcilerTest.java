@@ -154,7 +154,12 @@ class AutoscaleReconcilerTest {
     TestClock clock = TestClock.startingNow().advance(nodeDarkTimeout.plusSeconds(1));
 
     AutoscaleReconciler reconciler =
-        new AutoscaleReconciler(store, store, ArtifactResolver.localOnly(), nodeDarkTimeout, clock);
+        new AutoscaleReconciler(
+            store,
+            mutation -> mutation.applyTo(store),
+            ArtifactResolver.localOnly(),
+            nodeDarkTimeout,
+            clock);
     reconciler.reconcileOnce();
 
     assertEquals(
