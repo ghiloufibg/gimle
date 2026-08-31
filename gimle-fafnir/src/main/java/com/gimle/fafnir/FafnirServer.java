@@ -1115,20 +1115,27 @@ public final class FafnirServer implements AutoCloseable {
    * A forwarded principal (set only by {@code ApiServer}'s own {@code /secrets/*} proxy) wins over
    * the connection's own peer certificate when both are present, since a proxied request's peer
    * certificate identifies the control-plane replica making the call, not the human or node that
-   * originated it. Falls back to the peer certificate for a caller reaching Fafnir without going
-   * through the proxy at all (a node agent's own direct fetch, or a test simulating one), and
-   * finally to Fafnir's own console session cookie -- a human operator signed in through {@link
-   * #handleAuthLogin} directly, the one caller shape with neither a forwarded header nor a client
-   * certificate of its own.
+   * originated it -- but only once that peer certificate is itself confirmed to belong to {@link
+   * BuiltinRoles#GROUP_CONTROLPLANE}. Any other cluster leaf certificate (a node agent's, a
+   * worker's) can present these headers just as easily as the control plane can, so honoring them
+   * without checking who is actually connected would let any such holder claim any identity,
+   * including {@code group:gimle:operators}. Falls back to the peer certificate for a caller
+   * reaching Fafnir without going through the proxy at all (a node agent's own direct fetch, or a
+   * test simulating one), and finally to Fafnir's own console session cookie -- a human operator
+   * signed in through {@link #handleAuthLogin} directly, the one caller shape with neither a
+   * forwarded header nor a client certificate of its own.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
+    Optional<Principal> certificatePrincipal =
+        peerCertificate(exchange).map(Subjects::principalFrom);
     Optional<String> forwardedName = firstHeader(exchange, FORWARDED_PRINCIPAL_HEADER);
-    if (forwardedName.isPresent()) {
+    if (forwardedName.isPresent()
+        && certificatePrincipal
+            .map(principal -> principal.groups().contains(BuiltinRoles.GROUP_CONTROLPLANE))
+            .orElse(false)) {
       Set<String> groups = new LinkedHashSet<>(splitHeader(exchange, FORWARDED_GROUPS_HEADER));
       return Optional.of(new Principal(forwardedName.get(), groups));
     }
-    Optional<Principal> certificatePrincipal =
-        peerCertificate(exchange).map(Subjects::principalFrom);
     if (certificatePrincipal.isPresent()) {
       return certificatePrincipal;
     }

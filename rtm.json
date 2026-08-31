@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 689,
+  "requirementCount": 690,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11937,6 +11937,22 @@
       "otherTestCoverage": "`FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified.",
       "sourceLocations": [
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`serve(SocketChannel)`, `serve(Socket)`, `logMalformedFrame`)"
+      ]
+    },
+    {
+      "id": "GIMLE-690",
+      "module": "gimle-fafnir",
+      "feature": "resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate",
+      "category": "Security / Authorization",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-83 -- resolvePrincipal in both FafnirServer and AndvariServer checked the X-Gimle-Forwarded-Principal/-Groups headers first and, if present, built a Principal straight from the header values, with no check that the connection's own peer certificate actually belonged to group:gimle:controlplane. Since SslContexts.forMutualTls trusts any leaf certificate signed by the shared cluster CA with no per-endpoint allow-list, any holder of a valid cluster leaf cert (a node agent, a worker, or anyone who compromises one) could dial Fafnir or Andvari directly and forward X-Gimle-Forwarded-Principal: root plus X-Gimle-Forwarded-Groups: gimle:operators to reach Authorizer.authorize's unconditional cluster-admin-equivalent short-circuit for every /secrets/*, /secretmaps/*, and /artifacts/* operation. Fixed by resolving the peer certificate's own Principal first and only honoring the forwarded headers when that principal's groups contain BuiltinRoles.GROUP_CONTROLPLANE; any other peer now has the headers ignored outright and falls through to the existing certificate-principal or session-cookie paths.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`FafnirSecretsAuthzTest#a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored` plus updated `#a_forwarded_principal_who_actually_holds_the_permission_succeeds`/`#a_forwarded_principal_who_does_not_actually_hold_the_permission_is_still_forbidden` (now authenticating as a genuine gimle:controlplane peer via a new `TlsTestFixtures#controlPlaneClientWithLeaf` fixture). `AndvariServerTlsTest#a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored` and `#a_forwarded_principal_from_a_controlplane_peer_wins_and_is_independently_rechecked`. All were confirmed to fail (or already pass, for the legitimate-case tests) against the pre-fix code, then re-confirmed green after the fix. Full gimle-fafnir (183 tests) and gimle-andvari (101 tests) module suites re-verified with 0 failures.",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`resolvePrincipal`)",
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`resolvePrincipal`)"
       ]
     }
   ]
