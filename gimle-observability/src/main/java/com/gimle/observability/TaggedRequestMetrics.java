@@ -55,4 +55,16 @@ final class TaggedRequestMetrics {
     Counter counter = registry.find(errorsName).tags(tags).counter();
     return counter == null ? 0.0 : counter.count();
   }
+
+  /**
+   * Removes the timer/counter/error-counter triple {@link #record} registers for {@code tags} --
+   * called once the thing {@code tags} identifies (a module version, an instance) is permanently
+   * gone, so its meters stop accumulating in the registry forever. A no-op for tags that were never
+   * recorded (nothing to find, nothing to remove).
+   */
+  void evict(Tags tags) {
+    registry.find(latencyName).tags(tags).timers().forEach(registry::remove);
+    registry.find(countName).tags(tags).counters().forEach(registry::remove);
+    registry.find(errorsName).tags(tags).counters().forEach(registry::remove);
+  }
 }

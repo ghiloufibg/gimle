@@ -22,6 +22,7 @@ export interface InstanceObservation {
   alive: boolean;
   ready: boolean;
   requestRatePerSecond: number;
+  errorRatePerSecond: number;
   queueDepth: number;
   cpuMillicoresUsed: number;
   memoryBytesUsed: number;
@@ -367,6 +368,7 @@ export interface ModuleInstance {
   alive: boolean;
   ready: boolean;
   requestRatePerSecond: number;
+  errorRatePerSecond: number;
   queueDepth: number;
   cpuMillicoresUsed: number;
   memoryBytesUsed: number;
@@ -596,6 +598,7 @@ export interface RoleBinding {
 /** List/detail shape only — the API never returns password material. */
 export interface Account {
   username: string;
+  groups: string[];
 }
 
 export const RESOURCE_KINDS: ResourceKind[] = [

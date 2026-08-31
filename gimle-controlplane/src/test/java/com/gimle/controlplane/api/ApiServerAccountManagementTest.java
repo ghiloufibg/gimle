@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -14,7 +15,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,6 +70,25 @@ class ApiServerAccountManagementTest {
         HttpRequest.newBuilder(URI.create(baseUrl + "/accounts/" + username))
             .PUT(HttpRequest.BodyPublishers.ofString("{\"password\":\"" + password + "\"}"))
             .build());
+  }
+
+  private HttpResponse<String> putAccount(String username, String password, List<String> groups)
+      throws Exception {
+    Map<String, Object> body = new java.util.LinkedHashMap<>();
+    body.put("password", password);
+    body.put("groups", groups);
+    return send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/accounts/" + username))
+            .PUT(HttpRequest.BodyPublishers.ofString(Json.write(body)))
+            .build());
+  }
+
+  private List<String> accountGroups(String username) throws Exception {
+    HttpResponse<String> response =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/accounts/" + username)).GET().build());
+    assertEquals(200, response.statusCode());
+    Map<String, Object> account = Json.asObject(Json.parse(response.body()));
+    return Json.asArray(account.get("groups")).stream().map(v -> (String) v).toList();
   }
 
   private HttpResponse<String> deleteAccount(String username) throws Exception {
@@ -167,5 +189,60 @@ class ApiServerAccountManagementTest {
         auditEvents().stream().filter(e -> e.resourceKind().equals("ROLE_BINDING")).toList();
     assertEquals(1, bindingEvents.size());
     assertEquals(Optional.of("binding-1"), bindingEvents.get(0).targetId());
+  }
+
+  // ---- FUNC-67: group: RoleBinding subjects for session-authenticated accounts ----
+
+  @Test
+  void put_account_with_groups_records_them_and_get_exposes_them() throws Exception {
+    assertEquals(
+        200, putAccount("erin", "s3cret-password", List.of("qa-team", "on-call")).statusCode());
+
+    // Account.groups() is a Set, not an ordered List -- the wire array's element order is
+    // unspecified, so this checks membership/size rather than a fixed round-trip order.
+    assertEquals(Set.of("qa-team", "on-call"), Set.copyOf(accountGroups("erin")));
+  }
+
+  @Test
+  void put_account_never_exposes_the_password_hash() throws Exception {
+    putAccount("frank", "s3cret-password", List.of("qa-team"));
+
+    HttpResponse<String> response =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/accounts/frank")).GET().build());
+
+    assertTrue(
+        !response.body().toLowerCase(java.util.Locale.ROOT).contains("hash")
+            && !response.body().contains("s3cret-password"),
+        "account response leaked hash material: " + response.body());
+  }
+
+  @Test
+  void resetting_a_password_without_groups_preserves_existing_group_membership() throws Exception {
+    putAccount("grace", "first-password", List.of("qa-team"));
+
+    // A bare {password} PUT (the console's own password-only reset form, and the CLI's `set
+    // account` without --groups) must not silently wipe group membership as a side effect.
+    assertEquals(200, putAccount("grace", "second-password").statusCode());
+
+    assertEquals(List.of("qa-team"), accountGroups("grace"));
+  }
+
+  @Test
+  void resetting_a_password_with_explicit_groups_replaces_the_group_set() throws Exception {
+    putAccount("heidi", "first-password", List.of("qa-team"));
+
+    assertEquals(
+        200, putAccount("heidi", "second-password", List.of("release-managers")).statusCode());
+
+    assertEquals(List.of("release-managers"), accountGroups("heidi"));
+  }
+
+  @Test
+  void resetting_a_password_with_an_empty_groups_list_clears_group_membership() throws Exception {
+    putAccount("ivan", "first-password", List.of("qa-team"));
+
+    assertEquals(200, putAccount("ivan", "second-password", List.of()).statusCode());
+
+    assertEquals(List.of(), accountGroups("ivan"));
   }
 }

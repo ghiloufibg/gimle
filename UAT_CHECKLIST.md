@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 708
+- **Total requirements**: 712
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 582
-- **Release-readiness (automated coverage)**: 17.8%
+- **Not covered by automated test**: 586
+- **Release-readiness (automated coverage)**: 17.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,16 +21,16 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 50 | 6 | 44 | 12.0% |
 | gimle-mimir | 66 | 36 | 30 | 54.5% |
 | gimle-fabric | 39 | 1 | 38 | 2.6% |
-| gimle-controlplane | 94 | 15 | 79 | 16.0% |
+| gimle-controlplane | 96 | 15 | 81 | 15.6% |
 | gimle-fafnir | 30 | 11 | 19 | 36.7% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 23 | 0 | 23 | 0.0% |
-| gimle-observability | 17 | 1 | 16 | 5.9% |
+| gimle-observability | 18 | 1 | 17 | 5.6% |
 | gimle-gateway | 18 | 0 | 18 | 0.0% |
 | gimle-cli | 31 | 0 | 31 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 34 | 0 | 34 | 0.0% |
+| gimle-console | 35 | 0 | 35 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -1019,6 +1019,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-252 | `gimle-system` reserved-tenant operator-only guard | Given a caller holds a broad but non-operator-group grant; When writing under tenantId=gimle-system; Then rejected 403 regardless of ordinary RBAC outcome. | No |
 | [ ] | GIMLE-253 | Node-scoped self-service authorization (`gimle:nodes` group) | Given a certificate carrying gimle:nodes and CN=node-42; When calling POST /nodes/node-42/heartbeat; Then it succeeds via the self-service short-circuit; a request against node-99 is rejected. | No |
 | [ ] | GIMLE-254 | Node-tenant-scoped `/endpoints/*` read access | Given node-42 has an active instance for tenant T; When it calls GET /endpoints/{workload-of-T}; Then access is granted; a request for a tenant it has no assignment for is rejected 403. | No |
+| [ ] | GIMLE-709 | A group: RoleBinding subject now authorizes a session-cookie-authenticated (console/CLI-login) principal, not only a certificate-authenticated one | Given a Role bound to `group:qa-team` granting DEPLOYMENT:READ, and an Account with groups=["qa-team"]; When that account logs in via the console and requests GET /deployments; Then the request is authorized. Given the same setup but an Account with no groups; When it requests GET /deployments; Then the request is denied with 403. Given an already-logged-in session for an account currently in `qa-team`; When an operator removes that account's groups via PUT /accounts/{username} with an explicit empty groups array; Then the very next request on that same session is denied, with no re-login required. Given an account with groups=["qa-team"]; When its password is reset via PUT /accounts/{username} with only {password} (no groups field); Then its group membership is unchanged. | No |
 
 #### Authorization / API Server
 
@@ -1124,6 +1125,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId. Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish. | No |
+
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-711 | A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved | Given an enabled AlertRule on deployment 'checkout-service' with metric=ERROR_RATE_PER_SECOND, comparator=GREATER_THAN, threshold=5.0; When the deployment's averaged observed error rate rises to 8.0 on a reconcile tick; Then exactly one FIRING webhook notification is sent. Given the rule from the previous scenario is already firing; When a later reconcile tick observes the error rate still above threshold; Then no additional notification is sent. Given the rule is firing; When the observed error rate drops back to 1.0; Then exactly one RESOLVED webhook notification is sent, and no further notification is sent while it stays resolved. Given a disabled AlertRule whose metric is currently crossed; When the reconciler evaluates it; Then no notification is ever sent. | No |
 
 #### Orchestration / Internal-Infra
 
@@ -1563,6 +1570,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-351 | JFR-based per-module CPU/allocation attribution | Given a module registered under a thread-name prefix "gimle-<module>-<version>-" When a JFR jdk.ExecutionSample/jdk.ThreadAllocationStatistics event fires on a thread with that prefix Then gimle.module.cpu.samples / gimle.module.allocated.bytes counters are incremented tagged by module_prefix And events from unregistered/unclassifiable threads are ignored And JFR being unavailable degrades to "no samples" rather than failing the worker | No |
 | [ ] | GIMLE-698 | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Given a log file already shipped up through one line at timestamp T; When a second line is appended at that exact same timestamp T before the next ship tick; Then the next tick ships that second line. Given the same-instant sibling has just been shipped; When a further tick runs with no new lines; Then nothing is re-shipped, proving the cursor genuinely advanced rather than re-querying the same boundary forever. | No |
+| [ ] | GIMLE-712 | WorkerMetrics evicts a module's Micrometer meters on uninstall, so repeated redeploy no longer accumulates one permanent meter set per (module, version) forever | Given a worker has recorded requests, thread counts, and metaspace bytes for module 'orders@1.0.0'; When that module is successfully uninstalled; Then every meter WorkerMetrics registered for it is removed from the registry. Given the same module is later reinstalled and recordThreadCount is called again; When its gauge is queried; Then a fresh gauge reflects the new value rather than a stale, already-removed one silently failing to update. Given two modules 'orders@1.0.0' and 'catalog@1.0.0' both have recorded metrics; When 'orders@1.0.0' is uninstalled and evicted; Then 'catalog@1.0.0''s own meters are untouched. | No |
 
 #### Tracing
 
@@ -1799,6 +1807,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-647 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API. Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value. Given an instance detail page shows a real workerId, When the operator clicks "Worker metrics" or "Worker traces", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing. | No |
+| [ ] | GIMLE-710 | The console's Metrics and Instances screens surface per-instance error rate, which the control plane already shipped on the wire but no console type or screen ever read | Given a deployment instance whose control-plane observation reports errorRatePerSecond=3.5; When the console's Instances screen loads that deployment's rows; Then the err/s column for that instance shows 3.50 and is visually flagged. Given the same instance; When the console's Metrics screen loads; Then the deployment appears in the 'Instances with errors' panel and contributes to the total error-rate stat tile. | No |
 
 #### Web Console / Auth
 

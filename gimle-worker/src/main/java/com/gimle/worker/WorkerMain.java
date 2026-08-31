@@ -710,7 +710,14 @@ public final class WorkerMain {
               m.correlationId(),
               channel,
               mdcTagsFor(m.id(), identityRegistry),
-              () -> controller.uninstall(m.id()));
+              () -> {
+                controller.uninstall(m.id());
+                // Only on a successful uninstall (this lambda throws and short-circuits otherwise,
+                // per runCommand's own Nack-on-exception handling): this ModuleId is gone for good,
+                // so its accumulated request/error/thread/metaspace meters can be evicted rather
+                // than living in the registry forever.
+                workerMetrics.evict(m.id());
+              });
       case ControlMessage.Ping m -> channel.send(new ControlMessage.Pong(m.correlationId()));
       case ControlMessage.CatalogUpdate m ->
           catalog.applyExternalUpdate(

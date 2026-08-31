@@ -1,5 +1,7 @@
 package com.gimle.controlplane;
 
+import com.gimle.controlplane.alert.AlertReconciler;
+import com.gimle.controlplane.alert.WebhookAlertNotifier;
 import com.gimle.controlplane.andvari.AndvariClient;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.api.ApiServer;
@@ -248,6 +250,12 @@ public final class ControlPlaneMain {
     // every reconciler constructed above.
     ServiceReconciler serviceReconciler =
         new ServiceReconciler(apiServer.serviceRegistry(), storeClient);
+    // Reads/writes apiServer's own AlertRuleRegistry the same way serviceReconciler above shares
+    // apiServer's ServiceRegistry -- both read/write the identical instance this replica's routes
+    // do. WebhookAlertNotifier is real, not a no-op: a rule with no reachable webhook simply logs
+    // and drops the notification (see its own javadoc), never fails this reconciler's tick.
+    AlertReconciler alertReconciler =
+        new AlertReconciler(apiServer.alertRuleRegistry(), storeClient, new WebhookAlertNotifier());
 
     // Same --muninn-endpoint value doing double duty: the MuninnClient above reads a gone
     // node/instance's shipped history back, this shipper ships this replica's own request
@@ -325,7 +333,8 @@ public final class ControlPlaneMain {
                 cronJobReconciler,
                 daemonSetReconciler,
                 statefulSetReconciler,
-                serviceReconciler);
+                serviceReconciler,
+                alertReconciler);
           }
         };
     // Unconditional -- not lease-gated like the reconcile tick above: this replica's own
@@ -451,7 +460,8 @@ public final class ControlPlaneMain {
       CronJobReconciler cronJobReconciler,
       DaemonSetReconciler daemonSetReconciler,
       StatefulSetReconciler statefulSetReconciler,
-      ServiceReconciler serviceReconciler) {
+      ServiceReconciler serviceReconciler,
+      AlertReconciler alertReconciler) {
     runOne("replicaCount", replicaCountReconciler::reconcileOnce);
     runOne("health", healthReconciler::reconcileOnce);
     runOne("autoscale", autoscaleReconciler::reconcileOnce);
@@ -468,6 +478,10 @@ public final class ControlPlaneMain {
     // Touches only ServiceRegistry's own endpoint cache -- invisible to, and with no ordering
     // dependency on, any reconciler above.
     runOne("service", serviceReconciler::reconcileOnce);
+    // Reads the same live InstanceObservation data every reconciler above already reads off the
+    // store snapshot -- ordered last so a rule always evaluates against this tick's fully
+    // converged state, not a partially-reconciled one.
+    runOne("alert", alertReconciler::reconcileOnce);
   }
 
   // Each reconciler gets its own isolated failure boundary so one reconciler's exception (e.g. a

@@ -8,6 +8,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -83,6 +84,8 @@ public final class StoreNode implements StoreRpcHandler {
           networkPolicyResult(store.getNetworkPolicy(r.tenantId(), r.name()));
       case StoreRpc.ListNetworkPolicies r ->
           new StoreRpc.NetworkPolicyListResult(store.listNetworkPolicies());
+      case StoreRpc.GetAlertRule r -> alertRuleResult(store.getAlertRule(r.tenantId(), r.name()));
+      case StoreRpc.ListAlertRules r -> new StoreRpc.AlertRuleListResult(store.listAlertRules());
       case StoreRpc.GetLimitRange r -> limitRangeResult(store.getLimitRange(r.tenantId()));
       case StoreRpc.ListLimitRanges r -> new StoreRpc.LimitRangeListResult(store.listLimitRanges());
       case StoreRpc.ListAssignmentsFor r ->
@@ -357,6 +360,12 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.NetworkPolicyResult(true, v))
         .orElseGet(() -> new StoreRpc.NetworkPolicyResult(false, null));
+  }
+
+  private static StoreRpc.AlertRuleResult alertRuleResult(Optional<AlertRuleSpec> value) {
+    return value
+        .map(v -> new StoreRpc.AlertRuleResult(true, v))
+        .orElseGet(() -> new StoreRpc.AlertRuleResult(false, null));
   }
 
   private static StoreRpc.LimitRangeResult limitRangeResult(Optional<LimitRangeSpec> value) {

@@ -36,6 +36,7 @@ import com.gimle.mimir.galdr.KindScope;
 import com.gimle.mimir.galdr.PrintColumn;
 import com.gimle.mimir.galdr.SchemaField;
 import com.gimle.mimir.galdr.SchemaModel;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.ConcurrencyPolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
@@ -215,6 +216,31 @@ public final class DomainCodec {
         serviceInterfaceNames,
         allowedCallerTenantIds,
         allowedCalleeTenantIds);
+  }
+
+  public static void writeAlertRuleSpec(DataOutputStream out, AlertRuleSpec spec)
+      throws IOException {
+    out.writeUTF(spec.name());
+    writeOptionalString(out, spec.tenantId());
+    out.writeUTF(spec.deploymentName());
+    out.writeUTF(spec.metric().name());
+    out.writeUTF(spec.comparator().name());
+    out.writeDouble(spec.threshold());
+    out.writeUTF(spec.webhookUrl());
+    out.writeBoolean(spec.enabled());
+  }
+
+  public static AlertRuleSpec readAlertRuleSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    Optional<String> tenantId = readOptionalString(in);
+    String deploymentName = in.readUTF();
+    AlertRuleSpec.Metric metric = AlertRuleSpec.Metric.valueOf(in.readUTF());
+    AlertRuleSpec.Comparator comparator = AlertRuleSpec.Comparator.valueOf(in.readUTF());
+    double threshold = in.readDouble();
+    String webhookUrl = in.readUTF();
+    boolean enabled = in.readBoolean();
+    return new AlertRuleSpec(
+        name, tenantId, deploymentName, metric, comparator, threshold, webhookUrl, enabled);
   }
 
   private static void writeOptionalStringSet(DataOutputStream out, Optional<Set<String>> values)
@@ -1002,12 +1028,21 @@ public final class DomainCodec {
   public static void writeAccount(DataOutputStream out, Account account) throws IOException {
     out.writeUTF(account.username());
     writeBytes(out, account.passwordHash());
+    out.writeInt(account.groups().size());
+    for (String group : account.groups()) {
+      out.writeUTF(group);
+    }
   }
 
   public static Account readAccount(DataInputStream in) throws IOException {
     String username = in.readUTF();
     byte[] passwordHash = readBytes(in);
-    return new Account(username, passwordHash);
+    int groupCount = in.readInt();
+    Set<String> groups = new LinkedHashSet<>();
+    for (int i = 0; i < groupCount; i++) {
+      groups.add(in.readUTF());
+    }
+    return new Account(username, passwordHash, groups);
   }
 
   // NodeHeartbeat/ObservedHeartbeat: never Raft-replicated (RaftCodec never needed these), but

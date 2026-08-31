@@ -10,8 +10,10 @@ export class HttpAccountsRepository implements AccountsRepository {
   async fetchOne(username: string): Promise<Account> {
     return requestJson<Account>("GET", `/accounts/${encodeURIComponent(username)}`);
   }
-  async savePassword(username: string, password: string): Promise<void> {
-    await requestOk("PUT", `/accounts/${encodeURIComponent(username)}`, { password });
+  async savePassword(username: string, password: string, groups?: string[]): Promise<void> {
+    const body: Record<string, unknown> = { password };
+    if (groups !== undefined) body.groups = groups;
+    await requestOk("PUT", `/accounts/${encodeURIComponent(username)}`, body);
   }
   async remove(username: string): Promise<void> {
     await requestOk("DELETE", `/accounts/${encodeURIComponent(username)}`);

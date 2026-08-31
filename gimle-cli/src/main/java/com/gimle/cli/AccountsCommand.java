@@ -2,17 +2,21 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code get accounts [username]}, {@code set account <username> --password <value>} (doubles as
- * create-or-reset, matching {@code set tenant}/{@code set config}'s existing convention), {@code
- * delete account <username>}. The password is hashed server-side ({@code
- * com.gimle.core.authz.PasswordHashes}) -- this command sends it raw, over the same authenticated
- * mTLS connection every other write already uses, and never handles hashing itself.
+ * {@code get accounts [username]}, {@code set account <username> --password <value> [--groups
+ * <g1,g2,...>]} (doubles as create-or-reset, matching {@code set tenant}/{@code set config}'s
+ * existing convention), {@code delete account <username>}. The password is hashed server-side
+ * ({@code com.gimle.core.authz.PasswordHashes}) -- this command sends it raw, over the same
+ * authenticated mTLS connection every other write already uses, and never handles hashing itself.
+ * {@code --groups} is optional: omitting it preserves whatever groups the account already has (see
+ * {@code ApiServer#handlePutAccount}'s own javadoc for why), so a plain password reset never
+ * silently strips a {@code group:} RoleBinding's eligibility.
  */
 public final class AccountsCommand {
 
@@ -43,9 +47,13 @@ public final class AccountsCommand {
     String username = args.get(0);
     Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
     String password = flags.get("--password");
+    String groups = flags.getOrDefault("--groups", null);
 
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("password", password);
+    if (groups != null) {
+      body.put("groups", Arrays.stream(groups.split(",")).map(String::trim).toList());
+    }
 
     client.expectSuccess(client.put("/accounts/" + username, Json.write(body)));
     OutputFormat.printResult(

@@ -30,6 +30,7 @@ import com.gimle.mimir.galdr.KindScope;
 import com.gimle.mimir.galdr.PrintColumn;
 import com.gimle.mimir.galdr.SchemaField;
 import com.gimle.mimir.galdr.SchemaModel;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -283,6 +284,30 @@ class RaftCodecTest {
   }
 
   @Test
+  void round_trips_a_put_and_remove_alert_rule_mutation() {
+    AlertRuleSpec spec =
+        new AlertRuleSpec(
+            "greeter-error-rate",
+            Optional.of("tenant-1"),
+            "greeter",
+            AlertRuleSpec.Metric.ERROR_RATE_PER_SECOND,
+            AlertRuleSpec.Comparator.GREATER_THAN,
+            5.0,
+            "https://hooks.example.com/greeter-alerts",
+            false);
+
+    LogEntry putEntry = logEntry(1L, new StateMutation.PutAlertRule(spec));
+    LogEntry decodedPut = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(putEntry));
+    assertEquals(putEntry, decodedPut);
+    assertEquals(spec, ((StateMutation.PutAlertRule) decodedPut.payload()).spec());
+
+    LogEntry removeEntry =
+        logEntry(2L, new StateMutation.RemoveAlertRule(Optional.of("tenant-1"), spec.name()));
+    LogEntry decodedRemove = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(removeEntry));
+    assertEquals(removeEntry, decodedRemove);
+  }
+
+  @Test
   void round_trips_a_weighted_autoscale_policy_with_every_weight_present() {
     // Same historical-bug shape as deploymentSpec()'s own comment above: a WEIGHTED-mode policy
     // with every weight populated makes it impossible for DomainCodec to silently drop
@@ -429,7 +454,16 @@ class RaftCodecTest {
                     false,
                     WorkloadHealthState.ABSENT,
                     Optional.empty())),
-            Map.of("alice", 42_000L));
+            Map.of("alice", 42_000L),
+            List.of(
+                new AlertRuleSpec(
+                    "greeter-error-rate",
+                    Optional.of("tenant-1"),
+                    "greeter",
+                    AlertRuleSpec.Metric.ERROR_RATE_PER_SECOND,
+                    AlertRuleSpec.Comparator.GREATER_THAN,
+                    5.0,
+                    "https://hooks.example.com/greeter-alerts")));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -457,6 +491,7 @@ class RaftCodecTest {
         snapshot.accounts().get(0).passwordHash(), decoded.accounts().get(0).passwordHash());
     assertEquals(snapshot.reconcilerInstanceStates(), decoded.reconcilerInstanceStates());
     assertEquals(snapshot.cordonedNodes(), decoded.cordonedNodes());
+    assertEquals(snapshot.alertRules(), decoded.alertRules());
     assertEquals(snapshot.instanceEvents(), decoded.instanceEvents());
     assertEquals(snapshot.auditEvents(), decoded.auditEvents());
     assertEquals(snapshot.services(), decoded.services());

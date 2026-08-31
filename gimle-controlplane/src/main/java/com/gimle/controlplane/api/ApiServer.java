@@ -7,6 +7,7 @@ import com.gimle.controlplane.admission.LimitRangePlugin;
 import com.gimle.controlplane.admission.PolicyConfigPlugin;
 import com.gimle.controlplane.admission.SecretMapRefsPlugin;
 import com.gimle.controlplane.admission.TenantQuotaPlugin;
+import com.gimle.controlplane.alert.AlertRuleRegistry;
 import com.gimle.controlplane.andvari.AndvariClient;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.authz.BootstrapAccountFile;
@@ -92,6 +93,7 @@ import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.galdr.KindScope;
 import com.gimle.mimir.galdr.SchemaValidator;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
@@ -281,6 +283,10 @@ public final class ApiServer implements AutoCloseable {
   // gimle-agent's own poller (GET /networkpolicies below), never by a reconciler -- nothing in this
   // process itself needs to act on a NetworkPolicySpec, only relay it downstream unchanged.
   private final NetworkPolicyRegistry networkPolicyRegistry;
+  // Same delegate-to-the-store shape as networkPolicyRegistry above -- see AlertRuleRegistry's own
+  // javadoc. Read by ControlPlaneMain's own AlertReconciler, evaluated on the same reconcile tick
+  // every other resource kind here converges on.
+  private final AlertRuleRegistry alertRuleRegistry;
   // Backed by the same ConfigEntry store, under its own "configmap:" synthetic-key convention --
   // see ConfigMapCodec's own javadoc. Unlike networkPolicyRegistry above, constructed with the
   // full StoreClient rather than a StoreReader/MutationSink pair: its write path needs the lease
@@ -405,6 +411,7 @@ public final class ApiServer implements AutoCloseable {
         new CronJobReconciler(storeClient, storeClient, Clock.systemUTC(), this.artifactResolver);
     this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
     this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient, storeClient);
+    this.alertRuleRegistry = new AlertRuleRegistry(storeClient, storeClient);
     this.configMapStore = new ConfigMapStore(storeClient);
     this.configVersionStore = new ConfigVersionStore(storeClient);
     this.fafnirClient = fafnirClient;
@@ -479,6 +486,8 @@ public final class ApiServer implements AutoCloseable {
         "/networkpolicies/", instrument("networkpolicies", this::handleNetworkPolicy));
     target.createContext(
         "/networkpolicies", instrument("networkpolicies", this::handleNetworkPoliciesCollection));
+    target.createContext("/alertrules/", instrument("alertrules", this::handleAlertRule));
+    target.createContext("/alertrules", instrument("alertrules", this::handleAlertRulesCollection));
     target.createContext("/configmaps/", instrument("configmaps", this::handleConfigMap));
     target.createContext("/metrics", instrument("metrics", this::handleMetrics));
     target.createContext("/events", instrument("events", this::handleEvents));
@@ -591,6 +600,10 @@ public final class ApiServer implements AutoCloseable {
    */
   public ServiceRegistry serviceRegistry() {
     return serviceRegistry;
+  }
+
+  public AlertRuleRegistry alertRuleRegistry() {
+    return alertRuleRegistry;
   }
 
   /**
@@ -1816,6 +1829,143 @@ public final class ApiServer implements AutoCloseable {
     map.put("targetPort", spec.targetPort());
     map.put("sessionAffinity", spec.sessionAffinity());
     spec.externalName().ifPresent(externalName -> map.put("externalName", externalName));
+    return map;
+  }
+
+  // ---- /alertrules, /alertrules/{name} ----
+
+  /**
+   * {@code POST /alertrules} (create/replace by the name the submitted body carries) and {@code GET
+   * /alertrules} (list every one) -- the identical collection/per-resource split {@link
+   * #handleServicesCollection} already established, since an {@link AlertRuleSpec} isn't a {@link
+   * WorkloadSpec} itself either and so travels as plain JSON rather than a {@code kind:}-dispatched
+   * manifest.
+   */
+  private void handleAlertRulesCollection(HttpExchange exchange) {
+    try {
+      switch (exchange.getRequestMethod()) {
+        case "POST" -> handlePostAlertRule(exchange);
+        case "GET" -> handleAlertRulesList(exchange);
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("alertrules request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * A PUT always targets the submitted tenant's own {@code (tenantId, name)} key, so it can never
+   * overwrite a different tenant's same-named rule -- same posture {@link #handlePostService}
+   * takes, no re-tenanting guard needed. Field validation is entirely {@link AlertRuleSpec}'s own
+   * constructor's job; an {@link IllegalArgumentException} it throws is caught by {@link
+   * #handleAlertRulesCollection} and mapped to 400.
+   */
+  private void handlePostAlertRule(HttpExchange exchange) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    String name = (String) body.get("name");
+    if (name == null || name.isBlank()) {
+      respond(exchange, 400, "missing alert rule name");
+      return;
+    }
+    Optional<String> tenantId =
+        body.get("tenantId") instanceof String s ? Optional.of(s) : Optional.empty();
+    String deploymentName = (String) body.get("deploymentName");
+    AlertRuleSpec.Metric metric = AlertRuleSpec.Metric.valueOf((String) body.get("metric"));
+    AlertRuleSpec.Comparator comparator =
+        AlertRuleSpec.Comparator.valueOf((String) body.get("comparator"));
+    double threshold = ((Number) body.get("threshold")).doubleValue();
+    String webhookUrl = (String) body.get("webhookUrl");
+    boolean enabled = !Boolean.FALSE.equals(body.get("enabled"));
+
+    boolean authorized = requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.WRITE, tenantId);
+    if (authorized && !rejectIfReservedSystemTenant(exchange, tenantId)) {
+      AlertRuleSpec spec =
+          new AlertRuleSpec(
+              name, tenantId, deploymentName, metric, comparator, threshold, webhookUrl, enabled);
+      alertRuleRegistry.put(spec);
+      respond(exchange, 200, "ok");
+    }
+  }
+
+  /** Every AlertRule, in the same shape {@link #handleGetAlertRule} returns for one. */
+  private void handleAlertRulesList(HttpExchange exchange) throws IOException {
+    Optional<Predicate<Optional<String>>> readableTenant =
+        requireListAuthorized(exchange, ResourceKind.ALERT_RULE);
+    if (readableTenant.isEmpty()) {
+      return;
+    }
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    respondJson(
+        exchange,
+        200,
+        alertRuleRegistry.list().stream()
+            .filter(spec -> readableTenant.get().test(spec.tenantId()))
+            .map(ApiServer::alertRuleToJson)
+            .toList());
+  }
+
+  private void handleAlertRule(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/alertrules/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing alert rule name");
+        return;
+      }
+      // Caller-declared ?tenant= hint, same convention #handleService's own GET/DELETE uses: a
+      // per-tenant AlertRule name can't resolve its own tenant from the bare name alone.
+      Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      switch (exchange.getRequestMethod()) {
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.READ, tenant)) {
+            handleGetAlertRule(exchange, tenant, name);
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.DELETE, tenant)) {
+            alertRuleRegistry.remove(tenant, name);
+            respond(exchange, 200, "ok");
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("alert rule request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleGetAlertRule(HttpExchange exchange, Optional<String> tenantHint, String name)
+      throws IOException {
+    Optional<AlertRuleSpec> spec = alertRuleRegistry.get(tenantHint, name);
+    if (spec.isEmpty()) {
+      respond(exchange, 404, "no such alert rule: " + name);
+      return;
+    }
+    respondJson(exchange, 200, alertRuleToJson(spec.get()));
+  }
+
+  private static Map<String, Object> alertRuleToJson(AlertRuleSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", spec.name());
+    spec.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
+    map.put("deploymentName", spec.deploymentName());
+    map.put("metric", spec.metric().name());
+    map.put("comparator", spec.comparator().name());
+    map.put("threshold", spec.threshold());
+    map.put("webhookUrl", spec.webhookUrl());
+    map.put("enabled", spec.enabled());
     return map;
   }
 
@@ -6179,7 +6329,10 @@ public final class ApiServer implements AutoCloseable {
    * here, server-side, via {@link PasswordHashes}, the same reason the CLI's {@code set account}
    * never touches password-hashing logic itself. Doubles as create-or-reset (no separate "reset
    * password" verb), matching {@code set tenant}/{@code set config}'s existing create-or-update
-   * convention.
+   * convention. {@code groups} is optional and, when omitted, preserves whatever group membership
+   * the account already had -- deliberately not "PUT replaces the whole object": a console operator
+   * resetting someone's password via the Accounts screen's own password-only form must never
+   * silently wipe that account's {@code group:} binding eligibility as a side effect.
    */
   private void handlePutAccount(HttpExchange exchange, String username) throws IOException {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
@@ -6189,7 +6342,12 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     byte[] passwordHash = PasswordHashes.hash(password.toCharArray());
-    storeClient.propose(new StateMutation.PutAccount(new Account(username, passwordHash)));
+    Set<String> groups =
+        body.containsKey("groups")
+            ? new LinkedHashSet<>(
+                Json.asArray(body.get("groups")).stream().map(v -> (String) v).toList())
+            : storeClient.getAccount(username).map(Account::groups).orElse(Set.of());
+    storeClient.propose(new StateMutation.PutAccount(new Account(username, passwordHash, groups)));
     respond(exchange, 200, "ok");
   }
 
@@ -6235,6 +6393,7 @@ public final class ApiServer implements AutoCloseable {
   private static Map<String, Object> accountToJson(Account account) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("username", account.username());
+    map.put("groups", List.copyOf(account.groups()));
     return map;
   }
 
@@ -6289,7 +6448,8 @@ public final class ApiServer implements AutoCloseable {
       exchange
           .getResponseHeaders()
           .add("Set-Cookie", sessionCookieHeader(token, SESSION_TTL.toSeconds()));
-      respondJson(exchange, 200, principalToJson(new Principal(username, Set.of()), false));
+      respondJson(
+          exchange, 200, principalToJson(new Principal(username, account.get().groups()), false));
     } catch (IOException | RuntimeException e) {
       log.warn("login request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -8117,7 +8277,11 @@ public final class ApiServer implements AutoCloseable {
   /**
    * A verified client certificate wins over a session cookie when both are somehow present (mTLS is
    * the stronger proof) -- in practice only one is ever offered by a given caller (the CLI/node
-   * agents never send a session cookie, the console never presents a client certificate).
+   * agents never send a session cookie, the console never presents a client certificate). The
+   * session-cookie branch's groups come from a live {@code storeClient.getAccount} read, not the
+   * token itself -- a session token carries only {@code username} (see {@code SessionTokens}'s own
+   * javadoc), so an account's {@code group:} membership, editable independently of its password, is
+   * always read fresh rather than baked into a token that could outlive a later group change.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
     // A bearer workload token, when presented, is the request's identity -- deliberately checked
@@ -8150,7 +8314,14 @@ public final class ApiServer implements AutoCloseable {
     return sessionCookie(exchange)
         .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
         .filter(session -> !isSessionRevoked(session))
-        .map(session -> new Principal(session.username(), Set.of()));
+        .map(
+            session ->
+                new Principal(
+                    session.username(),
+                    storeClient
+                        .getAccount(session.username())
+                        .map(Account::groups)
+                        .orElse(Set.of())));
   }
 
   /**

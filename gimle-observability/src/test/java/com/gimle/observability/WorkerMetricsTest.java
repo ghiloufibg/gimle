@@ -175,4 +175,71 @@ class WorkerMetricsTest {
     assertEquals(
         9.0, registry.find("gimle.module.threads").tag("module", other.name()).gauge().value());
   }
+
+  @Test
+  void evict_removes_every_meter_recorded_for_the_module() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+    metrics.recordRequest(ID, Duration.ofMillis(10), true);
+    metrics.recordThreadCount(ID, 3);
+    metrics.recordMetaspaceBytes(ID, 1_000_000L);
+
+    metrics.evict(ID);
+
+    assertNull(registry.find("gimle.module.request.count").tag("module", ID.name()).counter());
+    assertNull(registry.find("gimle.module.request.errors").tag("module", ID.name()).counter());
+    assertNull(registry.find("gimle.module.request.latency").tag("module", ID.name()).timer());
+    assertNull(registry.find("gimle.module.threads").tag("module", ID.name()).gauge());
+    assertNull(registry.find("gimle.module.metaspace.bytes").tag("module", ID.name()).gauge());
+    // The cumulative-total accessors go back to "never recorded" too, not merely the raw meters.
+    assertEquals(0.0, metrics.requestCount(ID));
+    assertEquals(0.0, metrics.errorCount(ID));
+  }
+
+  @Test
+  void evict_does_not_affect_a_different_modules_meters() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+    ModuleId other = new ModuleId("com.gimle.example.catalog", Version.parse("1.0.0"));
+    metrics.recordRequest(ID, Duration.ofMillis(10), false);
+    metrics.recordThreadCount(ID, 3);
+    metrics.recordRequest(other, Duration.ofMillis(10), false);
+    metrics.recordThreadCount(other, 9);
+
+    metrics.evict(ID);
+
+    assertEquals(1.0, metrics.requestCount(other));
+    assertEquals(
+        9.0, registry.find("gimle.module.threads").tag("module", other.name()).gauge().value());
+  }
+
+  @Test
+  void evict_after_a_second_recording_lets_the_gauge_be_recreated() {
+    // recordThreadCount/recordMetaspaceBytes cache their gauge holder in an internal map keyed by
+    // ModuleId -- evict must clear that cache entry too, or a later recordThreadCount for the same
+    // (now-reused) ModuleId would silently update an already-removed gauge instead of registering a
+    // fresh one.
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+    metrics.recordThreadCount(ID, 3);
+
+    metrics.evict(ID);
+    metrics.recordThreadCount(ID, 5);
+
+    Gauge gauge = registry.find("gimle.module.threads").tag("module", ID.name()).gauge();
+    assertNotNull(gauge);
+    assertEquals(5.0, gauge.value());
+  }
+
+  @Test
+  void evict_never_touches_client_side_metrics_which_are_tagged_by_interface_not_module() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    WorkerMetrics metrics = new WorkerMetrics(registry);
+    String interfaceName = "com.gimle.example.Greeter";
+    metrics.recordClientRequest(interfaceName, Duration.ofMillis(10), false);
+
+    metrics.evict(ID);
+
+    assertEquals(1.0, metrics.clientRequestCount(interfaceName));
+  }
 }

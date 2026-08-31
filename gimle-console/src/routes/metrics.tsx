@@ -160,6 +160,7 @@ function Metrics() {
   }, [instances]);
 
   const readyCount = instances.filter(({ i }) => i.observation.ready).length;
+  const totalErrorRate = instances.reduce((a, { i }) => a + i.observation.errorRatePerSecond, 0);
 
   /** 2 — placement coverage */
   const placement = useMemo(() => {
@@ -219,14 +220,25 @@ function Metrics() {
         rate: Math.round(i.observation.requestRatePerSecond),
         queue: i.observation.queueDepth,
         state: i.observation.lifecycleState,
+        erroring: i.observation.errorRatePerSecond > 0,
         __label: `${d.spec.name} #${i.instanceIndex}`,
         __tip: [
           ["node", i.nodeId],
           ["req/s", i.observation.requestRatePerSecond.toFixed(1)],
+          ["err/s", i.observation.errorRatePerSecond.toFixed(2)],
           ["queue", String(i.observation.queueDepth)],
           ["state", i.observation.lifecycleState],
         ] as Array<[string, string]>,
       })),
+    [instances],
+  );
+
+  const erroringInstances = useMemo(
+    () =>
+      [...instances]
+        .filter(({ i }) => i.observation.errorRatePerSecond > 0)
+        .sort((a, b) => b.i.observation.errorRatePerSecond - a.i.observation.errorRatePerSecond)
+        .slice(0, 8),
     [instances],
   );
 
@@ -282,6 +294,12 @@ function Metrics() {
           value={s.quotaViolating}
           note={`${tenants.length} tenants`}
           tone={s.quotaViolating > 0 ? "alarm" : "default"}
+        />
+        <StatTile
+          label="Error rate"
+          value={`${totalErrorRate.toFixed(2)}/s`}
+          note={`across ${instances.length} instances`}
+          tone={totalErrorRate > 0 ? "alarm" : "default"}
         />
       </div>
 
@@ -512,15 +530,59 @@ function Metrics() {
                   {loadPoints.map((p, i) => (
                     <Cell
                       key={i}
-                      fill={LIFECYCLE_COLOR[p.state]}
+                      fill={p.erroring ? "var(--status-bad)" : LIFECYCLE_COLOR[p.state]}
                       fillOpacity={0.6}
-                      stroke={LIFECYCLE_COLOR[p.state]}
+                      stroke={p.erroring ? "var(--status-bad)" : LIFECYCLE_COLOR[p.state]}
                     />
                   ))}
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
           </div>
+        </Panel>
+
+        <Panel
+          title="Instances with errors"
+          aside={
+            <span
+              className={cn(
+                "hud-label",
+                erroringInstances.length > 0 ? "text-status-bad" : "text-muted-foreground",
+              )}
+            >
+              {erroringInstances.length} of {instances.length}
+            </span>
+          }
+        >
+          <ul className="space-y-1 p-3">
+            {erroringInstances.map(({ d, i }) => (
+              <li key={`${d.spec.name}-${i.instanceIndex}`} className="flex items-center gap-2">
+                <span className="w-40 shrink-0 truncate font-mono text-[10px] text-signal">
+                  {d.spec.name} #{i.instanceIndex}
+                </span>
+                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full bg-status-bad"
+                    style={{
+                      width: `${Math.round(
+                        (i.observation.errorRatePerSecond /
+                          Math.max(1, erroringInstances[0].i.observation.errorRatePerSecond)) *
+                          100,
+                      )}%`,
+                    }}
+                  />
+                </span>
+                <span className="w-16 shrink-0 text-right font-mono text-[10px] tabular-nums text-status-bad">
+                  {i.observation.errorRatePerSecond.toFixed(2)}/s
+                </span>
+              </li>
+            ))}
+            {erroringInstances.length === 0 && (
+              <li className="font-mono text-[10px] text-muted-foreground">
+                no instance is currently reporting errors
+              </li>
+            )}
+          </ul>
         </Panel>
 
         <Panel

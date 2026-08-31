@@ -13,6 +13,7 @@ interface RawDaemonSetInstance {
     alive: boolean;
     ready: boolean;
     requestRatePerSecond: number;
+    errorRatePerSecond: number;
     queueDepth: number;
     cpuMillicoresUsed: number;
     memoryBytesUsed: number;
@@ -35,6 +36,7 @@ const UNOBSERVED: DaemonSetInstance["observation"] = {
   alive: false,
   ready: false,
   requestRatePerSecond: 0,
+  errorRatePerSecond: 0,
   queueDepth: 0,
   cpuMillicoresUsed: 0,
   memoryBytesUsed: 0,

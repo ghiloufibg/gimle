@@ -60,6 +60,10 @@ gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-inter
                                 [--allowed-caller-tenant <id> ... | --deny-all-callers]
                                 [--allowed-callee-tenant <id> ... | --deny-all-callees]
 gimle delete networkpolicy <name> --tenant <id>
+gimle get alertrules [name] [--tenant <id>]
+gimle set alertrule <name> --deployment <name> --metric <METRIC> --comparator <GREATER_THAN|LESS_THAN>
+                            --threshold N --webhook <url> [--tenant <id>] [--disabled]
+gimle delete alertrule <name> [--tenant <id>]
 gimle get tenants [id]
 gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
 gimle delete tenant <id>
@@ -119,7 +123,7 @@ gimle get rolebindings [id]
 gimle set rolebinding <id> --subject user:<name>|group:<name> --role <name>
 gimle delete rolebinding <id>
 gimle get accounts [username]
-gimle set account <username> --password <value>
+gimle set account <username> --password <value> [--groups <g1,g2,...>]
 gimle delete account <username>
 gimle can-i <verb> <resource> [--tenant <id>] [--target <id>]
 gimle cert token create [--ttl <duration>]
@@ -287,6 +291,14 @@ one must be: `--allowed-caller-tenant` (repeatable) allows the named caller tena
 `--deny-all-callers` is the allow-nobody form of the same direction; `--allowed-callee-tenant` /
 `--deny-all-callees` restrict the egress direction the same way.
 
+`alertrule` manages an [AlertRule](../architecture/observability.md#alerting) — a declared threshold
+on one Deployment's own observed signal (`--metric`, one of `REQUEST_RATE_PER_SECOND`,
+`ERROR_RATE_PER_SECOND`, `QUEUE_DEPTH`, `CPU_MILLICORES_USED`, `MEMORY_BYTES_USED`) that posts a
+webhook notification once when crossed and again once resolved. `set alertrule` POSTs to the
+`/alertrules` collection the same way `set service` does, since a rule names itself in its own
+request body; `--disabled` creates the rule silenced (never evaluated) rather than enabled by
+default.
+
 `limitrange` manages a tenant's [LimitRange](../architecture/multi-tenancy.md#limitrange) — a
 per-workload min/max bound on a single Deployment's own `resources.request`/`resources.limit`,
 distinct from `tenant`'s own aggregate quota. Each of the four bound pairs
@@ -307,7 +319,10 @@ role is a set of permissions); the optional third segment of `resource:verb:tena
 to one tenant instead of cluster-wide. `set account` doubles as create-or-reset-password, matching
 `set tenant`/`set config`'s existing create-or-update convention — the password is sent once over
 the same authenticated mTLS connection every other write already uses and is hashed server-side,
-never stored or echoed back in plaintext.
+never stored or echoed back in plaintext. `--groups` (comma-separated) is what lets a `group:`
+`RoleBinding` subject match this account; omitting it on a reset preserves whatever groups the
+account already had, so resetting a password never silently strips group membership as a side
+effect.
 
 `can-i` is the `kubectl auth can-i` analogue: `gimle can-i write deployments --tenant acme` asks
 the control plane's self-subject access review (`GET /authz/can-i`) whether the calling identity

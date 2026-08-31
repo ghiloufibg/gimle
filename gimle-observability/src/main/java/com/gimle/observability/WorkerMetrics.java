@@ -110,9 +110,34 @@ public final class WorkerMetrics {
     gaugeHolder(metaspaceBytes, "gimle.module.metaspace.bytes", id).set(bytes);
   }
 
+  /**
+   * Removes every meter this class ever registered for {@code id} -- the request/error counters,
+   * the latency timer, and both gauges -- so a worker that redeploys the same module name across
+   * many versions (or the same version repeatedly) doesn't accumulate one permanent meter set per
+   * {@code (module, version)} forever. Called once {@code id} is uninstalled, never on a mere stop:
+   * a stopped-but-still-installed module can restart and pick its counters back up, but an
+   * uninstalled one is gone for good and so is its ModuleId. {@link #clientMetrics} isn't touched
+   * here -- it's tagged by callee interface name, not {@link ModuleId}, since the caller side has
+   * no reliable calling-module identity to evict by (see {@link #recordClientRequest}'s own
+   * javadoc).
+   */
+  public void evict(ModuleId id) {
+    Tags tags = tagsFor(id);
+    metrics.evict(tags);
+    evictGauge(threadCounts, "gimle.module.threads", id, tags);
+    evictGauge(metaspaceBytes, "gimle.module.metaspace.bytes", id, tags);
+  }
+
   private AtomicLong gaugeHolder(Map<ModuleId, AtomicLong> holders, String name, ModuleId id) {
     return holders.computeIfAbsent(
         id, key -> registry.gauge(name, tagsFor(id), new AtomicLong(), AtomicLong::get));
+  }
+
+  private void evictGauge(Map<ModuleId, AtomicLong> holders, String name, ModuleId id, Tags tags) {
+    if (holders.remove(id) == null) {
+      return;
+    }
+    registry.find(name).tags(tags).gauges().forEach(registry::remove);
   }
 
   private static Tags tagsFor(ModuleId id) {

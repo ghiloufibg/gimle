@@ -9,7 +9,7 @@ interface State {
   error: string | null;
   load(): Promise<void>;
   refresh(): Promise<void>;
-  savePassword(username: string, password: string): Promise<void>;
+  savePassword(username: string, password: string, groups?: string[]): Promise<void>;
   remove(username: string): Promise<void>;
 }
 
@@ -32,10 +32,10 @@ export const useAccountsStore = create<State>((set, get) => ({
     set({ loaded: false });
     await get().load();
   },
-  async savePassword(username, password) {
+  async savePassword(username, password, groups) {
     set({ loading: true, error: null });
     try {
-      await accountsRepo.savePassword(username, password);
+      await accountsRepo.savePassword(username, password, groups);
       const items = await accountsRepo.fetchAll();
       set({ items, loading: false, loaded: true });
     } catch (e) {

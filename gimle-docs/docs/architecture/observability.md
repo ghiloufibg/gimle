@@ -38,9 +38,18 @@ real request-rate/error-rate figures (not just CPU/memory), plus each module's c
 `BoundedModuleScheduler` queue depth — all three travel through `ControlMessage.MetricsReport` to
 the node agent and on into `InstanceObservation`, the same heartbeat pipeline CPU/memory usage
 already rides. The control plane exposes a `GET /metrics` per-deployment rollup (average request
-rate, average error rate, instance count) built from that same observation data. `WorkerMetrics`'
-own request-latency `Timer` is built with `publishPercentiles(0.5, 0.95, 0.99)` too, for parity
-with the three process-tier registries below.
+rate, average error rate, instance count) built from that same observation data, and the console's
+own Instances/Metrics screens surface both figures per instance and per deployment (an error-rate
+column on the Instances table, a total-error-rate stat tile and a ranked "instances with errors"
+panel on the Metrics screen). `WorkerMetrics`' own request-latency `Timer` is built with
+`publishPercentiles(0.5, 0.95, 0.99)` too, for parity with the three process-tier registries below.
+
+`WorkerMetrics#evict(ModuleId)` removes a module's entire meter set (request/error counters, the
+latency timer, and the thread-count/metaspace gauges) once that `ModuleId` is uninstalled — never
+on a mere stop, since a stopped-but-installed module can restart and resume its counters. Without
+this, a worker that redeploys the same module name across many versions over its lifetime would
+accumulate one permanent meter set per historical `(module, version)` pair forever;
+`WorkerMain`'s `UninstallModule` handler calls it only after a successful uninstall.
 
 `gimle-controlplane`, `gimle-fafnir`, `gimle-mimir`, and `gimle-andvari` each carry their own
 analogous per-process `MeterRegistry` (`ApiServerMetrics`/`FafnirMetrics`/`StoreMetrics`/
@@ -80,6 +89,32 @@ five-second tick that may never fire again before the worker process exits. Both
 through the same `/metrics-history/*`/`/traces-history/*` routes as every other process kind —
 `WORKER` needed zero `gimle-muninn` changes, since its `processKind` path segment was already an
 unvalidated string.
+
+## Alerting
+
+Every metric above is a store, not a notifier — nothing compares a stored value against an
+operator-declared threshold and tells anyone, except `AlertRuleSpec`. An `AlertRuleSpec` (Raft-
+replicated the same way `ServiceSpec`/`NetworkPolicySpec` are, via `gimle-mimir`) names one
+`DeploymentSpec` it watches, one of the same five signals `AutoscalePolicy` already scores
+(`REQUEST_RATE_PER_SECOND`/`ERROR_RATE_PER_SECOND`/`QUEUE_DEPTH`/`CPU_MILLICORES_USED`/
+`MEMORY_BYTES_USED`), a `GREATER_THAN`/`LESS_THAN` comparator and threshold, and a `webhookUrl` to
+notify — deliberately one signal, one comparison, not a general expression language.
+
+`AlertReconciler` runs on the same level-triggered reconcile tick as every other reconciler,
+averaging each enabled rule's configured signal across its deployment's current
+`InstanceObservation`s (the identical aggregation `GET /metrics` already uses) and calling
+`AlertNotifier#notify` exactly once per `FIRING`/`RESOLVED` transition — never re-notifying every
+tick a condition merely continues to hold. `WebhookAlertNotifier` POSTs a small JSON body
+(`{rule, deploymentName, metric, comparator, threshold, observedValue, state}`) and is best-effort:
+an unreachable webhook is logged and dropped, never allowed to fail the reconcile tick. Which rule
+is currently firing is tracked purely in-process, not durable state — a control-plane restart
+forgets it and may re-notify once on the first tick after, the same tradeoff `MuninnShipper`'s own
+in-memory shipping cursor already accepts.
+
+`gimle-controlplane` exposes `POST`/`GET`/`DELETE /alertrules*`, RBAC-gated via
+`ResourceKind.ALERT_RULE` (a tenant able to deploy a workload can also alert on it, without a
+cluster-admin grant); `gimle-cli` exposes it as `get`/`set`/`delete alertrule` — see the
+[CLI reference](../reference/cli-reference.md).
 
 ## Tracing: `GimleTracing`
 

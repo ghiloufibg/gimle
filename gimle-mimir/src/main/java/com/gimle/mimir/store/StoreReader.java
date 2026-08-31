@@ -11,6 +11,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -63,6 +64,10 @@ public interface StoreReader {
   Optional<NetworkPolicySpec> getNetworkPolicy(String tenantId, String name);
 
   List<NetworkPolicySpec> listNetworkPolicies();
+
+  Optional<AlertRuleSpec> getAlertRule(Optional<String> tenantId, String name);
+
+  List<AlertRuleSpec> listAlertRules();
 
   List<InstanceAssignment> listAssignmentsFor(Optional<String> tenantId, String deploymentName);
 

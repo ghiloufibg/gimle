@@ -727,6 +727,63 @@ class ApiServerAuthzTest {
     }
   }
 
+  /**
+   * A {@code group:} {@link RoleBinding} subject only ever matched a certificate-authenticated
+   * principal, never a session-cookie one -- every session principal was built with hardcoded empty
+   * groups. This pins the fix: a session-authenticated principal's groups now come from a live
+   * {@code Account.groups()} read, so a {@code group:} binding grants access to any account
+   * currently carrying that group, and revokes it the moment the account's groups change -- proving
+   * groups are read fresh per request rather than baked into the session token at login.
+   */
+  @Test
+  void group_role_binding_authorizes_a_session_authenticated_principal() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    byte[] passwordHash = PasswordHashes.hash("pw".toCharArray());
+    store.putAccount(new Account("group-member", passwordHash, java.util.Set.of("qa-team")));
+    store.putAccount(new Account("no-group", passwordHash));
+    store.putRole(
+        new Role(
+            "deployment-reader",
+            java.util.Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.groupSubject("qa-team"), "deployment-reader"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+      String groupMemberCookie = login(client, baseUrl, "group-member", "pw");
+      String noGroupCookie = login(client, baseUrl, "no-group", "pw");
+
+      // The group binding grants access to the account carrying that group...
+      assertEquals(200, getDeployments(client, baseUrl, groupMemberCookie).statusCode());
+      // ...and denies it to an account with no group membership at all.
+      assertEquals(403, getDeployments(client, baseUrl, noGroupCookie).statusCode());
+
+      // Groups are read live from the store per request, not baked into the session token: removing
+      // the group from the account revokes access on the very next request, no re-login needed.
+      store.putAccount(new Account("group-member", passwordHash));
+      assertEquals(403, getDeployments(client, baseUrl, groupMemberCookie).statusCode());
+
+      // ...and granting the group to a previously ungrouped account's existing session grants
+      // access
+      // the same way, live.
+      store.putAccount(new Account("no-group", passwordHash, java.util.Set.of("qa-team")));
+      assertEquals(200, getDeployments(client, baseUrl, noGroupCookie).statusCode());
+    }
+  }
+
   private static HttpResponse<Void> getDeployments(HttpClient client, String baseUrl, String cookie)
       throws IOException, InterruptedException {
     HttpRequest request =

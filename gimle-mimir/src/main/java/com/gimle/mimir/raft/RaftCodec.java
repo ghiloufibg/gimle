@@ -12,6 +12,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.codec.DomainCodec;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -157,6 +158,8 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_WORKLOAD_HEALTH_STATE = 68;
   private static final byte MUT_PUT_SESSION_REVOCATION = 69;
   private static final byte MUT_RESTORE_SNAPSHOT = 70;
+  private static final byte MUT_PUT_ALERT_RULE = 71;
+  private static final byte MUT_REMOVE_ALERT_RULE = 72;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -765,6 +768,15 @@ public final class RaftCodec {
         out.writeUTF(m.name());
         DomainCodec.writeBytes(out, m.statusJson());
       }
+      case StateMutation.PutAlertRule m -> {
+        out.writeByte(MUT_PUT_ALERT_RULE);
+        DomainCodec.writeAlertRuleSpec(out, m.spec());
+      }
+      case StateMutation.RemoveAlertRule m -> {
+        out.writeByte(MUT_REMOVE_ALERT_RULE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
+        out.writeUTF(m.name());
+      }
       case StateMutation.RestoreSnapshot m -> {
         out.writeByte(MUT_RESTORE_SNAPSHOT);
         // Reuses encodeSnapshot's own already-versioned encoding wholesale rather than a second
@@ -1015,6 +1027,11 @@ public final class RaftCodec {
       }
       case MUT_RESTORE_SNAPSHOT ->
           new StateMutation.RestoreSnapshot(decodeSnapshot(DomainCodec.readBytes(in)));
+      case MUT_PUT_ALERT_RULE -> new StateMutation.PutAlertRule(DomainCodec.readAlertRuleSpec(in));
+      case MUT_REMOVE_ALERT_RULE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        yield new StateMutation.RemoveAlertRule(tenantId, in.readUTF());
+      }
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -1228,6 +1245,10 @@ public final class RaftCodec {
       for (Map.Entry<String, Long> e : snapshot.sessionRevokedBeforeEpochMilli().entrySet()) {
         out.writeUTF(e.getKey());
         out.writeLong(e.getValue());
+      }
+      out.writeInt(snapshot.alertRules().size());
+      for (AlertRuleSpec spec : snapshot.alertRules()) {
+        DomainCodec.writeAlertRuleSpec(out, spec);
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -1486,6 +1507,11 @@ public final class RaftCodec {
       for (int i = 0; i < sessionRevocationCount; i++) {
         sessionRevokedBeforeEpochMilli.put(in.readUTF(), in.readLong());
       }
+      List<AlertRuleSpec> alertRules = new ArrayList<>();
+      int alertRuleCount = in.readInt();
+      for (int i = 0; i < alertRuleCount; i++) {
+        alertRules.add(DomainCodec.readAlertRuleSpec(in));
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1528,7 +1554,8 @@ public final class RaftCodec {
           kindDefinitions,
           customResources,
           workloadHealthStates,
-          sessionRevokedBeforeEpochMilli);
+          sessionRevokedBeforeEpochMilli,
+          alertRules);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

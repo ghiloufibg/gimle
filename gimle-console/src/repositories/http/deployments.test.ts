@@ -22,6 +22,7 @@ const RAW_DEPLOYMENT = {
         alive: true,
         ready: true,
         requestRatePerSecond: 1.5,
+        errorRatePerSecond: 0.2,
         queueDepth: 0,
         cpuMillicoresUsed: 100,
         memoryBytesUsed: 1024,
@@ -50,11 +51,21 @@ describe("HttpDeploymentsRepository", () => {
       alive: false,
       ready: false,
       requestRatePerSecond: 0,
+      errorRatePerSecond: 0,
       queueDepth: 0,
       cpuMillicoresUsed: 0,
       memoryBytesUsed: 0,
       workerId: null,
     });
+  });
+
+  it("maps an instance observation's errorRatePerSecond through unchanged", async () => {
+    stubFetchSequence([() => jsonResponse([RAW_DEPLOYMENT])]);
+
+    const repo = new HttpDeploymentsRepository();
+    const all = await repo.all(true);
+
+    expect(all[0].instances[0].observation.errorRatePerSecond).toBe(0.2);
   });
 
   it("maps an instance observation with no workerId key to null", async () => {

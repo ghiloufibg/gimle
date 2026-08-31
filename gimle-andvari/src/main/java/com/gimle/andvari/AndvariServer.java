@@ -986,7 +986,14 @@ public final class AndvariServer implements AutoCloseable {
     return sessionCookie(exchange)
         .flatMap(token -> SessionTokens.verify(token, sessionSigningKey))
         .filter(session -> !isSessionRevoked(session))
-        .map(session -> new Principal(session.username(), Set.of()));
+        .map(
+            session ->
+                new Principal(
+                    session.username(),
+                    storeClient
+                        .getAccount(session.username())
+                        .map(Account::groups)
+                        .orElse(Set.of())));
   }
 
   /**
@@ -1054,7 +1061,8 @@ public final class AndvariServer implements AutoCloseable {
       exchange
           .getResponseHeaders()
           .add("Set-Cookie", sessionCookieHeader(token, SESSION_TTL.toSeconds()));
-      respondJson(exchange, 200, principalToJson(new Principal(username, Set.of()), false));
+      respondJson(
+          exchange, 200, principalToJson(new Principal(username, account.get().groups()), false));
     } catch (IOException | RuntimeException e) {
       log.warn("login request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");

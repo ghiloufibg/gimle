@@ -25,6 +25,7 @@ const RAW_DEPLOYMENTS = [
           alive: true,
           ready: true,
           requestRatePerSecond: 3,
+          errorRatePerSecond: 0.5,
           queueDepth: 0,
           cpuMillicoresUsed: 50,
           memoryBytesUsed: 2048,
@@ -52,6 +53,10 @@ describe("HttpInstancesRepository", () => {
       tenantId: "acme",
       nodeId: "node-1",
       lifecycleState: "ACTIVE",
+      // Regression: errorRatePerSecond is shipped on the wire (ApiServer's own
+      // observationToJson) but was previously dropped by this flatten step, so no screen ever
+      // rendered it despite the control plane reporting it.
+      errorRatePerSecond: 0.5,
     });
   });
 

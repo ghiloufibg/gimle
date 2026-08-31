@@ -43,9 +43,9 @@ export const roleBindings: RoleBinding[] = [
 ];
 
 export const accounts: Account[] = [
-  { username: "admin" },
-  { username: "operator" },
-  { username: "auditor" },
+  { username: "admin", groups: [] },
+  { username: "operator", groups: ["ops"] },
+  { username: "auditor", groups: ["auditors"] },
 ];
 
 export function upsertRole(role: Role) {
@@ -70,8 +70,13 @@ export function removeRoleBinding(id: string) {
   if (i >= 0) roleBindings.splice(i, 1);
 }
 
-export function upsertAccount(username: string) {
-  if (!accounts.some((a) => a.username === username)) accounts.push({ username });
+export function upsertAccount(username: string, groups?: string[]) {
+  const i = accounts.findIndex((a) => a.username === username);
+  if (i >= 0) {
+    if (groups !== undefined) accounts[i] = { ...accounts[i], groups };
+  } else {
+    accounts.push({ username, groups: groups ?? [] });
+  }
 }
 
 export function removeAccount(username: string) {

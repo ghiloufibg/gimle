@@ -90,8 +90,8 @@ public final class BuiltinRoles {
 
   /**
    * Everything the view template may read: a tenant's workloads, its plain config (flat keys and
-   * ConfigMaps alike), its Services/NetworkPolicies/LimitRanges, its logs, its artifacts, and the
-   * tenant object itself -- but never {@code SECRET}/{@code SECRETMAP}.
+   * ConfigMaps alike), its Services/NetworkPolicies/LimitRanges/AlertRules, its logs, its
+   * artifacts, and the tenant object itself -- but never {@code SECRET}/{@code SECRETMAP}.
    */
   private static final Set<ResourceKind> TENANT_VIEWABLE_KINDS =
       Set.of(
@@ -105,6 +105,7 @@ public final class BuiltinRoles {
           ResourceKind.SERVICE,
           ResourceKind.NETWORK_POLICY,
           ResourceKind.LIMIT_RANGE,
+          ResourceKind.ALERT_RULE,
           ResourceKind.LOGS,
           ResourceKind.ARTIFACT,
           // A tenant's own custom-resource instances -- an unqualified grant, so it covers every
@@ -123,6 +124,7 @@ public final class BuiltinRoles {
           ResourceKind.SECRET,
           ResourceKind.SECRETMAP,
           ResourceKind.SERVICE,
+          ResourceKind.ALERT_RULE,
           ResourceKind.ARTIFACT,
           ResourceKind.CUSTOM_RESOURCE);
 

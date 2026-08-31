@@ -71,7 +71,8 @@ class RaftLogTest {
         List.of(), // kindDefinitions
         List.of(), // customResources
         List.of(), // workloadHealthStates
-        Map.of()); // sessionRevokedBeforeEpochMilli
+        Map.of(), // sessionRevokedBeforeEpochMilli
+        List.of()); // alertRules
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -120,7 +121,8 @@ class RaftLogTest {
         base.kindDefinitions(),
         base.customResources(),
         base.workloadHealthStates(),
-        base.sessionRevokedBeforeEpochMilli());
+        base.sessionRevokedBeforeEpochMilli(),
+        base.alertRules());
   }
 
   @Test

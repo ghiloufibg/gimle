@@ -718,6 +718,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-706 | gimle-controlplane, gimle-mimir, and gimle-agent each expose an operator-pollable health signal | Operations | Complete | Partial |
 | GIMLE-707 | Audit-trail ring-buffer eviction is observable: logged, counted, and surfaced in the GET /audit response | Operations | Complete | Partial |
 | GIMLE-708 | Password hashes carry their own iteration count, so raising PasswordHashes.ITERATIONS never breaks an existing hash | Security | Complete | Partial |
+| GIMLE-709 | A group: RoleBinding subject now authorizes a session-cookie-authenticated (console/CLI-login) principal, not only a certificate-authenticated one | Authorization | Complete | Yes |
+| GIMLE-710 | The console's Metrics and Instances screens surface per-instance error rate, which the control plane already shipped on the wire but no console type or screen ever read | Observability | Complete | Yes |
+| GIMLE-711 | A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved | Observability | Complete | Yes |
+| GIMLE-712 | WorkerMetrics evicts a module's Micrometer meters on uninstall, so repeated redeploy no longer accumulates one permanent meter set per (module, version) forever | Observability | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -5822,6 +5826,38 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given an operator submits a join CSR; When the request is accepted as pending; Then a durable audit event records the submission before any approval decision is made.
   ```
 
+#### GIMLE-709 — A group: RoleBinding subject now authorizes a session-cookie-authenticated (console/CLI-login) principal, not only a certificate-authenticated one
+
+- **Category**: Authorization
+- **User story**: As a cluster operator, I want a `group:` RoleBinding to grant access to any console-login account currently carrying that group, so I can manage access by group membership for browser-based operators the same way I already can for mTLS-authenticated ones.
+- **Status**: Fixed: closes FUNC-67 -- every session-cookie-authenticated Principal (ApiServer, FafnirServer, AndvariServer) was constructed with a hardcoded empty Set.of() for its groups, so a `group:` RoleBinding subject could never match a console-login (username/password) caller, only a certificate-authenticated one whose groups come from its client certificate's O= RDN. Account (gimle-core) gained a `groups` field, DomainCodec gained wire serialization for it, and each server's resolvePrincipal now reads the account's current groups live from the store per request (never baked into the session token, which carries only username -- so a group change takes effect on the caller's very next request, no re-login needed) rather than defaulting to Set.of(). ApiServer's PUT /accounts/{username} accepts an optional `groups` array; omitting it preserves the account's existing groups (a console password-only reset can no longer silently strip group membership), and accountToJson/principalToJson expose it. gimle-cli's `set account` gained --groups, and the console's Accounts screen gained a Groups column and editable comma-separated groups field.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/authz/Account.java` (`groups`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeAccount`, `readAccount`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolvePrincipal`, `handlePutAccount`, `handleAuthLogin`, `accountToJson`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`resolvePrincipal`, `handleAuthLogin`), `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`resolvePrincipal`, `handleAuthLogin`), `gimle-cli/src/main/java/com/gimle/cli/AccountsCommand.java` (`--groups`), `gimle-console/src/routes/access-control.tsx` (`AccountsTab`)
+- **Test coverage**: ApiServerAuthzTest gained group_role_binding_authorizes_a_session_authenticated_principal, proving end to end: a group-bound RoleBinding grants a session-authenticated account carrying that group, denies one without it, and both revokes and grants access live (no re-login) when the store-side account's groups change mid-session. ApiServerAccountManagementTest gained coverage for groups round-tripping through PUT/GET, the password-hash never leaking, groups preserved when omitted from a reset, replaced when given explicitly, and cleared with an empty array. gimle-console gained accounts.test.ts/http/accounts.test.ts coverage for the same preserve-vs-replace behavior and the groups wire payload.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Role bound to `group:qa-team` granting DEPLOYMENT:READ, and an Account with groups=["qa-team"]; When that account logs in via the console and requests GET /deployments; Then the request is authorized.
+  Given the same setup but an Account with no groups; When it requests GET /deployments; Then the request is denied with 403.
+  Given an already-logged-in session for an account currently in `qa-team`; When an operator removes that account's groups via PUT /accounts/{username} with an explicit empty groups array; Then the very next request on that same session is denied, with no re-login required.
+  Given an account with groups=["qa-team"]; When its password is reset via PUT /accounts/{username} with only {password} (no groups field); Then its group membership is unchanged.
+  ```
+
+#### GIMLE-711 — A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved
+
+- **Category**: Observability
+- **User story**: As a cluster operator, I want to declare a threshold on a deployment's request rate, error rate, queue depth, CPU, or memory usage and be notified via webhook when it's crossed (and again when it resolves), so I don't have to poll the Metrics screen to catch a degraded workload.
+- **Status**: Fixed: closes FUNC-27 -- previously no alerting/notification primitive existed anywhere in the platform; gimle-muninn was a purely passive metrics/logs/traces store with no threshold-evaluation or outbound-notification concept. Added AlertRuleSpec (gimle-mimir manifest: name, optional tenantId, deploymentName, one of five Metric signals matching AutoscalePolicy's own signal set, a GREATER_THAN/LESS_THAN Comparator, threshold, webhookUrl, enabled), Raft-replicated the same way ServiceSpec/NetworkPolicySpec are (StateMutation.PutAlertRule/RemoveAlertRule, StateStore accessors, full StoreRpc/StoreCodec read-path plumbing so a rule created against one control-plane replica is visible on every other). AlertReconciler runs on the same level-triggered reconcile tick as every other reconciler, averaging each enabled rule's configured signal across its deployment's current InstanceObservations (the identical aggregation ApiServer#handleMetrics already uses for the console's own Metrics screen) and calling AlertNotifier#notify exactly once per FIRING/RESOLVED transition -- never re-notifying every tick a condition merely continues to hold, and pruning a deleted rule's tracked firing state so it doesn't accumulate forever. WebhookAlertNotifier POSTs a small JSON body and is best-effort (an unreachable webhook is logged and dropped, never fails the reconcile tick). ApiServer exposes POST/GET/DELETE /alertrules*, RBAC-gated via the new ResourceKind.ALERT_RULE (tenant view/edit templates include it); gimle-cli gained `get/set/delete alertrule`.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/AlertRuleSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutAlertRule`, `RemoveAlertRule`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StoreReader.java` (`*AlertRule*`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java` (`*AlertRule*`), `gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertRuleRegistry.java`, `AlertReconciler.java`, `AlertNotifier.java`, `AlertNotification.java`, `WebhookAlertNotifier.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/alertrules*` handlers), `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (reconcile-tick wiring), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java`, `BuiltinRoles.java` (`ALERT_RULE`), `gimle-cli/src/main/java/com/gimle/cli/AlertRulesCommand.java`
+- **Test coverage**: AlertRuleSpecTest covers constructor validation and the GREATER_THAN/LESS_THAN crossing predicate. AlertReconcilerTest (real StateStore, no mocks) proves: fires once on crossing, never re-fires while still crossed, resolves exactly once when the reading returns to safe, a disabled rule never fires, an unobserved instance contributes nothing to the average (never drags it toward zero), and a deleted rule's tracked firing state is pruned rather than leaking forever. ApiServerAlertRulesTest covers POST/GET/DELETE/list round-tripping, the enabled flag, 400s on a missing name or blank webhookUrl, replace-on-repost, and cross-replica visibility through one shared store (mirroring ApiServerNetworkPoliciesTest's own proof). RaftCodecTest and StoreCodecTest gained round-trip coverage for the new StateMutation/StoreRpc/StateSnapshot wire shapes.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an enabled AlertRule on deployment 'checkout-service' with metric=ERROR_RATE_PER_SECOND, comparator=GREATER_THAN, threshold=5.0; When the deployment's averaged observed error rate rises to 8.0 on a reconcile tick; Then exactly one FIRING webhook notification is sent.
+  Given the rule from the previous scenario is already firing; When a later reconcile tick observes the error rate still above threshold; Then no additional notification is sent.
+  Given the rule is firing; When the observed error rate drops back to 1.0; Then exactly one RESOLVED webhook notification is sent, and no further notification is sent while it stays resolved.
+  Given a disabled AlertRule whose metric is currently crossed; When the reconciler evaluates it; Then no notification is ever sent.
+  ```
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -7163,6 +7199,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a log file already shipped up through one line at timestamp T; When a second line is appended at that exact same timestamp T before the next ship tick; Then the next tick ships that second line.
   Given the same-instant sibling has just been shipped; When a further tick runs with no new lines; Then nothing is re-shipped, proving the cursor genuinely advanced rather than re-querying the same boundary forever.
+  ```
+
+#### GIMLE-712 — WorkerMetrics evicts a module's Micrometer meters on uninstall, so repeated redeploy no longer accumulates one permanent meter set per (module, version) forever
+
+- **Category**: Observability
+- **User story**: As a platform operator, I want a worker JVM's meter registry to stop growing without bound as modules are redeployed across many versions over the worker's lifetime, so long-running workers don't slowly accumulate stale per-version metrics that were never cleaned up.
+- **Status**: Fixed: closes FUNC-45 -- WorkerMetrics/TaggedRequestMetrics registered a request-count/error-count/latency-timer triple plus thread-count/metaspace gauges per (module, version) tag set and never removed them, so a worker that redeployed the same module name across many versions (or the same version repeatedly) accumulated one permanent meter set per historical (module, version) pair for the worker's entire process lifetime. TaggedRequestMetrics gained evict(Tags), removing its own timer/counter/error-counter triple via MeterRegistry#remove; WorkerMetrics gained evict(ModuleId), removing that triple plus both gauges and clearing the internal gauge-holder cache entry (so a later recordThreadCount/recordMetaspaceBytes for a reused ModuleId re-registers a fresh gauge rather than silently updating an already-removed one). WorkerMain's UninstallModule handler now calls workerMetrics.evict(id) after a successful uninstall (never on a mere stop, since a stopped-but-installed module can restart and resume its counters) -- gated inside the same runCommand lambda so a failed uninstall never evicts. Client-side (fabric outbound-call) metrics are untouched by eviction since they're tagged by callee interface name, not ModuleId.
+- **Confidence**: High
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/TaggedRequestMetrics.java` (`evict`), `gimle-observability/src/main/java/com/gimle/observability/WorkerMetrics.java` (`evict`, `evictGauge`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`UninstallModule` handler)
+- **Test coverage**: WorkerMetricsTest gained evict_removes_every_meter_recorded_for_the_module, evict_does_not_affect_a_different_modules_meters, evict_after_a_second_recording_lets_the_gauge_be_recreated (proving the gauge-holder cache is actually cleared, not merely the registry-side meter), and evict_never_touches_client_side_metrics_which_are_tagged_by_interface_not_module.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a worker has recorded requests, thread counts, and metaspace bytes for module 'orders@1.0.0'; When that module is successfully uninstalled; Then every meter WorkerMetrics registered for it is removed from the registry.
+  Given the same module is later reinstalled and recordThreadCount is called again; When its gauge is queried; Then a fresh gauge reflects the new value rather than a stale, already-removed one silently failing to update.
+  Given two modules 'orders@1.0.0' and 'catalog@1.0.0' both have recorded metrics; When 'orders@1.0.0' is uninstalled and evicted; Then 'catalog@1.0.0''s own meters are untouched.
   ```
 
 ### gimle-gateway
@@ -8960,6 +9011,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a defined kind with instances; When the Custom Resources screen loads; Then the kind picker lists the kind and its table renders the declared printColumns; When an instance row is opened; Then spec and status render side by side with the caught-up signal.
+  ```
+
+#### GIMLE-710 — The console's Metrics and Instances screens surface per-instance error rate, which the control plane already shipped on the wire but no console type or screen ever read
+
+- **Category**: Observability
+- **User story**: As a cluster operator, I want to see each instance's and each deployment's observed error rate on the Metrics and Instances screens, so I can spot an erroring workload without cross-referencing raw API responses by hand.
+- **Status**: Fixed: closes FUNC-09 -- ApiServer#observationToJson has always included errorRatePerSecond in InstanceObservation's wire JSON, but the console's InstanceObservation/ModuleInstance TypeScript interfaces never declared the field, and every Http*Repository (deployments/daemonsets/statefulsets/instances) that maps that raw JSON into typed objects silently dropped it in the process -- so no screen could read it even though the data was present on every response. Added errorRatePerSecond to the shared InstanceObservation/ModuleInstance types, threaded it through every Raw*Instance mapping and UNOBSERVED default, and surfaced it: the Instances table gained an err/s column (highlighted when nonzero), the instance detail page gained an Error rate stat, and the Metrics screen gained a total-error-rate stat tile, an 'Instances with errors' ranked panel, and error-rate-aware coloring on the request-rate/queue-depth backpressure scatter.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/types/index.ts` (`InstanceObservation`, `ModuleInstance`), `gimle-console/src/repositories/http/deployments.ts`, `daemonsets.ts`, `statefulsets.ts`, `instances.ts` (`errorRatePerSecond` mapping), `gimle-console/src/components/instances-table.tsx` (err/s column), `gimle-console/src/routes/instances.$name.$idx.tsx` (Error rate stat), `gimle-console/src/routes/metrics.tsx` (error-rate stat tile, Instances with errors panel, scatter coloring)
+- **Test coverage**: HttpDeploymentsRepositoryTest gained a dedicated errorRatePerSecond pass-through assertion; HttpInstancesRepositoryTest's flatten regression test now asserts errorRatePerSecond survives the flatten step that previously dropped it; MockAccountsRepository-style UNOBSERVED default assertions in deployments/statefulsets/daemonsets tests updated to include the zeroed field. Full gimle-console Vitest suite (294 tests) re-verified green.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment instance whose control-plane observation reports errorRatePerSecond=3.5; When the console's Instances screen loads that deployment's rows; Then the err/s column for that instance shows 3.50 and is visually flagged.
+  Given the same instance; When the console's Metrics screen loads; Then the deployment appears in the 'Instances with errors' panel and contributes to the total error-rate stat tile.
   ```
 
 ### gimle-fafnir-console

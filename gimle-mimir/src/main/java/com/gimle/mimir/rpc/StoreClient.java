@@ -13,6 +13,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -233,6 +234,16 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
   public List<NetworkPolicySpec> listNetworkPolicies() {
     return ((StoreRpc.NetworkPolicyListResult) sendRead(new StoreRpc.ListNetworkPolicies()))
         .values();
+  }
+
+  public Optional<AlertRuleSpec> getAlertRule(Optional<String> tenantId, String name) {
+    StoreRpc.AlertRuleResult r =
+        (StoreRpc.AlertRuleResult) sendRead(new StoreRpc.GetAlertRule(tenantId, name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<AlertRuleSpec> listAlertRules() {
+    return ((StoreRpc.AlertRuleListResult) sendRead(new StoreRpc.ListAlertRules())).values();
   }
 
   public Optional<LimitRangeSpec> getLimitRange(String tenantId) {

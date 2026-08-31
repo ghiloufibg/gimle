@@ -28,7 +28,7 @@ import {
 import { useRolesStore } from "@/stores/useRolesStore";
 import { useRoleBindingsStore } from "@/stores/useRoleBindingsStore";
 import { useAccountsStore } from "@/stores/useAccountsStore";
-import type { Permission } from "@/types";
+import type { Account, Permission } from "@/types";
 
 export const Route = createFileRoute("/access-control")({
   head: () => ({
@@ -434,6 +434,7 @@ function AccountsTab() {
   const [editing, setEditing] = useState<string | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [groups, setGroups] = useState("");
 
   useEffect(() => {
     if (!loaded) load();
@@ -444,6 +445,13 @@ function AccountsTab() {
     setEditing(null);
     setUsername("");
     setPassword("");
+    setGroups("");
+  }
+
+  function startEdit(a: Account) {
+    setEditing(a.username);
+    setPassword("");
+    setGroups(a.groups.join(", "));
   }
 
   async function submit(e: React.FormEvent) {
@@ -453,8 +461,12 @@ function AccountsTab() {
       toast.error("Username and password are required");
       return;
     }
+    const parsedGroups = groups
+      .split(",")
+      .map((g) => g.trim())
+      .filter((g) => g.length > 0);
     try {
-      await savePassword(user, password);
+      await savePassword(user, password, parsedGroups);
       toast.success(`Password set for ${user}`);
       reset();
     } catch (err) {
@@ -493,6 +505,17 @@ function AccountsTab() {
             placeholder="••••••••"
           />
         </div>
+        <div className="grid gap-1">
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Groups
+          </Label>
+          <Input
+            className="h-8 w-52 font-mono text-xs"
+            value={groups}
+            onChange={(e) => setGroups(e.target.value)}
+            placeholder="ops, auditors"
+          />
+        </div>
         <div className="flex items-center gap-2 pb-0.5">
           {editing && (
             <Button type="button" variant="ghost" size="sm" onClick={reset}>
@@ -519,6 +542,7 @@ function AccountsTab() {
           <thead className="bg-muted/50 text-muted-foreground">
             <tr className="text-left">
               <th className="px-2 py-1.5 font-medium">Username</th>
+              <th className="px-2 py-1.5 font-medium">Groups</th>
               <th className="px-2 py-1.5 font-medium w-40"></th>
             </tr>
           </thead>
@@ -527,12 +551,25 @@ function AccountsTab() {
               <tr key={a.username} className="border-t border-border hover:bg-muted/30">
                 <td className="px-2 py-1.5 font-mono">{a.username}</td>
                 <td className="px-2 py-1.5">
+                  {a.groups.length === 0 ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {a.groups.map((g) => (
+                        <span
+                          key={g}
+                          className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]"
+                        >
+                          {g}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </td>
+                <td className="px-2 py-1.5">
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={() => {
-                        setEditing(a.username);
-                        setPassword("");
-                      }}
+                      onClick={() => startEdit(a)}
                       className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground"
                     >
                       Set / reset password
@@ -555,14 +592,14 @@ function AccountsTab() {
             ))}
             {loading && items.length === 0 && (
               <tr>
-                <td colSpan={2} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={2} className="px-4 py-6 text-center text-muted-foreground">
+                <td colSpan={3} className="px-4 py-6 text-center text-muted-foreground">
                   No accounts.
                 </td>
               </tr>

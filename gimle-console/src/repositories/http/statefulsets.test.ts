@@ -48,6 +48,7 @@ describe("HttpStatefulSetsRepository", () => {
       alive: false,
       ready: false,
       requestRatePerSecond: 0,
+      errorRatePerSecond: 0,
       queueDepth: 0,
       cpuMillicoresUsed: 0,
       memoryBytesUsed: 0,

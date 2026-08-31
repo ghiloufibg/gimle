@@ -797,6 +797,31 @@ class GimleCliTest {
   }
 
   @Test
+  void set_account_with_groups_round_trips_them() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "account",
+            "operator",
+            "--password",
+            "s3cret-password",
+            "--groups",
+            "qa-team,on-call");
+    assertEquals(0, setExit);
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "accounts", "operator");
+    assertEquals(0, getExit);
+    // Account.groups() is a Set, not an ordered List -- the wire array's element order is
+    // unspecified, so this checks membership rather than a fixed [\"qa-team\",\"on-call\"] order.
+    assertTrue(stdout().contains("\"qa-team\""), stdout());
+    assertTrue(stdout().contains("\"on-call\""), stdout());
+
+    int deleteExit = run("delete", "account", "operator");
+    assertEquals(0, deleteExit);
+  }
+
+  @Test
   void unknown_verb_prints_usage_and_nonzero_exit() {
     int exit = run("frobnicate");
     assertEquals(1, exit);

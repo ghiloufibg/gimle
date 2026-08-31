@@ -9,6 +9,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -158,6 +159,22 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeNetworkPolicy(tenantId, name);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  record PutAlertRule(AlertRuleSpec spec) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putAlertRule(spec);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  record RemoveAlertRule(Optional<String> tenantId, String name) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.removeAlertRule(tenantId, name);
       return MutationOutcome.accepted();
     }
   }

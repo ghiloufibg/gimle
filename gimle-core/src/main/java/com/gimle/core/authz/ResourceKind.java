@@ -92,5 +92,10 @@ public enum ResourceKind {
   // single tenant-scoped kind above. Deliberately absent from every tenant role template, the
   // same cluster-admin-only-by-default posture FAULT/KIND_DEFINITION already take; an operator
   // delegating it must create an explicit Role/RoleBinding.
-  BACKUP
+  BACKUP,
+  // Guards declaring/editing an AlertRule -- a threshold on a deployment's own observed signals
+  // that, once crossed, posts to an operator-declared webhook. Tenant-scopable like DEPLOYMENT: a
+  // tenant able to deploy a workload should also be able to alert on it without needing a
+  // cluster-admin grant, the same reasoning CONFIG/LOGS already establish for tenant-scoped kinds.
+  ALERT_RULE
 }

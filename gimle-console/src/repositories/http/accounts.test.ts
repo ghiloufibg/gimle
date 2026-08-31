@@ -18,7 +18,7 @@ describe("HttpAccountsRepository", () => {
     expect(url).toBe("/accounts");
   });
 
-  it("savePassword PUTs only {password} to /accounts/{username}", async () => {
+  it("savePassword PUTs only {password} to /accounts/{username} when groups is omitted", async () => {
     const fetchMock = stubFetchSequence([() => okResponse()]);
     const repo = new HttpAccountsRepository();
 
@@ -28,6 +28,19 @@ describe("HttpAccountsRepository", () => {
     expect(url).toBe("/accounts/admin");
     expect(init.method).toBe("PUT");
     expect(JSON.parse(init.body as string)).toEqual({ password: "hunter2" });
+  });
+
+  it("savePassword includes {groups} when provided", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse()]);
+    const repo = new HttpAccountsRepository();
+
+    await repo.savePassword("admin", "hunter2", ["ops", "auditors"]);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      password: "hunter2",
+      groups: ["ops", "auditors"],
+    });
   });
 
   it("remove DELETEs /accounts/{username}", async () => {

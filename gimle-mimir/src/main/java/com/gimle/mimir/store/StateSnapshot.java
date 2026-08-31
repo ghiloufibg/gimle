@@ -10,6 +10,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -79,7 +80,8 @@ public record StateSnapshot(
     // Console session revocation: username -> the epoch-milli watermark set by that user's last
     // logout. A session token issued at or before its own username's watermark is rejected even
     // though its HMAC signature still verifies -- see StateStore#putSessionRevocation's javadoc.
-    Map<String, Long> sessionRevokedBeforeEpochMilli) {
+    Map<String, Long> sessionRevokedBeforeEpochMilli,
+    List<AlertRuleSpec> alertRules) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -146,5 +148,6 @@ public record StateSnapshot(
     customResources = List.copyOf(customResources);
     workloadHealthStates = List.copyOf(workloadHealthStates);
     sessionRevokedBeforeEpochMilli = Map.copyOf(sessionRevokedBeforeEpochMilli);
+    alertRules = List.copyOf(alertRules);
   }
 }

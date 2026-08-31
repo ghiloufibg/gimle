@@ -238,8 +238,13 @@ rising OWASP floor, never breaks a hash minted under a lower historical count) a
 **stateless, HMAC-SHA256
 signed session token** — `username || expiresAt || HMAC(key, ...)`, verifiable by any control-plane
 node without a shared session table, the same reasoning bootstrap tokens are deliberately not
-Raft-replicated either. A session-derived `Principal` always has empty groups; it authorizes purely
-through direct `user:<username>` bindings.
+Raft-replicated either. The token itself carries only `username`/`expiresAt`, never groups — a
+session-derived `Principal`'s groups are read fresh from that account's own `Account.groups` on
+every request, not baked into the token, so a `group:<name>` `RoleBinding` matches a console-login
+principal exactly the way it already matches a certificate one, and a group change (or a password
+reset that doesn't touch groups — `PUT /accounts/{username}` treats `groups` as optional,
+preserving the existing set when omitted) takes effect on that principal's very next request, no
+re-login required.
 
 `Authorizer` never knows or cares which path resolved a given `Principal` — a certificate and a
 session cookie both just produce `(name, groups)`.

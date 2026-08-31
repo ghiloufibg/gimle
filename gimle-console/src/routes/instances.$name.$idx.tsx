@@ -128,6 +128,12 @@ function InstanceDetail() {
           }
         />
         <StatCell label="Request rate" value={`${r.requestRatePerSecond.toFixed(1)} req/s`} mono />
+        <StatCell
+          label="Error rate"
+          value={`${r.errorRatePerSecond.toFixed(2)} err/s`}
+          mono
+          tone={r.errorRatePerSecond > 0 ? "alarm" : "default"}
+        />
         <StatCell label="Queue depth" value={String(r.queueDepth)} mono />
         <StatCell label="CPU used" value={fmtMillicores(r.cpuMillicoresUsed)} mono />
         <StatCell label="Memory used" value={fmtBytes(r.memoryBytesUsed)} mono />
@@ -161,15 +167,21 @@ function StatCell({
   label,
   value,
   mono,
+  tone = "default",
 }: {
   label: string;
   value: React.ReactNode;
   mono?: boolean;
+  tone?: "default" | "alarm";
 }) {
   return (
     <div className="rounded border border-border bg-card p-3">
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-sm ${mono ? "font-mono" : ""}`}>{value}</div>
+      <div
+        className={`mt-1 text-sm ${mono ? "font-mono" : ""} ${tone === "alarm" ? "text-status-bad" : ""}`}
+      >
+        {value}
+      </div>
     </div>
   );
 }

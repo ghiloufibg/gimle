@@ -12,6 +12,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -51,6 +52,7 @@ public final class StateStore implements StoreReader {
   private final Map<String, Long> deploymentGenerations = new ConcurrentHashMap<>();
   private final Map<String, ServiceSpec> services = new ConcurrentHashMap<>();
   private final Map<String, NetworkPolicySpec> networkPolicies = new ConcurrentHashMap<>();
+  private final Map<String, AlertRuleSpec> alertRules = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
   private final Map<String, JobSpec> jobSpecs = new ConcurrentHashMap<>();
   private final Map<String, JobRun> jobRuns = new ConcurrentHashMap<>();
@@ -291,6 +293,24 @@ public final class StateStore implements StoreReader {
 
   public void removeNetworkPolicy(String tenantId, String name) {
     networkPolicies.remove(scopedKey(tenantId, name));
+  }
+
+  // ---- alert rules ----
+
+  public void putAlertRule(AlertRuleSpec spec) {
+    alertRules.put(scopedKey(spec.tenantId(), spec.name()), spec);
+  }
+
+  public Optional<AlertRuleSpec> getAlertRule(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(alertRules.get(scopedKey(tenantId, name)));
+  }
+
+  public List<AlertRuleSpec> listAlertRules() {
+    return List.copyOf(alertRules.values());
+  }
+
+  public void removeAlertRule(Optional<String> tenantId, String name) {
+    alertRules.remove(scopedKey(tenantId, name));
   }
 
   // ---- assignments ----
@@ -1492,7 +1512,8 @@ public final class StateStore implements StoreReader {
         List.copyOf(kindDefinitions.values()),
         List.copyOf(customResources.values()),
         List.copyOf(workloadHealthStates.values()),
-        Map.copyOf(sessionRevokedBeforeEpochMilli));
+        Map.copyOf(sessionRevokedBeforeEpochMilli),
+        List.copyOf(alertRules.values()));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1650,6 +1671,7 @@ public final class StateStore implements StoreReader {
     snapshot.auditEvents().forEach(this::putAuditEvent);
     snapshot.services().forEach(this::putService);
     snapshot.networkPolicies().forEach(this::putNetworkPolicy);
+    snapshot.alertRules().forEach(this::putAlertRule);
     // Oldest-first, matching how putControllerRevision's own pruning expects to see them -- same
     // reasoning as the instanceEvents/auditEvents replay just above.
     snapshot.controllerRevisions().forEach(this::putControllerRevision);

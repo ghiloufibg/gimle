@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 708,
+    "totalRequirements": 712,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 582,
-    "releaseReadinessPercent": 17.8
+    "notCoveredByAutomatedTest": 586,
+    "releaseReadinessPercent": 17.7
   },
   "items": [
     {
@@ -7790,6 +7790,50 @@
       "category": "Security",
       "feature": "Password hashes carry their own iteration count, so raising PasswordHashes.ITERATIONS never breaks an existing hash",
       "step": "Given a password hash produced under an older, lower iteration count; When PasswordHashes.ITERATIONS is later raised; Then verify() against that old hash still succeeds, re-deriving at the count embedded in the hash rather than today's constant. Given a password hash produced at today's iteration count; When needsRehash is called on it; Then it reports false. Given a password hash produced at a lower iteration count; When needsRehash is called on it after a successful verify; Then it reports true, signaling the caller may re-hash-and-store at today's count.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-709",
+      "module": "gimle-controlplane",
+      "category": "Authorization",
+      "feature": "A group: RoleBinding subject now authorizes a session-cookie-authenticated (console/CLI-login) principal, not only a certificate-authenticated one",
+      "step": "Given a Role bound to `group:qa-team` granting DEPLOYMENT:READ, and an Account with groups=[\"qa-team\"]; When that account logs in via the console and requests GET /deployments; Then the request is authorized. Given the same setup but an Account with no groups; When it requests GET /deployments; Then the request is denied with 403. Given an already-logged-in session for an account currently in `qa-team`; When an operator removes that account's groups via PUT /accounts/{username} with an explicit empty groups array; Then the very next request on that same session is denied, with no re-login required. Given an account with groups=[\"qa-team\"]; When its password is reset via PUT /accounts/{username} with only {password} (no groups field); Then its group membership is unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-710",
+      "module": "gimle-console",
+      "category": "Observability",
+      "feature": "The console's Metrics and Instances screens surface per-instance error rate, which the control plane already shipped on the wire but no console type or screen ever read",
+      "step": "Given a deployment instance whose control-plane observation reports errorRatePerSecond=3.5; When the console's Instances screen loads that deployment's rows; Then the err/s column for that instance shows 3.50 and is visually flagged. Given the same instance; When the console's Metrics screen loads; Then the deployment appears in the 'Instances with errors' panel and contributes to the total error-rate stat tile.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-711",
+      "module": "gimle-controlplane",
+      "category": "Observability",
+      "feature": "A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved",
+      "step": "Given an enabled AlertRule on deployment 'checkout-service' with metric=ERROR_RATE_PER_SECOND, comparator=GREATER_THAN, threshold=5.0; When the deployment's averaged observed error rate rises to 8.0 on a reconcile tick; Then exactly one FIRING webhook notification is sent. Given the rule from the previous scenario is already firing; When a later reconcile tick observes the error rate still above threshold; Then no additional notification is sent. Given the rule is firing; When the observed error rate drops back to 1.0; Then exactly one RESOLVED webhook notification is sent, and no further notification is sent while it stays resolved. Given a disabled AlertRule whose metric is currently crossed; When the reconciler evaluates it; Then no notification is ever sent.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-712",
+      "module": "gimle-observability",
+      "category": "Observability",
+      "feature": "WorkerMetrics evicts a module's Micrometer meters on uninstall, so repeated redeploy no longer accumulates one permanent meter set per (module, version) forever",
+      "step": "Given a worker has recorded requests, thread counts, and metaspace bytes for module 'orders@1.0.0'; When that module is successfully uninstalled; Then every meter WorkerMetrics registered for it is removed from the registry. Given the same module is later reinstalled and recordThreadCount is called again; When its gauge is queried; Then a fresh gauge reflects the new value rather than a stale, already-removed one silently failing to update. Given two modules 'orders@1.0.0' and 'catalog@1.0.0' both have recorded metrics; When 'orders@1.0.0' is uninstalled and evicted; Then 'catalog@1.0.0''s own meters are untouched.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

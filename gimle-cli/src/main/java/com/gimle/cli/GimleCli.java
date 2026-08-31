@@ -61,6 +61,10 @@ import java.util.Map;
  *                                   [--allowed-caller-tenant &lt;id&gt; ... | --deny-all-callers]
  *                                   [--allowed-callee-tenant &lt;id&gt; ... | --deny-all-callees]
  *   gimle delete networkpolicy &lt;name&gt;
+ *   gimle get alertrules [name]
+ *   gimle set alertrule &lt;name&gt; --deployment &lt;name&gt; --metric &lt;METRIC&gt; --comparator &lt;GREATER_THAN|LESS_THAN&gt;
+ *                               --threshold N --webhook &lt;url&gt; [--tenant &lt;id&gt;] [--disabled]
+ *   gimle delete alertrule &lt;name&gt;
  *   gimle get tenants [id]
  *   gimle set tenant &lt;id&gt; --max-memory-bytes N --max-cpu-millicores N --max-instances N
  *   gimle delete tenant &lt;id&gt;
@@ -442,6 +446,7 @@ public final class GimleCli {
       case "service", "services" -> new ServicesCommand(client, output, out).get(rest);
       case "networkpolicy", "networkpolicies" ->
           new NetworkPolicyCommand(client, output, out).get(rest);
+      case "alertrule", "alertrules" -> new AlertRulesCommand(client, output, out).get(rest);
       case "tenant", "tenants" -> new TenantsCommand(client, output, out).get(rest);
       case "limitrange", "limitranges" -> new LimitRangeCommand(client, output, out).get(rest);
       case "config" -> new ConfigCommand(client, output, out).list(requireOne(rest, "config"));
@@ -482,6 +487,7 @@ public final class GimleCli {
     switch (noun) {
       case "service" -> new ServicesCommand(client, output, out).set(rest);
       case "networkpolicy" -> new NetworkPolicyCommand(client, output, out).set(rest);
+      case "alertrule" -> new AlertRulesCommand(client, output, out).set(rest);
       case "tenant" -> new TenantsCommand(client, output, out).set(rest);
       case "limitrange" -> new LimitRangeCommand(client, output, out).set(rest);
       case "config" -> new ConfigCommand(client, output, out).set(rest);
@@ -509,6 +515,7 @@ public final class GimleCli {
       case "service", "services" -> new ServicesCommand(client, output, out).delete(rest);
       case "networkpolicy", "networkpolicies" ->
           new NetworkPolicyCommand(client, output, out).delete(rest);
+      case "alertrule", "alertrules" -> new AlertRulesCommand(client, output, out).delete(rest);
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));
       case "limitrange", "limitranges" ->
@@ -615,6 +622,7 @@ public final class GimleCli {
         node-assignments <nodeId>
         services [name]
         networkpolicies [name]
+        alertrules [name]
         tenants [id]
         limitranges [tenantId]
         config <tenantId>
@@ -642,6 +650,8 @@ public final class GimleCli {
           Map.entry("services", "usage: gimle get services [name]"),
           Map.entry("networkpolicy", "usage: gimle get networkpolicies [name]"),
           Map.entry("networkpolicies", "usage: gimle get networkpolicies [name]"),
+          Map.entry("alertrule", "usage: gimle get alertrules [name]"),
+          Map.entry("alertrules", "usage: gimle get alertrules [name]"),
           Map.entry("tenant", "usage: gimle get tenants [id]"),
           Map.entry("tenants", "usage: gimle get tenants [id]"),
           Map.entry("limitrange", "usage: gimle get limitranges [tenantId]"),
@@ -661,6 +671,7 @@ public final class GimleCli {
       resources:
         service
         networkpolicy
+        alertrule
         tenant
         limitrange
         config
@@ -681,6 +692,11 @@ public final class GimleCli {
               usage: gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
                                         [--allowed-caller-tenant <id> ... | --deny-all-callers]
                                         [--allowed-callee-tenant <id> ... | --deny-all-callees]"""),
+          Map.entry(
+              "alertrule",
+              """
+              usage: gimle set alertrule <name> --deployment <name> --metric <METRIC> --comparator <GREATER_THAN|LESS_THAN>
+                                          --threshold N --webhook <url> [--tenant <id>] [--disabled]"""),
           Map.entry(
               "tenant",
               "usage: gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N"
@@ -715,6 +731,7 @@ public final class GimleCli {
         statefulset
         service
         networkpolicy
+        alertrule
         tenant
         limitrange
         config
@@ -740,6 +757,8 @@ public final class GimleCli {
           Map.entry("services", "usage: gimle delete service <name>"),
           Map.entry("networkpolicy", "usage: gimle delete networkpolicy <name>"),
           Map.entry("networkpolicies", "usage: gimle delete networkpolicy <name>"),
+          Map.entry("alertrule", "usage: gimle delete alertrule <name>"),
+          Map.entry("alertrules", "usage: gimle delete alertrule <name>"),
           Map.entry("tenant", "usage: gimle delete tenant <id>"),
           Map.entry("tenants", "usage: gimle delete tenant <id>"),
           Map.entry("limitrange", "usage: gimle delete limitrange <tenantId>"),
@@ -896,6 +915,10 @@ public final class GimleCli {
                                     [--allowed-caller-tenant <id> ... | --deny-all-callers]
                                     [--allowed-callee-tenant <id> ... | --deny-all-callees]
           delete networkpolicy <name>
+          get alertrules [name]
+          set alertrule <name> --deployment <name> --metric <METRIC> --comparator <GREATER_THAN|LESS_THAN>
+                                --threshold N --webhook <url> [--tenant <id>] [--disabled]
+          delete alertrule <name>
           get tenants [id]
           set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
           delete tenant <id>

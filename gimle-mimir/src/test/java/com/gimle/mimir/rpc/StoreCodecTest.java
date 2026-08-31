@@ -26,6 +26,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
@@ -202,6 +203,13 @@ class StoreCodecTest {
             Optional.of("SECRET"),
             Optional.of("tenant-1"),
             Optional.of(1_000L)),
+        new StoreRpc.GetService(Optional.empty(), "greeter-svc"),
+        new StoreRpc.ListServices(),
+        new StoreRpc.GetNetworkPolicy("tenant-1", "greeter-policy"),
+        new StoreRpc.ListNetworkPolicies(),
+        new StoreRpc.GetAlertRule(Optional.of("tenant-1"), "greeter-error-rate"),
+        new StoreRpc.GetAlertRule(Optional.empty(), "greeter-error-rate"),
+        new StoreRpc.ListAlertRules(),
         new StoreRpc.Status(),
         // responses
         new StoreRpc.Ok(),
@@ -243,7 +251,22 @@ class StoreCodecTest {
         new StoreRpc.AuditEventListResult(List.of(auditEvent())),
         new StoreRpc.StatusResult(
             "node-a:9080", true, "node-a:9080", List.of("node-a:9080", "node-b:9080")),
-        new StoreRpc.StatusResult("node-b:9080", false, "", List.of("node-b:9080")));
+        new StoreRpc.StatusResult("node-b:9080", false, "", List.of("node-b:9080")),
+        new StoreRpc.AlertRuleResult(true, alertRuleSpec()),
+        new StoreRpc.AlertRuleResult(false, null),
+        new StoreRpc.AlertRuleListResult(List.of()),
+        new StoreRpc.AlertRuleListResult(List.of(alertRuleSpec())));
+  }
+
+  private static AlertRuleSpec alertRuleSpec() {
+    return new AlertRuleSpec(
+        "greeter-error-rate",
+        Optional.of("tenant-1"),
+        "greeter",
+        AlertRuleSpec.Metric.ERROR_RATE_PER_SECOND,
+        AlertRuleSpec.Comparator.GREATER_THAN,
+        5.0,
+        "https://hooks.example.com/greeter-alerts");
   }
 
   @ParameterizedTest

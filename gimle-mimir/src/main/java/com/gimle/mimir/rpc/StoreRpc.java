@@ -12,6 +12,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
+import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -78,6 +79,8 @@ public sealed interface StoreRpc {
           ListServices,
           GetNetworkPolicy,
           ListNetworkPolicies,
+          GetAlertRule,
+          ListAlertRules,
           ListAssignmentsFor,
           IsQuotaViolating,
           IsNodeCordoned,
@@ -183,6 +186,8 @@ public sealed interface StoreRpc {
           ServiceListResult,
           NetworkPolicyResult,
           NetworkPolicyListResult,
+          AlertRuleResult,
+          AlertRuleListResult,
           AssignmentListResult,
           NodeRegistrationListResult,
           TenantListResult,
@@ -289,6 +294,10 @@ public sealed interface StoreRpc {
   record GetNetworkPolicy(String tenantId, String name) implements Request {}
 
   record ListNetworkPolicies() implements Request {}
+
+  record GetAlertRule(Optional<String> tenantId, String name) implements Request {}
+
+  record ListAlertRules() implements Request {}
 
   record GetLimitRange(String tenantId) implements Request {}
 
@@ -595,6 +604,10 @@ public sealed interface StoreRpc {
   record NetworkPolicyResult(boolean present, NetworkPolicySpec value) implements Response {}
 
   record NetworkPolicyListResult(List<NetworkPolicySpec> values) implements Response {}
+
+  record AlertRuleResult(boolean present, AlertRuleSpec value) implements Response {}
+
+  record AlertRuleListResult(List<AlertRuleSpec> values) implements Response {}
 
   record AssignmentListResult(List<InstanceAssignment> values) implements Response {}
 

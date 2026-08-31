@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fmtBytes, fmtMillicores } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { FileText } from "lucide-react";
 
 export interface InstancesTableFilters {
@@ -141,6 +142,7 @@ export function InstancesTable({
               <th className="px-2 py-1.5 font-medium">Lifecycle</th>
               <th className="px-2 py-1.5 font-medium">A/R</th>
               <th className="px-2 py-1.5 font-medium text-right">req/s</th>
+              <th className="px-2 py-1.5 font-medium text-right">err/s</th>
               <th className="px-2 py-1.5 font-medium text-right">queue</th>
               <th className="px-2 py-1.5 font-medium text-right">cpu</th>
               <th className="px-2 py-1.5 font-medium text-right">mem</th>
@@ -188,6 +190,14 @@ export function InstancesTable({
                 <td className="px-2 py-1.5 font-mono text-right">
                   {r.requestRatePerSecond.toFixed(1)}
                 </td>
+                <td
+                  className={cn(
+                    "px-2 py-1.5 font-mono text-right",
+                    r.errorRatePerSecond > 0 && "text-status-bad",
+                  )}
+                >
+                  {r.errorRatePerSecond.toFixed(2)}
+                </td>
                 <td className="px-2 py-1.5 font-mono text-right">{r.queueDepth}</td>
                 <td className="px-2 py-1.5 font-mono text-right">
                   {fmtMillicores(r.cpuMillicoresUsed)}
@@ -207,7 +217,7 @@ export function InstancesTable({
             ))}
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={12} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={13} className="px-4 py-8 text-center text-muted-foreground">
                   No instances match the current filters.
                 </td>
               </tr>

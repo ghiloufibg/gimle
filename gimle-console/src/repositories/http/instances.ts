@@ -19,6 +19,7 @@ function flatten(
         alive: inst.observation.alive,
         ready: inst.observation.ready,
         requestRatePerSecond: inst.observation.requestRatePerSecond,
+        errorRatePerSecond: inst.observation.errorRatePerSecond,
         queueDepth: inst.observation.queueDepth,
         cpuMillicoresUsed: inst.observation.cpuMillicoresUsed,
         memoryBytesUsed: inst.observation.memoryBytesUsed,
