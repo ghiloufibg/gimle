@@ -6,22 +6,22 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 703
+- **Total requirements**: 708
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 577
-- **Release-readiness (automated coverage)**: 17.9%
+- **Not covered by automated test**: 582
+- **Release-readiness (automated coverage)**: 17.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 46 | 15 | 31 | 32.6% |
+| gimle-core | 47 | 15 | 32 | 31.9% |
 | gimle-module | 26 | 12 | 14 | 46.2% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 10 | 6 | 4 | 60.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 49 | 6 | 43 | 12.2% |
-| gimle-mimir | 64 | 36 | 28 | 56.2% |
+| gimle-agent | 50 | 6 | 44 | 12.0% |
+| gimle-mimir | 66 | 36 | 30 | 54.5% |
 | gimle-fabric | 39 | 1 | 38 | 2.6% |
-| gimle-controlplane | 93 | 15 | 78 | 16.1% |
+| gimle-controlplane | 94 | 15 | 79 | 16.0% |
 | gimle-fafnir | 30 | 11 | 19 | 36.7% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 23 | 0 | 23 | 0.0% |
@@ -191,6 +191,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-016 | Stateless HMAC-signed console session tokens | Given a token issued with 5-minute TTL, When verified 1ms before expiry, Then succeeds; after expiry, tampered, or wrong-key-signed, returns empty. | Yes |
 | [ ] | GIMLE-017 | Session-signing key file load-or-create with owner-only permissions | Given no key file exists, When loadOrCreate called twice, Then first generates rw------- key, second reuses it. | No |
 | [ ] | GIMLE-018 | Per-key exponential-backoff login throttle | Given 3 failed attempts (threshold 3), When a 4th failure is recorded, Then throttledUntil(key) returns a future instant, doubling per failure up to a cap. | Yes |
+| [ ] | GIMLE-708 | Password hashes carry their own iteration count, so raising PasswordHashes.ITERATIONS never breaks an existing hash | Given a password hash produced under an older, lower iteration count; When PasswordHashes.ITERATIONS is later raised; Then verify() against that old hash still succeeds, re-deriving at the count embedded in the hash rather than today's constant. Given a password hash produced at today's iteration count; When needsRehash is called on it; Then it reports false. Given a password hash produced at a lower iteration count; When needsRehash is called on it after a successful verify; Then it reports true, signaling the caller may re-hash-and-store at today's count. | No |
 
 #### Security / Audit
 
@@ -589,6 +590,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-132 | Node capacity/instance-observation heartbeat reporting | Given supervised instances/vessels and a capacity snapshot When sendHeartbeat POSTs to /nodes/{nodeId}/heartbeat Then alive is derived as an EXCLUSION check (not "FAILED"), so a COMPLETED job still reports alive=true And ready is true only when lifecycleState is exactly ACTIVE Given a vessel instance Then it reports zero for every in-JVM-only metrics field but real allocatedPorts | No |
 
+#### Operations
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-705 | Per-worker raw stdout/stderr SYSTEM capture is size/count-rotated instead of growing unbounded | Given a worker writing raw stdout lines past the configured size cap; When the cap is crossed; Then the active capture file is rotated (renamed to .1, a fresh file opened) before the next line is written. Given more rotations than gimle.log.maxFiles allows; When rotation runs; Then the oldest rotated copy is discarded rather than accumulating without bound. Given rotated SYSTEM-capture files on disk; When an operator reads a node's SYSTEM log via the existing /logs API; Then lines from rotated copies are still returned, not only the active file's own content. | No |
+
 #### Secrets Management
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -766,6 +773,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-701 | Operator-facing cluster backup/restore (gimle backup create/restore, GET /backup, PUT /restore) | Given a cluster with real state (a deployment, a tenant) and an operator takes a backup via gimle backup create; When further writes are made afterward; Then gimle backup restore brings every replica back to exactly the backed-up state, discarding everything written since. Given a restore proposed through any one endpoint of a multi-node cluster; When the underlying StateMutation.RestoreSnapshot commits; Then every replica's own local StateStore reflects the restored state, not only the leader that received the request. Given a file that is not a real backup (corrupt, foreign, or truncated); When an operator attempts gimle backup restore against it; Then the control plane rejects it with a 400 before ever proposing it to the Raft log. | No |
+| [ ] | GIMLE-706 | gimle-controlplane, gimle-mimir, and gimle-agent each expose an operator-pollable health signal | Given a healthy gimle-mimir replica reachable at its configured --health-port; When GET /health is called; Then it answers 200 with this replica's own isLeader/leaderHint/memberCount. Given a control plane whose gimle-mimir cluster is unreachable; When GET /health is called; Then it answers 503 rather than 200, failing closed on the downstream outage. Given a node agent's always-on log-serving HTTP surface; When GET /health is called; Then it answers 200 with no configuration needed, regardless of whether the opt-in admin fault API is enabled. | No |
+| [ ] | GIMLE-707 | Audit-trail ring-buffer eviction is observable: logged, counted, and surfaced in the GET /audit response | Given the audit trail has exceeded MAX_AUDIT_EVENTS; When the next event is appended; Then the oldest event is evicted, a warning is logged (throttled after the first), and the trail's own evictedTotal counter increments. Given a truncated audit trail; When an operator calls GET /audit (with any filter); Then the response envelope's truncated flag is true and evictedTotal/retainedCount describe the whole trail, independent of the filter applied. Given gimle-cli's audit list command against a truncated trail; When the command completes; Then it prints a note naming how many events were discarded, alongside the filtered results. | No |
 
 #### Raft Consensus
 
@@ -1236,6 +1245,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-262 | `/secrets/*` byte-for-byte proxy to Fafnir | Given a caller has WRITE access to SECRET for tenant T; When PUT /secrets/T/mykey; Then ApiServer authorizes locally, forwards byte-for-byte to Fafnir with the calling principal as an internal claim, and relays the response verbatim. | No |
+
+#### Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-704 | Certificate-request approval and node/operator join are recorded in the durable audit trail | Given an operator with CERTIFICATE_REQUEST:APPROVE permission approves a tenant-client CSR; When the approval completes; Then a durable audit event records the approval, allowed=true. Given a node presents an invalid or already-consumed bootstrap token; When the join request is rejected; Then a durable audit event records the rejection, attributed to the bootstrap-token principal. Given an operator submits a join CSR; When the request is accepted as pending; Then a durable audit event records the submission before any approval decision is made. | No |
 
 #### Security / PKI
 

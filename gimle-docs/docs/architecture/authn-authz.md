@@ -232,7 +232,10 @@ sequenceDiagram
 The CLI and node agents keep using mTLS exclusively — nothing about that flow changes. The console
 gets a second path because interactive browser mTLS is poor UX: `POST /auth/login` verifies a
 username/password against a Raft-replicated `Account` (PBKDF2WithHmacSHA256 password hash, the
-JDK's own `SecretKeyFactory`, no external crypto dependency) and issues a **stateless, HMAC-SHA256
+JDK's own `SecretKeyFactory`, no external crypto dependency — the iteration count travels with each
+stored hash as `iterations || salt || hash`, so raising `PasswordHashes.ITERATIONS` later, to track a
+rising OWASP floor, never breaks a hash minted under a lower historical count) and issues a
+**stateless, HMAC-SHA256
 signed session token** — `username || expiresAt || HMAC(key, ...)`, verifiable by any control-plane
 node without a shared session table, the same reasoning bootstrap tokens are deliberately not
 Raft-replicated either. A session-derived `Principal` always has empty groups; it authorizes purely
@@ -316,14 +319,26 @@ console's own Access Control screen — see [Web console](./web-console.md).
 
 ## Audit logging
 
-Every `WRITE`/`DELETE` decision `requireAuthorized` makes — allowed or denied — lands in a durable,
-queryable, cluster-wide audit trail (`AuditEvent`), reusing `gimle-mimir`'s existing Raft-replicated
-storage rather than a second one: the same mechanism `InstanceEvent` already proved for a per-
-instance lifecycle timeline, generalized to a cluster-wide trail with a single retention cap instead
-of a per-key one. `READ` verbs and a bare `401` (no principal resolved at all) are not captured by
-default — matching Kubernetes' own default audit policy, where a page-load's worth of `GET`s would
-dwarf the mutating-action volume actually worth recording, and there being no principal to attribute
-an unauthenticated attempt to.
+Every `WRITE`/`DELETE`/`APPROVE` decision `requireAuthorized` makes — allowed or denied — lands in a
+durable, queryable, cluster-wide audit trail (`AuditEvent`), reusing `gimle-mimir`'s existing
+Raft-replicated storage rather than a second one: the same mechanism `InstanceEvent` already proved
+for a per-instance lifecycle timeline, generalized to a cluster-wide trail with a single retention
+cap instead of a per-key one. `READ` verbs and a bare `401` (no principal resolved at all) are not
+captured by default — matching Kubernetes' own default audit policy, where a page-load's worth of
+`GET`s would dwarf the mutating-action volume actually worth recording, and there being no principal
+to attribute an unauthenticated attempt to. Node join and operator join have no pre-existing
+principal to run `requireAuthorized` against at all (a one-time bootstrap token, or no credential
+yet); both are still recorded, via an explicit `recordAuditEvent` call keyed to a synthetic
+`bootstrap-token`/`anonymous` principal — "who was granted trust, and when" needs a trace even when
+there's no ordinary RBAC decision to hang it off of.
+
+Eviction past the retention cap is itself observable, not silent: `StateStore` logs a throttled
+warning once the cap is first reached (then every 1000th eviction after that) and tracks a running
+total. `GET /audit`'s response is an envelope, not a bare array —
+`{events, retainedCount, evictedTotal, oldestRetainedAtEpochMilli?, truncated}` — describing the
+whole trail's retention state independent of whatever filter/limit a given query applied, so an
+operator reviewing the trail during an incident can tell "this is the complete record" from "this
+cluster crossed the retention cap" without cross-referencing a log line.
 
 `-Dgimle.controlplane.audit.readResourceKinds` (comma-separated `ResourceKind` names, e.g.
 `CONFIG,SECRET`) opts specific resource kinds into READ-decision auditing too, both allowed and
@@ -347,7 +362,8 @@ Reading the trail is itself access-controlled, the same "who can grant access is
 access-controlled action" framing `ROLE`/`ROLE_BINDING`/`ACCOUNT` already established —
 `ResourceKind.AUDIT`, `Verb.READ`. `GET /audit[?principal=&resource=&tenant=&since=&limit=]` and
 `gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>] [--since <epochMillis>]
-[--limit N]` cover every filter independently and combinably.
+[--limit N]` cover every filter independently and combinably; `gimle audit list` prints a note when
+the response envelope's `truncated` flag is set.
 
 ## Explicitly out of scope
 

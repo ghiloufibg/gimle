@@ -77,7 +77,9 @@ via the plain `Process` API (`WorkerProcessSupervisor`), assigns each worker's r
 (portable JVM flags today — see [Tiered isolation](./tiered-isolation.md)), reports machine
 capacity and observed state to the control plane, and executes placement directives it receives.
 It **never runs user code**, so a misbehaving module can't crash it — `ControlChannelServer` is the
-local channel workers report over (`WorkerConnection` on the agent side).
+local channel workers report over (`WorkerConnection` on the agent side). `AgentLogServer`, its one
+always-on HTTP surface, answers `GET /health` unconditionally (no configuration needed) alongside its
+log-serving routes — an operator-pollable liveness signal distinct from the opt-in admin fault API.
 
 ## Worker JVM
 
@@ -128,13 +130,20 @@ plane comes back as a synthesized `502` rather than propagating out of the agent
 One or more JVMs (`gimle-controlplane`). Owns the API server, the scheduler, and the reconcilers,
 talking to a separate `gimle-mimir` store cluster over the network rather than embedding a state
 store directly — see [Control plane](./control-plane.md) for how those pieces fit together.
+`GET /health` (unauthenticated, matching Fafnir/Muninn/Andvari's own `/status`) round-trips a real
+read against the `gimle-mimir` cluster it depends on, answering `503` rather than `200` if that
+dependency is unreachable — failing closed on a downstream outage rather than only reporting this
+process's own liveness.
 
 ## Store
 
 One or more JVMs, Raft-replicated for HA (`gimle-mimir`). The etcd-equivalent piece: owns the
 Raft-replicated `StateStore` and answers `StoreRpc` requests from every `gimle-controlplane`
-replica. Decoupled from the control plane's own replica count on purpose — a control-plane
-process can restart or scale independently of store/Raft membership, and vice versa.
+replica over its own binary transport. Decoupled from the control plane's own replica count on
+purpose — a control-plane process can restart or scale independently of store/Raft membership, and
+vice versa. Optionally exposes `GET /health` (this replica's own Raft role — leader/follower, member
+count) when started with `--health-port <port>`, the one HTTP surface this process kind has, opt-in
+the same way the node agent's admin fault API is.
 
 ## Fafnir
 

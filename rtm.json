@@ -12161,6 +12161,90 @@
         "`gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java` (`CURRENT_VERSION`, `encodeRpcBody`, `decodeRpcBody`, `encodeSnapshot`, `decodeSnapshot`)",
         "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreCodec.java` (`CURRENT_VERSION`, `encodeBody`, `decodeBody`)"
       ]
+    },
+    {
+      "id": "GIMLE-704",
+      "module": "gimle-controlplane",
+      "feature": "Certificate-request approval and node/operator join are recorded in the durable audit trail",
+      "category": "Security",
+      "status": "New",
+      "statusNote": "New requirement: Fixed: closes BETA-08 -- Verb.APPROVE was excluded from requireAuthorized's audit-triggering verb set (only WRITE/DELETE/opted-in READ were ever recorded), so every CSR-approval decision (tenant-client issuance, the /bootstrap/csr/{id}/approve endpoint) went completely unaudited despite passing through the same choke point every other mutating decision does. Node-join and operator-join have no pre-existing principal to run requireAuthorized against at all (a one-time bootstrap token, or no credential yet), so neither ever produced an audit event either. requireAuthorized now audits Verb.APPROVE the same way it already audits WRITE/DELETE; handleNodeJoinRequest records an explicit CERTIFICATE_REQUEST/APPROVE event (allowed=true on a valid token, false on a rejected one) keyed to a synthetic \"bootstrap-token\" principal, and handleOperatorJoinRequest records a CERTIFICATE_REQUEST/WRITE event for the pending-CSR submission itself -- closing the timeline gap between \"a CSR arrived\" and \"an operator acted on it.\"",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "NodeBootstrapCsrTest and ApiServerAuthzTest's existing real-ApiServer coverage re-verified against the new audit-emission paths (full gimle-controlplane module suite, 606 tests, re-run clean). No dedicated new test class: the audit-emission call sites reuse the same recordAuditEvent/AppendAuditEvent machinery already covered by ApiServerAuditOutcomeTest's own assertions on that mechanism.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`requireAuthorized`, `handleNodeJoinRequest`, `handleOperatorJoinRequest`)"
+      ]
+    },
+    {
+      "id": "GIMLE-705",
+      "module": "gimle-agent",
+      "feature": "Per-worker raw stdout/stderr SYSTEM capture is size/count-rotated instead of growing unbounded",
+      "category": "Operations",
+      "status": "New",
+      "statusNote": "New requirement: Fixed: closes BETA-10 -- WorkerProcessSupervisor's SYSTEM-capture file was opened CREATE, APPEND and never rotated, the one exception (self-documented in the old code) to every other log surface here being bounded by default. Added hand-rolled size/count rotation reusing RollingFileAppenders' own FixedWindowRollingPolicy .%i naming and the same gimle.log.maxFileSizeBytes/gimle.log.maxFiles system properties, since this capture path writes raw bytes directly rather than going through a Logback appender. A write that would cross the size cap triggers a rollover first (oldest rotated copy dropped, remaining copies shifted up, active file renamed to .1, a fresh file opened) before the line lands. AgentLogServer's readMergedSystemLogs now reads with LogFileReader.configuredMaxFiles() instead of a hardcoded maxFiles=1, so rotated copies stay visible through the existing /logs API exactly the way a rotated platform/instance log already is.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "WorkerProcessSupervisorSystemLogRotationTest drives a real subprocess (ChattyWorkerDriver) flooding stdout against a deliberately tiny gimle.log.maxFileSizeBytes, asserting a real .1 rotated file appears, the active file never grows past the cap, and rotated content survives through LogFileReader's ordinary rotated-file-aware read path. Full gimle-agent module suite (157 tests) re-verified.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/WorkerProcessSupervisor.java` (`captureSystemLine`, `systemLogStreamOrOpenLocked`, `rotateSystemLogLocked`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`readMergedSystemLogs`)"
+      ]
+    },
+    {
+      "id": "GIMLE-706",
+      "module": "gimle-mimir",
+      "feature": "gimle-controlplane, gimle-mimir, and gimle-agent each expose an operator-pollable health signal",
+      "category": "Operations",
+      "status": "New",
+      "statusNote": "New requirement: Fixed: closes BETA-11 -- Fafnir/Muninn/Andvari already had a real /status; ApiServer had no /health route among its many contexts, gimle-mimir's StoreMain had no HTTP surface at all (Raft RPC uses its own binary transport), and gimle-agent's admin/gossip/log servers exposed none either. ApiServer gained GET /health (unauthenticated, matching the other processes' own posture): it round-trips storeClient.listTenants() against the gimle-mimir cluster it depends on for every other request, answering 503 rather than 200 if that dependency is unreachable -- failing closed on a downstream outage instead of only reporting this process's own liveness. gimle-mimir gained a new, opt-in com.gimle.mimir.health.StoreHealthServer (constructed by StoreMain only when --health-port is given, mirroring AgentAdminServer's own opt-in precedent) answering GET /health with this replica's own Raft role (isLeader, leaderHint, memberCount) -- the first HTTP surface this process kind has ever had. gimle-agent's AgentLogServer (its one always-on HTTP surface, registered unconditionally unlike the opt-in admin API) gained GET /health answering a plain {\"status\":\"UP\"}.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "StoreHealthServerTest (real HttpServer, real single-node RaftNode) covers 200/leader-reporting and 405-on-non-GET. AgentLogServerTest gained health_reports_up_with_no_configuration_needed and health_rejects_a_non_get_method against a real AgentLogServer. ApiServer's /health is exercised indirectly through the full gimle-controlplane suite (no dedicated new HTTP integration test for it in this pass). Full gimle-mimir (574 tests) and gimle-agent (157 tests) module suites re-verified.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleHealth`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/health/StoreHealthServer.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/StoreMain.java` (`--health-port`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleHealth`)"
+      ]
+    },
+    {
+      "id": "GIMLE-707",
+      "module": "gimle-mimir",
+      "feature": "Audit-trail ring-buffer eviction is observable: logged, counted, and surfaced in the GET /audit response",
+      "category": "Operations",
+      "status": "New",
+      "statusNote": "New requirement: Fixed: closes FUNC-46 -- StateStore.putAuditEvent's ring-buffer eviction (while (auditEvents.size() > MAX_AUDIT_EVENTS) auditEvents.remove(0)) discarded the oldest event with no log line, no counter, and no way for a caller to tell it had ever happened; GET /audit returned a bare array with no total count, oldest-retained timestamp, or truncation flag. StateStore now tracks a running auditEventsEvictedTotal (guarded by the same lock as the trail itself), logs a throttled warning (first eviction, then every 1000th) once the cap is first reached, and exposes both plus the current retained count and oldest-retained timestamp via a new AuditTrailStatus record and StoreReader#auditTrailStatus() -- wired through a new StoreRpc.GetAuditTrailStatus/AuditTrailStatusResult RPC pair to StoreClient#auditTrailStatus(). ApiServer's GET /audit response changed from a bare events array to an envelope ({events, retainedCount, evictedTotal, oldestRetainedAtEpochMilli?, truncated}) describing the whole trail's retention state independent of whatever filter/limit a given query applied -- gimle-cli's AuditCommand prints a note when truncated, and the console's Audit screen renders a banner.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "Full gimle-mimir (574 tests), gimle-controlplane (606 tests), and gimle-cli (120 tests) module suites re-verified against the new envelope shape and every call site that parses GET /audit's body (gimle-holmgang's ClusterApi, ApiServerCustomKindsTest) was updated to match. No dedicated new eviction-at-50000-events test in this pass (impractical to run at full scale in a unit test); the envelope shape itself is exercised end to end by the updated call sites.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putAuditEvent`, `auditTrailStatus`)",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/AuditTrailStatus.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java` (`GetAuditTrailStatus`, `AuditTrailStatusResult`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAudit`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/AuditCommand.java`",
+        "`gimle-console/src/routes/audit.tsx`, `gimle-console/src/stores/useAuditStore.ts`"
+      ]
+    },
+    {
+      "id": "GIMLE-708",
+      "module": "gimle-core",
+      "feature": "Password hashes carry their own iteration count, so raising PasswordHashes.ITERATIONS never breaks an existing hash",
+      "category": "Security",
+      "status": "New",
+      "statusNote": "New requirement: Fixed: closes FUNC-76 -- PasswordHashes.ITERATIONS was a hardcoded constant and the stored format was salt || hash only, with no record of which iteration count actually produced a given hash; verify() always re-derived at today's constant. Raising ITERATIONS later would have made every previously-stored hash stop verifying immediately, with no migration path. The wire format is now iterations || salt || hash: hash() always stamps today's ITERATIONS, and verify() re-derives using the count embedded in the hash itself, never today's constant -- so a hash minted under a lower historical count keeps verifying correctly after the constant rises. Added needsRehash(byte[]), returning true when a hash's embedded count is below today's ITERATIONS, for a caller that just verified a password to optionally re-hash-and-store it at the current count and absorb the upgrade incrementally.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "PasswordHashesTest gained verify_still_succeeds_against_a_hash_produced_at_a_lower_iteration_count (hand-builds an old-count hash via the same PBKDF2WithHmacSHA256 primitive, independent of PasswordHashes' own hash()), plus needsRehash coverage for a today's-count hash, a lower-count hash, and a malformed blob. Full gimle-core (156 tests), gimle-pki (30 tests), gimle-controlplane (606 tests), gimle-fafnir (189 tests), and gimle-andvari module suites re-verified against the changed wire format -- every PasswordHashes.hash()/verify() call site in those modules round-trips through the new format transparently.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/authz/PasswordHashes.java` (`hash`, `verify`, `needsRehash`)"
+      ]
     }
   ]
 }

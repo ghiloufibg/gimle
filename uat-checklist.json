@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 703,
+    "totalRequirements": 708,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 577,
-    "releaseReadinessPercent": 17.9
+    "notCoveredByAutomatedTest": 582,
+    "releaseReadinessPercent": 17.8
   },
   "items": [
     {
@@ -7735,6 +7735,61 @@
       "category": "Upgrade path",
       "feature": "RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding",
       "step": "Given a RaftRpc or StoreRpc frame carrying a version byte higher than this reader's own CURRENT_VERSION; When the frame is decoded; Then decoding fails with GimleCodecException naming both versions, before any tag or field is read. Given a real Raft leader and follower both running the same CURRENT_VERSION; When AppendEntries/InstallSnapshot RPCs are exchanged; Then every existing round-trip behavior is unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-704",
+      "module": "gimle-controlplane",
+      "category": "Security",
+      "feature": "Certificate-request approval and node/operator join are recorded in the durable audit trail",
+      "step": "Given an operator with CERTIFICATE_REQUEST:APPROVE permission approves a tenant-client CSR; When the approval completes; Then a durable audit event records the approval, allowed=true. Given a node presents an invalid or already-consumed bootstrap token; When the join request is rejected; Then a durable audit event records the rejection, attributed to the bootstrap-token principal. Given an operator submits a join CSR; When the request is accepted as pending; Then a durable audit event records the submission before any approval decision is made.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-705",
+      "module": "gimle-agent",
+      "category": "Operations",
+      "feature": "Per-worker raw stdout/stderr SYSTEM capture is size/count-rotated instead of growing unbounded",
+      "step": "Given a worker writing raw stdout lines past the configured size cap; When the cap is crossed; Then the active capture file is rotated (renamed to .1, a fresh file opened) before the next line is written. Given more rotations than gimle.log.maxFiles allows; When rotation runs; Then the oldest rotated copy is discarded rather than accumulating without bound. Given rotated SYSTEM-capture files on disk; When an operator reads a node's SYSTEM log via the existing /logs API; Then lines from rotated copies are still returned, not only the active file's own content.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-706",
+      "module": "gimle-mimir",
+      "category": "Operations",
+      "feature": "gimle-controlplane, gimle-mimir, and gimle-agent each expose an operator-pollable health signal",
+      "step": "Given a healthy gimle-mimir replica reachable at its configured --health-port; When GET /health is called; Then it answers 200 with this replica's own isLeader/leaderHint/memberCount. Given a control plane whose gimle-mimir cluster is unreachable; When GET /health is called; Then it answers 503 rather than 200, failing closed on the downstream outage. Given a node agent's always-on log-serving HTTP surface; When GET /health is called; Then it answers 200 with no configuration needed, regardless of whether the opt-in admin fault API is enabled.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-707",
+      "module": "gimle-mimir",
+      "category": "Operations",
+      "feature": "Audit-trail ring-buffer eviction is observable: logged, counted, and surfaced in the GET /audit response",
+      "step": "Given the audit trail has exceeded MAX_AUDIT_EVENTS; When the next event is appended; Then the oldest event is evicted, a warning is logged (throttled after the first), and the trail's own evictedTotal counter increments. Given a truncated audit trail; When an operator calls GET /audit (with any filter); Then the response envelope's truncated flag is true and evictedTotal/retainedCount describe the whole trail, independent of the filter applied. Given gimle-cli's audit list command against a truncated trail; When the command completes; Then it prints a note naming how many events were discarded, alongside the filtered results.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-708",
+      "module": "gimle-core",
+      "category": "Security",
+      "feature": "Password hashes carry their own iteration count, so raising PasswordHashes.ITERATIONS never breaks an existing hash",
+      "step": "Given a password hash produced under an older, lower iteration count; When PasswordHashes.ITERATIONS is later raised; Then verify() against that old hash still succeeds, re-deriving at the count embedded in the hash rather than today's constant. Given a password hash produced at today's iteration count; When needsRehash is called on it; Then it reports false. Given a password hash produced at a lower iteration count; When needsRehash is called on it after a successful verify; Then it reports true, signaling the caller may re-hash-and-store at today's count.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
