@@ -249,7 +249,10 @@ public final class CronJobReconciler {
   private Optional<Firing> planFiring(CronJobSpec spec, Instant firingTime) {
     List<StateMutation> planned = new ArrayList<>();
     List<JobSpec> generated =
-        store.listJobSpecs().stream().filter(s -> s.name().startsWith(spec.name() + "-")).toList();
+        store.listJobSpecs().stream()
+            .filter(
+                s -> s.name().startsWith(spec.name() + "-") && s.tenantId().equals(spec.tenantId()))
+            .toList();
     List<JobSpec> nonTerminal =
         generated.stream()
             .filter(s -> store.getJobPhase(s.tenantId(), s.name()).isEmpty())
