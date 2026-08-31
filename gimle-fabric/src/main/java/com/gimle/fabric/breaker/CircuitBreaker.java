@@ -122,7 +122,13 @@ public final class CircuitBreaker {
 
   public synchronized void recordSuccess() {
     record(true);
-    if (state == State.HALF_OPEN) {
+    // OPEN is included, not just HALF_OPEN: the only way a call reaches an OPEN breaker at all is
+    // FabricServiceRegistry's panic-mode bypass (allowRequest()'s own gate never admits one), so a
+    // success recorded here is exactly the recovery evidence a HALF_OPEN trial would have produced
+    // had cooldown already elapsed -- treating it any differently would keep the breaker OPEN, and
+    // therefore still excluded from candidacy, until the unrelated, purely time-based cooldown
+    // finally catches up.
+    if (state == State.HALF_OPEN || state == State.OPEN) {
       close();
     }
   }

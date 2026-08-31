@@ -100,6 +100,51 @@ class CircuitBreakerTest {
     assertTrue(breaker.allowRequest());
   }
 
+  /**
+   * Models {@code FabricServiceRegistry}'s panic-mode bypass: a caller invokes the endpoint while
+   * still {@code OPEN} (cooldown not elapsed, so {@link CircuitBreaker#allowRequest()} was never
+   * consulted) and the call happens to succeed. That success must close the breaker exactly like a
+   * real {@code HALF_OPEN} trial would -- otherwise the only evidence panic mode was designed to
+   * surface (a call getting through and succeeding) is silently discarded and the endpoint stays
+   * excluded from ordinary candidacy until the unrelated cooldown timer catches up.
+   */
+  @Test
+  void a_success_recorded_while_still_open_closes_the_breaker(TestClock clock) {
+    CircuitBreaker breaker = new CircuitBreaker(2, 0.5, COOLDOWN, clock);
+    breaker.recordFailure();
+    breaker.recordFailure();
+    assertEquals(CircuitBreaker.State.OPEN, breaker.state());
+
+    // Cooldown deliberately not advanced -- still OPEN, no HALF_OPEN trial slot ever claimed.
+    breaker.recordSuccess();
+
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.state());
+    assertTrue(breaker.allowRequest());
+  }
+
+  @Test
+  void a_success_recorded_while_open_also_resets_the_backoff_to_the_base_cooldown(TestClock clock) {
+    CircuitBreaker breaker = new CircuitBreaker(2, 0.5, COOLDOWN, clock);
+    breaker.recordFailure();
+    breaker.recordFailure();
+    clock.advance(COOLDOWN);
+    assertTrue(breaker.allowRequest());
+    breaker.recordFailure(); // re-opens; backoff now doubled
+
+    // A second, still-OPEN success (panic mode again, before the doubled cooldown elapses) closes
+    // it just like the ordinary HALF_OPEN path, and must reset backoff the same way that path does.
+    breaker.recordSuccess();
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.state());
+
+    breaker.recordFailure();
+    breaker.recordFailure();
+    assertEquals(CircuitBreaker.State.OPEN, breaker.state());
+    clock.advance(COOLDOWN);
+    assertTrue(
+        breaker.allowRequest(),
+        "the OPEN-state close reset the backoff; the base cooldown applies again");
+  }
+
   @Test
   void half_open_failure_reopens_the_breaker(TestClock clock) {
     CircuitBreaker breaker = new CircuitBreaker(2, 0.5, COOLDOWN, clock);

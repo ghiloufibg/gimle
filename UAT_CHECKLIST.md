@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 697
+- **Total requirements**: 700
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 571
-- **Release-readiness (automated coverage)**: 18.1%
+- **Not covered by automated test**: 574
+- **Release-readiness (automated coverage)**: 18.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -20,12 +20,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-worker | 24 | 2 | 22 | 8.3% |
 | gimle-agent | 49 | 6 | 43 | 12.2% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
-| gimle-fabric | 38 | 1 | 37 | 2.6% |
+| gimle-fabric | 39 | 1 | 38 | 2.6% |
 | gimle-controlplane | 93 | 15 | 78 | 16.1% |
 | gimle-fafnir | 30 | 11 | 19 | 36.7% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
-| gimle-muninn | 22 | 0 | 22 | 0.0% |
-| gimle-observability | 16 | 1 | 15 | 6.2% |
+| gimle-muninn | 23 | 0 | 23 | 0.0% |
+| gimle-observability | 17 | 1 | 16 | 5.9% |
 | gimle-gateway | 18 | 0 | 18 | 0.0% |
 | gimle-cli | 31 | 0 | 31 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
@@ -904,6 +904,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-685 | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Given two versions of the same interface's export registered cross-worker (a hot redeploy in flight) and both currently available; When a caller looks up the interface repeatedly; Then every lookup is served exclusively by the highest version's endpoint(s), never a blend of both. Given the highest version's only cross-worker endpoint has an open circuit breaker (e.g. unreachable) while the next-highest version's endpoint is healthy; When a caller looks up the interface; Then lookup falls back to the next-highest version instead of returning nothing. Given only one version of the interface is registered cross-worker; When a caller looks up the interface repeatedly; Then ordinary least-outstanding-requests round-robin across that version's replicas is unaffected by the version-cutover logic. Given a stale older-version endpoint sits on the remote tier and the current highest version has endpoints on both the same-machine and remote tiers; When a caller looks up the interface; Then the stale older-version endpoint is never selected, and same-machine locality preference still applies within the version-narrowed pool. | No |
+| [ ] | GIMLE-700 | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Given a breaker still OPEN (cooldown not elapsed, no HALF_OPEN trial ever claimed) and a call reaches it anyway (panic mode's own bypass); When that call succeeds; Then the breaker closes immediately rather than staying OPEN. Given a breaker that has re-opened at least once (backoff already doubled) and a panic-mode-admitted call against it succeeds while still OPEN; When the breaker closes as a result; Then its backoff resets to the base cooldown, identical to an ordinary HALF_OPEN success. | No |
 
 #### Service fabric / gossip membership
 
@@ -1476,6 +1477,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-331 | Age-based retention sweep | Given a day file older than the configured retentionDays When the retention sweep runs Then that file is deleted And a day file within the window is left untouched And sweeping twice, or sweeping a data root that doesn't exist yet, is a safe no-op | No |
 | [ ] | GIMLE-339 | `/status` operational endpoint | Given a running MuninnServer When GET /status is issued Then it returns 200 with uptimeSeconds and transportProtocol And a non-GET method is rejected with 405 | No |
+| [ ] | GIMLE-699 | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | Given a subtree with two day files, one of which is deleted by a concurrent retention sweep between the read's own directory listing and its turn to read that file; When the read runs; Then it returns the surviving file's lines rather than throwing. Given the same race repeated many times under load; When readAfter and readOlder are both exercised concurrently against a sweep racing to delete a day file; Then neither ever surfaces the file's disappearance as an error. | No |
 
 #### Security / Authorization
 
@@ -1527,6 +1529,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-351 | JFR-based per-module CPU/allocation attribution | Given a module registered under a thread-name prefix "gimle-<module>-<version>-" When a JFR jdk.ExecutionSample/jdk.ThreadAllocationStatistics event fires on a thread with that prefix Then gimle.module.cpu.samples / gimle.module.allocated.bytes counters are incremented tagged by module_prefix And events from unregistered/unclassifiable threads are ignored And JFR being unavailable degrades to "no samples" rather than failing the worker | No |
+| [ ] | GIMLE-698 | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Given a log file already shipped up through one line at timestamp T; When a second line is appended at that exact same timestamp T before the next ship tick; Then the next tick ships that second line. Given the same-instant sibling has just been shipped; When a further tick runs with no new lines; Then nothing is re-shipped, proving the cursor genuinely advanced rather than re-querying the same boundary forever. | No |
 
 #### Tracing
 

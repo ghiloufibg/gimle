@@ -14,6 +14,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -64,6 +65,16 @@ public final class MuninnShipper implements AutoCloseable {
   private final HttpClient httpClient;
   private volatile ScheduledExecutorService ticker;
   private volatile String logCursor;
+
+  /**
+   * How many lines sharing {@link #logCursor}'s exact instant have already been shipped -- {@code
+   * readAfter}'s cursor comparison is strictly "after," so a line appended later at the identical
+   * instant as the last-shipped one would otherwise be silently excluded forever (plausible under
+   * bursty logging, since nothing bounds how many lines land at one timestamp). {@link #tickLogs}
+   * re-queries one nanosecond before the cursor to catch such siblings, and uses this count to skip
+   * back over exactly the ones already sent rather than re-shipping them.
+   */
+  private volatile int shippedAtCursorTimestamp;
 
   /**
    * When non-null, ticks are scheduled here instead of on a thread this class owns, and {@link
@@ -202,16 +213,77 @@ public final class MuninnShipper implements AutoCloseable {
 
   private void tickLogs(Path activeFile, int maxFiles) {
     try {
-      List<Map<String, Object>> lines = LogFileReader.readAfter(activeFile, maxFiles, logCursor);
+      // Query one nanosecond before the cursor, not the cursor itself: readAfter's comparison is
+      // strictly "after," so re-querying at the exact previously-shipped instant would exclude a
+      // new sibling line landing at that identical instant. This recovers every line at or after
+      // the cursor's instant -- including ones already shipped last tick -- and
+      // dropAlreadyShipped below trims exactly those back off before anything gets re-sent.
+      String queryCursor =
+          logCursor == null ? null : Instant.parse(logCursor).minusNanos(1).toString();
+      List<Map<String, Object>> candidates =
+          LogFileReader.readAfter(activeFile, maxFiles, queryCursor);
+      List<Map<String, Object>> lines = dropAlreadyShipped(candidates);
       if (lines.isEmpty()) {
         return;
       }
       if (postNdjson(lines)) {
-        logCursor = String.valueOf(lines.get(lines.size() - 1).get("timestamp"));
+        advanceCursor(lines);
       }
     } catch (RuntimeException e) {
       log.debug("log shipping tick to {} failed: {}", ingestPath, e.getMessage());
     }
+  }
+
+  /**
+   * Drops the leading lines of {@code candidates} that share {@link #logCursor}'s exact instant, up
+   * to {@link #shippedAtCursorTimestamp} of them -- these are only present because {@link
+   * #tickLogs} deliberately queried one nanosecond further back than the cursor to catch a
+   * same-instant sibling, and were already shipped on a previous tick. File append order is stable
+   * across ticks, so the same lines occupy the same relative position among candidates sharing that
+   * instant every time this runs.
+   */
+  private List<Map<String, Object>> dropAlreadyShipped(List<Map<String, Object>> candidates) {
+    if (logCursor == null || shippedAtCursorTimestamp == 0) {
+      return candidates;
+    }
+    Instant cursorInstant = Instant.parse(logCursor);
+    List<Map<String, Object>> result = new ArrayList<>(candidates.size());
+    int skipped = 0;
+    for (Map<String, Object> line : candidates) {
+      if (skipped < shippedAtCursorTimestamp
+          && cursorInstant.equals(Instant.parse(String.valueOf(line.get("timestamp"))))) {
+        skipped++;
+        continue;
+      }
+      result.add(line);
+    }
+    return result;
+  }
+
+  /**
+   * Advances {@link #logCursor} to the last just-shipped line's own instant, and {@link
+   * #shippedAtCursorTimestamp} to how many lines at that instant have now been shipped in total --
+   * counting the trailing run of {@code shipped} sharing it, plus whatever was already shipped
+   * there before if the cursor's instant didn't move this tick (every line shipped just now was
+   * another sibling of the same previously-seen instant, nothing strictly newer arrived).
+   */
+  private void advanceCursor(List<Map<String, Object>> shipped) {
+    Instant previousCursorInstant = logCursor == null ? null : Instant.parse(logCursor);
+    Instant newCursorInstant =
+        Instant.parse(String.valueOf(shipped.get(shipped.size() - 1).get("timestamp")));
+    int countAtNewCursor = 0;
+    for (int i = shipped.size() - 1; i >= 0; i--) {
+      if (newCursorInstant.equals(Instant.parse(String.valueOf(shipped.get(i).get("timestamp"))))) {
+        countAtNewCursor++;
+      } else {
+        break;
+      }
+    }
+    if (newCursorInstant.equals(previousCursorInstant)) {
+      countAtNewCursor += shippedAtCursorTimestamp;
+    }
+    logCursor = newCursorInstant.toString();
+    shippedAtCursorTimestamp = countAtNewCursor;
   }
 
   private void tickMetrics(MeterRegistry registry) {

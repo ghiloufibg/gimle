@@ -12062,6 +12062,51 @@
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/VesselProcessSupervisor.java` (`scheduleStabilityConfirmation`, `onExit`)"
       ]
+    },
+    {
+      "id": "GIMLE-698",
+      "module": "gimle-observability",
+      "feature": "MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-91 -- tickLogs advanced logCursor to the last-shipped line's own timestamp and readAfter's comparison is strictly isAfter, so a further line landing at that identical instant on a later tick was excluded forever, a genuine silent data-loss gap. Fixed entirely within MuninnShipper (no change to LogFileReader's shared cursor contract): tickLogs queries one nanosecond before the cursor to recover the boundary instant, a new dropAlreadyShipped step trims the already-shipped leading lines back off, and advanceCursor recomputes both the cursor and how many lines at its instant have been shipped.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`MuninnShipperTest#two_lines_sharing_the_exact_same_timestamp_across_ticks_are_both_shipped` -- verified to fail against the pre-fix tickLogs, passes with the fix; both lines shipped exactly once each and the cursor genuinely catches up. Full gimle-observability module suite re-verified.",
+      "sourceLocations": [
+        "`gimle-observability/src/main/java/com/gimle/observability/MuninnShipper.java` (`tickLogs`, `dropAlreadyShipped`, `advanceCursor`, `shippedAtCursorTimestamp`)"
+      ]
+    },
+    {
+      "id": "GIMLE-699",
+      "module": "gimle-muninn",
+      "feature": "MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-92 -- appendLinesFrom only caught IOException generically, so a day file deleted by RetentionSweeper's own independently-scheduled deleteIfExists between the read's directory listing and its turn to read that file threw NoSuchFileException (wrapped as UncheckedIOException), surfacing as a spurious 500 on a read that should have simply skipped the now-gone file. Fixed by catching NoSuchFileException specifically and treating it as nothing-to-add, the same graceful-skip posture already applied to a malformed line.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`MuninnDayFileStoreTest#a_day_file_removed_by_a_concurrent_retention_sweep_is_skipped_not_thrown` -- a second day file is repeatedly recreated and deleted from a background thread while the main thread reads 300 times in a loop, asserting neither readAfter nor readOlder ever throws. Full gimle-muninn module suite re-verified.",
+      "sourceLocations": [
+        "`gimle-muninn/src/main/java/com/gimle/muninn/MuninnDayFileStore.java` (`appendLinesFrom`)"
+      ]
+    },
+    {
+      "id": "GIMLE-700",
+      "module": "gimle-fabric",
+      "feature": "CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN",
+      "category": "Service fabric",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-93 -- FabricServiceRegistry's panic-mode ejection floor bypasses allowRequest()'s gating to call an endpoint whose breaker is still OPEN, but recordSuccess() only closed on HALF_OPEN, so a successful panic-mode-admitted call was recorded into the sliding window yet left the breaker OPEN and still excluded from candidacy until the unrelated, backed-off cooldown timer elapsed on its own. Fixed by having recordSuccess() close on OPEN as well as HALF_OPEN -- the only way recordSuccess() is ever called while still OPEN is exactly this panic-mode path, so a success there is the same recovery evidence a HALF_OPEN trial would have produced.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`CircuitBreakerTest#a_success_recorded_while_still_open_closes_the_breaker` and `#a_success_recorded_while_open_also_resets_the_backoff_to_the_base_cooldown`. Full gimle-fabric module suite re-verified.",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/breaker/CircuitBreaker.java` (`recordSuccess`)"
+      ]
     }
   ]
 }
