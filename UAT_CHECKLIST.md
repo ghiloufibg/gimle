@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 715
+- **Total requirements**: 718
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 589
-- **Release-readiness (automated coverage)**: 17.6%
+- **Not covered by automated test**: 592
+- **Release-readiness (automated coverage)**: 17.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,13 +21,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 50 | 6 | 44 | 12.0% |
 | gimle-mimir | 66 | 36 | 30 | 54.5% |
 | gimle-fabric | 39 | 1 | 38 | 2.6% |
-| gimle-controlplane | 96 | 15 | 81 | 15.6% |
+| gimle-controlplane | 97 | 15 | 82 | 15.5% |
 | gimle-fafnir | 30 | 11 | 19 | 36.7% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 23 | 0 | 23 | 0.0% |
 | gimle-observability | 18 | 1 | 17 | 5.6% |
 | gimle-gateway | 18 | 0 | 18 | 0.0% |
-| gimle-cli | 31 | 0 | 31 | 0.0% |
+| gimle-cli | 33 | 0 | 33 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 38 | 0 | 38 | 0.0% |
@@ -1090,6 +1090,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-258 | Bootstrap node join via single-use token + CSR | Given an operator issued a bootstrap token; When a new node submits a CSR (purpose=NODE_CLIENT) with that token; Then the CA signs a cert stamped O=gimle:nodes, and the token cannot be reused. | No |
 | [ ] | GIMLE-259 | Operator-approval-gated CSR flow | Given a human submits a CSR (purpose=OPERATOR_CLIENT) with no client certificate; When submitted; Then it sits pending (202) until an existing operator approves it. | No |
 
+#### Multi-Tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-716 | GET /tenants and /tenants/{id} expose real, server-computed usage (memoryBytes/cpuMillicores/instances) and a quotaViolating flag, closing the gap where the console's Tenants screens could show only configured limits, never actual consumption | Given a tenant with one deployment committing 16Mi memory and 10m cpu; When its tenant record is fetched; Then usage.memoryBytes/cpuMillicores/instances reflect exactly that committed usage, the same numbers admission and QuotaReconciler enforce against. Given a tenant whose usage already exceeds a smaller quota; When its quota is updated to that smaller value; Then quotaViolating becomes true on the very next fetch, not left stale from before the update. Given the Tenants list screen; Then each row shows used/max for memory, cpu, and instances plus a quota-status badge, not configured limits alone. | No |
+
 #### Multi-tenancy
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1681,6 +1687,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-665 | Single-resource CLI verbs reject more than one positional argument instead of silently truncating | Given a delete/get verb backed by requireOne or requireAtMostOne; When more than one positional name/id argument is given; Then the command is rejected with a clear "too many arguments" error and exits nonzero, with no request ever sent to the control plane. Given gimle apply with two -f/--file flags; When the command runs; Then it is rejected before either manifest is read, rather than silently applying only the first. Given a rejected delete or apply; Then the target resource is left completely untouched -- rejection happens client-side, before any HTTP request. | No |
+
+#### CLI Tooling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-717 | apply -f now covers Service, NetworkPolicy, Tenant, LimitRange, Role, RoleBinding, and Account manifests, closing the gap where these seven kinds needed their own bespoke gimle set <kind> flag-based command and had no manifest-driven creation path at all | Given a Service manifest naming a deploymentNames list and a port; When it is applied via apply -f; Then GET service <name> returns the same deploymentNames/port/targetPort a set service call with equivalent flags would have produced. Given a NetworkPolicy manifest with neither allowedCallerTenantIds nor allowedCalleeTenantIds declared; When it is applied; Then the CLI rejects it client-side before any request is sent, the same restrict-at-least-one-direction rule set networkpolicy enforces. Given a Role manifest listing lowercase resource/verb permission entries; When applied and then read back; Then each permission's resource/verb is stored uppercased, matching set role's own normalization. | No |
+| [ ] | GIMLE-718 | gimle get <workload-kind> <name> -o manifest projects the status response back into a re-appliable manifest, and apply -f - reads a manifest from stdin, closing the round-trip gap where get's own output could never be fed back into apply | Given a deployment created via apply -f; When its manifest is exported via get deployment <name> -o manifest; Then the output contains a top-level module: block (not moduleId) and no status-only fields. Given that exported manifest saved to a file; When it is applied via apply -f unchanged; Then the apply succeeds -- the full round trip that previously failed with a missing-field error. Given a manifest piped to stdin; When applied via apply -f -; Then the resulting resource is created exactly as it would be from an equivalent file, with no second, empty read draining the stream. | No |
 
 #### CLI UX
 

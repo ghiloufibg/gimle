@@ -42,6 +42,10 @@ public final class StatefulSetsCommand {
     String name = args.get(0);
     String path = TenantQuery.appendTo("/statefulsets/" + name, args.subList(1, args.size()));
     Map<String, Object> statefulSet = client.getObject(path);
+    if (output == OutputFormat.Kind.MANIFEST) {
+      out.print(ManifestExport.statefulSet(statefulSet));
+      return;
+    }
     OutputFormat.printObject(
         output, output == OutputFormat.Kind.TABLE ? humanize(statefulSet) : statefulSet, out);
   }

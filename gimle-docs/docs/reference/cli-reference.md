@@ -13,7 +13,12 @@ Any order, anywhere on the command line:
 
 - `--server host:port` — control-plane address (or set the `GIMLE_SERVER` environment variable
   instead, so you don't have to pass it on every invocation).
-- `-o`/`--output table|json` — output format, default `table`.
+- `-o`/`--output table|json|manifest` — output format, default `table`. `manifest` is honored only
+  by `get <deployment|job|cronjob|daemonset|statefulset> <name>`: it re-projects the status
+  response back into a manifest that `apply -f` accepts unchanged, closing the round-trip gap where
+  the status response's own `spec.moduleId` (nested, server-computed) could never be fed back as
+  the manifest's own top-level `module:` key. Every other command falls through to a table under
+  `-o manifest`, the same as an unrecognized `-o` value not being caught earlier would.
 
 ## Verbs
 
@@ -23,8 +28,11 @@ gimle get jobs [name] [--tenant <id>]
 gimle get cronjobs [name] [--tenant <id>]
 gimle get daemonsets [name] [--tenant <id>]
 gimle get statefulsets [name] [--tenant <id>]
-gimle apply -f <manifest.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet,
-                                  KindDefinition, or any defined custom kind, read from the file itself)
+gimle apply -f <manifest.yaml>|-   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
+                                    ArtifactSet, KindDefinition, Service, NetworkPolicy, Tenant,
+                                    LimitRange, Role, RoleBinding, Account, or any defined custom
+                                    kind, read from the manifest itself; -f - reads the manifest
+                                    from stdin instead of a file)
 gimle kinds
 gimle get <custom-kind|plural|shortName> [name] [--tenant <id>]
 gimle delete <custom-kind|plural|shortName> <name> [--tenant <id>]
@@ -351,6 +359,47 @@ before the conflict is surfaced; a schema-violation 409 — including a definiti
 with its violator list — is surfaced immediately, since resending the same bytes can't fix it.
 See the [custom kinds architecture page](../architecture/custom-kinds.md) for the whole
 mechanism, including how operator modules report the `status` these tables render.
+
+## Applying non-workload manifests
+
+`apply -f` also covers `Service`, `NetworkPolicy`, `Tenant`, `LimitRange`, `Role`, `RoleBinding`,
+and `Account` — the same manifest-driven convention Deployment/Job/CronJob/DaemonSet/StatefulSet
+already follow, alongside their own bespoke `gimle set <kind> ...` flag-based commands (both stay
+available; a manifest is just an alternative to spelling every field as a flag). Unlike the
+workload kinds, these seven have no `PUT /{kind}/{name}`-shaped route to send the YAML bytes to
+directly, so the CLI parses the manifest client-side and builds the identical JSON body `set`
+already builds from flags, then issues the same request `set` would:
+
+```yaml
+kind: Service
+name: web
+deploymentNames: [orders-service]
+port: 8080
+targetPort: 9090
+```
+
+```yaml
+kind: NetworkPolicy
+name: acme-policy
+tenantId: acme
+allowedCallerTenantIds: [partner]   # present (even empty) restricts; absent leaves it open
+```
+
+```yaml
+kind: Role
+name: deployment-reader
+permissions:
+  - resource: deployment
+    verb: read
+  - resource: config
+    verb: write
+    tenantScope: acme
+```
+
+`Tenant`, `LimitRange`, `RoleBinding`, and `Account` manifests use `name:` for the identifier the
+same way every other kind does, even though their own `get`/`set`/`delete` verbs call it `id` (or
+`username`) — see each kind's own manifest shape by round-tripping `gimle get <kind> <name>
+-o json` and reshaping it, or by reading the corresponding `set` command's own flags.
 
 ## Examples
 

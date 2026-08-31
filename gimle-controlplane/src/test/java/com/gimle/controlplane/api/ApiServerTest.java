@@ -1774,6 +1774,17 @@ class ApiServerTest {
 
     assertEquals(200, put.statusCode());
     assertTrue(store.getDeployment(Optional.of("roomy"), "within-quota").isPresent());
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/roomy")).GET().build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> tenant = Json.asObject(Json.parse(get.body()));
+    Map<String, Object> usage = Json.asObject(tenant.get("usage"));
+    // TestModuleBuilder.minimalDescriptor fixes the request at 16Mi memory / 10m cpu; one replica.
+    assertEquals(16L * 1024 * 1024, ((Number) usage.get("memoryBytes")).longValue());
+    assertEquals(10L, ((Number) usage.get("cpuMillicores")).longValue());
+    assertEquals(1L, ((Number) usage.get("instances")).longValue());
+    assertEquals(false, tenant.get("quotaViolating"));
   }
 
   @Test

@@ -34,7 +34,12 @@ public final class JobsCommand {
     }
     String name = args.get(0);
     String path = TenantQuery.appendTo("/jobs/" + name, args.subList(1, args.size()));
-    OutputFormat.printObject(output, client.getObject(path), out);
+    Map<String, Object> job = client.getObject(path);
+    if (output == OutputFormat.Kind.MANIFEST) {
+      out.print(ManifestExport.job(job));
+      return;
+    }
+    OutputFormat.printObject(output, job, out);
   }
 
   public void apply(List<String> args, PrintStream err) {

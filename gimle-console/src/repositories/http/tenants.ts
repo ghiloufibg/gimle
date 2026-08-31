@@ -43,10 +43,9 @@ export class HttpTenantsRepository implements TenantsRepository {
   async updateQuota(id: string, quota: Tenant["quota"]): Promise<Tenant> {
     await requestOk("PUT", `/tenants/${encodeURIComponent(id)}`, { quota });
     this.cache = null;
-    // Don't depend on parsing the PUT response body (its exact shape isn't pinned down): a
-    // successful (2xx) PUT means the control plane accepted exactly this quota, so construct the
-    // result client-side rather than a speculative follow-up GET.
-    return { id, quota };
+    // A changed quota can flip quotaViolating even though usage itself is unchanged, so this must
+    // re-fetch rather than construct the result client-side the way the old quota-only shape did.
+    return this.fetchOne(id);
   }
 
   async remove(id: string): Promise<void> {

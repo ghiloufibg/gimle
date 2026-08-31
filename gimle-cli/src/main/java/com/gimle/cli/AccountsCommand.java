@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -59,6 +60,39 @@ public final class AccountsCommand {
     OutputFormat.printResult(
         output, resultBody("configured", username), "account/" + username + " configured", out);
     RbacWarnings.warnIfPlaintext(out);
+  }
+
+  /**
+   * {@code apply -f <manifest.yaml>} for {@code kind: Account}. {@code groups:} is a real YAML list
+   * here, not the comma-joined string {@code --groups} accepts -- omitting it, same as omitting
+   * {@code --groups}, preserves whatever groups the account already has.
+   */
+  public void apply(List<String> args, PrintStream err) {
+    Path file = ManifestFiles.requireFileFlag(args);
+    byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
+    Map<String, Object> root = ManifestFiles.parseRoot(file, manifestBytes);
+    String username = requireString(root, "name", file);
+    String password = requireString(root, "password", file);
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("password", password);
+    if (root.get("groups") instanceof List<?> groups) {
+      body.put("groups", groups.stream().map(String::valueOf).toList());
+    }
+
+    ApiResponse response = client.put("/accounts/" + username, Json.write(body));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
+    OutputFormat.printResult(
+        output, resultBody("applied", username), "account/" + username + " applied", out);
+    RbacWarnings.warnIfPlaintext(out);
+  }
+
+  private static String requireString(Map<String, Object> root, String field, Path file) {
+    if (!(root.get(field) instanceof String value) || value.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level '" + field + "' field");
+    }
+    return value;
   }
 
   public void delete(String username) {

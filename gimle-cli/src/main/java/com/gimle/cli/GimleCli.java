@@ -23,9 +23,14 @@ import java.util.Map;
  *   gimle get cronjobs [name]
  *   gimle get daemonsets [name]
  *   gimle get statefulsets [name]
- *   gimle apply -f &lt;manifest.yaml&gt;   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
- *                                     ArtifactSet, KindDefinition, or any defined custom kind,
- *                                     read from the file itself)
+ *   gimle apply -f &lt;manifest.yaml&gt;|-  (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
+ *                                      ArtifactSet, KindDefinition, Service, NetworkPolicy, Tenant,
+ *                                      LimitRange, Role, RoleBinding, Account, or any defined
+ *                                      custom kind, read from the manifest itself; {@code -f -}
+ *                                      reads the manifest from stdin instead of a file)
+ *   gimle get &lt;deployment|job|cronjob|daemonset|statefulset&gt; &lt;name&gt; -o manifest
+ *                                     (re-appliable manifest YAML -- feed straight back into
+ *                                      apply -f -)
  *   gimle kinds
  *   gimle get &lt;custom-kind|plural|shortName&gt; [name] [--tenant &lt;id&gt;]
  *   gimle delete &lt;custom-kind|plural|shortName&gt; &lt;name&gt; [--tenant &lt;id&gt;]
@@ -124,7 +129,8 @@ import java.util.Map;
  * </pre>
  *
  * Global flags (any order, anywhere): {@code --server host:port} (or the {@code GIMLE_SERVER} env
- * var), {@code -o|--output table|json} (default {@code table}, kubectl's own flag).
+ * var), {@code -o|--output table|json|manifest} (default {@code table}, kubectl's own flag; {@code
+ * manifest} is honored only by {@code get <workload-kind> <name>} -- see {@link ManifestExport}).
  */
 public final class GimleCli {
 
@@ -265,6 +271,7 @@ public final class GimleCli {
       OutputFormat.Kind output,
       PrintStream out,
       PrintStream err) {
+    ManifestFiles.resetStdinCache();
     Path file = ManifestFiles.requireFileFlag(args);
     switch (ManifestFiles.extractKind(file)) {
       case "Deployment" -> new DeploymentsCommand(client, output, out).apply(args, err);
@@ -275,6 +282,13 @@ public final class GimleCli {
       case "ArtifactSet" -> new ArtifactSetCommand(client, output, out).apply(args);
       case "KindDefinition" ->
           new CustomResourceCommand(client, output, out).applyKindDefinition(args, err);
+      case "Service" -> new ServicesCommand(client, output, out).apply(args, err);
+      case "NetworkPolicy" -> new NetworkPolicyCommand(client, output, out).apply(args, err);
+      case "Tenant" -> new TenantsCommand(client, output, out).apply(args, err);
+      case "LimitRange" -> new LimitRangeCommand(client, output, out).apply(args, err);
+      case "Role" -> new RolesCommand(client, output, out).apply(args, err);
+      case "RoleBinding" -> new RoleBindingsCommand(client, output, out).apply(args, err);
+      case "Account" -> new AccountsCommand(client, output, out).apply(args, err);
       // No client-side "unknown manifest kind" hard error any more: an unrecognized kind routes
       // to the generic custom-resource PUT, and whether it names a defined kind is decided
       // server-side, where the definition catalog lives -- an undefined one comes back as a 400
@@ -775,7 +789,7 @@ public final class GimleCli {
 
   private static final String APPLY_USAGE =
       """
-      usage: gimle apply -f <file.yaml>
+      usage: gimle apply -f <file.yaml>|-
 
       kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any
       defined custom kind (see 'gimle kinds'), read from the manifest file's own 'kind:' field""";
@@ -862,14 +876,16 @@ public final class GimleCli {
     return switch (value) {
       case "table" -> OutputFormat.Kind.TABLE;
       case "json" -> OutputFormat.Kind.JSON;
+      case "manifest" -> OutputFormat.Kind.MANIFEST;
       default ->
-          throw new CliException("unknown output format: " + value + " (expected table or json)");
+          throw new CliException(
+              "unknown output format: " + value + " (expected table, json, or manifest)");
     };
   }
 
   private static String usage() {
     return """
-        usage: gimle <verb> <resource> [args] [--server host:port] [-o table|json]
+        usage: gimle <verb> <resource> [args] [--server host:port] [-o table|json|manifest]
 
         verbs:
           get deployments [name]

@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +51,38 @@ public final class RoleBindingsCommand {
     OutputFormat.printResult(
         output, resultBody("configured", id), "rolebinding/" + id + " configured", out);
     RbacWarnings.warnIfPlaintext(out);
+  }
+
+  /**
+   * {@code apply -f <manifest.yaml>} for {@code kind: RoleBinding}. Uses {@code name:} for the
+   * identifier, matching every other manifest kind's own top-level field, even though {@code
+   * set}/{@code get}/{@code delete} above call it {@code id}.
+   */
+  public void apply(List<String> args, PrintStream err) {
+    Path file = ManifestFiles.requireFileFlag(args);
+    byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
+    Map<String, Object> root = ManifestFiles.parseRoot(file, manifestBytes);
+    String id = requireString(root, "name", file);
+    String subject = requireString(root, "subject", file);
+    String roleName = requireString(root, "roleName", file);
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("subject", subject);
+    body.put("roleName", roleName);
+
+    ApiResponse response = client.put("/rolebindings/" + id, Json.write(body));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
+    OutputFormat.printResult(
+        output, resultBody("applied", id), "rolebinding/" + id + " applied", out);
+    RbacWarnings.warnIfPlaintext(out);
+  }
+
+  private static String requireString(Map<String, Object> root, String field, Path file) {
+    if (!(root.get(field) instanceof String value) || value.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level '" + field + "' field");
+    }
+    return value;
   }
 
   public void delete(String id) {

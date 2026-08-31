@@ -1,5 +1,6 @@
 package com.gimle.cli;
 
+import com.gimle.core.protocol.Json;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -20,10 +21,36 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
  * top-level field -- {@code name} for the six resource-specific commands, {@code kind} for {@link
  * GimleCli}'s own apply-dispatch -- without ever re-serializing the file, so the original bytes can
  * still be PUT verbatim and comments/formatting survive.
+ *
+ * <p>{@code -f -} reads the manifest from stdin instead of a file, kubectl's own convention.
+ * Because {@link GimleCli#handleApply} peeks at {@code kind:} and then each resource-specific
+ * command's own {@code apply} independently re-reads the manifest for its own {@code name:}
+ * extraction and PUT body, a stdin manifest would otherwise be read (and drained) two or three
+ * times over the same process's single invocation -- {@link #readManifestBytes} memoizes stdin's
+ * bytes the first time they're read so every later call within the same process sees the same
+ * content instead of an empty second read.
  */
 final class ManifestFiles {
 
+  private static final String STDIN = "-";
+
+  private static byte[] cachedStdinBytes;
+
   private ManifestFiles() {}
+
+  private static boolean isStdin(Path file) {
+    return STDIN.equals(file.toString());
+  }
+
+  /**
+   * Clears the memoized stdin read -- called once at the very start of each {@code apply}
+   * invocation ({@link GimleCli#handleApply}), so a later, unrelated {@code apply -f -} call (e.g.
+   * a second invocation within the same test JVM) reads its own fresh stdin rather than silently
+   * reusing bytes cached by an earlier one.
+   */
+  static void resetStdinCache() {
+    cachedStdinBytes = null;
+  }
 
   /**
    * A second {@code -f}/{@code --file} is rejected outright rather than silently discarded the way
@@ -49,12 +76,22 @@ final class ManifestFiles {
       }
     }
     if (found == null) {
-      throw new CliException("apply requires -f <manifest.yaml>");
+      throw new CliException("apply requires -f <manifest.yaml> (or -f - to read from stdin)");
     }
     return found;
   }
 
   static byte[] readManifestBytes(Path file) {
+    if (isStdin(file)) {
+      if (cachedStdinBytes == null) {
+        try {
+          cachedStdinBytes = System.in.readAllBytes();
+        } catch (IOException e) {
+          throw new CliException("could not read manifest from stdin: " + e.getMessage(), e);
+        }
+      }
+      return cachedStdinBytes;
+    }
     try {
       return Files.readAllBytes(file);
     } catch (NoSuchFileException e) {
@@ -77,6 +114,26 @@ final class ManifestFiles {
 
   static String extractKind(Path file) {
     return extractField(file, readManifestBytes(file), "kind");
+  }
+
+  /**
+   * Parses the whole manifest root as a {@code Map}, for the kinds whose {@code apply} builds a
+   * JSON body from manifest fields client-side (Service/NetworkPolicy/Tenant/LimitRange/Role/
+   * RoleBinding/Account) rather than PUTting the YAML bytes verbatim the way the workload kinds do
+   * -- those kinds' own server-side routes are JSON-only (see each command's own {@code set}).
+   */
+  static Map<String, Object> parseRoot(Path file, byte[] manifestBytes) {
+    Yaml yaml = new Yaml(new SafeConstructor(new LoaderOptions()));
+    Object parsed;
+    try {
+      parsed = yaml.load(new ByteArrayInputStream(manifestBytes));
+    } catch (RuntimeException e) {
+      throw new CliException("malformed manifest " + file + ": " + e.getMessage(), e);
+    }
+    if (!(parsed instanceof Map<?, ?>)) {
+      throw new CliException("manifest " + file + " has no top-level mapping");
+    }
+    return Json.asObject(parsed);
   }
 
   /**

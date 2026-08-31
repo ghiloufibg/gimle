@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -127,6 +128,69 @@ public final class NetworkPolicyCommand {
     client.expectSuccess(client.post("/networkpolicies", Json.write(body)));
     OutputFormat.printResult(
         output, resultBody("configured", name), "networkpolicy/" + name + " configured", out);
+  }
+
+  /**
+   * {@code apply -f <manifest.yaml>} for {@code kind: NetworkPolicy}. A direction's manifest key
+   * ({@code allowedCallerTenantIds}/{@code allowedCalleeTenantIds}) mirrors the wire body directly
+   * -- present (even as an empty list) means restricted, absent means unrestricted -- so there is
+   * no manifest equivalent of the CLI flags' separate {@code --deny-all-callers}/{@code
+   * --deny-all-callees} sentinel; an empty list already means exactly that.
+   */
+  public void apply(List<String> args, PrintStream err) {
+    Path file = ManifestFiles.requireFileFlag(args);
+    byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
+    Map<String, Object> root = ManifestFiles.parseRoot(file, manifestBytes);
+    String name = requireString(root, "name", file);
+    String tenantId = requireString(root, "tenantId", file);
+    boolean restrictsIngress = root.containsKey("allowedCallerTenantIds");
+    boolean restrictsEgress = root.containsKey("allowedCalleeTenantIds");
+    if (!restrictsIngress && !restrictsEgress) {
+      throw new CliException(
+          "manifest "
+              + file
+              + " must restrict at least one direction: declare 'allowedCallerTenantIds'"
+              + " (ingress) and/or 'allowedCalleeTenantIds' (egress)");
+    }
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("name", name);
+    body.put("tenantId", tenantId);
+    if (root.get("deploymentNames") instanceof List<?> deploymentNames
+        && !deploymentNames.isEmpty()) {
+      body.put("deploymentNames", List.copyOf(new LinkedHashSet<>(deploymentNames)));
+    }
+    if (root.get("serviceInterfaceNames") instanceof List<?> serviceInterfaceNames
+        && !serviceInterfaceNames.isEmpty()) {
+      body.put("serviceInterfaceNames", List.copyOf(new LinkedHashSet<>(serviceInterfaceNames)));
+    }
+    if (restrictsIngress) {
+      body.put(
+          "allowedCallerTenantIds",
+          List.copyOf(new LinkedHashSet<>(asStringList(root.get("allowedCallerTenantIds")))));
+    }
+    if (restrictsEgress) {
+      body.put(
+          "allowedCalleeTenantIds",
+          List.copyOf(new LinkedHashSet<>(asStringList(root.get("allowedCalleeTenantIds")))));
+    }
+
+    ApiResponse response = client.post("/networkpolicies", Json.write(body));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
+    OutputFormat.printResult(
+        output, resultBody("applied", name), "networkpolicy/" + name + " applied", out);
+  }
+
+  private static List<String> asStringList(Object value) {
+    return value instanceof List<?> list ? list.stream().map(String::valueOf).toList() : List.of();
+  }
+
+  private static String requireString(Map<String, Object> root, String field, Path file) {
+    if (!(root.get(field) instanceof String value) || value.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level '" + field + "' field");
+    }
+    return value;
   }
 
   public void delete(List<String> args) {

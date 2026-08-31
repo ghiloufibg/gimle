@@ -35,7 +35,12 @@ public final class CronJobsCommand {
     }
     String name = args.get(0);
     String path = TenantQuery.appendTo("/cronjobs/" + name, args.subList(1, args.size()));
-    OutputFormat.printObject(output, client.getObject(path), out);
+    Map<String, Object> cronJob = client.getObject(path);
+    if (output == OutputFormat.Kind.MANIFEST) {
+      out.print(ManifestExport.cronJob(cronJob));
+      return;
+    }
+    OutputFormat.printObject(output, cronJob, out);
   }
 
   public void apply(List<String> args, PrintStream err) {

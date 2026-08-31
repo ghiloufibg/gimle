@@ -68,14 +68,27 @@ export const tenants: Tenant[] = [
   "hooli",
   "stark-industries",
   "wayne-enterprises",
-].map((id) => ({
-  id,
-  quota: {
+].map((id) => {
+  const quota = {
     maxMemoryBytes: intBetween(8, 64) * 1024 ** 3,
     maxCpuMillicores: intBetween(4, 32) * 1000,
     maxInstances: intBetween(10, 40),
-  },
-}));
+  };
+  const usage = {
+    memoryBytes: Math.floor(quota.maxMemoryBytes * (0.1 + rand() * 0.7)),
+    cpuMillicores: Math.floor(quota.maxCpuMillicores * (0.1 + rand() * 0.7)),
+    instances: intBetween(1, Math.max(1, quota.maxInstances - 1)),
+  };
+  return {
+    id,
+    quota,
+    usage,
+    quotaViolating:
+      usage.memoryBytes > quota.maxMemoryBytes ||
+      usage.cpuMillicores > quota.maxCpuMillicores ||
+      usage.instances > quota.maxInstances,
+  };
+});
 
 // ---------- Nodes ----------
 export const nodes: Node[] = Array.from({ length: 10 }, (_, i) => {
@@ -527,7 +540,14 @@ export function rollbackControllerRevision(
 
 export function updateTenant(id: string, quota: Tenant["quota"]) {
   const t = tenants.find((x) => x.id === id);
-  if (t) t.quota = quota;
+  if (!t) return;
+  t.quota = quota;
+  // A changed quota can flip quotaViolating even though usage itself is unchanged, mirroring the
+  // real server's own re-derivation on every read.
+  t.quotaViolating =
+    t.usage.memoryBytes > quota.maxMemoryBytes ||
+    t.usage.cpuMillicores > quota.maxCpuMillicores ||
+    t.usage.instances > quota.maxInstances;
 }
 
 export function removeTenant(id: string) {

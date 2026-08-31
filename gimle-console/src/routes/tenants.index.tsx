@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useTenantsStore } from "@/stores/useTenantsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
+import { StatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { fmtBytes, fmtMillicores } from "@/lib/format";
 
@@ -39,9 +40,10 @@ function TenantsList() {
           <thead className="bg-muted/50 text-muted-foreground">
             <tr className="text-left">
               <th className="px-2 py-1.5 font-medium">Tenant</th>
-              <th className="px-2 py-1.5 font-medium text-right">Max memory</th>
-              <th className="px-2 py-1.5 font-medium text-right">Max CPU</th>
-              <th className="px-2 py-1.5 font-medium text-right">Max instances</th>
+              <th className="px-2 py-1.5 font-medium text-right">Memory used / max</th>
+              <th className="px-2 py-1.5 font-medium text-right">CPU used / max</th>
+              <th className="px-2 py-1.5 font-medium text-right">Instances used / max</th>
+              <th className="px-2 py-1.5 font-medium">Quota</th>
             </tr>
           </thead>
           <tbody>
@@ -57,12 +59,21 @@ function TenantsList() {
                   </Link>
                 </td>
                 <td className="px-2 py-1.5 font-mono text-right">
-                  {fmtBytes(t.quota.maxMemoryBytes)}
+                  {fmtBytes(t.usage.memoryBytes)} / {fmtBytes(t.quota.maxMemoryBytes)}
                 </td>
                 <td className="px-2 py-1.5 font-mono text-right">
-                  {fmtMillicores(t.quota.maxCpuMillicores)}
+                  {fmtMillicores(t.usage.cpuMillicores)} / {fmtMillicores(t.quota.maxCpuMillicores)}
                 </td>
-                <td className="px-2 py-1.5 font-mono text-right">{t.quota.maxInstances}</td>
+                <td className="px-2 py-1.5 font-mono text-right">
+                  {t.usage.instances} / {t.quota.maxInstances}
+                </td>
+                <td className="px-2 py-1.5">
+                  {t.quotaViolating ? (
+                    <StatusBadge variant="bad">violating</StatusBadge>
+                  ) : (
+                    <StatusBadge variant="ok">OK</StatusBadge>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

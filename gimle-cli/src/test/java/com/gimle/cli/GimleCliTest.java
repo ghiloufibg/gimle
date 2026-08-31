@@ -20,8 +20,10 @@ import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreTransport;
 import com.gimle.mimir.store.StateStore;
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.InetSocketAddress;
@@ -320,6 +322,66 @@ class GimleCliTest {
   }
 
   @Test
+  void apply_dash_f_dash_reads_the_manifest_from_stdin() throws Exception {
+    String manifestYaml =
+        """
+        kind: Deployment
+        name: stdin-service
+        module:
+          name: com.gimle.example.orders
+          version: 1.0.0
+        artifactPath: /var/gimle/artifacts/orders-1.0.0.jar
+        replicas: 2
+        """;
+    InputStream originalIn = System.in;
+    try {
+      System.setIn(new ByteArrayInputStream(manifestYaml.getBytes(StandardCharsets.UTF_8)));
+      int applyExit = run("apply", "-f", "-");
+      assertEquals(0, applyExit, this::stderr);
+      assertTrue(stdout().contains("deployment/stdin-service applied"));
+    } finally {
+      System.setIn(originalIn);
+    }
+
+    outBuffer.reset();
+    int getExit = run("get", "deployment", "stdin-service");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("stdin-service"));
+  }
+
+  /**
+   * The FUNC-65 round-trip: {@code get deployment <name> -o manifest} must produce a manifest that
+   * {@code apply -f} accepts back unchanged, closing the gap where {@code status.spec.moduleId}
+   * (nested, server-computed) could never be fed back as the manifest's own top-level {@code
+   * module:} key.
+   */
+  @Test
+  void get_deployment_as_manifest_then_reapplying_it_round_trips() throws Exception {
+    Path manifest = writeManifest("roundtrip-service", 2);
+    run("apply", "-f", manifest.toString());
+
+    outBuffer.reset();
+    int exportExit = run("-o", "manifest", "get", "deployment", "roundtrip-service");
+    assertEquals(0, exportExit, this::stderr);
+    String exported = stdout();
+    assertTrue(exported.contains("kind: Deployment"));
+    assertTrue(exported.contains("name: \"roundtrip-service\""));
+    assertTrue(exported.contains("module:"));
+    assertTrue(exported.contains("replicas: 2"));
+    // The server-computed status envelope's own moduleId/instances/quotaViolating must not leak
+    // into the exported manifest -- no parser accepts any of them.
+    assertFalse(exported.contains("moduleId"));
+    assertFalse(exported.contains("instances"));
+
+    Path reapplied = tempDir.resolve("reapplied.yaml");
+    Files.writeString(reapplied, exported);
+    outBuffer.reset();
+    int reapplyExit = run("apply", "-f", reapplied.toString());
+    assertEquals(0, reapplyExit, this::stderr);
+    assertTrue(stdout().contains("deployment/roundtrip-service applied"));
+  }
+
+  @Test
   void apply_then_delete_removes_the_deployment() throws Exception {
     Path manifest = writeManifest("catalog-service", 1);
     run("apply", "-f", manifest.toString());
@@ -360,6 +422,30 @@ class GimleCliTest {
   }
 
   @Test
+  void apply_tenant_then_get_tenants_round_trips() throws Exception {
+    Path manifest = tempDir.resolve("acme-tenant.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: Tenant
+        name: acme-applied
+        quota:
+          maxMemoryBytes: 2000000000
+          maxCpuMillicores: 8000
+          maxInstances: 20
+        """);
+
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit, this::stderr);
+    assertTrue(stdout().contains("tenant/acme-applied applied"));
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "tenant", "acme-applied");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"maxInstances\":20"));
+  }
+
+  @Test
   void set_limitrange_then_get_limitranges_round_trips() throws Exception {
     int setExit =
         run(
@@ -396,6 +482,33 @@ class GimleCliTest {
     int getAfterDeleteExit = run("get", "limitrange", "acme");
     assertEquals(1, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
+  void apply_limitrange_then_get_limitranges_round_trips() throws Exception {
+    Path manifest = tempDir.resolve("acme-limitrange.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: LimitRange
+        name: acme
+        minRequest:
+          memory: 64Mi
+          cpu: 50m
+        maxLimit:
+          memory: 512Mi
+          cpu: 500m
+        """);
+
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit, this::stderr);
+    assertTrue(stdout().contains("limitrange/acme applied"));
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "limitrange", "acme");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"memory\":\"64Mi\""));
+    assertTrue(stdout().contains("\"memory\":\"512Mi\""));
   }
 
   @Test
@@ -707,6 +820,34 @@ class GimleCliTest {
   }
 
   @Test
+  void apply_role_then_get_roles_round_trips() throws Exception {
+    Path manifest = tempDir.resolve("applied-role.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: Role
+        name: applied-reader
+        permissions:
+          - resource: deployment
+            verb: read
+          - resource: config
+            verb: write
+            tenantScope: acme
+        """);
+
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit, this::stderr);
+    assertTrue(stdout().contains("role/applied-reader applied"));
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "role", "applied-reader");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"resource\":\"DEPLOYMENT\""));
+    assertTrue(stdout().contains("\"verb\":\"READ\""));
+    assertTrue(stdout().contains("\"tenantScope\":\"acme\""));
+  }
+
+  @Test
   void deleting_a_role_cascades_to_every_rolebinding_that_named_it() throws Exception {
     // FUNC-24 regression: roleName is a plain string resolved by name at authorize-time, not an
     // immutable ID -- a binding left behind after its Role is deleted would silently reactivate
@@ -780,6 +921,29 @@ class GimleCliTest {
   }
 
   @Test
+  void apply_rolebinding_then_get_rolebindings_round_trips() throws Exception {
+    Path manifest = tempDir.resolve("applied-rolebinding.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: RoleBinding
+        name: applied-binding
+        subject: user:bob
+        roleName: cluster-admin
+        """);
+
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit, this::stderr);
+    assertTrue(stdout().contains("rolebinding/applied-binding applied"));
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "rolebinding", "applied-binding");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"subject\":\"user:bob\""));
+    assertTrue(stdout().contains("\"roleName\":\"cluster-admin\""));
+  }
+
+  @Test
   void set_account_then_get_accounts_round_trips_and_never_leaks_the_password_hash()
       throws Exception {
     int setExit = run("set", "account", "admin", "--password", "s3cret-password");
@@ -819,6 +983,30 @@ class GimleCliTest {
 
     int deleteExit = run("delete", "account", "operator");
     assertEquals(0, deleteExit);
+  }
+
+  @Test
+  void apply_account_then_get_accounts_round_trips_with_groups() throws Exception {
+    Path manifest = tempDir.resolve("applied-account.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: Account
+        name: applied-operator
+        password: s3cret-password
+        groups: [qa-team, on-call]
+        """);
+
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit, this::stderr);
+    assertTrue(stdout().contains("account/applied-operator applied"));
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "accounts", "applied-operator");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"qa-team\""), stdout());
+    assertTrue(stdout().contains("\"on-call\""), stdout());
+    assertFalse(stdout().contains("s3cret-password"));
   }
 
   @Test
@@ -1278,6 +1466,31 @@ class GimleCliTest {
   }
 
   @Test
+  void apply_service_then_get_services_round_trips() throws Exception {
+    Path manifest = tempDir.resolve("applied-service.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: Service
+        name: applied-web
+        deploymentNames: [orders-service]
+        port: 8080
+        targetPort: 9090
+        """);
+
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit, this::stderr);
+    assertTrue(stdout().contains("service/applied-web applied"));
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "service", "applied-web");
+    assertEquals(0, getExit);
+    assertTrue(stdout().contains("\"deploymentNames\":[\"orders-service\"]"));
+    assertTrue(stdout().contains("\"port\":8080"));
+    assertTrue(stdout().contains("\"targetPort\":9090"));
+  }
+
+  @Test
   void set_service_defaults_target_port_to_port_when_omitted() throws Exception {
     run("set", "service", "solo-port", "--deployment", "orders-service", "--port", "7000");
 
@@ -1345,6 +1558,46 @@ class GimleCliTest {
     int getAfterDeleteExit = run("get", "networkpolicy", "acme-policy", "--tenant", "acme");
     assertEquals(1, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
+  }
+
+  @Test
+  void apply_networkpolicy_then_get_networkpolicies_round_trips() throws Exception {
+    Path manifest = tempDir.resolve("applied-networkpolicy.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: NetworkPolicy
+        name: applied-policy
+        tenantId: acme
+        allowedCallerTenantIds: [partner]
+        """);
+
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(0, applyExit, this::stderr);
+    assertTrue(stdout().contains("networkpolicy/applied-policy applied"));
+
+    outBuffer.reset();
+    int getSingleExit =
+        run("-o", "json", "get", "networkpolicy", "applied-policy", "--tenant", "acme");
+    assertEquals(0, getSingleExit);
+    assertTrue(stdout().contains("\"tenantId\":\"acme\""));
+    assertTrue(stdout().contains("\"allowedCallerTenantIds\":[\"partner\"]"));
+  }
+
+  @Test
+  void apply_networkpolicy_restricting_no_direction_at_all_fails_client_side() throws Exception {
+    Path manifest = tempDir.resolve("broken-networkpolicy.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: NetworkPolicy
+        name: broken
+        tenantId: acme
+        """);
+
+    int applyExit = run("apply", "-f", manifest.toString());
+    assertEquals(1, applyExit);
+    assertTrue(stderr().contains("allowedCallerTenantIds"));
   }
 
   @Test

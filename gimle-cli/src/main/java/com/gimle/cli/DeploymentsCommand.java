@@ -41,6 +41,10 @@ public final class DeploymentsCommand {
     String name = args.get(0);
     String path = TenantQuery.appendTo("/deployments/" + name, args.subList(1, args.size()));
     Map<String, Object> deployment = client.getObject(path);
+    if (output == OutputFormat.Kind.MANIFEST) {
+      out.print(ManifestExport.deployment(deployment));
+      return;
+    }
     OutputFormat.printObject(
         output, output == OutputFormat.Kind.TABLE ? humanize(deployment) : deployment, out);
   }

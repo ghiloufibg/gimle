@@ -37,6 +37,7 @@ import com.gimle.controlplane.reconcile.CronJobReconciler;
 import com.gimle.controlplane.service.ServiceEndpoint;
 import com.gimle.controlplane.service.ServiceEndpointResolver;
 import com.gimle.controlplane.service.ServiceRegistry;
+import com.gimle.controlplane.tenant.TenantUsage;
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.PasswordHashes;
@@ -4036,7 +4037,7 @@ public final class ApiServer implements AutoCloseable {
           200,
           storeClient.listTenants().stream()
               .filter(tenant -> readableTenant.get().test(Optional.of(tenant.id())))
-              .map(ApiServer::tenantToJson)
+              .map(this::tenantToJson)
               .toList());
     } catch (IOException | RuntimeException e) {
       log.warn("tenants list request failed: {}", e.getMessage());
@@ -4973,7 +4974,13 @@ public final class ApiServer implements AutoCloseable {
     return Optional.of(new ResourceSpec((String) map.get("memory"), (String) map.get("cpu")));
   }
 
-  private static Map<String, Object> tenantToJson(Tenant tenant) {
+  /**
+   * Instance method (not static) because it consults {@link #storeClient}/{@link #artifactResolver}
+   * to compute {@code usage} -- the same {@link TenantUsage} calculation admission and {@code
+   * QuotaReconciler} already use, so the console/CLI see exactly the numbers enforcement actually
+   * acts on rather than a separately-derived approximation.
+   */
+  private Map<String, Object> tenantToJson(Tenant tenant) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("id", tenant.id());
     Map<String, Object> quota = new LinkedHashMap<>();
@@ -4981,6 +4988,14 @@ public final class ApiServer implements AutoCloseable {
     quota.put("maxCpuMillicores", tenant.quota().maxCpuMillicores());
     quota.put("maxInstances", tenant.quota().maxInstances());
     map.put("quota", quota);
+    TenantUsage.Usage usage =
+        TenantUsage.currentlyAssigned(storeClient, artifactResolver, tenant.id(), Optional.empty());
+    Map<String, Object> usageJson = new LinkedHashMap<>();
+    usageJson.put("memoryBytes", usage.memoryBytes());
+    usageJson.put("cpuMillicores", usage.cpuMillicores());
+    usageJson.put("instances", usage.instances());
+    map.put("usage", usageJson);
+    map.put("quotaViolating", usage.exceeds(tenant.quota()));
     return map;
   }
 

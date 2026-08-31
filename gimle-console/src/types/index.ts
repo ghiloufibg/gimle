@@ -252,6 +252,15 @@ export interface Tenant {
     maxCpuMillicores: number;
     maxInstances: number;
   };
+  /** Server-computed, real assigned usage (resourceRequest × committedInstances summed across
+   * every Deployment/Job/DaemonSet/StatefulSet sharing the tenant) -- the same numbers admission
+   * and QuotaReconciler actually enforce against, not a client-side approximation. */
+  usage: {
+    memoryBytes: number;
+    cpuMillicores: number;
+    instances: number;
+  };
+  quotaViolating: boolean;
 }
 
 /**

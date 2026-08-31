@@ -17,7 +17,14 @@ public final class OutputFormat {
 
   public enum Kind {
     TABLE,
-    JSON
+    JSON,
+    /**
+     * Honored only by {@code get <workload-kind> <name>} (Deployment/Job/CronJob/DaemonSet/
+     * StatefulSet) via {@link ManifestExport} -- every other command falls through to its own
+     * {@code == Kind.JSON} check and renders a table instead, the same as an unrecognized kind
+     * would.
+     */
+    MANIFEST
   }
 
   private OutputFormat() {}

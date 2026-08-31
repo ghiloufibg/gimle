@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 715,
+    "totalRequirements": 718,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 589,
-    "releaseReadinessPercent": 17.6
+    "notCoveredByAutomatedTest": 592,
+    "releaseReadinessPercent": 17.5
   },
   "items": [
     {
@@ -7867,6 +7867,39 @@
       "category": "Module Web Console",
       "feature": "Node detail/list screens gain cordon/uncordon and taint/untaint controls, exposing the already-real node-scheduling API that previously had no console surface (and whose already-served cordoned/taints fields were silently discarded on the wire)",
       "step": "Given a node's detail page; When the operator confirms \"Cordon\"; Then the node is marked cordoned and a cordoned badge appears, with no running instance evicted. Given a cordoned node; When the operator adds a taint for a tenant; Then that tenant is added to the node's taint set, sorted and without duplicating an already-present entry. Given the node list screen; Then a cordoned node shows a cordoned badge alongside its stale/healthy status.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-716",
+      "module": "gimle-controlplane",
+      "category": "Multi-Tenancy",
+      "feature": "GET /tenants and /tenants/{id} expose real, server-computed usage (memoryBytes/cpuMillicores/instances) and a quotaViolating flag, closing the gap where the console's Tenants screens could show only configured limits, never actual consumption",
+      "step": "Given a tenant with one deployment committing 16Mi memory and 10m cpu; When its tenant record is fetched; Then usage.memoryBytes/cpuMillicores/instances reflect exactly that committed usage, the same numbers admission and QuotaReconciler enforce against. Given a tenant whose usage already exceeds a smaller quota; When its quota is updated to that smaller value; Then quotaViolating becomes true on the very next fetch, not left stale from before the update. Given the Tenants list screen; Then each row shows used/max for memory, cpu, and instances plus a quota-status badge, not configured limits alone.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-717",
+      "module": "gimle-cli",
+      "category": "CLI Tooling",
+      "feature": "apply -f now covers Service, NetworkPolicy, Tenant, LimitRange, Role, RoleBinding, and Account manifests, closing the gap where these seven kinds needed their own bespoke gimle set <kind> flag-based command and had no manifest-driven creation path at all",
+      "step": "Given a Service manifest naming a deploymentNames list and a port; When it is applied via apply -f; Then GET service <name> returns the same deploymentNames/port/targetPort a set service call with equivalent flags would have produced. Given a NetworkPolicy manifest with neither allowedCallerTenantIds nor allowedCalleeTenantIds declared; When it is applied; Then the CLI rejects it client-side before any request is sent, the same restrict-at-least-one-direction rule set networkpolicy enforces. Given a Role manifest listing lowercase resource/verb permission entries; When applied and then read back; Then each permission's resource/verb is stored uppercased, matching set role's own normalization.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-718",
+      "module": "gimle-cli",
+      "category": "CLI Tooling",
+      "feature": "gimle get <workload-kind> <name> -o manifest projects the status response back into a re-appliable manifest, and apply -f - reads a manifest from stdin, closing the round-trip gap where get's own output could never be fed back into apply",
+      "step": "Given a deployment created via apply -f; When its manifest is exported via get deployment <name> -o manifest; Then the output contains a top-level module: block (not moduleId) and no status-only fields. Given that exported manifest saved to a file; When it is applied via apply -f unchanged; Then the apply succeeds -- the full round trip that previously failed with a missing-field error. Given a manifest piped to stdin; When applied via apply -f -; Then the resulting resource is created exactly as it would be from an equivalent file, with no second, empty read draining the stream.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

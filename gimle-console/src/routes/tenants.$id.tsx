@@ -1,10 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTenantsStore } from "@/stores/useTenantsStore";
-import { PageContainer, PageHeader } from "@/components/page-shell";
+import { PageContainer, PageHeader, Panel } from "@/components/page-shell";
+import { Bullet } from "@/components/usage-bullet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { fmtBytes, fmtMillicores } from "@/lib/format";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -138,6 +140,36 @@ function TenantDetail() {
           </>
         }
       />
+      <Panel
+        title="Quota usage"
+        className="mb-6 max-w-lg"
+        aside={
+          t.quotaViolating ? (
+            <span className="hud-label text-status-bad">violating</span>
+          ) : (
+            <span className="hud-label text-muted-foreground">within quota</span>
+          )
+        }
+      >
+        <Bullet
+          label="memory"
+          used={t.usage.memoryBytes}
+          max={t.quota.maxMemoryBytes}
+          display={`${fmtBytes(t.usage.memoryBytes)} / ${fmtBytes(t.quota.maxMemoryBytes)}`}
+        />
+        <Bullet
+          label="cpu"
+          used={t.usage.cpuMillicores}
+          max={t.quota.maxCpuMillicores}
+          display={`${fmtMillicores(t.usage.cpuMillicores)} / ${fmtMillicores(t.quota.maxCpuMillicores)}`}
+        />
+        <Bullet
+          label="instances"
+          used={t.usage.instances}
+          max={t.quota.maxInstances}
+          display={`${t.usage.instances} / ${t.quota.maxInstances}`}
+        />
+      </Panel>
       <form
         onSubmit={save}
         className="max-w-lg grid gap-4 rounded border border-border bg-card p-4"

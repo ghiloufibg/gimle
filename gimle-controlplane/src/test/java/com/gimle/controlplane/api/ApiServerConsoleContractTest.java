@@ -208,6 +208,12 @@ class ApiServerConsoleContractTest {
     assertTrue(quota.containsKey("maxMemoryBytes"));
     assertTrue(quota.containsKey("maxCpuMillicores"));
     assertTrue(quota.containsKey("maxInstances"));
+    assertTrue(tenant.containsKey("usage"));
+    Map<String, Object> usage = Json.asObject(tenant.get("usage"));
+    assertTrue(usage.containsKey("memoryBytes"));
+    assertTrue(usage.containsKey("cpuMillicores"));
+    assertTrue(usage.containsKey("instances"));
+    assertTrue(tenant.containsKey("quotaViolating"));
   }
 
   @Test

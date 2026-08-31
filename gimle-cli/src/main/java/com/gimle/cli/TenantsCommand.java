@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +55,50 @@ public final class TenantsCommand {
     client.expectSuccess(client.put("/tenants/" + id, Json.write(body)));
     OutputFormat.printResult(
         output, resultBody("configured", id), "tenant/" + id + " configured", out);
+  }
+
+  /**
+   * {@code apply -f <manifest.yaml>} for {@code kind: Tenant}. Uses {@code name:} for the
+   * identifier, matching every other manifest kind's own top-level field, even though {@code
+   * set}/{@code get}/{@code delete} above call it {@code id} -- the wire path segment is identical
+   * either way.
+   */
+  public void apply(List<String> args, PrintStream err) {
+    Path file = ManifestFiles.requireFileFlag(args);
+    byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
+    Map<String, Object> root = ManifestFiles.parseRoot(file, manifestBytes);
+    String id = requireString(root, "name", file);
+    if (!(root.get("quota") instanceof Map<?, ?> quotaMap)) {
+      throw new CliException("manifest " + file + " requires a top-level 'quota' block");
+    }
+    Object maxMemoryBytes = quotaMap.get("maxMemoryBytes");
+    Object maxCpuMillicores = quotaMap.get("maxCpuMillicores");
+    Object maxInstances = quotaMap.get("maxInstances");
+    if (maxMemoryBytes == null || maxCpuMillicores == null || maxInstances == null) {
+      throw new CliException(
+          "manifest "
+              + file
+              + " quota requires maxMemoryBytes, maxCpuMillicores, and maxInstances");
+    }
+
+    Map<String, Object> quota = new LinkedHashMap<>();
+    quota.put("maxMemoryBytes", maxMemoryBytes);
+    quota.put("maxCpuMillicores", maxCpuMillicores);
+    quota.put("maxInstances", maxInstances);
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("quota", quota);
+
+    ApiResponse response = client.put("/tenants/" + id, Json.write(body));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
+    OutputFormat.printResult(output, resultBody("applied", id), "tenant/" + id + " applied", out);
+  }
+
+  private static String requireString(Map<String, Object> root, String field, Path file) {
+    if (!(root.get(field) instanceof String value) || value.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level '" + field + "' field");
+    }
+    return value;
   }
 
   public void delete(String id) {

@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,6 +69,61 @@ public final class RolesCommand {
     OutputFormat.printResult(
         output, resultBody("configured", name), "role/" + name + " configured", out);
     RbacWarnings.warnIfPlaintext(out);
+  }
+
+  /**
+   * {@code apply -f <manifest.yaml>} for {@code kind: Role}. {@code permissions:} is a list of
+   * {@code {resource, verb, tenantScope?, qualifier?}} mappings, already the exact wire shape --
+   * {@code resource}/{@code verb} are uppercased the same way {@link #parsePermission} uppercases
+   * the CLI flag form, so a manifest can write either case.
+   */
+  public void apply(List<String> args, PrintStream err) {
+    Path file = ManifestFiles.requireFileFlag(args);
+    byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
+    Map<String, Object> root = ManifestFiles.parseRoot(file, manifestBytes);
+    String name = requireString(root, "name", file);
+    if (!(root.get("permissions") instanceof List<?> rawPermissions) || rawPermissions.isEmpty()) {
+      throw new CliException("manifest " + file + " requires a non-empty 'permissions' list");
+    }
+
+    List<Map<String, Object>> permissions = new ArrayList<>();
+    for (Object rawPermission : rawPermissions) {
+      permissions.add(normalizePermission(Json.asObject(rawPermission), file));
+    }
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("permissions", permissions);
+
+    ApiResponse response = client.put("/roles/" + name, Json.write(body));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
+    OutputFormat.printResult(output, resultBody("applied", name), "role/" + name + " applied", out);
+    RbacWarnings.warnIfPlaintext(out);
+  }
+
+  private static Map<String, Object> normalizePermission(Map<String, Object> raw, Path file) {
+    Object resource = raw.get("resource");
+    Object verb = raw.get("verb");
+    if (!(resource instanceof String) || !(verb instanceof String)) {
+      throw new CliException(
+          "manifest " + file + "'s permissions each require a 'resource' and a 'verb'");
+    }
+    Map<String, Object> permission = new LinkedHashMap<>();
+    permission.put("resource", ((String) resource).toUpperCase(Locale.ROOT));
+    permission.put("verb", ((String) verb).toUpperCase(Locale.ROOT));
+    if (raw.get("tenantScope") instanceof String tenantScope && !tenantScope.isEmpty()) {
+      permission.put("tenantScope", tenantScope);
+    }
+    if (raw.get("qualifier") instanceof String qualifier && !qualifier.isEmpty()) {
+      permission.put("qualifier", qualifier);
+    }
+    return permission;
+  }
+
+  private static String requireString(Map<String, Object> root, String field, Path file) {
+    if (!(root.get(field) instanceof String value) || value.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level '" + field + "' field");
+    }
+    return value;
   }
 
   /**

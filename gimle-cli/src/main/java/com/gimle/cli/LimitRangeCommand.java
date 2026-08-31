@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +56,55 @@ public final class LimitRangeCommand {
     client.expectSuccess(client.put("/limitranges/" + tenantId, Json.write(body)));
     OutputFormat.printResult(
         output, resultBody("configured", tenantId), "limitrange/" + tenantId + " configured", out);
+  }
+
+  /**
+   * {@code apply -f <manifest.yaml>} for {@code kind: LimitRange}. Each bound is a nested {@code
+   * {memory, cpu}} mapping under its own key ({@code minRequest}/{@code maxRequest}/{@code
+   * minLimit}/{@code maxLimit}) rather than four flag pairs -- both fields are still required
+   * together when the block is present, the same all-or-nothing rule {@link #set}'s own {@link
+   * #putBoundIfPresent} enforces.
+   */
+  public void apply(List<String> args, PrintStream err) {
+    Path file = ManifestFiles.requireFileFlag(args);
+    byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
+    Map<String, Object> root = ManifestFiles.parseRoot(file, manifestBytes);
+    String tenantId = requireString(root, "name", file);
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    for (String key : List.of("minRequest", "maxRequest", "minLimit", "maxLimit")) {
+      putBoundIfPresent(body, root, key, file);
+    }
+
+    ApiResponse response = client.put("/limitranges/" + tenantId, Json.write(body));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
+    OutputFormat.printResult(
+        output, resultBody("applied", tenantId), "limitrange/" + tenantId + " applied", out);
+  }
+
+  private static void putBoundIfPresent(
+      Map<String, Object> body, Map<String, Object> root, String key, Path file) {
+    if (!(root.get(key) instanceof Map<?, ?> bound)) {
+      return;
+    }
+    Object memory = bound.get("memory");
+    Object cpu = bound.get("cpu");
+    if (memory == null || cpu == null) {
+      throw new CliException(
+          "manifest " + file + "'s '" + key + "' requires both 'memory' and 'cpu'");
+    }
+    Map<String, Object> copy = new LinkedHashMap<>();
+    copy.put("memory", memory);
+    copy.put("cpu", cpu);
+    body.put(key, copy);
+  }
+
+  private static String requireString(Map<String, Object> root, String field, Path file) {
+    if (!(root.get(field) instanceof String value) || value.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level '" + field + "' field");
+    }
+    return value;
   }
 
   public void delete(String tenantId) {

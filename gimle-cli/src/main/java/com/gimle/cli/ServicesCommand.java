@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -82,6 +83,54 @@ public final class ServicesCommand {
     client.expectSuccess(client.post("/services", Json.write(body)));
     OutputFormat.printResult(
         output, resultBody("configured", name), "service/" + name + " configured", out);
+  }
+
+  /**
+   * {@code apply -f <manifest.yaml>} for {@code kind: Service} -- builds the identical JSON body
+   * {@link #set} builds from flags, from manifest fields instead, and POSTs it to the same {@code
+   * /services} route. A Service has no {@code PUT /services/{name}}-shaped route to PUT the YAML
+   * bytes to verbatim the way the workload kinds' own {@code apply} does.
+   */
+  public void apply(List<String> args, PrintStream err) {
+    Path file = ManifestFiles.requireFileFlag(args);
+    byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
+    Map<String, Object> root = ManifestFiles.parseRoot(file, manifestBytes);
+    String name = requireString(root, "name", file);
+    Object port = root.get("port");
+    if (port == null) {
+      throw new CliException("manifest " + file + " requires a top-level 'port' field");
+    }
+
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("name", name);
+    Object tenantId = root.get("tenantId");
+    if (tenantId != null) {
+      body.put("tenantId", tenantId);
+    }
+    List<?> deploymentNames = root.get("deploymentNames") instanceof List<?> l ? l : List.of();
+    body.put("deploymentNames", List.copyOf(new LinkedHashSet<>(deploymentNames)));
+    body.put("port", port);
+    body.put("targetPort", root.getOrDefault("targetPort", port));
+    if (Boolean.TRUE.equals(root.get("sessionAffinity"))) {
+      body.put("sessionAffinity", true);
+    }
+    Object externalName = root.get("externalName");
+    if (externalName != null) {
+      body.put("externalName", externalName);
+    }
+
+    ApiResponse response = client.post("/services", Json.write(body));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
+    OutputFormat.printResult(
+        output, resultBody("applied", name), "service/" + name + " applied", out);
+  }
+
+  private static String requireString(Map<String, Object> root, String field, Path file) {
+    if (!(root.get(field) instanceof String value) || value.isBlank()) {
+      throw new CliException("manifest " + file + " has no top-level '" + field + "' field");
+    }
+    return value;
   }
 
   public void delete(List<String> args) {

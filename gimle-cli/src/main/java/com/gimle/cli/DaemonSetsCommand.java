@@ -46,6 +46,10 @@ public final class DaemonSetsCommand {
     String name = args.get(0);
     String path = TenantQuery.appendTo("/daemonsets/" + name, args.subList(1, args.size()));
     Map<String, Object> daemonSet = client.getObject(path);
+    if (output == OutputFormat.Kind.MANIFEST) {
+      out.print(ManifestExport.daemonSet(daemonSet));
+      return;
+    }
     OutputFormat.printObject(
         output, output == OutputFormat.Kind.TABLE ? humanize(daemonSet) : daemonSet, out);
   }
