@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 685,
+    "totalRequirements": 686,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 559,
+    "notCoveredByAutomatedTest": 560,
     "releaseReadinessPercent": 18.4
   },
   "items": [
@@ -7537,6 +7537,17 @@
       "category": "Service fabric",
       "feature": "Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy",
       "step": "Given two versions of the same interface's export registered cross-worker (a hot redeploy in flight) and both currently available; When a caller looks up the interface repeatedly; Then every lookup is served exclusively by the highest version's endpoint(s), never a blend of both. Given the highest version's only cross-worker endpoint has an open circuit breaker (e.g. unreachable) while the next-highest version's endpoint is healthy; When a caller looks up the interface; Then lookup falls back to the next-highest version instead of returning nothing. Given only one version of the interface is registered cross-worker; When a caller looks up the interface repeatedly; Then ordinary least-outstanding-requests round-robin across that version's replicas is unaffected by the version-cutover logic. Given a stale older-version endpoint sits on the remote tier and the current highest version has endpoints on both the same-machine and remote tiers; When a caller looks up the interface; Then the stale older-version endpoint is never selected, and same-machine locality preference still applies within the version-narrowed pool.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-686",
+      "module": "gimle-skald",
+      "category": "Service Discovery / DNS",
+      "feature": "Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale",
+      "step": "Given Skald's directory has just been refreshed by a successful poll; When a query for a cached Service name arrives; Then it receives a normal, confident answer. Given a poll fails while the directory already holds live endpoint data; When a query for that data arrives shortly after; Then the pre-existing data is still served unchanged, and the failure is recorded (consecutive-failure count incremented, last-success time unchanged). Given the time since the last successful poll has grown past six poll cycles; When a query for a name the directory still has cached data for arrives; Then Skald refuses to answer confidently and returns SERVFAIL rather than the possibly-stale address. Given the directory is severely stale; When a query arrives for a name the directory has never known about; Then it still answers NXDOMAIN, since staleness only withholds positive answers, not negative ones. Given a directory that was severely stale; When a fresh poll succeeds; Then the very next query for previously-cached data receives a normal, confident answer again.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

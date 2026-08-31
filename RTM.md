@@ -700,6 +700,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-683 | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | New | Not Covered | — |
 | GIMLE-684 | Gateway route dispatch supports longest-prefix-match routing for VESSEL/SERVICE routes, not exact-literal-path-only | New | Not Covered | — |
 | GIMLE-685 | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | New | Not Covered | — |
+| GIMLE-686 | Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -7244,11 +7245,20 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SkaldServerTest` (headless A, SRV per endpoint, dashed endpoint names)
 - **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java`
 
+#### GIMLE-686 — Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale
+
+- **Category**: Service Discovery / DNS
+- **Status**: New  _(New requirement: closes FUNC-64 -- ControlPlaneServicePoller.poll() correctly left the cache untouched on a failed poll, but nothing distinguished a single missed poll from a control-plane outage lasting minutes or hours: no staleness timestamp, no metric, no degraded behavior anywhere. CachingServiceDirectory now tracks last-success time and consecutive-failure count, both exposed as Micrometer gauges (and shipped to Muninn when configured), and SkaldServer refuses a positive answer with SERVFAIL once staleness passes six poll cycles (30 seconds at the default 5-second interval) rather than continuing to serve addresses nobody has confirmed are still correct.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that stands up a real Skald instance against a live control plane, kills or partitions the control plane for longer than the configured stale threshold, and asserts a DNS query against a previously-cached Service name now returns SERVFAIL rather than the stale address, then asserts a normal answer resumes once the control plane recovers and a fresh poll succeeds.
+- **Other test coverage (non-Holmgang, informational only)**: `CachingServiceDirectoryTest#a_successful_refresh_resets_the_last_success_time_and_the_failure_count`, `#a_poll_failure_leaves_the_cached_data_intact_but_grows_staleness_and_failure_count`, `#staleness_accrues_from_construction_when_no_poll_has_ever_succeeded`; `ControlPlaneServicePollerTest#a_successful_poll_resets_the_failure_count_and_advances_last_success`, `#repeated_failures_accumulate_a_growing_consecutive_failure_count`; `SkaldServerTest#refuses_a_positive_answer_with_servfail_once_severely_stale`, `#a_name_the_directory_never_knew_still_answers_nxdomain_once_stale`, `#a_fresh_successful_poll_immediately_ends_the_servfail_degradation`.
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/ServiceDirectory.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldMetrics.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**559 of 685 requirements are Not Covered.**
+**560 of 686 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7708,6 +7718,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-674 | gimle-controlplane | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`. |
 | GIMLE-613 | gimle-skald | DNS-over-TCP fallback with UDP truncation | Service Discovery / DNS | `SkaldServerTest` (TCP round-trip, sequential queries per connection, TCP NXDOMAIN), `DnsCodecTest` (TC flag) |
 | GIMLE-620 | gimle-skald | SRV records and headless A answers | Service Discovery / DNS | `SkaldServerTest` (headless A, SRV per endpoint, dashed endpoint names) |
+| GIMLE-686 | gimle-skald | Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale | Service Discovery / DNS | `CachingServiceDirectoryTest#a_successful_refresh_resets_the_last_success_time_and_the_failure_count`, `#a_poll_failure_leaves_the_cached_data_intact_but_grows_staleness_and_failure_count`, `#staleness_accrues_from_construction_when_no_poll_has_ever_succeeded`; `ControlPlaneServicePollerTest#a_successful_poll_resets_the_failure_count_and_advances_last_success`, `#repeated_failures_accumulate_a_growing_consecutive_failure_count`; `SkaldServerTest#refuses_a_positive_answer_with_servfail_once_severely_stale`, `#a_name_the_directory_never_knew_still_answers_nxdomain_once_stale`, `#a_fresh_successful_poll_immediately_ends_the_servfail_degradation`. |
 | GIMLE-181 | gimle-fabric | Same-Worker Direct Invocation Tier | Service Fabric | `FabricServiceRegistryTest#same_worker_tier_wins_over_same_machine_and_remote` |
 | GIMLE-183 | gimle-fabric | Cross-Machine TCP Invocation Tier | Service Fabric | `FabricServiceRegistryTest#least_outstanding_requests_prefers_the_idle_endpoint`, `FabricTransportTlsTest#cross_machine_invocation_succeeds_over_mtls` |
 | GIMLE-190 | gimle-fabric | Gossip-Propagated Service Catalog | Service Fabric | `ServiceCatalogTest#a_local_registration_is_immediately_visible`, `#gossip_deltas_round_trip_and_merge_into_a_second_catalog`, `#a_stale_delta_at_a_lower_version_is_ignored`, `#two_different_workers_can_both_export_the_same_interface` |

@@ -2,8 +2,12 @@ package com.gimle.skald;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.gimle.core.time.TestClock;
 import com.gimle.skald.directory.CachingServiceDirectory;
 import com.gimle.skald.directory.HostPort;
 import java.io.ByteArrayOutputStream;
@@ -16,6 +20,7 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -239,6 +244,94 @@ final class SkaldServerTest {
     }
   }
 
+  @Test
+  void refuses_a_positive_answer_with_servfail_once_severely_stale() throws IOException {
+    TestClock clock = new TestClock();
+    CachingServiceDirectory staleDirectory = new CachingServiceDirectory(clock);
+    staleDirectory.replaceAll(Map.of("orders.acme", List.of(new HostPort("10.0.0.5", 8080))));
+    Duration threshold = Duration.ofSeconds(30);
+    try (SkaldServer staleServer = new SkaldServer(staleDirectory, 0, threshold)) {
+      // Still fresh: a normal answer.
+      byte[] fresh = query(staleServer.port(), 0x1111, "orders.acme.svc.gimle.local", 1);
+      assertEquals(0, unsignedShort(fresh, 2) & 0xF); // RCODE: NOERROR
+
+      clock.advance(threshold.plusSeconds(1));
+
+      byte[] stale = query(staleServer.port(), 0x2222, "orders.acme.svc.gimle.local", 1);
+      assertEquals(2, unsignedShort(stale, 2) & 0xF); // RCODE: SERVFAIL
+      assertEquals(0, unsignedShort(stale, 6)); // ANCOUNT: no answers offered
+    }
+  }
+
+  @Test
+  void a_name_the_directory_never_knew_still_answers_nxdomain_once_stale() throws IOException {
+    // Staleness makes a *positive* answer untrustworthy, not a negative one -- a name genuinely
+    // absent from the cache stays NXDOMAIN either way, the same clean failure a caller already
+    // handles, rather than escalating every miss to SERVFAIL too.
+    TestClock clock = new TestClock();
+    CachingServiceDirectory staleDirectory = new CachingServiceDirectory(clock);
+    Duration threshold = Duration.ofSeconds(30);
+    clock.advance(threshold.plusSeconds(1)); // stale from birth: never a successful poll
+    try (SkaldServer staleServer = new SkaldServer(staleDirectory, 0, threshold)) {
+      byte[] response = query(staleServer.port(), 0x3333, "missing.svc.gimle.local", 1);
+      assertEquals(3, unsignedShort(response, 2) & 0xF); // RCODE: NXDOMAIN
+    }
+  }
+
+  @Test
+  void a_fresh_successful_poll_immediately_ends_the_servfail_degradation() throws IOException {
+    TestClock clock = new TestClock();
+    CachingServiceDirectory staleDirectory = new CachingServiceDirectory(clock);
+    staleDirectory.replaceAll(Map.of("orders.acme", List.of(new HostPort("10.0.0.5", 8080))));
+    Duration threshold = Duration.ofSeconds(30);
+    try (SkaldServer staleServer = new SkaldServer(staleDirectory, 0, threshold)) {
+      clock.advance(threshold.plusSeconds(1));
+      byte[] stale = query(staleServer.port(), 0x4444, "orders.acme.svc.gimle.local", 1);
+      assertEquals(2, unsignedShort(stale, 2) & 0xF); // RCODE: SERVFAIL
+
+      staleDirectory.replaceAll(Map.of("orders.acme", List.of(new HostPort("10.0.0.5", 8080))));
+
+      byte[] recovered = query(staleServer.port(), 0x5555, "orders.acme.svc.gimle.local", 1);
+      int recoveredFlags = unsignedShort(recovered, 2);
+      assertNotEquals(2, recoveredFlags & 0xF); // no longer SERVFAIL
+      assertEquals(0, recoveredFlags & 0xF); // RCODE: NOERROR
+    }
+  }
+
+  @Test
+  void the_staleness_warning_is_not_logged_once_per_query() throws IOException {
+    // A caller keeps retrying at whatever cadence it likes for as long as an outage lasts --
+    // unlike ControlPlaneServicePoller's own naturally poll-interval-paced escalation, nothing
+    // here caps query frequency, so the warning itself must be self-throttled or a sustained
+    // outage floods the log with one identical line per query.
+    ch.qos.logback.classic.Logger logger =
+        (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(SkaldServer.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      TestClock clock = new TestClock();
+      CachingServiceDirectory staleDirectory = new CachingServiceDirectory(clock);
+      staleDirectory.replaceAll(Map.of("orders.acme", List.of(new HostPort("10.0.0.5", 8080))));
+      Duration threshold = Duration.ofSeconds(30);
+      try (SkaldServer staleServer = new SkaldServer(staleDirectory, 0, threshold)) {
+        clock.advance(threshold.plusSeconds(1));
+        for (int i = 0; i < 5; i++) {
+          byte[] stale = query(staleServer.port(), 0x6000 + i, "orders.acme.svc.gimle.local", 1);
+          assertEquals(2, unsignedShort(stale, 2) & 0xF); // RCODE: SERVFAIL
+        }
+      }
+      long staleWarnings =
+          appender.list.stream()
+              .filter(event -> event.getFormattedMessage().contains("refusing to answer"))
+              .count();
+      assertEquals(
+          1, staleWarnings, "five queries in immediate succession should log once, not five times");
+    } finally {
+      logger.detachAppender(appender);
+    }
+  }
+
   /** Sends one RFC 1035 §4.2.2 length-prefixed query and reads the length-prefixed response. */
   private static byte[] tcpQuery(Socket tcp, int id, String name) throws IOException {
     byte[] request = buildQuery(id, name, /* qtype= */ 1, /* opcode= */ 0);
@@ -257,10 +350,21 @@ final class SkaldServerTest {
   }
 
   private byte[] query(int id, String name, int qtype, int opcode) throws IOException {
+    return query(server.port(), id, name, qtype, opcode);
+  }
+
+  /**
+   * Targets an explicit port over the shared {@link #clientSocket}, for a server other than {@link
+   * #server}.
+   */
+  private byte[] query(int port, int id, String name, int qtype) throws IOException {
+    return query(port, id, name, qtype, /* opcode= */ 0);
+  }
+
+  private byte[] query(int port, int id, String name, int qtype, int opcode) throws IOException {
     byte[] request = buildQuery(id, name, qtype, opcode);
     clientSocket.send(
-        new DatagramPacket(
-            request, request.length, InetAddress.getLoopbackAddress(), server.port()));
+        new DatagramPacket(request, request.length, InetAddress.getLoopbackAddress(), port));
     byte[] buf = new byte[512];
     DatagramPacket responsePacket = new DatagramPacket(buf, buf.length);
     clientSocket.receive(responsePacket);

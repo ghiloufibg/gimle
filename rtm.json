@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 685,
+  "requirementCount": 686,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11863,6 +11863,26 @@
       "sourceLocations": [
         "`gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java`",
         "`gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-686",
+      "module": "gimle-skald",
+      "feature": "Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale",
+      "category": "Service Discovery / DNS",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-64 -- ControlPlaneServicePoller.poll() correctly left the cache untouched on a failed poll, but nothing distinguished a single missed poll from a control-plane outage lasting minutes or hours: no staleness timestamp, no metric, no degraded behavior anywhere. CachingServiceDirectory now tracks last-success time and consecutive-failure count, both exposed as Micrometer gauges (and shipped to Muninn when configured), and SkaldServer refuses a positive answer with SERVFAIL once staleness passes six poll cycles (30 seconds at the default 5-second interval) rather than continuing to serve addresses nobody has confirmed are still correct.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. To close: add a scenario that stands up a real Skald instance against a live control plane, kills or partitions the control plane for longer than the configured stale threshold, and asserts a DNS query against a previously-cached Service name now returns SERVFAIL rather than the stale address, then asserts a normal answer resumes once the control plane recovers and a fresh poll succeeds.",
+      "otherTestCoverage": "`CachingServiceDirectoryTest#a_successful_refresh_resets_the_last_success_time_and_the_failure_count`, `#a_poll_failure_leaves_the_cached_data_intact_but_grows_staleness_and_failure_count`, `#staleness_accrues_from_construction_when_no_poll_has_ever_succeeded`; `ControlPlaneServicePollerTest#a_successful_poll_resets_the_failure_count_and_advances_last_success`, `#repeated_failures_accumulate_a_growing_consecutive_failure_count`; `SkaldServerTest#refuses_a_positive_answer_with_servfail_once_severely_stale`, `#a_name_the_directory_never_knew_still_answers_nxdomain_once_stale`, `#a_fresh_successful_poll_immediately_ends_the_servfail_degradation`.",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceDirectory.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldMetrics.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java`"
       ]
     }
   ]
