@@ -2,6 +2,7 @@ package com.gimle.ragnarok;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleTlsException;
+import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.ragnarok.cli.ChaosCommand;
 import com.gimle.ragnarok.cli.PreflightCommand;
 import com.gimle.ragnarok.cli.ReplayCommand;
@@ -39,6 +40,7 @@ public final class RagnarokMain {
   private RagnarokMain() {}
 
   public static void main(final String[] args) {
+    DnsCacheTtl.apply();
     final int exitCode = run(args, System.out, System.err);
     if (exitCode != 0) {
       System.exit(exitCode);
