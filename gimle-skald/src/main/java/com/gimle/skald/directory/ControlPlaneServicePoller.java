@@ -22,6 +22,15 @@ public final class ControlPlaneServicePoller implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(ControlPlaneServicePoller.class);
 
+  /**
+   * Below this many consecutive failures, a failed poll is still just a blip -- log it at {@code
+   * WARN} the same as before. At or beyond it, escalate to {@code ERROR}: half of {@link
+   * com.gimle.skald.SkaldServer}'s own default six-poll SERVFAIL threshold, so an operator watching
+   * logs gets a louder signal partway through the grace period, before Skald actually starts
+   * refusing queries rather than only once it does.
+   */
+  private static final int ERROR_ESCALATION_FAILURE_COUNT = 3;
+
   private final ServiceCatalogClient client;
   private final CachingServiceDirectory directory;
   private final ScheduledExecutorService scheduler;
@@ -60,8 +69,22 @@ public final class ControlPlaneServicePoller implements AutoCloseable {
       // Leave the existing cache exactly as it was on a transient control-plane failure --
       // flipping every cached name to NXDOMAIN because one poll tick failed would make Skald
       // strictly less available than just answering with the stale-but-still-correct data it
-      // already had.
-      log.warn("failed to list services from control plane: {}", e.getMessage());
+      // already had. The failure is still recorded, though: consecutive-failure count and
+      // time-since-last-success are what let SkaldServer eventually tell "one missed poll" apart
+      // from a sustained outage and react to it.
+      directory.recordPollFailure();
+      int consecutiveFailures = directory.consecutiveFailures();
+      if (consecutiveFailures >= ERROR_ESCALATION_FAILURE_COUNT) {
+        log.error(
+            "failed to list services from control plane ({} consecutive failure(s)): {}",
+            consecutiveFailures,
+            e.getMessage());
+      } else {
+        log.warn(
+            "failed to list services from control plane ({} consecutive failure(s)): {}",
+            consecutiveFailures,
+            e.getMessage());
+      }
       return 0;
     }
     Map<String, List<HostPort>> next = new LinkedHashMap<>();

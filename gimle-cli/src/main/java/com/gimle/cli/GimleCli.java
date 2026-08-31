@@ -1,6 +1,7 @@
 package com.gimle.cli;
 
 import com.gimle.core.exception.GimleManifestException;
+import com.gimle.core.net.DnsCacheTtl;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
@@ -124,6 +125,7 @@ public final class GimleCli {
   private GimleCli() {}
 
   public static void main(String[] args) {
+    DnsCacheTtl.apply();
     // Since JEP 400 (Java 18), System.out/System.err default to the host's native encoding, not
     // file.encoding -- on a POSIX/C-locale host that turns every non-ASCII byte into '?'. Force
     // UTF-8 explicitly rather than relying on the platform default.

@@ -2,6 +2,7 @@ package com.gimle.hilmir;
 
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleTlsException;
+import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.hilmir.doctor.DoctorCommand;
 import com.gimle.hilmir.extension.DisableGatewayCommand;
 import com.gimle.hilmir.extension.EnableGatewayCommand;
@@ -150,6 +151,7 @@ public final class HilmirMain {
   private HilmirMain() {}
 
   public static void main(final String[] args) {
+    DnsCacheTtl.apply();
     final int exitCode = run(args, System.out, System.err);
     if (exitCode != 0) {
       System.exit(exitCode);

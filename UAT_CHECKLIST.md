@@ -6,27 +6,27 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 683
+- **Total requirements**: 689
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 557
-- **Release-readiness (automated coverage)**: 18.4%
+- **Not covered by automated test**: 563
+- **Release-readiness (automated coverage)**: 18.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 45 | 15 | 30 | 33.3% |
+| gimle-core | 46 | 15 | 31 | 32.6% |
 | gimle-module | 26 | 12 | 14 | 46.2% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
 | gimle-worker | 23 | 2 | 21 | 8.7% |
 | gimle-agent | 48 | 6 | 42 | 12.5% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
-| gimle-fabric | 35 | 1 | 34 | 2.9% |
+| gimle-fabric | 38 | 1 | 37 | 2.6% |
 | gimle-controlplane | 90 | 15 | 75 | 16.7% |
 | gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
-| gimle-gateway | 17 | 0 | 17 | 0.0% |
+| gimle-gateway | 18 | 0 | 18 | 0.0% |
 | gimle-cli | 31 | 0 | 31 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
@@ -41,7 +41,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
-| gimle-skald | 3 | 0 | 3 | 0.0% |
+| gimle-skald | 4 | 0 | 4 | 0.0% |
 
 ## Checklist
 
@@ -64,6 +64,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-661 | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Given a role granting WRITE on CustomResource qualified "custom.Greeting/status"; When its principal PUTs an instance's spec; Then the write is denied; When it PUTs the instance's status; Then the write is allowed. | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | Given a fresh JVM that has not yet performed any DNS resolution; When a relevant process's Main.main() runs; Then DnsCacheTtl.apply() has set the networkaddress.cache.ttl security property to 5 seconds before any HttpClient is constructed. Given DnsCacheTtl.apply() has already been called once; When it is called again; Then it does not throw and the security property still reads 5 seconds. Given a process whose main sources never construct or transitively use an HttpClient (PkiBootstrapMain, RagnarokMain, SagaMain) or whose own outbound calls only ever target already-resolved IP:port pairs (WorkerMain); When reviewing its Main class; Then it deliberately does not call DnsCacheTtl.apply(), since no DNS resolution the platform controls ever happens there. | No |
 
 #### Internal/Infra
 
@@ -881,11 +887,24 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-195 | Distributed Trace Propagation Across Fabric Hops | Given a caller with an active span and baggage; When it invokes a remote service; Then the callee starts a child span parented on the caller's real span, observing the same baggage. | No |
 | [ ] | GIMLE-196 | Fabric Transport over Mutual TLS with Hot Cert Reload | Given fabric configured for mTLS; When a cross-machine invocation is made; Then it succeeds over TLS; a client trusting a different CA is rejected; reload lets a fresh connection succeed without restart. | No |
 
+#### Service fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-685 | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Given two versions of the same interface's export registered cross-worker (a hot redeploy in flight) and both currently available; When a caller looks up the interface repeatedly; Then every lookup is served exclusively by the highest version's endpoint(s), never a blend of both. Given the highest version's only cross-worker endpoint has an open circuit breaker (e.g. unreachable) while the next-highest version's endpoint is healthy; When a caller looks up the interface; Then lookup falls back to the next-highest version instead of returning nothing. Given only one version of the interface is registered cross-worker; When a caller looks up the interface repeatedly; Then ordinary least-outstanding-requests round-robin across that version's replicas is unaffected by the version-cutover logic. Given a stale older-version endpoint sits on the remote tier and the current highest version has endpoints on both the same-machine and remote tiers; When a caller looks up the interface; Then the stale older-version endpoint is never selected, and same-machine locality preference still applies within the version-narrowed pool. | No |
+
 #### Service fabric / gossip membership
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-672 | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Given two gossip members with diverging service catalogs (a missed piggyback update); When anti-entropy sync runs; Then both catalogs converge to the same full state, paginated the same way membership state already is. Given a node that restarts with an empty catalog; When it rejoins the cluster; Then anti-entropy sync repopulates its catalog to match the cluster's current state. | No |
+
+#### Service fabric / transport
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Given a FabricServer configured with maxConnections=1 and one connection already being served; When a second connection is accepted; Then it is not served until the first connection's own handling completes and its permit is released. Given a FabricServer whose accept-loop thread is blocked waiting for a free connection permit; When the server is closed or reloads its TLS material; Then that thread is interrupted and unblocked rather than left parked forever. | No |
+| [ ] | GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down. | No |
 
 ### gimle-controlplane
 
@@ -1490,6 +1509,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-363 | Route-table config DSL parsing | Given a gateway.routes value mixing FABRIC and VESSEL lines, blank lines, and "#" comments When GatewayRouteConfig.parse(text) is called Then blank/comment lines are ignored and each remaining line becomes the correct route type And a malformed line (wrong field count, unknown kind, bad majorVersion/paramType) throws GatewayConfigException naming the line number | No |
 | [ ] | GIMLE-364 | Duplicate route-path rejection at config-parse time | Given a config with two lines both declaring path "/api/orders" (one FABRIC, one VESSEL, or same-kind duplicates) When GatewayRouteConfig.parse is called Then it throws GatewayConfigException before any route table is built | No |
 
+#### Gateway / routing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-684 | Gateway route dispatch supports longest-prefix-match routing for VESSEL/SERVICE routes, not exact-literal-path-only | Given a VESSEL (or SERVICE) route declared with a trailing `/*` prefix marker; When an inbound request's path is longer than the declared prefix and nested under it; Then the route matches and the request is proxied to the resolved target with its full, untouched inbound path. Given two overlapping prefix routes declared at different depths under the same base path; When an inbound request's path matches both; Then the longer, more specific prefix route wins. Given no declared route, exact or prefix, matches an inbound request's path; When the gateway dispatches it; Then the response is 404, exactly as before prefix routing existed. Given a FABRIC route declared at a path; When an inbound request's path extends past that path with an additional segment; Then no route matches it, since FABRIC routes are never treated as a prefix. | No |
+
 #### Gateway/Routing
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -2024,6 +2049,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-613 | DNS-over-TCP fallback with UDP truncation | Given a Skald server, When an A query arrives over TCP as a length-prefixed message, Then the full response is returned length-prefixed on the same connection. Given a UDP response exceeding 512 bytes, When Skald replies over UDP, Then the reply carries TC=1 and no answers. | No |
 | [ ] | GIMLE-620 | SRV records and headless A answers | Given a service with two live endpoints, When an A query arrives, Then both endpoint addresses are answered at once. Given the same service, When an SRV query arrives, Then one record per endpoint carries that endpoint's own port and a dashed-address target that itself resolves via A. | No |
+| [ ] | GIMLE-686 | Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale | Given Skald's directory has just been refreshed by a successful poll; When a query for a cached Service name arrives; Then it receives a normal, confident answer. Given a poll fails while the directory already holds live endpoint data; When a query for that data arrives shortly after; Then the pre-existing data is still served unchanged, and the failure is recorded (consecutive-failure count incremented, last-success time unchanged). Given the time since the last successful poll has grown past six poll cycles; When a query for a name the directory still has cached data for arrives; Then Skald refuses to answer confidently and returns SERVFAIL rather than the possibly-stale address. Given the directory is severely stale; When a query arrives for a name the directory has never known about; Then it still answers NXDOMAIN, since staleness only withholds positive answers, not negative ones. Given a directory that was severely stale; When a fresh poll succeeds; Then the very next query for previously-cached data receives a normal, confident answer again. | No |
 
 #### Service Fabric
 

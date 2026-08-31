@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 683,
+    "totalRequirements": 689,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 557,
-    "releaseReadinessPercent": 18.4
+    "notCoveredByAutomatedTest": 563,
+    "releaseReadinessPercent": 18.3
   },
   "items": [
     {
@@ -7515,6 +7515,72 @@
       "category": "Reconcilers / self-healing",
       "feature": "Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat",
       "step": "Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-684",
+      "module": "gimle-gateway",
+      "category": "Gateway / routing",
+      "feature": "Gateway route dispatch supports longest-prefix-match routing for VESSEL/SERVICE routes, not exact-literal-path-only",
+      "step": "Given a VESSEL (or SERVICE) route declared with a trailing `/*` prefix marker; When an inbound request's path is longer than the declared prefix and nested under it; Then the route matches and the request is proxied to the resolved target with its full, untouched inbound path. Given two overlapping prefix routes declared at different depths under the same base path; When an inbound request's path matches both; Then the longer, more specific prefix route wins. Given no declared route, exact or prefix, matches an inbound request's path; When the gateway dispatches it; Then the response is 404, exactly as before prefix routing existed. Given a FABRIC route declared at a path; When an inbound request's path extends past that path with an additional segment; Then no route matches it, since FABRIC routes are never treated as a prefix.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-685",
+      "module": "gimle-fabric",
+      "category": "Service fabric",
+      "feature": "Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy",
+      "step": "Given two versions of the same interface's export registered cross-worker (a hot redeploy in flight) and both currently available; When a caller looks up the interface repeatedly; Then every lookup is served exclusively by the highest version's endpoint(s), never a blend of both. Given the highest version's only cross-worker endpoint has an open circuit breaker (e.g. unreachable) while the next-highest version's endpoint is healthy; When a caller looks up the interface; Then lookup falls back to the next-highest version instead of returning nothing. Given only one version of the interface is registered cross-worker; When a caller looks up the interface repeatedly; Then ordinary least-outstanding-requests round-robin across that version's replicas is unaffected by the version-cutover logic. Given a stale older-version endpoint sits on the remote tier and the current highest version has endpoints on both the same-machine and remote tiers; When a caller looks up the interface; Then the stale older-version endpoint is never selected, and same-machine locality preference still applies within the version-narrowed pool.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-686",
+      "module": "gimle-skald",
+      "category": "Service Discovery / DNS",
+      "feature": "Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale",
+      "step": "Given Skald's directory has just been refreshed by a successful poll; When a query for a cached Service name arrives; Then it receives a normal, confident answer. Given a poll fails while the directory already holds live endpoint data; When a query for that data arrives shortly after; Then the pre-existing data is still served unchanged, and the failure is recorded (consecutive-failure count incremented, last-success time unchanged). Given the time since the last successful poll has grown past six poll cycles; When a query for a name the directory still has cached data for arrives; Then Skald refuses to answer confidently and returns SERVFAIL rather than the possibly-stale address. Given the directory is severely stale; When a query arrives for a name the directory has never known about; Then it still answers NXDOMAIN, since staleness only withholds positive answers, not negative ones. Given a directory that was severely stale; When a fresh poll succeeds; Then the very next query for previously-cached data receives a normal, confident answer again.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-687",
+      "module": "gimle-core",
+      "category": "Internal-Infra",
+      "feature": "JVM DNS resolver cache capped to match Skald's own DNS-answer TTL",
+      "step": "Given a fresh JVM that has not yet performed any DNS resolution; When a relevant process's Main.main() runs; Then DnsCacheTtl.apply() has set the networkaddress.cache.ttl security property to 5 seconds before any HttpClient is constructed. Given DnsCacheTtl.apply() has already been called once; When it is called again; Then it does not throw and the security property still reads 5 seconds. Given a process whose main sources never construct or transitively use an HttpClient (PkiBootstrapMain, RagnarokMain, SagaMain) or whose own outbound calls only ever target already-resolved IP:port pairs (WorkerMain); When reviewing its Main class; Then it deliberately does not call DnsCacheTtl.apply(), since no DNS resolution the platform controls ever happens there.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-688",
+      "module": "gimle-fabric",
+      "category": "Service fabric / transport",
+      "feature": "FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept",
+      "step": "Given a FabricServer configured with maxConnections=1 and one connection already being served; When a second connection is accepted; Then it is not served until the first connection's own handling completes and its permit is released. Given a FabricServer whose accept-loop thread is blocked waiting for a free connection permit; When the server is closed or reloads its TLS material; Then that thread is interrupted and unblocked rather than left parked forever.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-689",
+      "module": "gimle-fabric",
+      "category": "Service fabric / transport",
+      "feature": "FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread",
+      "step": "Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

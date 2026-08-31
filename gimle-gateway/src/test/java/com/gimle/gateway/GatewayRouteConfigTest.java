@@ -1,6 +1,7 @@
 package com.gimle.gateway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -305,6 +306,72 @@ class GatewayRouteConfigTest {
         """
         VESSEL /api/orders orders-service HTTP_PORT
         VESSEL /api/orders other-service HTTP_PORT
+        """;
+
+    assertThrows(GatewayConfigException.class, () -> GatewayRouteConfig.parse(config));
+  }
+
+  @Test
+  void a_trailing_star_suffix_declares_a_vessel_prefix_route_with_the_slash_stripped() {
+    List<GatewayRoute> routes =
+        GatewayRouteConfig.parse("VESSEL /api/orders/* orders-service HTTP_PORT\n");
+
+    VesselRoute route = assertInstanceOf(VesselRoute.class, routes.get(0));
+    assertTrue(route.prefix());
+    assertEquals("/api/orders", route.path());
+  }
+
+  @Test
+  void a_bare_star_suffix_declares_a_catch_all_service_prefix_route_at_the_root() {
+    List<GatewayRoute> routes = GatewayRouteConfig.parse("SERVICE /* payments\n");
+
+    ServiceRoute route = assertInstanceOf(ServiceRoute.class, routes.get(0));
+    assertTrue(route.prefix());
+    assertEquals("/", route.path());
+  }
+
+  @Test
+  void a_vessel_line_with_no_star_suffix_declares_an_ordinary_exact_route() {
+    List<GatewayRoute> routes =
+        GatewayRouteConfig.parse("VESSEL /api/orders orders-service HTTP_PORT\n");
+
+    assertFalse(routes.get(0).prefix());
+  }
+
+  @Test
+  void a_fabric_route_with_a_star_suffix_path_is_rejected_at_parse_time() {
+    // FabricRoute is permanently exact-path-only -- see its own prefix() override.
+    GatewayConfigException thrown =
+        assertThrows(
+            GatewayConfigException.class,
+            () ->
+                GatewayRouteConfig.parse(
+                    "FABRIC /greet/* com.gimle.examples.greeter.Greeter 1 greet STRING"));
+    assertTrue(thrown.getMessage().contains("prefix"));
+  }
+
+  @Test
+  void an_exact_route_and_a_prefix_route_may_share_the_same_base_path_and_host() {
+    // Not a duplicate: an exact match on the collection root served one way, everything nested
+    // under it proxied another way -- resolved unambiguously by GatewayDispatcher's own
+    // exact-beats-prefix precedence.
+    String config =
+        """
+        VESSEL /api/orders orders-root HTTP_PORT
+        VESSEL /api/orders/* orders-children HTTP_PORT
+        """;
+
+    List<GatewayRoute> routes = GatewayRouteConfig.parse(config);
+
+    assertEquals(2, routes.size());
+  }
+
+  @Test
+  void a_duplicate_prefix_route_at_the_same_base_path_and_host_is_rejected() {
+    String config =
+        """
+        VESSEL /api/orders/* orders-a HTTP_PORT
+        VESSEL /api/orders/* orders-b HTTP_PORT
         """;
 
     assertThrows(GatewayConfigException.class, () -> GatewayRouteConfig.parse(config));

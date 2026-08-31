@@ -40,11 +40,14 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import javax.net.ssl.SSLServerSocket;
@@ -67,6 +70,18 @@ public final class FabricServer implements AutoCloseable {
 
   private static final Logger log = LoggerFactory.getLogger(FabricServer.class);
 
+  /**
+   * Default ceiling on how many fabric connections (same-machine UDS and cross-machine TCP combined
+   * -- both accept loops share this one listener's {@link #connectionLimiter}) this listener will
+   * serve at once, absent an explicit value from the constructor that takes one. Generous enough
+   * that no ordinary cross-worker/cross-machine traffic pattern ever brushes against it -- each
+   * connection here is one caller's whole {@link FabricClient} round trip, not one request among
+   * many multiplexed on it -- but a real ceiling well below typical open file descriptor limits, so
+   * a connection storm (a runaway retrying caller, or a hostile one) degrades into accept-side
+   * backpressure instead of unbounded virtual-thread and file-descriptor growth.
+   */
+  private static final int DEFAULT_MAX_CONNECTIONS = 512;
+
   private final ServiceRegistry localRegistry;
   private final ClassLoader interfaceLoader;
   private final Function<ModuleId, Optional<ModuleContext>> contextLookup;
@@ -75,7 +90,13 @@ public final class FabricServer implements AutoCloseable {
   private final Function<ModuleId, List<ServiceExport>> exportsOf;
   private final Optional<String> selfTenantId;
   private final Function<ModuleId, Optional<String>> deploymentNameOf;
+  private final Semaphore connectionLimiter;
   private final List<Closeable> listeners = new CopyOnWriteArrayList<>();
+  // Keyed by the same Closeable identity listeners holds, so close()/reloadTlsMaterial() can
+  // interrupt exactly the accept-loop thread owning a given listener -- needed because that thread
+  // can now be parked in connectionLimiter.acquire() with nothing left to accept, and a closed
+  // listener alone (unlike a closed accept() call) does nothing to unblock it.
+  private final Map<Closeable, Thread> acceptThreads = new ConcurrentHashMap<>();
   private volatile List<NetworkPolicyRule> networkPolicies = List.of();
   private volatile boolean closed;
 
@@ -193,6 +214,9 @@ public final class FabricServer implements AutoCloseable {
    * treated as not applying to any target -- exactly correct for a test or a worker not wired with
    * a real identity registry, since there is nothing to prove a scoped rule's deployment name
    * against.
+   *
+   * <p>Back-compat: defaults {@code maxConnections} to {@link #DEFAULT_MAX_CONNECTIONS} -- see the
+   * 9-arg constructor below.
    */
   public FabricServer(
       ServiceRegistry localRegistry,
@@ -203,6 +227,41 @@ public final class FabricServer implements AutoCloseable {
       Function<ModuleId, List<ServiceExport>> exportsOf,
       Optional<String> selfTenantId,
       Function<ModuleId, Optional<String>> deploymentNameOf) {
+    this(
+        localRegistry,
+        interfaceLoader,
+        contextLookup,
+        executorLookup,
+        metrics,
+        exportsOf,
+        selfTenantId,
+        deploymentNameOf,
+        DEFAULT_MAX_CONNECTIONS);
+  }
+
+  /**
+   * {@code maxConnections} bounds how many connections (across every listener this instance binds)
+   * are ever served concurrently -- see {@link #connectionLimiter}'s own field javadoc for the
+   * mechanism and {@link #DEFAULT_MAX_CONNECTIONS} for the value every other constructor above
+   * uses. Exposed explicitly here (rather than only ever read from a system property inside this
+   * class) so a test can exercise saturation with a tiny bound without needing to actually open
+   * hundreds of sockets, and so a real caller wiring this up (a worker's own entrypoint) resolves
+   * its own configuration once and passes the result down, the same way every other per-node
+   * tunable in this codebase reaches its consumer.
+   */
+  public FabricServer(
+      ServiceRegistry localRegistry,
+      ClassLoader interfaceLoader,
+      Function<ModuleId, Optional<ModuleContext>> contextLookup,
+      Function<ModuleId, Optional<ModuleWorkExecutor>> executorLookup,
+      Optional<WorkerMetrics> metrics,
+      Function<ModuleId, List<ServiceExport>> exportsOf,
+      Optional<String> selfTenantId,
+      Function<ModuleId, Optional<String>> deploymentNameOf,
+      int maxConnections) {
+    if (maxConnections < 1) {
+      throw new IllegalArgumentException("maxConnections must be at least 1: " + maxConnections);
+    }
     this.localRegistry = localRegistry;
     this.interfaceLoader = interfaceLoader;
     this.contextLookup = contextLookup;
@@ -211,6 +270,7 @@ public final class FabricServer implements AutoCloseable {
     this.exportsOf = exportsOf;
     this.selfTenantId = selfTenantId;
     this.deploymentNameOf = deploymentNameOf;
+    this.connectionLimiter = new Semaphore(maxConnections);
   }
 
   /**
@@ -245,9 +305,11 @@ public final class FabricServer implements AutoCloseable {
     serverChannel.bind(bindAddress);
     listeners.add(serverChannel);
     SocketAddress boundAddress = serverChannel.getLocalAddress();
-    Thread.ofVirtual()
-        .name("gimle-fabric-listener-" + boundAddress)
-        .start(() -> acceptChannelLoop(serverChannel));
+    Thread acceptThread =
+        Thread.ofVirtual()
+            .name("gimle-fabric-listener-" + boundAddress)
+            .start(() -> acceptChannelLoop(serverChannel));
+    acceptThreads.put(serverChannel, acceptThread);
     return boundAddress;
   }
 
@@ -261,9 +323,11 @@ public final class FabricServer implements AutoCloseable {
     serverSocket.bind(bindAddress);
     listeners.add(serverSocket);
     SocketAddress boundAddress = serverSocket.getLocalSocketAddress();
-    Thread.ofVirtual()
-        .name("gimle-fabric-listener-" + boundAddress)
-        .start(() -> acceptSocketLoop(serverSocket));
+    Thread acceptThread =
+        Thread.ofVirtual()
+            .name("gimle-fabric-listener-" + boundAddress)
+            .start(() -> acceptSocketLoop(serverSocket));
+    acceptThreads.put(serverSocket, acceptThread);
     return boundAddress;
   }
 
@@ -293,6 +357,13 @@ public final class FabricServer implements AutoCloseable {
       } catch (IOException e) {
         log.warn("failed to close fabric TLS listener during reload: {}", e.getMessage());
       }
+      // Unblocks this listener's own accept-loop thread if it happened to be parked in
+      // connectionLimiter.acquire() rather than inside accept() itself -- closing the socket above
+      // does nothing for that case, since there is no I/O call for the close to interrupt.
+      Thread acceptThread = acceptThreads.remove(listener);
+      if (acceptThread != null) {
+        acceptThread.interrupt();
+      }
       try {
         listen(address);
       } catch (IOException e) {
@@ -307,10 +378,14 @@ public final class FabricServer implements AutoCloseable {
 
   private void acceptChannelLoop(ServerSocketChannel serverChannel) {
     while (!closed && serverChannel.isOpen()) {
+      if (!acquireConnectionPermit()) {
+        return;
+      }
       SocketChannel connection;
       try {
         connection = serverChannel.accept();
       } catch (IOException e) {
+        connectionLimiter.release(); // nothing was actually accepted -- give the permit back
         if (closed || !serverChannel.isOpen()) {
           log.warn("fabric server accept loop failed: {}", e.getMessage());
           return;
@@ -331,18 +406,23 @@ public final class FabricServer implements AutoCloseable {
       } catch (IOException e) {
         log.warn("failed to configure accepted fabric connection, dropping it: {}", e.getMessage());
         closeQuietly(connection);
+        connectionLimiter.release(); // dropped before serve() ever ran -- release, not leak
         continue;
       }
-      Thread.ofVirtual().name("gimle-fabric-connection").start(() -> serve(connection));
+      Thread.ofVirtual().name("gimle-fabric-connection").start(() -> serveAndRelease(connection));
     }
   }
 
   private void acceptSocketLoop(ServerSocket serverSocket) {
     while (!closed && !serverSocket.isClosed()) {
+      if (!acquireConnectionPermit()) {
+        return;
+      }
       Socket connection;
       try {
         connection = serverSocket.accept();
       } catch (IOException e) {
+        connectionLimiter.release(); // nothing was actually accepted -- give the permit back
         if (closed || serverSocket.isClosed()) {
           log.warn("fabric server accept loop failed: {}", e.getMessage());
           return;
@@ -360,9 +440,31 @@ public final class FabricServer implements AutoCloseable {
       } catch (IOException e) {
         log.warn("failed to configure accepted fabric connection, dropping it: {}", e.getMessage());
         closeQuietly(connection);
+        connectionLimiter.release(); // dropped before serve() ever ran -- release, not leak
         continue;
       }
-      Thread.ofVirtual().name("gimle-fabric-connection").start(() -> serve(connection));
+      Thread.ofVirtual().name("gimle-fabric-connection").start(() -> serveAndRelease(connection));
+    }
+  }
+
+  /**
+   * Blocks until a connection-handling permit is free, gating {@code accept()} itself rather than
+   * only the virtual thread spawned after it -- an over-limit connection then sits unread in the OS
+   * accept backlog (the TCP/UDS handshake already completed at the kernel level; no fd is opened on
+   * this side until {@code accept()} actually runs) instead of this listener spending an extra
+   * fd/thread on a connection it has no spare capacity to serve. Interruptible so {@link #close}/
+   * {@link #reloadTlsMaterial} can unblock a loop parked here with nothing left to accept -- unlike
+   * a blocked {@code accept()} call, closing the listener socket alone does nothing to wake a
+   * thread waiting on a semaphore. Returns {@code false} if interrupted, mirroring {@link
+   * #pauseBeforeRetry}'s own signal-to-stop-looping convention.
+   */
+  private boolean acquireConnectionPermit() {
+    try {
+      connectionLimiter.acquire();
+      return true;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return false;
     }
   }
 
@@ -389,11 +491,31 @@ public final class FabricServer implements AutoCloseable {
     }
   }
 
+  /** Runs {@link #serve(SocketChannel)}, releasing this connection's permit however it ends. */
+  private void serveAndRelease(SocketChannel connection) {
+    try {
+      serve(connection);
+    } finally {
+      connectionLimiter.release();
+    }
+  }
+
+  /** Runs {@link #serve(Socket)}, releasing this connection's permit however it ends. */
+  private void serveAndRelease(Socket connection) {
+    try {
+      serve(connection);
+    } finally {
+      connectionLimiter.release();
+    }
+  }
+
   private void serve(SocketChannel connection) {
     try (connection) {
       serveStreams(Channels.newInputStream(connection), Channels.newOutputStream(connection));
     } catch (IOException e) {
       log.debug("fabric connection closed: {}", e.getMessage());
+    } catch (RuntimeException e) {
+      logMalformedFrame(e);
     }
   }
 
@@ -402,7 +524,30 @@ public final class FabricServer implements AutoCloseable {
       serveStreams(connection.getInputStream(), connection.getOutputStream());
     } catch (IOException e) {
       log.debug("fabric connection closed: {}", e.getMessage());
+    } catch (RuntimeException e) {
+      logMalformedFrame(e);
     }
+  }
+
+  /**
+   * {@code serveStreams} decodes frames via {@link FabricCodec#read}/{@link FabricCodec#write},
+   * which reject a corrupted length prefix, an out-of-range field count, or an unsupported wire
+   * version by throwing {@link com.gimle.core.exception.GimleCodecException} or {@link
+   * IllegalArgumentException} (an unrecognized frame tag) -- neither an {@link IOException}, even
+   * though the underlying problem is a decode failure on bytes that arrived over this socket -- and
+   * a genuinely unexpected decode bug could surface as {@link java.io.UncheckedIOException}
+   * instead. This class's own {@link #dispatch} already converts every {@code RuntimeException}
+   * from invoking the target method into an {@code InvokeError} frame rather than letting it
+   * propagate here, so the only {@code RuntimeException} {@link #serve(SocketChannel)}/{@link
+   * #serve(Socket)} can actually still see is one of these codec failures -- catching {@code
+   * RuntimeException} broadly there, rather than enumerating each concrete decode-failure type, is
+   * therefore exactly as targeted in practice, and matches {@code GossipMember#decodeAndHandle}'s
+   * own posture for the equivalent problem on the gossip transport: the invariant being restored is
+   * "a malformed frame never crashes the connection-handling thread," not "these particular
+   * exception types never do."
+   */
+  private static void logMalformedFrame(RuntimeException e) {
+    log.warn("dropping malformed fabric connection: {}", e.getMessage());
   }
 
   private void serveStreams(InputStream in, OutputStream out) throws IOException {
@@ -720,6 +865,13 @@ public final class FabricServer implements AutoCloseable {
         listener.close();
       } catch (IOException e) {
         log.warn("failed to close fabric listener: {}", e.getMessage());
+      }
+      // Unblocks this listener's own accept-loop thread if it was parked in
+      // connectionLimiter.acquire() rather than inside accept() itself -- the listener close above
+      // does nothing for that case, since there is no I/O call for it to interrupt.
+      Thread acceptThread = acceptThreads.remove(listener);
+      if (acceptThread != null) {
+        acceptThread.interrupt();
       }
     }
   }

@@ -275,6 +275,21 @@ no plaintext-warning banner and no mTLS mode of its own yet — its polling conn
 plane stays plain HTTP for this first slice, matching how a new component in this codebase
 typically starts plaintext-only before a transport-security pass lands.
 
+A poll failure leaves the cache exactly as it was rather than flipping every cached name to
+NXDOMAIN over one bad tick, but `CachingServiceDirectory` separately tracks how long it's been
+since a poll last actually succeeded and how many polls have failed in a row, both exposed as
+Micrometer gauges (`gimle.skald.directory.staleness.seconds`,
+`gimle.skald.directory.consecutive.failures`) and, when configured, shipped to Muninn
+(`--muninn-endpoint`/`-Dgimle.skald.muninnEndpoint`). Once that staleness passes a threshold —
+six poll cycles by default (30 seconds at the default 5-second poll interval), long enough to
+absorb a blip or a brief control-plane restart but short enough that real cluster churn has
+likely invalidated at least some cached endpoint by then — `SkaldServer` stops trusting the cache
+enough to hand out a positive answer: a name it would otherwise resolve gets `SERVFAIL` instead of
+a confident (and possibly wrong) address, while a name genuinely absent from the cache still
+answers `NXDOMAIN` either way. `ControlPlaneServicePoller` also escalates its own failure logging
+from `WARN` to `ERROR` once three polls have failed in a row, ahead of the `SERVFAIL` threshold, as
+an earlier operator-facing signal that this is no longer a single missed poll.
+
 ## Multi-machine deployment
 
 Nothing here is loopback-only — the `127.0.0.1` addresses in the local-dev walkthrough are
