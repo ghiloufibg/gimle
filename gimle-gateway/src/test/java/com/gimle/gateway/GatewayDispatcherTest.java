@@ -542,6 +542,227 @@ class GatewayDispatcherTest {
   }
 
   @Test
+  void a_vessel_prefix_route_matches_a_longer_inbound_path_and_forwards_it_verbatim()
+      throws IOException {
+    AtomicReference<String> seenPath = new AtomicReference<>();
+    HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    stub.createContext(
+        "/",
+        exchange -> {
+          seenPath.set(exchange.getRequestURI().getPath());
+          exchange.sendResponseHeaders(200, 0);
+          exchange.close();
+        });
+    stub.start();
+    this.vesselStub = stub;
+    int port = stub.getAddress().getPort();
+
+    RelayResult relayResult =
+        new RelayResult(
+            200,
+            "[{\"instanceIndex\":0,\"nodeId\":\"node-a\",\"host\":\"127.0.0.1\","
+                + "\"ports\":{\"HTTP_PORT\":"
+                + port
+                + "}}]");
+    SimpleModuleContext ctx = contextWithRelay(relayResult);
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            ctx,
+            List.of(
+                new VesselRoute(
+                    Optional.empty(), "/api/orders", true, "orders-service", "HTTP_PORT")));
+
+    GatewayResponse response = dispatcher.dispatch("GET", "/api/orders/42", "");
+
+    assertEquals(200, response.status());
+    // "Verbatim" for a prefix match means the full inbound path forwards unchanged -- never a
+    // stripped-prefix rewrite -- see VesselRoute's own javadoc.
+    assertEquals("/api/orders/42", seenPath.get());
+  }
+
+  @Test
+  void a_service_prefix_route_matches_a_longer_inbound_path_and_forwards_it_verbatim()
+      throws IOException {
+    AtomicReference<String> seenPath = new AtomicReference<>();
+    HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    stub.createContext(
+        "/",
+        exchange -> {
+          seenPath.set(exchange.getRequestURI().getPath());
+          exchange.sendResponseHeaders(200, 0);
+          exchange.close();
+        });
+    stub.start();
+    this.vesselStub = stub;
+    int port = stub.getAddress().getPort();
+
+    RelayResult relayResult =
+        new RelayResult(
+            200,
+            "{\"name\":\"payments\",\"port\":8080,\"targetPort\":8080,"
+                + "\"endpoints\":[{\"host\":\"127.0.0.1\",\"port\":"
+                + port
+                + "}]}");
+    SimpleModuleContext ctx = contextWithRelay(relayResult);
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            ctx, List.of(new ServiceRoute(Optional.empty(), "/api/payments", true, "payments")));
+
+    GatewayResponse response = dispatcher.dispatch("GET", "/api/payments/invoices/7", "");
+
+    assertEquals(200, response.status());
+    assertEquals("/api/payments/invoices/7", seenPath.get());
+  }
+
+  @Test
+  void a_prefix_route_matches_its_own_root_path_exactly() throws IOException {
+    HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    stub.createContext(
+        "/",
+        exchange -> {
+          exchange.sendResponseHeaders(200, 0);
+          exchange.close();
+        });
+    stub.start();
+    this.vesselStub = stub;
+    int port = stub.getAddress().getPort();
+
+    RelayResult relayResult =
+        new RelayResult(
+            200,
+            "[{\"instanceIndex\":0,\"nodeId\":\"node-a\",\"host\":\"127.0.0.1\","
+                + "\"ports\":{\"HTTP_PORT\":"
+                + port
+                + "}}]");
+    SimpleModuleContext ctx = contextWithRelay(relayResult);
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            ctx,
+            List.of(
+                new VesselRoute(
+                    Optional.empty(), "/api/orders", true, "orders-service", "HTTP_PORT")));
+
+    assertEquals(200, dispatcher.dispatch("GET", "/api/orders", "").status());
+  }
+
+  @Test
+  void a_prefix_route_does_not_match_a_sibling_path_sharing_its_own_prefix_as_a_substring() {
+    SimpleModuleContext ctx = contextWithRelay(new RelayResult(200, "[]"));
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            ctx,
+            List.of(
+                new VesselRoute(
+                    Optional.empty(), "/api/orders", true, "orders-service", "HTTP_PORT")));
+
+    // "/api/orders2" shares "/api/orders" as a literal string prefix but is not nested under it
+    // by path segment -- matchesPrefix must not treat a naive String#startsWith as a match.
+    GatewayResponse response = dispatcher.dispatch("GET", "/api/orders2", "");
+
+    assertEquals(404, response.status());
+  }
+
+  @Test
+  void a_longer_more_specific_prefix_route_wins_over_a_shorter_overlapping_one()
+      throws IOException {
+    AtomicReference<String> hitBucket = new AtomicReference<>();
+    HttpServer generalStub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    generalStub.createContext(
+        "/",
+        exchange -> {
+          hitBucket.set("general");
+          exchange.sendResponseHeaders(200, 0);
+          exchange.close();
+        });
+    generalStub.start();
+    HttpServer priorityStub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    priorityStub.createContext(
+        "/",
+        exchange -> {
+          hitBucket.set("priority");
+          exchange.sendResponseHeaders(200, 0);
+          exchange.close();
+        });
+    priorityStub.start();
+    try {
+      int generalPort = generalStub.getAddress().getPort();
+      int priorityPort = priorityStub.getAddress().getPort();
+      Map<String, RelayResult> relaysByDeployment =
+          Map.of(
+              "orders-general",
+                  new RelayResult(
+                      200,
+                      "[{\"instanceIndex\":0,\"nodeId\":\"node-a\",\"host\":\"127.0.0.1\","
+                          + "\"ports\":{\"HTTP_PORT\":"
+                          + generalPort
+                          + "}}]"),
+              "orders-priority",
+                  new RelayResult(
+                      200,
+                      "[{\"instanceIndex\":0,\"nodeId\":\"node-a\",\"host\":\"127.0.0.1\","
+                          + "\"ports\":{\"HTTP_PORT\":"
+                          + priorityPort
+                          + "}}]"));
+      SimpleModuleContext ctx =
+          new SimpleModuleContext(
+              new ModuleId("com.gimle.gateway", Version.parse("1.0.0")),
+              new SimpleServiceRegistry(),
+              new ConcurrentHashMap<>(),
+              Map.of(),
+              path -> relaysByDeployment.get(path.substring("/endpoints/".length())));
+      GatewayDispatcher dispatcher =
+          new GatewayDispatcher(
+              ctx,
+              List.of(
+                  new VesselRoute(
+                      Optional.empty(), "/api/orders", true, "orders-general", "HTTP_PORT"),
+                  new VesselRoute(
+                      Optional.empty(),
+                      "/api/orders/priority",
+                      true,
+                      "orders-priority",
+                      "HTTP_PORT")));
+
+      dispatcher.dispatch("GET", "/api/orders/priority/5", "");
+
+      assertEquals("priority", hitBucket.get());
+    } finally {
+      generalStub.stop(0);
+      priorityStub.stop(0);
+    }
+  }
+
+  @Test
+  void an_inbound_path_matching_no_declared_route_exact_or_prefix_still_404s() {
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            contextWithGreeter(name -> name),
+            List.of(
+                new FabricRoute("/greet", GREETER_IFACE, 1, "greet", ParamType.STRING),
+                new VesselRoute(
+                    Optional.empty(), "/api/orders", true, "orders-service", "HTTP_PORT")));
+
+    GatewayResponse response = dispatcher.dispatch("GET", "/nowhere/at/all", "");
+
+    assertEquals(404, response.status());
+  }
+
+  @Test
+  void a_fabric_routes_path_is_never_matched_as_a_prefix_by_another_routes_suffix() {
+    // FabricRoute is permanently exact-path-only (see its own prefix() override) -- a FABRIC
+    // route registered at "/greet" must not answer "/greet/loudly" even though a VESSEL prefix
+    // route declared at that same base path would.
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            contextWithGreeter(name -> name),
+            List.of(new FabricRoute("/greet", GREETER_IFACE, 1, "greet", ParamType.STRING)));
+
+    GatewayResponse response = dispatcher.dispatch("POST", "/greet/loudly", "x");
+
+    assertEquals(404, response.status());
+  }
+
+  @Test
   void a_vessel_route_reuses_the_cached_endpoint_list_across_dispatcher_instances_seam() {
     // GatewayDispatcher's package-private constructor lets a test hand it a VesselEndpointCache
     // built with an explicit clock -- exercised in full in VesselEndpointCacheTest; this test only

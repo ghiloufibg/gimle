@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 683,
+    "totalRequirements": 684,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 557,
+    "notCoveredByAutomatedTest": 558,
     "releaseReadinessPercent": 18.4
   },
   "items": [
@@ -7515,6 +7515,17 @@
       "category": "Reconcilers / self-healing",
       "feature": "Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat",
       "step": "Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-684",
+      "module": "gimle-gateway",
+      "category": "Gateway / routing",
+      "feature": "Gateway route dispatch supports longest-prefix-match routing for VESSEL/SERVICE routes, not exact-literal-path-only",
+      "step": "Given a VESSEL (or SERVICE) route declared with a trailing `/*` prefix marker; When an inbound request's path is longer than the declared prefix and nested under it; Then the route matches and the request is proxied to the resolved target with its full, untouched inbound path. Given two overlapping prefix routes declared at different depths under the same base path; When an inbound request's path matches both; Then the longer, more specific prefix route wins. Given no declared route, exact or prefix, matches an inbound request's path; When the gateway dispatches it; Then the response is 404, exactly as before prefix routing existed. Given a FABRIC route declared at a path; When an inbound request's path extends past that path with an additional segment; Then no route matches it, since FABRIC routes are never treated as a prefix.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
