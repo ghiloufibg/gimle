@@ -114,6 +114,29 @@ public final class TlsTestFixtures {
     return HttpClient.newBuilder().sslContext(sslContext).build();
   }
 
+  /**
+   * An {@link HttpClient} presenting a leaf stamped {@code O=gimle:controlplane} (the group {@code
+   * PkiBootstrapMain} stamps onto the control plane's own leaf certificate) -- the one peer
+   * identity {@code FafnirServer#resolvePrincipal} trusts to have a forwarded-principal header
+   * honored, simulating {@code ApiServer}'s own {@code /secrets/*} proxy hop.
+   */
+  public HttpClient controlPlaneClientWithLeaf(CertificateAuthority ca, String commonName)
+      throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+    X509Certificate leaf =
+        ca.signCertificateRequest(
+            csr, new X500Name("O=gimle:controlplane,CN=" + commonName), Duration.ofDays(1));
+    Path certFile = writePem(commonName + "-cert.pem", "CERTIFICATE", leaf.getEncoded());
+    Path keyFile =
+        writePem(commonName + "-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
+    Path caFile = writePem(commonName + "-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
+
+    SSLContext sslContext = SslContexts.forMutualTls(new TlsSettings(certFile, keyFile, caFile));
+    return HttpClient.newBuilder().sslContext(sslContext).build();
+  }
+
   /** Writes a PEM-encoded {@code label} block for {@code derBytes} under {@link #tempDir}. */
   public Path writePem(String fileName, String label, byte[] derBytes) throws IOException {
     Path path = tempDir.resolve(fileName);

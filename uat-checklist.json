@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 689,
+    "totalRequirements": 690,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 563,
+    "notCoveredByAutomatedTest": 564,
     "releaseReadinessPercent": 18.3
   },
   "items": [
@@ -7581,6 +7581,17 @@
       "category": "Service fabric / transport",
       "feature": "FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread",
       "step": "Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-690",
+      "module": "gimle-fafnir",
+      "category": "Security / Authorization",
+      "feature": "resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate",
+      "step": "Given a caller holding a valid cluster leaf certificate that does not belong to group:gimle:controlplane (e.g. a gimle:nodes certificate, or no certificate at all in plaintext mode); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming a privileged identity; Then those headers are ignored and the request is authorized (or denied) based on the connection's own certificate or session identity instead. Given a caller holding a leaf certificate stamped group:gimle:controlplane (the control plane's own proxy hop); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming the real originating caller; Then the forwarded identity is honored and independently re-checked by the server's own Authorizer, exactly as before this fix.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

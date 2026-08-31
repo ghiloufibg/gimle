@@ -704,6 +704,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | New | Not Covered | — |
 | GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | New | Not Covered | — |
 | GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | New | Not Covered | — |
+| GIMLE-690 | resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4389,6 +4390,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`.
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`, `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`
 
+#### GIMLE-690 — resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate
+
+- **Category**: Security / Authorization
+- **Status**: New  _(New requirement: closes FUNC-83 -- resolvePrincipal in both FafnirServer and AndvariServer checked the X-Gimle-Forwarded-Principal/-Groups headers first and, if present, built a Principal straight from the header values, with no check that the connection's own peer certificate actually belonged to group:gimle:controlplane. Since SslContexts.forMutualTls trusts any leaf certificate signed by the shared cluster CA with no per-endpoint allow-list, any holder of a valid cluster leaf cert (a node agent, a worker, or anyone who compromises one) could dial Fafnir or Andvari directly and forward X-Gimle-Forwarded-Principal: root plus X-Gimle-Forwarded-Groups: gimle:operators to reach Authorizer.authorize's unconditional cluster-admin-equivalent short-circuit for every /secrets/*, /secretmaps/*, and /artifacts/* operation. Fixed by resolving the peer certificate's own Principal first and only honoring the forwarded headers when that principal's groups contain BuiltinRoles.GROUP_CONTROLPLANE; any other peer now has the headers ignored outright and falls through to the existing certificate-principal or session-cookie paths.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `FafnirSecretsAuthzTest#a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored` plus updated `#a_forwarded_principal_who_actually_holds_the_permission_succeeds`/`#a_forwarded_principal_who_does_not_actually_hold_the_permission_is_still_forbidden` (now authenticating as a genuine gimle:controlplane peer via a new `TlsTestFixtures#controlPlaneClientWithLeaf` fixture). `AndvariServerTlsTest#a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored` and `#a_forwarded_principal_from_a_controlplane_peer_wins_and_is_independently_rechecked`. All were confirmed to fail (or already pass, for the legitimate-case tests) against the pre-fix code, then re-confirmed green after the fix. Full gimle-fafnir (183 tests) and gimle-andvari (101 tests) module suites re-verified with 0 failures.
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`resolvePrincipal`), `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`resolvePrincipal`)
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -7288,7 +7298,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**563 of 689 requirements are Not Covered.**
+**564 of 690 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7736,6 +7746,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |
 | GIMLE-017 | gimle-core | Session-signing key file load-or-create with owner-only permissions | Security | `SessionKeyFileManagerTest` (generates_on_first_run_reuses_on_later, rejects corrupted/empty key file) |
 | GIMLE-651 | gimle-fafnir | Explicit SecretMap Replace Verb | Security | `SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC) |
+| GIMLE-690 | gimle-fafnir | resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate | Security / Authorization | `FafnirSecretsAuthzTest#a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored` plus updated `#a_forwarded_principal_who_actually_holds_the_permission_succeeds`/`#a_forwarded_principal_who_does_not_actually_hold_the_permission_is_still_forbidden` (now authenticating as a genuine gimle:controlplane peer via a new `TlsTestFixtures#controlPlaneClientWithLeaf` fixture). `AndvariServerTlsTest#a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored` and `#a_forwarded_principal_from_a_controlplane_peer_wins_and_is_independently_rechecked`. All were confirmed to fail (or already pass, for the legitimate-case tests) against the pre-fix code, then re-confirmed green after the fix. Full gimle-fafnir (183 tests) and gimle-andvari (101 tests) module suites re-verified with 0 failures. |
 | GIMLE-627 | gimle-agent | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Security / Networking | `BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization) |
 | GIMLE-624 | gimle-controlplane | Certificate revocation denylist | Security / PKI | `ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip) |
 | GIMLE-614 | gimle-controlplane | Self-subject access review endpoint (/authz/can-i) | Security / RBAC | `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything) |

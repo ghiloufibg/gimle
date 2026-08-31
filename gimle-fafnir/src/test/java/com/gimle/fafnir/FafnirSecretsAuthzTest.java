@@ -46,6 +46,7 @@ import org.junit.jupiter.api.parallel.Resources;
 class FafnirSecretsAuthzTest {
 
   private static final String FORWARDED_PRINCIPAL_HEADER = "X-Gimle-Forwarded-Principal";
+  private static final String FORWARDED_GROUPS_HEADER = "X-Gimle-Forwarded-Groups";
 
   @TempDir Path tempDir;
 
@@ -128,10 +129,11 @@ class FafnirSecretsAuthzTest {
           new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
         server.start();
-        // "proxy" here presents its own cert (an identity with no SECRET permission of its own)
-        // but forwards a claim naming "alice", the real, authorized principal -- exactly the
-        // shape gimle-controlplane's own proxy hop uses.
-        HttpClient client = tls.clientWithLeaf(ca, "proxy");
+        // "proxy" here presents a genuine gimle:controlplane leaf (an identity with no SECRET
+        // permission of its own) but forwards a claim naming "alice", the real, authorized
+        // principal -- exactly the shape gimle-controlplane's own proxy hop uses, and the one peer
+        // identity resolvePrincipal is allowed to trust a forwarded header from (GIMLE-690).
+        HttpClient client = tls.controlPlaneClientWithLeaf(ca, "controlplane-proxy");
 
         HttpResponse<String> response =
             client.send(
@@ -155,7 +157,7 @@ class FafnirSecretsAuthzTest {
     tls.configureServerTls(ca);
 
     try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
-      // "mallory" is never granted anything -- a buggy or compromised proxy claims to be
+      // "mallory" is never granted anything -- a genuine gimle:controlplane proxy claims to be
       // forwarding an authorized request on her behalf; Fafnir's own independent RBAC read still
       // finds no grant and denies it, proving the proxy's own (missing, in this test) authz check
       // is not what's actually protecting this endpoint: Fafnir never trusts "arrived
@@ -164,13 +166,54 @@ class FafnirSecretsAuthzTest {
           new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
         server.start();
-        HttpClient client = tls.clientWithLeaf(ca, "proxy");
+        HttpClient client = tls.controlPlaneClientWithLeaf(ca, "controlplane-proxy");
 
         HttpResponse<String> response =
             client.send(
                 HttpRequest.newBuilder(
                         URI.create("https://localhost:" + server.port() + "/secrets/acme"))
                     .header(FORWARDED_PRINCIPAL_HEADER, "mallory")
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  /**
+   * GIMLE-690: any cluster leaf certificate -- not only the control plane's own -- can present the
+   * {@code X-Gimle-Forwarded-Principal}/{@code -Groups} headers, since {@code
+   * SslContexts.forMutualTls} trusts any leaf the shared cluster CA signed with no per-endpoint
+   * allow-list. Before the fix, a caller holding a plain {@code gimle:nodes} certificate could dial
+   * Fafnir directly and forward {@code root}/{@code gimle:operators} to reach {@code
+   * Authorizer.authorize}'s unconditional cluster-admin short-circuit. Presenting the exact same
+   * headers here must instead fall through to the node's own self-service check, which denies a
+   * node with no assignment for this tenant.
+   */
+  @Test
+  @Timeout(10)
+  void a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      // "node-1" holds no assignment for "acme" at all -- were the forwarded headers honored, the
+      // claimed root/gimle:operators identity would bypass RBAC entirely and this would be a 200.
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.nodeClientWithLeaf(ca, "node-1");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                    .header(FORWARDED_PRINCIPAL_HEADER, "root")
+                    .header(FORWARDED_GROUPS_HEADER, "gimle:operators")
                     .GET()
                     .build(),
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

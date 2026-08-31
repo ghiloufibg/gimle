@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 689
+- **Total requirements**: 690
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 563
+- **Not covered by automated test**: 564
 - **Release-readiness (automated coverage)**: 18.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -22,7 +22,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 38 | 1 | 37 | 2.6% |
 | gimle-controlplane | 90 | 15 | 75 | 16.7% |
-| gimle-fafnir | 28 | 11 | 17 | 39.3% |
+| gimle-fafnir | 29 | 11 | 18 | 37.9% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
@@ -1332,6 +1332,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-651 | Explicit SecretMap Replace Verb | Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely. | No |
+
+#### Security / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-690 | resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate | Given a caller holding a valid cluster leaf certificate that does not belong to group:gimle:controlplane (e.g. a gimle:nodes certificate, or no certificate at all in plaintext mode); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming a privileged identity; Then those headers are ignored and the request is authorized (or denied) based on the connection's own certificate or session identity instead. Given a caller holding a leaf certificate stamped group:gimle:controlplane (the control plane's own proxy hop); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming the real originating caller; Then the forwarded identity is honored and independently re-checked by the server's own Authorizer, exactly as before this fix. | No |
 
 ### gimle-andvari
 
