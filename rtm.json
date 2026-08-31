@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 683,
+  "requirementCount": 684,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11830,6 +11830,30 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/ReconcilerInstanceState.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-687",
+      "module": "gimle-core",
+      "feature": "JVM DNS resolver cache capped to match Skald's own DNS-answer TTL",
+      "category": "Internal-Infra",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-48 -- DnsCodec answers every A query with a deliberately short 5-second TTL so a caller re-resolves quickly after endpoint churn, but nothing configured the JDK's own DNS resolver cache to respect a TTL that short, silently undermining Skald's freshness promise for every internal HttpClient in the platform. Fixed via a shared gimle-core utility, DnsCacheTtl, wired into main() for every process that makes an outbound HTTP call to another Gimle service by hostname.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet, and the JVM-global DNS-cache side effect this requirement configures is not observable through the JDK's own resolver -- there is no inspection API for sun.net.InetAddressCachePolicy's live cache. To close: a Holmgang scenario would need to boot a real Skald-fronted service, move the backing endpoint, and assert a caller using the platform's normal HttpClient construction path picks up the move within Skald's own answer TTL rather than continuing to hit the old address -- feasible against a live cluster, but not attempted here since this fix's own unit coverage (property-write + idempotency) already proves the mechanism operates as designed.",
+      "otherTestCoverage": "`DnsCacheTtlTest#sets_the_security_property_to_five_seconds` and `#applying_twice_is_idempotent` in gimle-core, asserting the Security property is set correctly and that repeated calls are safe.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/net/DnsCacheTtl.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirMain.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/StoreMain.java`",
+        "`gimle-muninn/src/main/java/com/gimle/muninn/MuninnMain.java`",
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariMain.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java`",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java`"
       ]
     }
   ]

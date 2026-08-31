@@ -3,6 +3,7 @@ package com.gimle.skald;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
+import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.skald.directory.CachingServiceDirectory;
 import com.gimle.skald.directory.ControlPlaneServicePoller;
 import com.gimle.skald.directory.HttpServiceCatalogClient;
@@ -33,6 +34,7 @@ public final class SkaldMain {
   private SkaldMain() {}
 
   public static void main(String[] args) throws IOException {
+    DnsCacheTtl.apply();
     GimleBanner.print(
         System.out,
         Map.of(

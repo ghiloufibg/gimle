@@ -23,6 +23,7 @@ import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.module.VolumeRequest;
+import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.core.protocol.CsrPurpose;
@@ -196,6 +197,7 @@ public final class AgentMain {
   private AgentMain() {}
 
   public static void main(String[] args) throws IOException, InterruptedException {
+    DnsCacheTtl.apply();
     GimleBanner.print(
         System.out,
         Map.of(

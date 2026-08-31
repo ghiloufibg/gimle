@@ -24,4 +24,5 @@ module com.gimle.core {
   exports com.gimle.core.saga;
   exports com.gimle.core.io;
   exports com.gimle.core.hash;
+  exports com.gimle.core.net;
 }

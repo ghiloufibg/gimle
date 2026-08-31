@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 683,
+    "totalRequirements": 684,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 557,
+    "notCoveredByAutomatedTest": 558,
     "releaseReadinessPercent": 18.4
   },
   "items": [
@@ -7515,6 +7515,17 @@
       "category": "Reconcilers / self-healing",
       "feature": "Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat",
       "step": "Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-687",
+      "module": "gimle-core",
+      "category": "Internal-Infra",
+      "feature": "JVM DNS resolver cache capped to match Skald's own DNS-answer TTL",
+      "step": "Given a fresh JVM that has not yet performed any DNS resolution; When a relevant process's Main.main() runs; Then DnsCacheTtl.apply() has set the networkaddress.cache.ttl security property to 5 seconds before any HttpClient is constructed. Given DnsCacheTtl.apply() has already been called once; When it is called again; Then it does not throw and the security property still reads 5 seconds. Given a process whose main sources never construct or transitively use an HttpClient (PkiBootstrapMain, RagnarokMain, SagaMain) or whose own outbound calls only ever target already-resolved IP:port pairs (WorkerMain); When reviewing its Main class; Then it deliberately does not call DnsCacheTtl.apply(), since no DNS resolution the platform controls ever happens there.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -698,6 +698,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | New | Not Covered | — |
 | GIMLE-682 | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | New | Not Covered | — |
 | GIMLE-683 | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | New | Not Covered | — |
+| GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1149,6 +1150,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerAuthzTest#login_session_and_logout_round_trip_with_no_client_certificate_at_all` (the old, already-issued cookie is rejected with 401 when replayed after logout), `FafnirServerAuthTest`/`AndvariServerAuthTest`'s own equivalent round-trip tests (a revoked cookie resolves to the plaintext-mode "anonymous" carve-out rather than "admin"), `SessionTokensTest` (issued-at round-trips through verify). Full suite across gimle-core/gimle-mimir/gimle-controlplane/gimle-fafnir/gimle-andvari re-verified.
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/session/SessionTokens.java` (`VerifiedSession`), `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutSessionRevocation`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putSessionRevocation`, `getSessionRevokedBeforeEpochMilli`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAuthLogout`, `isSessionRevoked`), `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleAuthLogout`, `isSessionRevoked`), `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`handleAuthLogout`, `isSessionRevoked`)
+
+#### GIMLE-687 — JVM DNS resolver cache capped to match Skald's own DNS-answer TTL
+
+- **Category**: Internal-Infra
+- **Status**: New  _(New requirement: closes FUNC-48 -- DnsCodec answers every A query with a deliberately short 5-second TTL so a caller re-resolves quickly after endpoint churn, but nothing configured the JDK's own DNS resolver cache to respect a TTL that short, silently undermining Skald's freshness promise for every internal HttpClient in the platform. Fixed via a shared gimle-core utility, DnsCacheTtl, wired into main() for every process that makes an outbound HTTP call to another Gimle service by hostname.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet, and the JVM-global DNS-cache side effect this requirement configures is not observable through the JDK's own resolver -- there is no inspection API for sun.net.InetAddressCachePolicy's live cache. To close: a Holmgang scenario would need to boot a real Skald-fronted service, move the backing endpoint, and assert a caller using the platform's normal HttpClient construction path picks up the move within Skald's own answer TTL rather than continuing to hit the old address -- feasible against a live cluster, but not attempted here since this fix's own unit coverage (property-write + idempotency) already proves the mechanism operates as designed.
+- **Other test coverage (non-Holmgang, informational only)**: `DnsCacheTtlTest#sets_the_security_property_to_five_seconds` and `#applying_twice_is_idempotent` in gimle-core, asserting the Security property is set correctly and that repeated calls are safe.
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/net/DnsCacheTtl.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`, `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirMain.java`, `gimle-mimir/src/main/java/com/gimle/mimir/StoreMain.java`, `gimle-muninn/src/main/java/com/gimle/muninn/MuninnMain.java`, `gimle-andvari/src/main/java/com/gimle/andvari/AndvariMain.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java`, `gimle-hilmir/src/main/java/com/gimle/hilmir/HilmirMain.java`
 
 ### gimle-module
 
@@ -7228,7 +7238,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**557 of 683 requirements are Not Covered.**
+**558 of 684 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7423,6 +7433,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-315 | gimle-andvari | mTLS server with dynamic TLS reload | Internal-Infra | `AndvariServerTlsTest#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server` |
 | GIMLE-317 | gimle-andvari | Andvari observability instrumentation and Muninn shipping | Internal-Infra | `AndvariObservabilityTest` — `a_real_request_is_recorded_in_andvari_metrics`, `every_registered_route_is_independently_tagged` |
 | GIMLE-389 | gimle-cli | kubectl-shaped global flag parsing, manifest-kind apply dispatch, and mTLS/leader-aware HTTP client | Internal-Infra | `GimleCliTest.a_bare_invocation_with_no_verb_prints_usage_rather_than_a_server_configuration_error`, `missing_server_configuration_is_a_clear_error`, `an_unreachable_control_plane_produces_a_clear_error_and_nonzero_exit`, `a_malformed_server_response_produces_a_clear_error_not_a_stack_trace`, `a_404_produces_a_clear_error_and_nonzero_exit`, `unknown_verb_prints_usage_and_nonzero_exit` |
+| GIMLE-687 | gimle-core | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | Internal-Infra | `DnsCacheTtlTest#sets_the_security_property_to_five_seconds` and `#applying_twice_is_idempotent` in gimle-core, asserting the Security property is set correctly and that repeated calls are safe. |
 | GIMLE-270 | gimle-controlplane | Unified `AssignedInstance` wire shape across every workload kind | Internal-Infra / API Server | `ApiServerEndpointsTest` — `a_job_run_is_listed_under_its_own_endpoints_route`, `a_daemonset_assignment_is_listed_under_its_own_endpoints_route`, `a_statefulset_assignment_is_listed_under_its_own_endpoints_route` |
 | GIMLE-258 | gimle-controlplane | Bootstrap node join via single-use token + CSR | Internal-Infra / API Server (PKI) | `NodeBootstrapCsrTest` — `fresh_agent_obtains_a_signed_certificate_and_completes_mtls_handshake`, `invalid_bootstrap_token_is_rejected`; `BootstrapTokenRegistryTest` — `issued_token_can_be_consumed_exactly_once`, `expired_token_cannot_be_consumed` |
 | GIMLE-259 | gimle-controlplane | Operator-approval-gated CSR flow | Internal-Infra / API Server (PKI) | `HumanOperatorCsrTest` — `operator_csr_sits_pending_until_an_existing_operator_approves_it`, `approve_without_a_client_certificate_is_rejected` |
