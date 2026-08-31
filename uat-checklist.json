@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 686,
+    "totalRequirements": 687,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 560,
-    "releaseReadinessPercent": 18.4
+    "notCoveredByAutomatedTest": 561,
+    "releaseReadinessPercent": 18.3
   },
   "items": [
     {
@@ -7548,6 +7548,17 @@
       "category": "Service Discovery / DNS",
       "feature": "Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale",
       "step": "Given Skald's directory has just been refreshed by a successful poll; When a query for a cached Service name arrives; Then it receives a normal, confident answer. Given a poll fails while the directory already holds live endpoint data; When a query for that data arrives shortly after; Then the pre-existing data is still served unchanged, and the failure is recorded (consecutive-failure count incremented, last-success time unchanged). Given the time since the last successful poll has grown past six poll cycles; When a query for a name the directory still has cached data for arrives; Then Skald refuses to answer confidently and returns SERVFAIL rather than the possibly-stale address. Given the directory is severely stale; When a query arrives for a name the directory has never known about; Then it still answers NXDOMAIN, since staleness only withholds positive answers, not negative ones. Given a directory that was severely stale; When a fresh poll succeeds; Then the very next query for previously-cached data receives a normal, confident answer again.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-687",
+      "module": "gimle-core",
+      "category": "Internal-Infra",
+      "feature": "JVM DNS resolver cache capped to match Skald's own DNS-answer TTL",
+      "step": "Given a fresh JVM that has not yet performed any DNS resolution; When a relevant process's Main.main() runs; Then DnsCacheTtl.apply() has set the networkaddress.cache.ttl security property to 5 seconds before any HttpClient is constructed. Given DnsCacheTtl.apply() has already been called once; When it is called again; Then it does not throw and the security property still reads 5 seconds. Given a process whose main sources never construct or transitively use an HttpClient (PkiBootstrapMain, RagnarokMain, SagaMain) or whose own outbound calls only ever target already-resolved IP:port pairs (WorkerMain); When reviewing its Main class; Then it deliberately does not call DnsCacheTtl.apply(), since no DNS resolution the platform controls ever happens there.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

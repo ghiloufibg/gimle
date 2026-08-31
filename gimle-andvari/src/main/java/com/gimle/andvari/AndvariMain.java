@@ -3,6 +3,7 @@ package com.gimle.andvari;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
+import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
@@ -45,6 +46,7 @@ public final class AndvariMain {
   private AndvariMain() {}
 
   public static void main(String[] args) throws IOException {
+    DnsCacheTtl.apply();
     GimleBanner.print(
         System.out,
         Map.of(

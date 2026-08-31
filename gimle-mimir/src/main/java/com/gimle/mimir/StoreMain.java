@@ -3,6 +3,7 @@ package com.gimle.mimir;
 import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.logging.GimleLogging;
+import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.mimir.raft.PeerAddress;
@@ -56,6 +57,7 @@ public final class StoreMain {
   private record PeerSpec(String host, int raftPort, int clientPort) {}
 
   public static void main(String[] args) throws IOException {
+    DnsCacheTtl.apply();
     GimleBanner.print(
         System.out,
         Map.of(

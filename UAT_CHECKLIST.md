@@ -6,14 +6,14 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 686
+- **Total requirements**: 687
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 560
-- **Release-readiness (automated coverage)**: 18.4%
+- **Not covered by automated test**: 561
+- **Release-readiness (automated coverage)**: 18.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 45 | 15 | 30 | 33.3% |
+| gimle-core | 46 | 15 | 31 | 32.6% |
 | gimle-module | 26 | 12 | 14 | 46.2% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
@@ -64,6 +64,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-661 | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Given a role granting WRITE on CustomResource qualified "custom.Greeting/status"; When its principal PUTs an instance's spec; Then the write is denied; When it PUTs the instance's status; Then the write is allowed. | No |
+
+#### Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | Given a fresh JVM that has not yet performed any DNS resolution; When a relevant process's Main.main() runs; Then DnsCacheTtl.apply() has set the networkaddress.cache.ttl security property to 5 seconds before any HttpClient is constructed. Given DnsCacheTtl.apply() has already been called once; When it is called again; Then it does not throw and the security property still reads 5 seconds. Given a process whose main sources never construct or transitively use an HttpClient (PkiBootstrapMain, RagnarokMain, SagaMain) or whose own outbound calls only ever target already-resolved IP:port pairs (WorkerMain); When reviewing its Main class; Then it deliberately does not call DnsCacheTtl.apply(), since no DNS resolution the platform controls ever happens there. | No |
 
 #### Internal/Infra
 
