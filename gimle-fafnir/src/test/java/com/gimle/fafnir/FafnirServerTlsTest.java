@@ -2,11 +2,17 @@ package com.gimle.fafnir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.gimle.core.authz.Permission;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Role;
+import com.gimle.core.authz.RoleBinding;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import com.gimle.fafnir.testsupport.TlsTestFixtures;
+import com.gimle.mimir.store.StateStore;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import java.net.URI;
@@ -21,6 +27,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -101,6 +108,10 @@ class FafnirServerTlsTest {
     Path caFile = Path.of(System.getProperty(TlsTestFixtures.CA_FILE_PROPERTY));
 
     try (InProcessStore store = InProcessStore.start(tempDir.resolve("store"))) {
+      // The reused server leaf's own CN ("fafnir") is also this test's client identity below --
+      // needs the same cluster-wide SECRET/WRITE grant FafnirServer#authorizeGlobalSecretsAdmin
+      // now requires of any /secrets/rotate-key caller.
+      grantSecretWrite(store.store(), "fafnir");
       FafnirCrypto crypto = new FafnirCrypto(store.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
         server.start();
@@ -143,5 +154,12 @@ class FafnirServerTlsTest {
         assertEquals(200, afterResponse.statusCode());
       }
     }
+  }
+
+  private static void grantSecretWrite(StateStore store, String username) {
+    store.putRole(
+        new Role("secret-write", Set.of(Permission.unscoped(ResourceKind.SECRET, Verb.WRITE))));
+    store.putRoleBinding(
+        new RoleBinding("b-" + username, RoleBinding.userSubject(username), "secret-write"));
   }
 }

@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 689,
+    "totalRequirements": 692,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 563,
-    "releaseReadinessPercent": 18.3
+    "notCoveredByAutomatedTest": 566,
+    "releaseReadinessPercent": 18.2
   },
   "items": [
     {
@@ -7581,6 +7581,39 @@
       "category": "Service fabric / transport",
       "feature": "FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread",
       "step": "Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-690",
+      "module": "gimle-fafnir",
+      "category": "Security / Authorization",
+      "feature": "resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate",
+      "step": "Given a caller holding a valid cluster leaf certificate that does not belong to group:gimle:controlplane (e.g. a gimle:nodes certificate, or no certificate at all in plaintext mode); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming a privileged identity; Then those headers are ignored and the request is authorized (or denied) based on the connection's own certificate or session identity instead. Given a caller holding a leaf certificate stamped group:gimle:controlplane (the control plane's own proxy hop); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming the real originating caller; Then the forwarded identity is honored and independently re-checked by the server's own Authorizer, exactly as before this fix.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-691",
+      "module": "gimle-muninn",
+      "category": "Security / Authorization",
+      "feature": "MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port",
+      "step": "Given a caller holds a real, tenant-scoped LOGS/READ grant for tenant acme; When it requests GET /logs/instances/{deploymentName}/{instanceIndex}/{category}?tenant=acme over mTLS; Then Muninn returns 200. Given a caller holds no LOGS grant at all; When it requests the same acme instance-log read; Then Muninn returns 403, not the previously-shipped 200. Given a caller holds a LOGS/READ grant scoped only to a different tenant; When it requests acme's instance logs; Then Muninn returns 403 -- a grant for one tenant never authorizes reading another's. Given a gimle:nodes certificate identifying node-1; When it requests GET /logs/nodes/node-1/{category}; Then Muninn returns 200 via self-service, with no RoleBinding required. Given that same node-1 certificate; When it requests GET /logs/nodes/node-2/{category}; Then Muninn returns 403 -- self-service is scoped to exactly the node's own identity. Given a caller holds an unscoped LOGS/READ grant; When it requests GET /metrics/{processKind}/{processId} or GET /traces/{processKind}/{processId}; Then Muninn returns 200; given no grant at all, Muninn returns 403 for the same request. Given Muninn is running in its default plaintext mode; When any read request arrives with no client certificate; Then it is served with no identity check, matching every other Gimle process's documented plaintext posture.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-692",
+      "module": "gimle-fafnir",
+      "category": "Security / Authorization",
+      "feature": "FafnirServer authorizes cluster-wide secrets key rotation and retirement",
+      "step": "Given a caller authenticated over mTLS with no SECRET grant; When it calls POST /secrets/rotate-key or POST /secrets/retire-key directly against Fafnir; Then the request is rejected with 403. Given a caller presenting no client certificate, forwarded-principal header, or session cookie at all; When it calls either route; Then the request is rejected with 401. Given a caller holding an unscoped SECRET/WRITE grant; When it calls either route directly against Fafnir, or through gimle-controlplane's own proxy; Then the request succeeds and the decision is recorded in the durable audit trail.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

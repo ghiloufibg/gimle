@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
+import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -191,7 +192,9 @@ class CertificateRotationTest {
     KeyPair keyPair = generateRsaKeyPair();
     PKCS10CertificationRequest csr =
         CertificateSigningRequests.generate(
-            keyPair, new X500Name("CN=controlplane"), List.of("localhost"));
+            keyPair,
+            new X500Name("O=" + BuiltinRoles.GROUP_CONTROLPLANE + ",CN=controlplane"),
+            List.of("localhost"));
     Path certFile =
         writePem(
             "controlplane-cert.pem",

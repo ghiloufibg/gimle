@@ -64,11 +64,6 @@ public final class FafnirClient implements AutoCloseable {
     return rawValues.stream().map(v -> decode((String) v)).toList();
   }
 
-  public byte rotateKey() {
-    Map<String, Object> response = post("/secrets/rotate-key", Map.of());
-    return (byte) ((Number) response.get("activeKeyId")).intValue();
-  }
-
   /**
    * A byte-for-byte proxy hop for the versioned {@code /secrets/*} surface -- {@code ApiServer}
    * doesn't need typed request/response handling here the way it does for the fixed internal

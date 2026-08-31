@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.authz.Account;
+import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.PasswordHashes;
 import com.gimle.core.authz.Permission;
 import com.gimle.core.authz.ResourceKind;
@@ -2114,9 +2115,15 @@ class ApiServerAuthzTest {
 
   private void configureServerTls(CertificateAuthority ca) throws Exception {
     KeyPair keyPair = generateRsaKeyPair();
+    // O=gimle:controlplane, matching how PkiBootstrapMain actually mints a real control plane's
+    // own leaf certificate -- Fafnir/Andvari's independent peer-cert check (GIMLE-690) on the
+    // X-Gimle-Forwarded-Principal header requires this test's own server identity to carry the
+    // same group tag a genuine control-plane replica would.
     PKCS10CertificationRequest csr =
         CertificateSigningRequests.generate(
-            keyPair, new X500Name("CN=controlplane"), List.of("localhost"));
+            keyPair,
+            new X500Name("O=" + BuiltinRoles.GROUP_CONTROLPLANE + ",CN=controlplane"),
+            List.of("localhost"));
     Path certFile =
         writePem(
             "controlplane-cert.pem",

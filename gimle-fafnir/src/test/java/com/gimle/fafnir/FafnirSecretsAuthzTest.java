@@ -9,6 +9,7 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.tls.SslContexts;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import com.gimle.fafnir.testsupport.TlsTestFixtures;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -46,6 +47,7 @@ import org.junit.jupiter.api.parallel.Resources;
 class FafnirSecretsAuthzTest {
 
   private static final String FORWARDED_PRINCIPAL_HEADER = "X-Gimle-Forwarded-Principal";
+  private static final String FORWARDED_GROUPS_HEADER = "X-Gimle-Forwarded-Groups";
 
   @TempDir Path tempDir;
 
@@ -128,10 +130,11 @@ class FafnirSecretsAuthzTest {
           new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
         server.start();
-        // "proxy" here presents its own cert (an identity with no SECRET permission of its own)
-        // but forwards a claim naming "alice", the real, authorized principal -- exactly the
-        // shape gimle-controlplane's own proxy hop uses.
-        HttpClient client = tls.clientWithLeaf(ca, "proxy");
+        // "proxy" here presents a genuine gimle:controlplane leaf (an identity with no SECRET
+        // permission of its own) but forwards a claim naming "alice", the real, authorized
+        // principal -- exactly the shape gimle-controlplane's own proxy hop uses, and the one peer
+        // identity resolvePrincipal is allowed to trust a forwarded header from (GIMLE-690).
+        HttpClient client = tls.controlPlaneClientWithLeaf(ca, "controlplane-proxy");
 
         HttpResponse<String> response =
             client.send(
@@ -155,7 +158,7 @@ class FafnirSecretsAuthzTest {
     tls.configureServerTls(ca);
 
     try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
-      // "mallory" is never granted anything -- a buggy or compromised proxy claims to be
+      // "mallory" is never granted anything -- a genuine gimle:controlplane proxy claims to be
       // forwarding an authorized request on her behalf; Fafnir's own independent RBAC read still
       // finds no grant and denies it, proving the proxy's own (missing, in this test) authz check
       // is not what's actually protecting this endpoint: Fafnir never trusts "arrived
@@ -164,13 +167,54 @@ class FafnirSecretsAuthzTest {
           new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
       try (FafnirServer server = new FafnirServer(crypto, 0)) {
         server.start();
-        HttpClient client = tls.clientWithLeaf(ca, "proxy");
+        HttpClient client = tls.controlPlaneClientWithLeaf(ca, "controlplane-proxy");
 
         HttpResponse<String> response =
             client.send(
                 HttpRequest.newBuilder(
                         URI.create("https://localhost:" + server.port() + "/secrets/acme"))
                     .header(FORWARDED_PRINCIPAL_HEADER, "mallory")
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  /**
+   * GIMLE-690: any cluster leaf certificate -- not only the control plane's own -- can present the
+   * {@code X-Gimle-Forwarded-Principal}/{@code -Groups} headers, since {@code
+   * SslContexts.forMutualTls} trusts any leaf the shared cluster CA signed with no per-endpoint
+   * allow-list. Before the fix, a caller holding a plain {@code gimle:nodes} certificate could dial
+   * Fafnir directly and forward {@code root}/{@code gimle:operators} to reach {@code
+   * Authorizer.authorize}'s unconditional cluster-admin short-circuit. Presenting the exact same
+   * headers here must instead fall through to the node's own self-service check, which denies a
+   * node with no assignment for this tenant.
+   */
+  @Test
+  @Timeout(10)
+  void a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      // "node-1" holds no assignment for "acme" at all -- were the forwarded headers honored, the
+      // claimed root/gimle:operators identity would bypass RBAC entirely and this would be a 200.
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.nodeClientWithLeaf(ca, "node-1");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                    .header(FORWARDED_PRINCIPAL_HEADER, "root")
+                    .header(FORWARDED_GROUPS_HEADER, "gimle:operators")
                     .GET()
                     .build(),
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -403,6 +447,207 @@ class FafnirSecretsAuthzTest {
         assertEquals(true, events.get(0).allowed());
       }
     }
+  }
+
+  // ---- /secrets/rotate-key, /secrets/retire-key (GIMLE-692) ----
+  //
+  // Both routes are cluster-wide, non-tenant-scoped admin operations -- FafnirServer's own
+  // authorizeGlobalSecretsAdmin gate, not the tenant-scoped authorizeSecrets every /secrets/
+  // {tenantId}/... route above goes through. Mirrors this file's own established pattern: a
+  // no-permission caller is forbidden, a caller actually holding the (unscoped) SECRET/WRITE grant
+  // succeeds, and -- the scenario unique to these two routes -- a caller presenting no client
+  // certificate at all, with no forwarded header or session cookie either, is unauthorized rather
+  // than silently treated as permitted.
+
+  @Test
+  @Timeout(10)
+  void a_rotate_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      // No Role/RoleBinding granted to "caller" at all, same as this file's own
+      // a_caller_whose_own_certificate_holds_no_secret_permission_is_forbidden test.
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/rotate-key"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_retire_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/retire-key"))
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"keyId\":1}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_rotate_key_request_from_a_caller_with_the_permission_succeeds() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/rotate-key"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(200, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_retire_key_request_from_a_caller_with_the_permission_succeeds() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+        String rotateUrl = "https://localhost:" + server.port() + "/secrets/rotate-key";
+        // Rotate twice first (active key id 0 -> 1 -> 2) so key id 1 is retireable: #retire
+        // rejects retiring whichever id is currently active.
+        client.send(
+            HttpRequest.newBuilder(URI.create(rotateUrl))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        client.send(
+            HttpRequest.newBuilder(URI.create(rotateUrl))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/retire-key"))
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"keyId\":1}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(200, response.statusCode());
+      }
+    }
+  }
+
+  /**
+   * The scenario distinct from "authenticated but not permitted": a caller that never identifies
+   * itself at all -- no client certificate presented (Fafnir's server socket only ever {@code
+   * wantClientAuth}s, never {@code needClientAuth}s, so the handshake itself still completes), no
+   * forwarded-principal header, no session cookie. {@link FafnirServer#authorizeGlobalSecretsAdmin}
+   * must reject this as 401, the same "authentication required" outcome {@code
+   * authorizeSecrets}-gated routes already give a principal-less caller.
+   */
+  @Test
+  @Timeout(10)
+  void a_rotate_key_request_with_no_principal_information_at_all_is_unauthorized()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = trustOnlyClient(ca);
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/rotate-key"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(401, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_retire_key_request_with_no_principal_information_at_all_is_unauthorized()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = trustOnlyClient(ca);
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/retire-key"))
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"keyId\":1}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(401, response.statusCode());
+      }
+    }
+  }
+
+  /** An {@link HttpClient} trusting {@code ca} but presenting no client certificate of its own. */
+  private HttpClient trustOnlyClient(CertificateAuthority ca) throws Exception {
+    Path caFile = tls.writePem("trust-only-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
+    return HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
   }
 
   /**
