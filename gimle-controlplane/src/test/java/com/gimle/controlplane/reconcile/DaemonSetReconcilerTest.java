@@ -354,6 +354,50 @@ class DaemonSetReconcilerTest {
     assertTrue(done.stream().allMatch(a -> a.moduleId().equals(v2.moduleId())));
   }
 
+  /**
+   * Regression test for the staleness check comparing only {@code moduleId}, not {@code
+   * artifactPath} (unlike {@code DeploymentReconciler.isStale}): a re-applied manifest with the
+   * same {@code moduleId} but a patched jar at a new path must still trigger a rollout.
+   */
+  @Test
+  void an_artifact_path_only_change_still_triggers_a_rolling_update() throws Exception {
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jarV1 = buildFixtureJar();
+    Path jarV2 = tempDir.resolve("patched-" + jarV1.getFileName());
+    java.nio.file.Files.copy(jarV1, jarV2); // same moduleId, new path -- a hotfix rebuild
+    registerNode(store, "node-a");
+    DaemonSetSpec v1 = daemonSet("node-exporter", jarV1, PlacementConstraints.NONE);
+    store.putDaemonSetSpec(v1);
+    DaemonSetReconciler reconciler = new DaemonSetReconciler(store, scheduler);
+    reconciler.reconcileOnce();
+    for (DaemonSetAssignment a :
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter")) {
+      reportReady(store, a);
+    }
+
+    DaemonSetSpec v2 =
+        new DaemonSetSpec(
+            "node-exporter",
+            v1.moduleId(),
+            jarV2.toAbsolutePath().toString(),
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.empty());
+    store.putDaemonSetSpec(v2);
+    reconciler.reconcileOnce();
+
+    DaemonSetAssignment rolled =
+        store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").stream()
+            .filter(a -> a.nodeId().equals("node-a"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(
+        jarV2.toAbsolutePath().toString(),
+        rolled.artifactPath(),
+        "an artifact-path-only change must still roll the assignment forward");
+  }
+
   @Test
   void a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated(TestClock clock) {
     StateStore store = new StateStore(clock);

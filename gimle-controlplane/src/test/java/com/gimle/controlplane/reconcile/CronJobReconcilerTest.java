@@ -569,6 +569,74 @@ class CronJobReconcilerTest {
         DEFAULT_FAILED_LIMIT);
   }
 
+  /**
+   * Regression test for the tenant-scoping gap in {@code planFiring}'s own generated-Job lookup
+   * (unlike the identically-shaped lookup in {@code pruneJobHistory}, which already scopes on
+   * {@code tenantId}): two tenants each own a CronJob with the same name, so their generated Jobs
+   * share the same {@code {name}-} prefix. Tenant B's REPLACE firing must never treat tenant A's
+   * still-running Job as its own to replace.
+   */
+  @Test
+  void a_replace_firing_never_removes_a_different_tenants_colliding_prefix_job() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    store.putTenant(new Tenant("tenant-a", new ResourceQuota(Long.MAX_VALUE, Long.MAX_VALUE, 100)));
+    store.putTenant(new Tenant("tenant-b", new ResourceQuota(Long.MAX_VALUE, Long.MAX_VALUE, 100)));
+    Path jar = buildFixtureJar();
+    CronJobSpec tenantASpec =
+        new CronJobSpec(
+            "shared-name",
+            "* * * * *",
+            jobTemplateFor(jar),
+            Optional.empty(),
+            ConcurrencyPolicy.ALLOW,
+            Optional.of("tenant-a"),
+            DEFAULT_SUCCESSFUL_LIMIT,
+            DEFAULT_FAILED_LIMIT);
+    // Never fires on its own schedule -- isolated from tenant A's own firing tick below, fired
+    // instead via triggerNow so it lands strictly after tenant A already has a non-terminal Job.
+    CronJobSpec tenantBSpec =
+        new CronJobSpec(
+            "shared-name",
+            "0 0 30 2 *",
+            jobTemplateFor(jar),
+            Optional.empty(),
+            ConcurrencyPolicy.REPLACE,
+            Optional.of("tenant-b"),
+            DEFAULT_SUCCESSFUL_LIMIT,
+            DEFAULT_FAILED_LIMIT);
+    store.putCronJobSpec(tenantASpec);
+    store.putCronJobSpec(tenantBSpec);
+    CronJobReconciler reconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+    reconciler.reconcileOnce(); // baseline for both
+
+    clock.advance(Duration.ofMinutes(1));
+    reconciler.reconcileOnce(); // tenant A's cronjob fires; tenant B's never due
+    List<JobSpec> tenantAJobs =
+        store.listJobSpecs().stream()
+            .filter(s -> s.tenantId().equals(Optional.of("tenant-a")))
+            .toList();
+    assertEquals(1, tenantAJobs.size(), "tenant A's own firing must have materialized");
+    String tenantAJobName = tenantAJobs.get(0).name();
+
+    Optional<String> tenantBJobName = reconciler.triggerNow(Optional.of("tenant-b"), "shared-name");
+
+    assertTrue(tenantBJobName.isPresent());
+    assertTrue(
+        store.getJobSpec(Optional.of("tenant-a"), tenantAJobName).isPresent(),
+        "tenant B's REPLACE firing must never remove tenant A's colliding-prefix Job");
+  }
+
+  private JobTemplate jobTemplateFor(Path jar) {
+    return new JobTemplate(
+        new ModuleId(jar.getFileName().toString().replace(".jar", ""), Version.parse("1.0.0")),
+        jar.toAbsolutePath().toString(),
+        PlacementConstraints.NONE,
+        Optional.empty(),
+        6);
+  }
+
   @Test
   void trigger_now_respects_forbid_against_a_still_running_previous_firing() {
     TestClock clock = new TestClock();

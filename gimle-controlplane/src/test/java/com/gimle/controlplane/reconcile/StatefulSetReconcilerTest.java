@@ -294,6 +294,48 @@ class StatefulSetReconcilerTest {
     assertEquals(v2.moduleId(), rolled.moduleId());
   }
 
+  /**
+   * Regression test for the staleness check comparing only {@code moduleId}, not {@code
+   * artifactPath} (unlike {@code DeploymentReconciler.isStale}): a re-applied manifest with the
+   * same {@code moduleId} but a patched jar at a new path must still trigger a rollout.
+   */
+  @Test
+  void an_artifact_path_only_change_still_triggers_a_rolling_update() throws Exception {
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jarV1 = buildFixtureJar();
+    Path jarV2 = tempDir.resolve("patched-" + jarV1.getFileName());
+    java.nio.file.Files.copy(jarV1, jarV2); // same moduleId, new path -- a hotfix rebuild
+    registerNode(store, "node-a");
+    StatefulSetSpec v1 = statefulSet("orders", jarV1, 1);
+    store.putStatefulSetSpec(v1);
+    StatefulSetReconciler reconciler = new StatefulSetReconciler(store, scheduler);
+    reconciler.reconcileOnce();
+    StatefulSetAssignment placed =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    reportReady(store, placed);
+
+    StatefulSetSpec v2 =
+        new StatefulSetSpec(
+            "orders",
+            v1.moduleId(),
+            jarV2.toAbsolutePath().toString(),
+            1,
+            PlacementConstraints.NONE,
+            Optional.empty(),
+            Optional.empty());
+    store.putStatefulSetSpec(v2);
+    reconciler.reconcileOnce(); // removes the artifact-path-stale index 0, marks it rolling
+    reconciler.reconcileOnce(); // re-places it
+
+    StatefulSetAssignment rolled =
+        indexOf(store.listStatefulSetAssignmentsFor(Optional.empty(), "orders"), 0).orElseThrow();
+    assertEquals(
+        jarV2.toAbsolutePath().toString(),
+        rolled.artifactPath(),
+        "an artifact-path-only change must still roll the assignment forward");
+  }
+
   @Test
   void scale_down_removes_the_highest_index_first_one_at_a_time(TestClock clock) {
     StateStore store = new StateStore(clock);

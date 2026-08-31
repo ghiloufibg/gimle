@@ -451,7 +451,7 @@ public final class StatefulSetReconciler {
     }
 
     store.listStatefulSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
-        .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
+        .filter(assignment -> isStale(assignment, spec))
         .min(Comparator.comparingInt(StatefulSetAssignment::instanceIndex))
         .ifPresent(
             mismatched -> {
@@ -466,6 +466,16 @@ public final class StatefulSetReconciler {
                   spec.name(),
                   mismatched.instanceIndex());
             });
+  }
+
+  /**
+   * Mirrors {@link DeploymentReconciler#isStale} exactly, including comparing {@code artifactPath}
+   * alongside {@code moduleId}: a re-applied manifest with the same {@code moduleId} but a patched
+   * jar at a new {@code artifactPath} must actually roll out, not just look like it did.
+   */
+  private static boolean isStale(StatefulSetAssignment assignment, StatefulSetSpec spec) {
+    return !assignment.moduleId().equals(spec.moduleId())
+        || !assignment.artifactPath().equals(spec.artifactPath());
   }
 
   /**
