@@ -594,6 +594,11 @@ public final class WorkerMain {
       Optional<String> tenantId,
       InstanceIdentityRegistry identityRegistry)
       throws IOException {
+    // Forwarded by AgentMain's stableWorkerFlags as an explicit -D flag on every worker it spawns
+    // (see FabricServer.DEFAULT_MAX_CONNECTIONS for the value used when this is somehow absent,
+    // e.g. a worker launched by hand outside the agent).
+    int maxFabricConnections =
+        Integer.parseInt(System.getProperty("gimle.fabric.maxConnections", "512"));
     FabricServer server =
         new FabricServer(
             localRegistry,
@@ -603,7 +608,8 @@ public final class WorkerMain {
             Optional.of(metrics),
             owner -> registry.artifact(owner).descriptor().exports(),
             tenantId,
-            id -> identityRegistry.lookup(id).map(InstanceIdentity::deploymentName));
+            id -> identityRegistry.lookup(id).map(InstanceIdentity::deploymentName),
+            maxFabricConnections);
     Path udsPath = Files.createTempDirectory("gimle-fabric-uds-").resolve("f.sock");
     server.listen(UnixDomainSocketAddress.of(udsPath));
     InetSocketAddress bound = (InetSocketAddress) server.listen(new InetSocketAddress(0));

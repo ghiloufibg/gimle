@@ -19,7 +19,9 @@ import com.gimle.observability.WorkerMetrics;
 import com.gimle.testkit.Await;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.opentelemetry.api.baggage.Baggage;
+import java.io.DataOutputStream;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -781,6 +783,146 @@ class FabricServerTest {
     FabricFrame response =
         FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
 
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  private FabricServer serverWithMaxConnections(
+      SimpleServiceRegistry registry, int maxConnections) {
+    return new FabricServer(
+        registry,
+        Greeter.class.getClassLoader(),
+        id -> Optional.empty(),
+        id -> Optional.empty(),
+        Optional.empty(),
+        id -> List.of(),
+        Optional.empty(),
+        id -> Optional.empty(),
+        maxConnections);
+  }
+
+  @Test
+  @Timeout(15)
+  void a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees()
+      throws Exception {
+    CountDownLatch firstEntered = new CountDownLatch(1);
+    CountDownLatch releaseFirst = new CountDownLatch(1);
+    AtomicInteger handlerInvocations = new AtomicInteger();
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(
+        OWNER,
+        Greeter.class,
+        name -> {
+          if (handlerInvocations.incrementAndGet() == 1) {
+            firstEntered.countDown();
+            try {
+              releaseFirst.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+          }
+          return "hello:" + name;
+        });
+
+    // maxConnections=1: the second connection below has nowhere to go until the first's own
+    // permit is released, whatever it's doing -- a fresh accept loop, not a per-module scheduler.
+    server = serverWithMaxConnections(registry, 1);
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    clientThreads = Executors.newVirtualThreadPerTaskExecutor();
+    Future<FabricFrame> firstCall =
+        clientThreads.submit(() -> FabricClient.call(address, invokeGreet("first")));
+    assertTrue(firstEntered.await(5, TimeUnit.SECONDS));
+
+    Future<FabricFrame> secondCall =
+        clientThreads.submit(() -> FabricClient.call(address, invokeGreet("second")));
+    // Give the (deliberately unbounded, if the fix regresses) alternative a real chance to let
+    // the second connection through before asserting it didn't.
+    Thread.sleep(300);
+    assertEquals(
+        1,
+        handlerInvocations.get(),
+        "the connection beyond the limit must not have been served yet");
+    assertFalse(
+        secondCall.isDone(),
+        "the throttled call must still be blocked, not served alongside the first");
+
+    releaseFirst.countDown();
+    FabricFrame firstResponse = firstCall.get(5, TimeUnit.SECONDS);
+    assertEquals(
+        "hello:first",
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeResponse) firstResponse).serializedReturn(),
+            getClass().getClassLoader()));
+
+    // Only once the first connection's permit is released does the second get served.
+    FabricFrame secondResponse = secondCall.get(5, TimeUnit.SECONDS);
+    assertEquals(
+        "hello:second",
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeResponse) secondResponse).serializedReturn(),
+            getClass().getClassLoader()));
+    assertEquals(2, handlerInvocations.get());
+  }
+
+  @Test
+  @Timeout(10)
+  void
+      a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections()
+          throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = new FabricServer(registry, Greeter.class.getClassLoader());
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    try (Socket malformed = new Socket(address.getAddress(), address.getPort())) {
+      DataOutputStream out = new DataOutputStream(malformed.getOutputStream());
+      out.writeInt(-1); // corrupted length prefix -- see FabricCodecTest's own equivalent
+      out.flush();
+      // The server must close the connection outright rather than hang or crash the connection's
+      // own thread -- a clean EOF is exactly what that looks like from the client's own side.
+      assertEquals(-1, malformed.getInputStream().read());
+    }
+
+    // The regression this guards: a malformed frame propagating uncaught off the connection's own
+    // virtual thread must never take the listener down with it -- a genuinely healthy, well-formed
+    // call still succeeds afterward.
+    FabricFrame response = FabricClient.call(address, invokeGreet("world"));
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+    assertEquals(
+        "hello:world",
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeResponse) response).serializedReturn(),
+            getClass().getClassLoader()));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    // maxConnections=1 makes this the real proof of composition: if the malformed connection's
+    // permit were ever leaked (FUNC-47's fix not actually running through the same release path
+    // as FUNC-75's), nothing could ever get through this listener again.
+    server = serverWithMaxConnections(registry, 1);
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    try (Socket malformed = new Socket(address.getAddress(), address.getPort())) {
+      DataOutputStream out = new DataOutputStream(malformed.getOutputStream());
+      out.writeInt(-1);
+      out.flush();
+      assertEquals(-1, malformed.getInputStream().read());
+    }
+
+    // If the permit never came back, this call would sit blocked behind the malformed connection
+    // forever (maxConnections is 1) until FabricClient's own timeout -- succeeding promptly here
+    // is exactly what proves the release happens on every path serve() can exit through.
+    FabricFrame response = FabricClient.call(address, invokeGreet("world"));
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
   }
 }

@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 687,
+    "totalRequirements": 689,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 561,
+    "notCoveredByAutomatedTest": 563,
     "releaseReadinessPercent": 18.3
   },
   "items": [
@@ -7559,6 +7559,28 @@
       "category": "Internal-Infra",
       "feature": "JVM DNS resolver cache capped to match Skald's own DNS-answer TTL",
       "step": "Given a fresh JVM that has not yet performed any DNS resolution; When a relevant process's Main.main() runs; Then DnsCacheTtl.apply() has set the networkaddress.cache.ttl security property to 5 seconds before any HttpClient is constructed. Given DnsCacheTtl.apply() has already been called once; When it is called again; Then it does not throw and the security property still reads 5 seconds. Given a process whose main sources never construct or transitively use an HttpClient (PkiBootstrapMain, RagnarokMain, SagaMain) or whose own outbound calls only ever target already-resolved IP:port pairs (WorkerMain); When reviewing its Main class; Then it deliberately does not call DnsCacheTtl.apply(), since no DNS resolution the platform controls ever happens there.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-688",
+      "module": "gimle-fabric",
+      "category": "Service fabric / transport",
+      "feature": "FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept",
+      "step": "Given a FabricServer configured with maxConnections=1 and one connection already being served; When a second connection is accepted; Then it is not served until the first connection's own handling completes and its permit is released. Given a FabricServer whose accept-loop thread is blocked waiting for a free connection permit; When the server is closed or reloads its TLS material; Then that thread is interrupted and unblocked rather than left parked forever.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-689",
+      "module": "gimle-fabric",
+      "category": "Service fabric / transport",
+      "feature": "FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread",
+      "step": "Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

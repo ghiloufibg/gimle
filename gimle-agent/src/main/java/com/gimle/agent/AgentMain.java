@@ -2504,6 +2504,10 @@ public final class AgentMain {
                 // whatever WorkerMain's own default happens to be.
                 "-Dgimle.fabric.defaultDenyCrossTenant="
                     + System.getProperty("gimle.fabric.defaultDenyCrossTenant", "false"),
+                // Same reasoning: an explicit, consistent per-worker fabric connection ceiling
+                // rather than each worker silently falling back to FabricServer's own default.
+                "-Dgimle.fabric.maxConnections="
+                    + System.getProperty("gimle.fabric.maxConnections", "512"),
                 // A worker starts once per module instance, not once per node/replica lifecycle
                 // like every other process role -- printing GimleBanner's ASCII-art banner on
                 // every one of those spawns would just be log noise at scale, so this agent

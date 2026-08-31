@@ -697,6 +697,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-685 | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Service fabric | Complete | Yes |
 | GIMLE-686 | Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale | Service Discovery / DNS | Complete | Yes |
 | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | Internal-Infra | Complete | Partial |
+| GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Service fabric / transport | Complete | Yes |
+| GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Service fabric / transport | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -4367,6 +4369,34 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given the highest version's only cross-worker endpoint has an open circuit breaker (e.g. unreachable) while the next-highest version's endpoint is healthy; When a caller looks up the interface; Then lookup falls back to the next-highest version instead of returning nothing.
   Given only one version of the interface is registered cross-worker; When a caller looks up the interface repeatedly; Then ordinary least-outstanding-requests round-robin across that version's replicas is unaffected by the version-cutover logic.
   Given a stale older-version endpoint sits on the remote tier and the current highest version has endpoints on both the same-machine and remote tiers; When a caller looks up the interface; Then the stale older-version endpoint is never selected, and same-machine locality preference still applies within the version-narrowed pool.
+  ```
+
+#### GIMLE-688 — FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept
+
+- **Category**: Service fabric / transport
+- **User story**: As a platform operator, I want FabricServer to cap how many connections it serves concurrently, so a connection storm (a runaway retrying caller, or a hostile one) degrades into accept-side backpressure instead of unbounded virtual-thread and file-descriptor growth.
+- **Status**: Complete. acceptChannelLoop/acceptSocketLoop unconditionally spawned Thread.ofVirtual().start(() -> serve(connection)) for every accepted connection, with no semaphore, counter, or max-connections config anywhere -- the only throttling that existed at all was a 100ms pause after an accept() failure like EMFILE, which only slows the system down once resource exhaustion has already started. Fixed via a Semaphore (connectionLimiter, default 512 permits, configurable through a new 9-arg constructor and threaded down from AgentMain's -Dgimle.fabric.maxConnections flag through WorkerMain into FabricServer) acquired in acquireConnectionPermit() before accept() itself runs, not after -- an over-limit connection sits unread in the OS accept backlog rather than this listener spending an extra fd/thread on a connection it has no spare capacity to serve. The permit is released on every exit path (an accept() failure, a post-accept configuration failure, or serve() completing normally or exceptionally via serveAndRelease's try/finally). acquireConnectionPermit is interruptible so close()/reloadTlsMaterial() can unblock an accept-loop thread parked in Semaphore#acquire() with nothing left to accept -- unlike a blocked accept() call, closing the listener socket alone does nothing to wake a thread waiting on a semaphore, so a new acceptThreads map (keyed by listener identity) lets both close() and reloadTlsMaterial() explicitly interrupt() the owning accept-loop thread.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`connectionLimiter`, `acquireConnectionPermit`, `serveAndRelease`, `acceptThreads`, `DEFAULT_MAX_CONNECTIONS`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`-Dgimle.fabric.maxConnections` forwarded to every spawned worker), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (reads the property, passes it to `FabricServer`'s 9-arg constructor)
+- **Test coverage**: `FabricServerTest#a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees` (maxConnections=1: a second connection stays unserved and blocked until the first's handler releases it, then is served immediately after) and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (proves composition with GIMLE-689: at maxConnections=1, a malformed connection's permit must come back or every subsequent connection would deadlock). Full gimle-fabric, gimle-agent, and gimle-worker module suites re-verified.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a FabricServer configured with maxConnections=1 and one connection already being served; When a second connection is accepted; Then it is not served until the first connection's own handling completes and its permit is released.
+  Given a FabricServer whose accept-loop thread is blocked waiting for a free connection permit; When the server is closed or reloads its TLS material; Then that thread is interrupted and unblocked rather than left parked forever.
+  ```
+
+#### GIMLE-689 — FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread
+
+- **Category**: Service fabric / transport
+- **User story**: As a platform operator, I want a malformed fabric frame (a corrupted length prefix, an unknown tag, a decode failure) to close just that one connection cleanly, so a decode failure can never take the whole listener down or leave the connection thread propagating an uncaught exception.
+- **Status**: Complete. serve(SocketChannel)/serve(Socket) only caught IOException around serveStreams, but FabricCodec#read/#write reject a corrupted length prefix, an out-of-range field count, or an unsupported wire version by throwing GimleCodecException or IllegalArgumentException (an unrecognized frame tag) -- neither an IOException -- and a genuinely unexpected decode bug could surface as UncheckedIOException instead; none of these were caught, so the exception propagated uncaught off the per-connection virtual thread. Fixed by broadening both serve() overloads' catch clause to also catch RuntimeException, logging via a new logMalformedFrame helper ("dropping malformed fabric connection", mirroring GossipMember#decodeAndHandle's own posture for the equivalent problem on the gossip transport) and closing the connection cleanly rather than propagating. Catching RuntimeException broadly rather than enumerating each concrete decode-failure type is deliberate and exactly as targeted in practice: dispatch() already converts every RuntimeException thrown by invoking the target method into an InvokeError frame rather than letting it propagate here, so the only RuntimeException these methods can actually still see is one of FabricCodec's own decode failures -- the invariant being restored is "a malformed frame never crashes the connection-handling thread," not "these particular exception types never do."
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`serve(SocketChannel)`, `serve(Socket)`, `logMalformedFrame`)
+- **Test coverage**: `FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` (a corrupted length prefix yields a clean EOF on the client side rather than a hang or crash, and a genuinely well-formed call afterward still succeeds -- proving the listener itself stays healthy) and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread.
+  Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.
   ```
 
 ### gimle-controlplane

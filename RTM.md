@@ -702,6 +702,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-685 | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | New | Not Covered | — |
 | GIMLE-686 | Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale | New | Not Covered | — |
 | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | New | Not Covered | — |
+| GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | New | Not Covered | — |
+| GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3240,6 +3242,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that deploys two versions of a real module exporting a service consumed cross-node (e.g. the greeter pair with a version bump), drives real fabric lookups against a live multi-node cluster while both versions are briefly registered together during the rollout, and asserts (via the consumer's own log or a captured response) that every lookup is served by exactly one version's endpoints at a time -- never a blend -- including a case where the newest version's endpoint is made unreachable so the scenario also proves the fallback-to-previous-version behavior against a real cluster.
 - **Other test coverage (non-Holmgang, informational only)**: `FabricServiceRegistryTest#only_the_highest_version_endpoints_are_selected_while_both_versions_are_available`, `#lookup_falls_back_to_the_next_highest_version_once_the_top_versions_sole_endpoint_is_breaker_excluded`, `#a_single_version_export_round_robins_normally_and_is_unaffected_by_version_narrowing`, `#locality_preference_still_applies_within_the_version_narrowed_pool_and_ignores_a_stale_older_version` (all in `gimle-fabric`).
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java`, `gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java`
+
+#### GIMLE-688 — FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept
+
+- **Category**: Service fabric / transport
+- **Status**: New  _(New requirement: closes FUNC-75 -- acceptChannelLoop/acceptSocketLoop spawned an unconditional virtual thread per accepted connection with no semaphore, counter, or max-connections config anywhere, so a connection storm grew threads/file-descriptors unbounded. Fixed via a Semaphore acquired before accept() itself runs, configurable through -Dgimle.fabric.maxConnections and threaded from AgentMain through WorkerMain into FabricServer, released on every exit path, with accept-loop threads interruptible so close()/reloadTlsMaterial() can unblock one parked waiting for a permit.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest#a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-689). Full gimle-fabric, gimle-agent, and gimle-worker module suites re-verified.
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`connectionLimiter`, `acquireConnectionPermit`, `serveAndRelease`, `acceptThreads`, `DEFAULT_MAX_CONNECTIONS`)
+
+#### GIMLE-689 — FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread
+
+- **Category**: Service fabric / transport
+- **Status**: New  _(New requirement: closes FUNC-47 -- serve()'s catch clause only caught IOException, but a malformed frame's decode failure (a corrupted length prefix, an unknown tag) throws GimleCodecException/IllegalArgumentException/UncheckedIOException instead, propagating uncaught off the connection's own virtual thread. Fixed by broadening the catch clause to RuntimeException, logging and closing the connection cleanly, mirroring GossipMember#decodeAndHandle's own posture for the equivalent problem on the gossip transport.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified.
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`serve(SocketChannel)`, `serve(Socket)`, `logMalformedFrame`)
 
 ### gimle-controlplane
 
@@ -7268,7 +7288,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**561 of 687 requirements are Not Covered.**
+**563 of 689 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7744,6 +7764,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-618 | gimle-agent | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port) |
 | GIMLE-685 | gimle-fabric | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Service fabric | `FabricServiceRegistryTest#only_the_highest_version_endpoints_are_selected_while_both_versions_are_available`, `#lookup_falls_back_to_the_next_highest_version_once_the_top_versions_sole_endpoint_is_breaker_excluded`, `#a_single_version_export_round_robins_normally_and_is_unaffected_by_version_narrowing`, `#locality_preference_still_applies_within_the_version_narrowed_pool_and_ignores_a_stale_older_version` (all in `gimle-fabric`). |
 | GIMLE-672 | gimle-fabric | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Service fabric / gossip membership | `ServiceCatalogTest` and `GossipMemberTest` gain new anti-entropy coverage. Full gimle-fabric module suite re-verified (133 tests, 0 failures/errors); the new tests confirmed to fail against the pre-fix code. |
+| GIMLE-688 | gimle-fabric | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Service fabric / transport | `FabricServerTest#a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-689). Full gimle-fabric, gimle-agent, and gimle-worker module suites re-verified. |
+| GIMLE-689 | gimle-fabric | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Service fabric / transport | `FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified. |
 | GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
 | GIMLE-646 | gimle-mimir | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | State Store | ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |
