@@ -191,7 +191,8 @@ public final class ControlPlaneMain {
             Duration.ofMinutes(15),
             storeClient);
     AutoscaleReconciler autoscaleReconciler =
-        new AutoscaleReconciler(storeClient, storeClient, artifactResolver);
+        new AutoscaleReconciler(
+            storeClient, storeClient, artifactResolver, NODE_DARK_TIMEOUT, Clock.systemUTC());
     QuotaReconciler quotaReconciler =
         new QuotaReconciler(storeClient, storeClient, artifactResolver);
     LimitRangeReconciler limitRangeReconciler =
