@@ -192,6 +192,40 @@ class AgentMainTest {
   }
 
   @Test
+  void the_spawned_command_forwards_the_fabric_max_connections_flag() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    String property = "gimle.fabric.maxConnections";
+    String previous = System.getProperty(property);
+    try {
+      // Absent -> forwarded as "512", not simply omitted -- every worker gets an explicit value
+      // rather than silently inheriting whatever FabricServer's own default happens to be.
+      System.clearProperty(property);
+      List<String> withoutProperty = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
+      assertTrue(
+          withoutProperty.contains("-Dgimle.fabric.maxConnections=512"),
+          "expected the flag forwarded as 512 by default; command=" + withoutProperty);
+
+      System.setProperty(property, "128");
+      List<String> withProperty = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
+      assertTrue(
+          withProperty.contains("-Dgimle.fabric.maxConnections=128"),
+          "expected the agent's own property value forwarded; command=" + withProperty);
+    } finally {
+      if (previous == null) {
+        System.clearProperty(property);
+      } else {
+        System.setProperty(property, previous);
+      }
+    }
+  }
+
+  @Test
   void the_spawned_command_omits_tls_flags_in_plaintext_mode() {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();

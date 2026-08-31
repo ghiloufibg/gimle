@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 683
+- **Total requirements**: 685
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 557
+- **Not covered by automated test**: 559
 - **Release-readiness (automated coverage)**: 18.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -20,7 +20,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-worker | 23 | 2 | 21 | 8.7% |
 | gimle-agent | 48 | 6 | 42 | 12.5% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
-| gimle-fabric | 35 | 1 | 34 | 2.9% |
+| gimle-fabric | 37 | 1 | 36 | 2.7% |
 | gimle-controlplane | 90 | 15 | 75 | 16.7% |
 | gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
@@ -886,6 +886,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-672 | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Given two gossip members with diverging service catalogs (a missed piggyback update); When anti-entropy sync runs; Then both catalogs converge to the same full state, paginated the same way membership state already is. Given a node that restarts with an empty catalog; When it rejoins the cluster; Then anti-entropy sync repopulates its catalog to match the cluster's current state. | No |
+
+#### Service fabric / transport
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Given a FabricServer configured with maxConnections=1 and one connection already being served; When a second connection is accepted; Then it is not served until the first connection's own handling completes and its permit is released. Given a FabricServer whose accept-loop thread is blocked waiting for a free connection permit; When the server is closed or reloads its TLS material; Then that thread is interrupted and unblocked rather than left parked forever. | No |
+| [ ] | GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down. | No |
 
 ### gimle-controlplane
 

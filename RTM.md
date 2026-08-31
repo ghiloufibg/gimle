@@ -698,6 +698,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | New | Not Covered | — |
 | GIMLE-682 | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | New | Not Covered | — |
 | GIMLE-683 | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | New | Not Covered | — |
+| GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | New | Not Covered | — |
+| GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3218,6 +3220,24 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.
 - **Other test coverage (non-Holmgang, informational only)**: `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`
+
+#### GIMLE-688 — FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept
+
+- **Category**: Service fabric / transport
+- **Status**: New  _(New requirement: closes FUNC-75 -- acceptChannelLoop/acceptSocketLoop spawned an unconditional virtual thread per accepted connection with no semaphore, counter, or max-connections config anywhere, so a connection storm grew threads/file-descriptors unbounded. Fixed via a Semaphore acquired before accept() itself runs, configurable through -Dgimle.fabric.maxConnections and threaded from AgentMain through WorkerMain into FabricServer, released on every exit path, with accept-loop threads interruptible so close()/reloadTlsMaterial() can unblock one parked waiting for a permit.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest#a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-689). Full gimle-fabric, gimle-agent, and gimle-worker module suites re-verified.
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`connectionLimiter`, `acquireConnectionPermit`, `serveAndRelease`, `acceptThreads`, `DEFAULT_MAX_CONNECTIONS`)
+
+#### GIMLE-689 — FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread
+
+- **Category**: Service fabric / transport
+- **Status**: New  _(New requirement: closes FUNC-47 -- serve()'s catch clause only caught IOException, but a malformed frame's decode failure (a corrupted length prefix, an unknown tag) throws GimleCodecException/IllegalArgumentException/UncheckedIOException instead, propagating uncaught off the connection's own virtual thread. Fixed by broadening the catch clause to RuntimeException, logging and closing the connection cleanly, mirroring GossipMember#decodeAndHandle's own posture for the equivalent problem on the gossip transport.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified.
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`serve(SocketChannel)`, `serve(Socket)`, `logMalformedFrame`)
 
 ### gimle-controlplane
 
@@ -7228,7 +7248,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**557 of 683 requirements are Not Covered.**
+**559 of 685 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7700,6 +7720,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-569 | gimle-skald | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | `SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest` |
 | GIMLE-618 | gimle-agent | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port) |
 | GIMLE-672 | gimle-fabric | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Service fabric / gossip membership | `ServiceCatalogTest` and `GossipMemberTest` gain new anti-entropy coverage. Full gimle-fabric module suite re-verified (133 tests, 0 failures/errors); the new tests confirmed to fail against the pre-fix code. |
+| GIMLE-688 | gimle-fabric | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Service fabric / transport | `FabricServerTest#a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-689). Full gimle-fabric, gimle-agent, and gimle-worker module suites re-verified. |
+| GIMLE-689 | gimle-fabric | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Service fabric / transport | `FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified. |
 | GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
 | GIMLE-646 | gimle-mimir | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | State Store | ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. |
 | GIMLE-068 | gimle-os | Pluggable persistent-volume-manager abstraction | Storage | exercised via `LocalDiskVolumeManagerTest` |

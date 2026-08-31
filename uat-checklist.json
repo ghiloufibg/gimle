@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 683,
+    "totalRequirements": 685,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 557,
+    "notCoveredByAutomatedTest": 559,
     "releaseReadinessPercent": 18.4
   },
   "items": [
@@ -7515,6 +7515,28 @@
       "category": "Reconcilers / self-healing",
       "feature": "Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat",
       "step": "Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-688",
+      "module": "gimle-fabric",
+      "category": "Service fabric / transport",
+      "feature": "FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept",
+      "step": "Given a FabricServer configured with maxConnections=1 and one connection already being served; When a second connection is accepted; Then it is not served until the first connection's own handling completes and its permit is released. Given a FabricServer whose accept-loop thread is blocked waiting for a free connection permit; When the server is closed or reloads its TLS material; Then that thread is interrupted and unblocked rather than left parked forever.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-689",
+      "module": "gimle-fabric",
+      "category": "Service fabric / transport",
+      "feature": "FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread",
+      "step": "Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

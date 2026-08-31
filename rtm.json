@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 683,
+  "requirementCount": 685,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11830,6 +11830,36 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/ReconcilerInstanceState.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-688",
+      "module": "gimle-fabric",
+      "feature": "FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept",
+      "category": "Service fabric / transport",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-75 -- acceptChannelLoop/acceptSocketLoop spawned an unconditional virtual thread per accepted connection with no semaphore, counter, or max-connections config anywhere, so a connection storm grew threads/file-descriptors unbounded. Fixed via a Semaphore acquired before accept() itself runs, configurable through -Dgimle.fabric.maxConnections and threaded from AgentMain through WorkerMain into FabricServer, released on every exit path, with accept-loop threads interruptible so close()/reloadTlsMaterial() can unblock one parked waiting for a permit.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`FabricServerTest#a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-689). Full gimle-fabric, gimle-agent, and gimle-worker module suites re-verified.",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`connectionLimiter`, `acquireConnectionPermit`, `serveAndRelease`, `acceptThreads`, `DEFAULT_MAX_CONNECTIONS`)"
+      ]
+    },
+    {
+      "id": "GIMLE-689",
+      "module": "gimle-fabric",
+      "feature": "FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread",
+      "category": "Service fabric / transport",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-47 -- serve()'s catch clause only caught IOException, but a malformed frame's decode failure (a corrupted length prefix, an unknown tag) throws GimleCodecException/IllegalArgumentException/UncheckedIOException instead, propagating uncaught off the connection's own virtual thread. Fixed by broadening the catch clause to RuntimeException, logging and closing the connection cleanly, mirroring GossipMember#decodeAndHandle's own posture for the equivalent problem on the gossip transport.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified.",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`serve(SocketChannel)`, `serve(Socket)`, `logMalformedFrame`)"
       ]
     }
   ]
