@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 691,
+    "totalRequirements": 692,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 565,
+    "notCoveredByAutomatedTest": 566,
     "releaseReadinessPercent": 18.2
   },
   "items": [
@@ -7603,6 +7603,17 @@
       "category": "Security / Authorization",
       "feature": "MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port",
       "step": "Given a caller holds a real, tenant-scoped LOGS/READ grant for tenant acme; When it requests GET /logs/instances/{deploymentName}/{instanceIndex}/{category}?tenant=acme over mTLS; Then Muninn returns 200. Given a caller holds no LOGS grant at all; When it requests the same acme instance-log read; Then Muninn returns 403, not the previously-shipped 200. Given a caller holds a LOGS/READ grant scoped only to a different tenant; When it requests acme's instance logs; Then Muninn returns 403 -- a grant for one tenant never authorizes reading another's. Given a gimle:nodes certificate identifying node-1; When it requests GET /logs/nodes/node-1/{category}; Then Muninn returns 200 via self-service, with no RoleBinding required. Given that same node-1 certificate; When it requests GET /logs/nodes/node-2/{category}; Then Muninn returns 403 -- self-service is scoped to exactly the node's own identity. Given a caller holds an unscoped LOGS/READ grant; When it requests GET /metrics/{processKind}/{processId} or GET /traces/{processKind}/{processId}; Then Muninn returns 200; given no grant at all, Muninn returns 403 for the same request. Given Muninn is running in its default plaintext mode; When any read request arrives with no client certificate; Then it is served with no identity check, matching every other Gimle process's documented plaintext posture.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-692",
+      "module": "gimle-fafnir",
+      "category": "Security / Authorization",
+      "feature": "FafnirServer authorizes cluster-wide secrets key rotation and retirement",
+      "step": "Given a caller authenticated over mTLS with no SECRET grant; When it calls POST /secrets/rotate-key or POST /secrets/retire-key directly against Fafnir; Then the request is rejected with 403. Given a caller presenting no client certificate, forwarded-principal header, or session cookie at all; When it calls either route; Then the request is rejected with 401. Given a caller holding an unscoped SECRET/WRITE grant; When it calls either route directly against Fafnir, or through gimle-controlplane's own proxy; Then the request succeeds and the decision is recorded in the durable audit trail.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

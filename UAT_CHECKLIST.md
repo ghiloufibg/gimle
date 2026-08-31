@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 691
+- **Total requirements**: 692
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 565
+- **Not covered by automated test**: 566
 - **Release-readiness (automated coverage)**: 18.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -22,7 +22,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 38 | 1 | 37 | 2.6% |
 | gimle-controlplane | 90 | 15 | 75 | 16.7% |
-| gimle-fafnir | 29 | 11 | 18 | 37.9% |
+| gimle-fafnir | 30 | 11 | 19 | 36.7% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 22 | 0 | 22 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
@@ -1338,6 +1338,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-690 | resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate | Given a caller holding a valid cluster leaf certificate that does not belong to group:gimle:controlplane (e.g. a gimle:nodes certificate, or no certificate at all in plaintext mode); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming a privileged identity; Then those headers are ignored and the request is authorized (or denied) based on the connection's own certificate or session identity instead. Given a caller holding a leaf certificate stamped group:gimle:controlplane (the control plane's own proxy hop); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming the real originating caller; Then the forwarded identity is honored and independently re-checked by the server's own Authorizer, exactly as before this fix. | No |
+| [ ] | GIMLE-692 | FafnirServer authorizes cluster-wide secrets key rotation and retirement | Given a caller authenticated over mTLS with no SECRET grant; When it calls POST /secrets/rotate-key or POST /secrets/retire-key directly against Fafnir; Then the request is rejected with 403. Given a caller presenting no client certificate, forwarded-principal header, or session cookie at all; When it calls either route; Then the request is rejected with 401. Given a caller holding an unscoped SECRET/WRITE grant; When it calls either route directly against Fafnir, or through gimle-controlplane's own proxy; Then the request succeeds and the decision is recorded in the durable audit trail. | No |
 
 ### gimle-andvari
 
