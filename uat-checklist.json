@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 689,
+    "totalRequirements": 692,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 563,
-    "releaseReadinessPercent": 18.3
+    "notCoveredByAutomatedTest": 566,
+    "releaseReadinessPercent": 18.2
   },
   "items": [
     {
@@ -7581,6 +7581,39 @@
       "category": "Service fabric / transport",
       "feature": "FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread",
       "step": "Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-690",
+      "module": "gimle-observability",
+      "category": "Observability",
+      "feature": "MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp",
+      "step": "Given a log file already shipped up through one line at timestamp T; When a second line is appended at that exact same timestamp T before the next ship tick; Then the next tick ships that second line. Given the same-instant sibling has just been shipped; When a further tick runs with no new lines; Then nothing is re-shipped, proving the cursor genuinely advanced rather than re-querying the same boundary forever.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-691",
+      "module": "gimle-muninn",
+      "category": "Observability",
+      "feature": "MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500",
+      "step": "Given a subtree with two day files, one of which is deleted by a concurrent retention sweep between the read's own directory listing and its turn to read that file; When the read runs; Then it returns the surviving file's lines rather than throwing. Given the same race repeated many times under load; When readAfter and readOlder are both exercised concurrently against a sweep racing to delete a day file; Then neither ever surfaces the file's disappearance as an error.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-692",
+      "module": "gimle-fabric",
+      "category": "Service fabric",
+      "feature": "CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN",
+      "step": "Given a breaker still OPEN (cooldown not elapsed, no HALF_OPEN trial ever claimed) and a call reaches it anyway (panic mode's own bypass); When that call succeeds; Then the breaker closes immediately rather than staying OPEN. Given a breaker that has re-opened at least once (backoff already doubled) and a panic-mode-admitted call against it succeeds while still OPEN; When the breaker closes as a result; Then its backoff resets to the base cooldown, identical to an ordinary HALF_OPEN success.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

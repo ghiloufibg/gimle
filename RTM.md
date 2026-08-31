@@ -704,6 +704,9 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | New | Not Covered | — |
 | GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | New | Not Covered | — |
 | GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | New | Not Covered | — |
+| GIMLE-690 | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | New | Not Covered | — |
+| GIMLE-691 | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | New | Not Covered | — |
+| GIMLE-692 | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3261,6 +3264,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified.
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`serve(SocketChannel)`, `serve(Socket)`, `logMalformedFrame`)
 
+#### GIMLE-692 — CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN
+
+- **Category**: Service fabric
+- **Status**: New  _(New requirement: closes FUNC-93 -- FabricServiceRegistry's panic-mode ejection floor bypasses allowRequest()'s gating to call an endpoint whose breaker is still OPEN, but recordSuccess() only closed on HALF_OPEN, so a successful panic-mode-admitted call was recorded into the sliding window yet left the breaker OPEN and still excluded from candidacy until the unrelated, backed-off cooldown timer elapsed on its own. Fixed by having recordSuccess() close on OPEN as well as HALF_OPEN -- the only way recordSuccess() is ever called while still OPEN is exactly this panic-mode path, so a success there is the same recovery evidence a HALF_OPEN trial would have produced.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `CircuitBreakerTest#a_success_recorded_while_still_open_closes_the_breaker` and `#a_success_recorded_while_open_also_resets_the_backoff_to_the_base_cooldown`. Full gimle-fabric module suite re-verified.
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/breaker/CircuitBreaker.java` (`recordSuccess`)
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -4804,6 +4816,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `MuninnServerTest#a_fresh_server_defaults_to_plaintext_and_answers_status`, `#a_non_get_status_request_is_rejected`
 - **Source location(s)**: `MuninnServer.java#handleStatus`
 
+#### GIMLE-691 — MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: closes FUNC-92 -- appendLinesFrom only caught IOException generically, so a day file deleted by RetentionSweeper's own independently-scheduled deleteIfExists between the read's directory listing and its turn to read that file threw NoSuchFileException (wrapped as UncheckedIOException), surfacing as a spurious 500 on a read that should have simply skipped the now-gone file. Fixed by catching NoSuchFileException specifically and treating it as nothing-to-add, the same graceful-skip posture already applied to a malformed line.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `MuninnDayFileStoreTest#a_day_file_removed_by_a_concurrent_retention_sweep_is_skipped_not_thrown` -- a second day file is repeatedly recreated and deleted from a background thread while the main thread reads 300 times in a loop, asserting neither readAfter nor readOlder ever throws. Full gimle-muninn module suite re-verified.
+- **Source location(s)**: `gimle-muninn/src/main/java/com/gimle/muninn/MuninnDayFileStore.java` (`appendLinesFrom`)
+
 ### gimle-observability
 
 #### GIMLE-340 — Default OpenTelemetry tracer installation
@@ -4951,6 +4972,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given a config value of "host1:9090, host2:9090,,host3:9090"
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `MuninnShipper.java#parseEndpoints`
+
+#### GIMLE-690 — MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: closes FUNC-91 -- tickLogs advanced logCursor to the last-shipped line's own timestamp and readAfter's comparison is strictly isAfter, so a further line landing at that identical instant on a later tick was excluded forever, a genuine silent data-loss gap. Fixed entirely within MuninnShipper (no change to LogFileReader's shared cursor contract): tickLogs queries one nanosecond before the cursor to recover the boundary instant, a new dropAlreadyShipped step trims the already-shipped leading lines back off, and advanceCursor recomputes both the cursor and how many lines at its instant have been shipped.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `MuninnShipperTest#two_lines_sharing_the_exact_same_timestamp_across_ticks_are_both_shipped` -- verified to fail against the pre-fix tickLogs, passes with the fix; both lines shipped exactly once each and the cursor genuinely catches up. Full gimle-observability module suite re-verified.
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/MuninnShipper.java` (`tickLogs`, `dropAlreadyShipped`, `advanceCursor`, `shippedAtCursorTimestamp`)
 
 ### gimle-gateway
 
@@ -7288,7 +7318,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**563 of 689 requirements are Not Covered.**
+**566 of 692 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7621,6 +7651,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-339 | gimle-muninn | `/status` operational endpoint | Observability | `MuninnServerTest#a_fresh_server_defaults_to_plaintext_and_answers_status`, `#a_non_get_status_request_is_rejected` |
 | GIMLE-351 | gimle-observability | JFR-based per-module CPU/allocation attribution | Observability | `ThreadNameJfrAttributorTest#construction_and_shutdown_do_not_throw`, `#register_and_unregister_module_do_not_throw`, `#unregistering_a_module_never_registered_does_not_throw` (no test directly asserts a classified sample producing a counter increment — JFR event emission isn't driven from the test) |
 | GIMLE-647 | gimle-console | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Observability | AgentMainTest (workerId omitted until Hello, then reported once set); DomainCodecTest (workerId round-trips both present and empty); gimle-console Vitest (HttpDeploymentsRepository/HttpDaemonSetsRepository/HttpStatefulSetsRepository default a missing workerId to null, HttpDeploymentsRepository additionally asserts a present workerId maps through unchanged). |
+| GIMLE-690 | gimle-observability | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Observability | `MuninnShipperTest#two_lines_sharing_the_exact_same_timestamp_across_ticks_are_both_shipped` -- verified to fail against the pre-fix tickLogs, passes with the fix; both lines shipped exactly once each and the cursor genuinely catches up. Full gimle-observability module suite re-verified. |
+| GIMLE-691 | gimle-muninn | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | Observability | `MuninnDayFileStoreTest#a_day_file_removed_by_a_concurrent_retention_sweep_is_skipped_not_thrown` -- a second day file is repeatedly recreated and deleted from a background thread while the main thread reads 300 times in a loop, asserting neither readAfter nor readOlder ever throws. Full gimle-muninn module suite re-verified. |
 | GIMLE-097 | gimle-worker | Per-module CPU/memory/request-rate/error-rate metrics reporting (portable, no cgroup) | Observability / Cgroup Management | NONE recorded in the baseline |
 | GIMLE-129 | gimle-agent | `hs_err_pid*.log` crash-dump listing and fetch | Observability / Cgroup Management | `AgentLogServerTest#crash_dumps_are_listed_from_the_right_worker_directory_only`, `#crash_dumps_list_is_empty_when_the_worker_never_crashed`, `#a_crash_dump_is_fetched_with_its_exact_content_and_a_plain_text_content_type`, `#crash_dump_fetch_rejects_a_filename_that_does_not_match_the_expected_pattern` |
 | GIMLE-083 | gimle-worker | Per-instance MDC log tagging for lifecycle/hook/probe/request-dispatch logging | Observability / Internal-Infra | `BoundedModuleSchedulerTest#mdc_tags_are_visible_inside_a_tagged_submission`, `#empty_mdc_tags_leave_the_submission_untagged`; `InstanceTaggingServiceRegistryTest#registers_untagged_when_no_identity_is_known_for_the_owner`, `#registers_a_tagging_proxy_when_identity_is_known` |
@@ -7763,6 +7795,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-569 | gimle-skald | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | `SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest` |
 | GIMLE-618 | gimle-agent | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port) |
 | GIMLE-685 | gimle-fabric | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Service fabric | `FabricServiceRegistryTest#only_the_highest_version_endpoints_are_selected_while_both_versions_are_available`, `#lookup_falls_back_to_the_next_highest_version_once_the_top_versions_sole_endpoint_is_breaker_excluded`, `#a_single_version_export_round_robins_normally_and_is_unaffected_by_version_narrowing`, `#locality_preference_still_applies_within_the_version_narrowed_pool_and_ignores_a_stale_older_version` (all in `gimle-fabric`). |
+| GIMLE-692 | gimle-fabric | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Service fabric | `CircuitBreakerTest#a_success_recorded_while_still_open_closes_the_breaker` and `#a_success_recorded_while_open_also_resets_the_backoff_to_the_base_cooldown`. Full gimle-fabric module suite re-verified. |
 | GIMLE-672 | gimle-fabric | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Service fabric / gossip membership | `ServiceCatalogTest` and `GossipMemberTest` gain new anti-entropy coverage. Full gimle-fabric module suite re-verified (133 tests, 0 failures/errors); the new tests confirmed to fail against the pre-fix code. |
 | GIMLE-688 | gimle-fabric | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Service fabric / transport | `FabricServerTest#a_connection_beyond_the_max_connections_limit_is_throttled_until_a_permit_frees` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-689). Full gimle-fabric, gimle-agent, and gimle-worker module suites re-verified. |
 | GIMLE-689 | gimle-fabric | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Service fabric / transport | `FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified. |

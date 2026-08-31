@@ -699,6 +699,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | Internal-Infra | Complete | Partial |
 | GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Service fabric / transport | Complete | Yes |
 | GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Service fabric / transport | Complete | Yes |
+| GIMLE-690 | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Observability | Complete | Yes |
+| GIMLE-691 | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | Observability | Complete | Yes |
+| GIMLE-692 | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Service fabric | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -4399,6 +4402,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.
   ```
 
+#### GIMLE-692 — CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN
+
+- **Category**: Service fabric
+- **User story**: As a platform operator relying on FabricServiceRegistry's panic-mode ejection floor to recover from a transient correlated failure, I want a call that panic mode admits through an still-OPEN breaker and that actually succeeds to close that breaker immediately, so the one piece of evidence panic mode exists to surface is not silently discarded while the endpoint stays excluded from ordinary candidacy until an unrelated cooldown timer catches up.
+- **Status**: Fixed: closes FUNC-93 -- when FabricServiceRegistry#selectAllowedCandidate's panic-mode floor bypasses allowRequest()'s own gating to call an endpoint whose breaker is still OPEN (more than maxEjectionPercent of a lookup's candidates ejected), a successful call still invoked CircuitBreaker#recordSuccess(), but recordSuccess() only called close() when state == HALF_OPEN. A breaker admitted through panic mode is, by construction, never HALF_OPEN (it never went through allowRequest()'s single-trial claim), so the success was recorded into its sliding window but the breaker stayed OPEN and kept contributing to ejectedCount on every subsequent lookup, until the purely time-based (and, after repeated re-opens, backed-off up to 16x) cooldown finally elapsed on its own. Fixed by having recordSuccess() call close() when state is HALF_OPEN or OPEN: the only way recordSuccess() is ever invoked while still OPEN is exactly this panic-mode-admitted path, so a success recorded there is the identical recovery evidence a HALF_OPEN trial would have produced had cooldown already elapsed, and closing immediately -- including the backoff reset close() already performs -- is the correct response rather than discarding it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/breaker/CircuitBreaker.java` (`recordSuccess`)
+- **Test coverage**: `CircuitBreakerTest#a_success_recorded_while_still_open_closes_the_breaker` (a success recorded with the breaker still OPEN, cooldown deliberately not advanced, closes it immediately) and `#a_success_recorded_while_open_also_resets_the_backoff_to_the_base_cooldown` (the same OPEN-state close also resets the doubling backoff to the base cooldown, exactly like an ordinary HALF_OPEN close). Full `gimle-fabric` module suite (14 `CircuitBreakerTest` cases, all pre-existing ones unchanged) re-verified.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a breaker still OPEN (cooldown not elapsed, no HALF_OPEN trial ever claimed) and a call reaches it anyway (panic mode's own bypass); When that call succeeds; Then the breaker closes immediately rather than staying OPEN.
+  Given a breaker that has re-opened at least once (backoff already doubled) and a panic-mode-admitted call against it succeeds while still OPEN; When the breaker closes as a result; Then its backoff resets to the base cooldown, identical to an ordinary HALF_OPEN success.
+  ```
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -6614,6 +6631,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And a non-GET method is rejected with 405
   ```
 
+#### GIMLE-691 — MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500
+
+- **Category**: Observability
+- **User story**: As a platform operator querying Muninn's logs/metrics/traces API, I want a read that races RetentionSweeper's own deletion of an aged-out day file to simply skip that file, so an ordinary read never turns into a spurious, retriable-only-by-luck 500 just because retention happened to run at the same moment.
+- **Status**: Fixed: closes FUNC-92 -- readAllLinesSorted lists a subtree's day files, then reads each one via appendLinesFrom's Files.readAllLines, which only caught IOException generically and wrapped it as UncheckedIOException; RetentionSweeper.sweep() runs on its own independent schedule and deletes any day file past the retention cutoff via deleteIfExists, with no coordination between the two. A read that lists a file and then loses a race against the sweeper deleting that exact file before reaching it threw NoSuchFileException (wrapped), which MuninnServer.handle turned into a 500 -- a spurious failure on a read that should simply have skipped the now-gone file, the same graceful-skip posture the store already applies to a malformed line and to its own deleteIfExists choice. Fixed by catching NoSuchFileException specifically in appendLinesFrom and treating it as "nothing to add here," logging at debug and returning rather than propagating -- the read then simply reflects one file fewer, exactly as if the sweep had completed a moment earlier.
+- **Confidence**: High
+- **Source location(s)**: `gimle-muninn/src/main/java/com/gimle/muninn/MuninnDayFileStore.java` (`appendLinesFrom`)
+- **Test coverage**: `MuninnDayFileStoreTest#a_day_file_removed_by_a_concurrent_retention_sweep_is_skipped_not_thrown` -- a second day file is repeatedly recreated and deleted from a background thread while the main thread calls readAfter/readOlder 300 times in a loop, asserting neither ever throws across the many interleavings this produces (a single deterministic delete cannot reliably land in the exact race window). Full `gimle-muninn` module suite (7 `MuninnDayFileStoreTest` cases, all pre-existing ones unchanged) re-verified.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a subtree with two day files, one of which is deleted by a concurrent retention sweep between the read's own directory listing and its turn to read that file; When the read runs; Then it returns the surviving file's lines rather than throwing.
+  Given the same race repeated many times under load; When readAfter and readOlder are both exercised concurrently against a sweep racing to delete a day file; Then neither ever surfaces the file's disappearance as an error.
+  ```
+
 ### gimle-observability
 
 #### GIMLE-340 — Default OpenTelemetry tracer installation
@@ -6867,6 +6898,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When MuninnShipper.parseEndpoints(value) is called
   Then it returns ["host1:9090", "host2:9090", "host3:9090"], trimmed and blanks dropped
   And a null/blank value returns an empty list
+  ```
+
+#### GIMLE-690 — MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp
+
+- **Category**: Observability
+- **User story**: As a platform operator relying on Muninn for centralized log history, I want two log lines that happen to land at the exact same instant to both reach Muninn, so a burst of activity at one timestamp never silently and permanently loses everything after the first line shipped at that instant.
+- **Status**: Fixed: closes FUNC-91 -- tickLogs advanced logCursor to the last-shipped line's own timestamp and re-queried LogFileReader.readAfter with that same cursor next tick; readAfter's own comparison is strictly isAfter, so any further line appended later at that identical instant was excluded on every subsequent tick, forever, with no restart or error involved -- a genuine silent data-loss gap, not the documented restart-reships-from-nothing duplicate-window tradeoff. Fixed entirely within MuninnShipper, without changing LogFileReader's shared cursor contract (which several other unrelated callers -- AgentLogServer, ApiServer, MuninnDayFileStore -- construct and consume in their own hand-rolled ways): tickLogs now queries one nanosecond before logCursor, which readAfter's strict isAfter comparison resolves to "at or after logCursor's instant," recovering both the already-shipped lines at that boundary and any new sibling landing there since. A new dropAlreadyShipped step trims exactly the leading shippedAtCursorTimestamp lines sharing that instant back off (file append order is stable across ticks, so the same lines occupy the same relative position among same-instant candidates every time), and advanceCursor recomputes both logCursor and shippedAtCursorTimestamp after each successful ship, carrying the count forward across ticks when the cursor's instant does not move.
+- **Confidence**: High
+- **Source location(s)**: `gimle-observability/src/main/java/com/gimle/observability/MuninnShipper.java` (`tickLogs`, `dropAlreadyShipped`, `advanceCursor`, `shippedAtCursorTimestamp`)
+- **Test coverage**: `MuninnShipperTest#two_lines_sharing_the_exact_same_timestamp_across_ticks_are_both_shipped` -- a second line lands at the exact same timestamp as the first-shipped one on a later tick; asserts both are shipped exactly once each (no re-send of the first, no permanent loss of the second) and that the cursor is genuinely caught up afterward. Verified to fail against the pre-fix `tickLogs` (reverting only the production file reproduces the reported loss). Full `gimle-observability` module suite (11 `MuninnShipperTest` cases, all pre-existing ones unchanged) re-verified.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a log file already shipped up through one line at timestamp T; When a second line is appended at that exact same timestamp T before the next ship tick; Then the next tick ships that second line.
+  Given the same-instant sibling has just been shipped; When a further tick runs with no new lines; Then nothing is re-shipped, proving the cursor genuinely advanced rather than re-querying the same boundary forever.
   ```
 
 ### gimle-gateway
