@@ -699,9 +699,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | Internal-Infra | Complete | Partial |
 | GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | Service fabric / transport | Complete | Yes |
 | GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | Service fabric / transport | Complete | Yes |
-| GIMLE-690 | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Observability | Complete | Yes |
-| GIMLE-691 | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | Observability | Complete | Yes |
-| GIMLE-692 | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Service fabric | Complete | Yes |
+| GIMLE-698 | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Observability | Complete | Yes |
+| GIMLE-699 | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | Observability | Complete | Yes |
+| GIMLE-700 | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Service fabric | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -4402,7 +4402,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.
   ```
 
-#### GIMLE-692 — CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN
+#### GIMLE-700 — CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN
 
 - **Category**: Service fabric
 - **User story**: As a platform operator relying on FabricServiceRegistry's panic-mode ejection floor to recover from a transient correlated failure, I want a call that panic mode admits through an still-OPEN breaker and that actually succeeds to close that breaker immediately, so the one piece of evidence panic mode exists to surface is not silently discarded while the endpoint stays excluded from ordinary candidacy until an unrelated cooldown timer catches up.
@@ -6631,7 +6631,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And a non-GET method is rejected with 405
   ```
 
-#### GIMLE-691 — MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500
+#### GIMLE-699 — MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500
 
 - **Category**: Observability
 - **User story**: As a platform operator querying Muninn's logs/metrics/traces API, I want a read that races RetentionSweeper's own deletion of an aged-out day file to simply skip that file, so an ordinary read never turns into a spurious, retriable-only-by-luck 500 just because retention happened to run at the same moment.
@@ -6900,7 +6900,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And a null/blank value returns an empty list
   ```
 
-#### GIMLE-690 — MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp
+#### GIMLE-698 — MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp
 
 - **Category**: Observability
 - **User story**: As a platform operator relying on Muninn for centralized log history, I want two log lines that happen to land at the exact same instant to both reach Muninn, so a burst of activity at one timestamp never silently and permanently loses everything after the first line shipped at that instant.

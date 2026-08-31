@@ -13687,7 +13687,7 @@
       "testCoverageLevel": "Yes"
     },
     {
-      "id": "GIMLE-690",
+      "id": "GIMLE-698",
       "module": "gimle-observability",
       "feature": "MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp",
       "category": "Observability",
@@ -13706,7 +13706,7 @@
       "testCoverageLevel": "Yes"
     },
     {
-      "id": "GIMLE-691",
+      "id": "GIMLE-699",
       "module": "gimle-muninn",
       "feature": "MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500",
       "category": "Observability",
@@ -13725,7 +13725,7 @@
       "testCoverageLevel": "Yes"
     },
     {
-      "id": "GIMLE-692",
+      "id": "GIMLE-700",
       "module": "gimle-fabric",
       "feature": "CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN",
       "category": "Service fabric",
