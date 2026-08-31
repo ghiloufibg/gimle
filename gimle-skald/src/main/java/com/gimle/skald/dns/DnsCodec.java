@@ -50,6 +50,7 @@ public final class DnsCodec {
   public static final int OPCODE_QUERY = 0;
 
   public static final int RCODE_NOERROR = 0;
+  public static final int RCODE_SERVFAIL = 2;
   public static final int RCODE_NXDOMAIN = 3;
   public static final int RCODE_NOTIMP = 4;
 

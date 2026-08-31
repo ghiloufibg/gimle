@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 683,
+    "totalRequirements": 684,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 557,
+    "notCoveredByAutomatedTest": 558,
     "releaseReadinessPercent": 18.4
   },
   "items": [
@@ -7515,6 +7515,17 @@
       "category": "Reconcilers / self-healing",
       "feature": "Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat",
       "step": "Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-686",
+      "module": "gimle-skald",
+      "category": "Service Discovery / DNS",
+      "feature": "Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale",
+      "step": "Given Skald's directory has just been refreshed by a successful poll; When a query for a cached Service name arrives; Then it receives a normal, confident answer. Given a poll fails while the directory already holds live endpoint data; When a query for that data arrives shortly after; Then the pre-existing data is still served unchanged, and the failure is recorded (consecutive-failure count incremented, last-success time unchanged). Given the time since the last successful poll has grown past six poll cycles; When a query for a name the directory still has cached data for arrives; Then Skald refuses to answer confidently and returns SERVFAIL rather than the possibly-stale address. Given the directory is severely stale; When a query arrives for a name the directory has never known about; Then it still answers NXDOMAIN, since staleness only withholds positive answers, not negative ones. Given a directory that was severely stale; When a fresh poll succeeds; Then the very next query for previously-cached data receives a normal, confident answer again.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

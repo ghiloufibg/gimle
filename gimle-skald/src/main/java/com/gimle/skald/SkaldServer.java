@@ -13,6 +13,7 @@ import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -52,15 +53,37 @@ public final class SkaldServer implements AutoCloseable {
   /** A TCP message's two-byte length prefix caps one DNS message at 65535 bytes. */
   private static final int MAX_TCP_MESSAGE_BYTES = 0xFFFF;
 
+  /**
+   * How stale the directory's data is allowed to get before this server stops trusting it enough to
+   * hand out a positive answer. Six poll cycles at the default 5-second poll interval (30 seconds):
+   * long enough to ride out a single missed poll or a brief control-plane restart without
+   * degrading, short enough that once crossed, real cluster churn (a deploy, a rescheduled
+   * instance, a scaled-down replica) has almost certainly made at least some cached endpoint stale
+   * -- at that point, confidently answering with addresses nobody has confirmed are still correct
+   * is worse than admitting the data can't be trusted. Deliberately a multiple of the poll interval
+   * rather than a fixed wall-clock number, so a deployment running a slower poll cadence gets a
+   * proportionally longer grace period; {@code SkaldMain} computes the actual value passed in from
+   * whatever poll interval it was started with, this is only the fallback for the no-argument
+   * constructor and for tests that don't care about the exact multiplier.
+   */
+  static final Duration DEFAULT_STALE_THRESHOLD = Duration.ofSeconds(30);
+
   private final DatagramSocket socket;
   private final ServerSocket tcpSocket;
   private final ServiceDirectory directory;
+  private final Duration staleThreshold;
   private final Thread listenerThread;
   private final Thread tcpListenerThread;
   private volatile boolean closed;
 
   public SkaldServer(ServiceDirectory directory, int port) throws IOException {
+    this(directory, port, DEFAULT_STALE_THRESHOLD);
+  }
+
+  public SkaldServer(ServiceDirectory directory, int port, Duration staleThreshold)
+      throws IOException {
     this.directory = directory;
+    this.staleThreshold = staleThreshold;
     this.socket = new DatagramSocket(port);
     // Same port number on both transports, as a resolver expects of a DNS server -- with port 0
     // the UDP bind picks first and TCP follows it, so port() is one answer for both.
@@ -226,7 +249,15 @@ public final class SkaldServer implements AutoCloseable {
 
     List<HostPort> endpoints = directory.resolveAll(qualifiedName.get());
     if (endpoints.isEmpty()) {
+      // A name we don't currently know of stays NXDOMAIN regardless of staleness: the caller sees
+      // a clean failure either way, whether the name was genuinely never registered or the
+      // directory's copy of it is just old. It is a *positive* answer -- confidently vouching an
+      // address is still live -- that staleness makes dangerous, so that's the only case gated
+      // below.
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NXDOMAIN, List.of());
+    }
+    if (isSeverelyStale()) {
+      return staleServfail(query);
     }
     if (qtype == DnsCodec.TYPE_A) {
       List<DnsCodec.Answer> answers = new ArrayList<>();
@@ -273,6 +304,32 @@ public final class SkaldServer implements AutoCloseable {
     return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, answers, false);
   }
 
+  /**
+   * Whether the directory's data is too old to trust for a positive answer -- see {@link
+   * #staleThreshold}.
+   */
+  private boolean isSeverelyStale() {
+    return directory.timeSinceLastSuccess().compareTo(staleThreshold) >= 0;
+  }
+
+  /**
+   * SERVFAIL rather than a confident (but possibly wrong) answer -- the standard DNS signal that
+   * this server couldn't process the query, which is exactly what "our endpoint data may be
+   * arbitrarily out of date" means. Logged at WARN, not per query (that would flood the log for as
+   * long as the outage lasts): {@link com.gimle.skald.directory.ControlPlaneServicePoller} already
+   * escalates its own per-poll logging as the failure streak grows, so this is a query-side echo of
+   * the same condition, not the primary alarm.
+   */
+  private byte[] staleServfail(DnsCodec.Query query) {
+    log.warn(
+        "refusing to answer '{}' with cached data {} old (threshold {}) -- control plane appears"
+            + " to have been unreachable for a while, not just a brief blip",
+        query.question().name(),
+        directory.timeSinceLastSuccess(),
+        staleThreshold);
+    return DnsCodec.encodeResponse(query, DnsCodec.RCODE_SERVFAIL, List.of());
+  }
+
   /** A hostname's dot-separated labels, empties dropped (a trailing dot yields none). */
   private static List<String> hostLabels(String host) {
     List<String> labels = new ArrayList<>();
@@ -290,6 +347,9 @@ public final class SkaldServer implements AutoCloseable {
             .anyMatch(endpoint -> endpoint.host().equals(endpointName.host()));
     if (!known) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NXDOMAIN, List.of());
+    }
+    if (isSeverelyStale()) {
+      return staleServfail(query);
     }
     if (qtype != DnsCodec.TYPE_A) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, List.of());

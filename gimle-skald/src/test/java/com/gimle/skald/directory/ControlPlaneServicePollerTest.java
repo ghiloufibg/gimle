@@ -82,6 +82,23 @@ final class ControlPlaneServicePollerTest {
   }
 
   @Test
+  void a_successful_poll_resets_the_failure_count_and_advances_last_success() {
+    FakeServiceCatalogClient client = new FakeServiceCatalogClient();
+    client.put("orders", Optional.empty(), 8080, 8080, List.of(new HostPort("10.0.0.5", 8080)));
+    CachingServiceDirectory directory = new CachingServiceDirectory();
+    ControlPlaneServicePoller poller =
+        new ControlPlaneServicePoller(client, directory, Duration.ofHours(1));
+    try {
+      poller.poll();
+
+      assertEquals(0, directory.consecutiveFailures());
+      assertTrue(directory.timeSinceLastSuccess().compareTo(Duration.ofSeconds(5)) < 0);
+    } finally {
+      poller.close();
+    }
+  }
+
+  @Test
   void a_failing_listing_leaves_a_previously_seeded_cache_in_place() {
     // The directory is seeded directly (not via a successful poll) and the client is set to fail
     // permanently, not just once -- the poller constructor schedules its own initial poll
@@ -101,6 +118,26 @@ final class ControlPlaneServicePollerTest {
       assertEquals(0, resolved);
       assertEquals(
           List.of(new HostPort("10.0.0.5", 8080)), directory.resolveAll("orders")); // still there
+    } finally {
+      poller.close();
+    }
+  }
+
+  @Test
+  void repeated_failures_accumulate_a_growing_consecutive_failure_count() {
+    // Same permanent-failure setup as above, for the same race-avoidance reason -- see that test's
+    // own comment.
+    CachingServiceDirectory directory = new CachingServiceDirectory();
+    FakeServiceCatalogClient client = new FakeServiceCatalogClient();
+    client.alwaysFailListing();
+    ControlPlaneServicePoller poller =
+        new ControlPlaneServicePoller(client, directory, Duration.ofHours(1));
+    try {
+      poller.poll();
+      poller.poll();
+      poller.poll();
+
+      assertTrue(directory.consecutiveFailures() >= 3);
     } finally {
       poller.close();
     }

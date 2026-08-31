@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 683,
+  "requirementCount": 684,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13539,6 +13539,34 @@
         "Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready.",
         "Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it.",
         "Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-686",
+      "module": "gimle-skald",
+      "feature": "Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale",
+      "category": "Service Discovery / DNS",
+      "userStory": "As a platform operator, I want Skald to distinguish a single missed control-plane poll from a sustained control-plane outage, and to stop confidently handing out endpoint addresses nobody has confirmed are still correct once its cached data is severely stale, so a caller never silently keeps getting routed to a scaled-down, rescheduled, or decommissioned instance.",
+      "statusDetail": "Complete. ControlPlaneServicePoller#poll deliberately left CachingServiceDirectory's cache untouched on a failed poll (a reasoned choice for a brief blip, explicitly commented as such), but there was no second tier at all: a control-plane outage lasting minutes or hours was handled identically to a single missed poll interval, with no staleness timestamp, metric, or health degradation anywhere signaling that the endpoints Skald kept answering with may no longer be correct. Fixed: CachingServiceDirectory now tracks when a poll last actually succeeded (replaceAll only) and how many polls have failed in a row since (recordPollFailure, reset by the next success), both exposed through the ServiceDirectory interface as timeSinceLastSuccess()/consecutiveFailures() so SkaldServer can read them without depending on the caching implementation; a directory that has never yet had a successful poll treats its own construction time as the reference point rather than a special-cased infinite value. Two new Micrometer gauges (gimle.skald.directory.staleness.seconds, gimle.skald.directory.consecutive.failures), wired via a new SkaldMetrics class -- gimle-skald previously had no metrics wiring at all, so gimle-observability and micrometer-core were added as dependencies -- and shipped to Muninn when configured (--muninn-endpoint/-Dgimle.skald.muninnEndpoint), matching the optional-endpoint MuninnShipper pattern gimle-fafnir already establishes. The genuine second tier of behavior: once staleness reaches six poll cycles (30 seconds at the default 5-second poll interval -- long enough to ride out a single missed poll or a brief control-plane restart, short enough that real cluster churn has almost certainly invalidated at least some cached endpoint by then), SkaldServer refuses a positive answer with SERVFAIL instead of confidently serving a possibly-stale address; a name genuinely absent from the cache still answers NXDOMAIN either way, since staleness only makes a positive answer untrustworthy, not a negative one. ControlPlaneServicePoller also escalates its own per-poll failure logging from WARN to ERROR once three consecutive failures have accumulated (half of the SERVFAIL threshold), giving an operator a louder signal before Skald actually starts refusing queries.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/CachingServiceDirectory.java` (`replaceAll`, `recordPollFailure`, `timeSinceLastSuccess`, `consecutiveFailures`)",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceDirectory.java` (`timeSinceLastSuccess`, `consecutiveFailures`)",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java` (`ERROR_ESCALATION_FAILURE_COUNT`, the WARN/ERROR escalation in `poll`)",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java` (`DEFAULT_STALE_THRESHOLD`, `isSeverelyStale`, `staleServfail`)",
+        "`gimle-skald/src/main/java/com/gimle/skald/dns/DnsCodec.java` (`RCODE_SERVFAIL`)",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldMetrics.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java` (`STALE_THRESHOLD_POLL_MULTIPLIER`, Muninn metrics shipping wiring)"
+      ],
+      "testCoverageDetail": "`CachingServiceDirectoryTest#a_successful_refresh_resets_the_last_success_time_and_the_failure_count`, `#a_poll_failure_leaves_the_cached_data_intact_but_grows_staleness_and_failure_count`, `#staleness_accrues_from_construction_when_no_poll_has_ever_succeeded`; `ControlPlaneServicePollerTest#a_successful_poll_resets_the_failure_count_and_advances_last_success`, `#repeated_failures_accumulate_a_growing_consecutive_failure_count`; `SkaldServerTest#refuses_a_positive_answer_with_servfail_once_severely_stale`, `#a_name_the_directory_never_knew_still_answers_nxdomain_once_stale`, `#a_fresh_successful_poll_immediately_ends_the_servfail_degradation`, all driven by `com.gimle.core.time.TestClock` for deterministic staleness thresholds rather than real sleeps. Full `gimle-skald` module suite re-verified (`mvn test -pl gimle-skald`, every pre-existing test still green).",
+      "gherkinSteps": [
+        "Given Skald's directory has just been refreshed by a successful poll; When a query for a cached Service name arrives; Then it receives a normal, confident answer.",
+        "Given a poll fails while the directory already holds live endpoint data; When a query for that data arrives shortly after; Then the pre-existing data is still served unchanged, and the failure is recorded (consecutive-failure count incremented, last-success time unchanged).",
+        "Given the time since the last successful poll has grown past six poll cycles; When a query for a name the directory still has cached data for arrives; Then Skald refuses to answer confidently and returns SERVFAIL rather than the possibly-stale address.",
+        "Given the directory is severely stale; When a query arrives for a name the directory has never known about; Then it still answers NXDOMAIN, since staleness only withholds positive answers, not negative ones.",
+        "Given a directory that was severely stale; When a fresh poll succeeds; Then the very next query for previously-cached data receives a normal, confident answer again."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

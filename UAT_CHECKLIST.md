@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 683
+- **Total requirements**: 684
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 557
+- **Not covered by automated test**: 558
 - **Release-readiness (automated coverage)**: 18.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -41,7 +41,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
-| gimle-skald | 3 | 0 | 3 | 0.0% |
+| gimle-skald | 4 | 0 | 4 | 0.0% |
 
 ## Checklist
 
@@ -2024,6 +2024,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-613 | DNS-over-TCP fallback with UDP truncation | Given a Skald server, When an A query arrives over TCP as a length-prefixed message, Then the full response is returned length-prefixed on the same connection. Given a UDP response exceeding 512 bytes, When Skald replies over UDP, Then the reply carries TC=1 and no answers. | No |
 | [ ] | GIMLE-620 | SRV records and headless A answers | Given a service with two live endpoints, When an A query arrives, Then both endpoint addresses are answered at once. Given the same service, When an SRV query arrives, Then one record per endpoint carries that endpoint's own port and a dashed-address target that itself resolves via A. | No |
+| [ ] | GIMLE-686 | Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale | Given Skald's directory has just been refreshed by a successful poll; When a query for a cached Service name arrives; Then it receives a normal, confident answer. Given a poll fails while the directory already holds live endpoint data; When a query for that data arrives shortly after; Then the pre-existing data is still served unchanged, and the failure is recorded (consecutive-failure count incremented, last-success time unchanged). Given the time since the last successful poll has grown past six poll cycles; When a query for a name the directory still has cached data for arrives; Then Skald refuses to answer confidently and returns SERVFAIL rather than the possibly-stale address. Given the directory is severely stale; When a query arrives for a name the directory has never known about; Then it still answers NXDOMAIN, since staleness only withholds positive answers, not negative ones. Given a directory that was severely stale; When a fresh poll succeeds; Then the very next query for previously-cached data receives a normal, confident answer again. | No |
 
 #### Service Fabric
 
