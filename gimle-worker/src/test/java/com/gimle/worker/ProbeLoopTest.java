@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
  * Driven by a {@link TestScheduler} rather than {@code ProbeLoop}'s own real ticker, so ticks fire
@@ -205,6 +206,51 @@ class ProbeLoopTest {
 
       Await.until(() -> !results.isEmpty(), Duration.ofSeconds(2));
       assertTrue(results.get(0));
+    }
+  }
+
+  /**
+   * Real ticker only -- {@code TestScheduler} runs every tick on the single advancing thread by
+   * design (see its own javadoc), so it can't exercise the platform-wide starvation this proves
+   * against: five permanently-hung keys used to be enough to exhaust the old shared 4-thread
+   * ticker pool and silently stop ticking every other key. Each key's checks run on its own
+   * {@link BoundedModuleScheduler} so that scheduler's own concurrency limit can't be the thing
+   * blocking the healthy key -- only the ticker itself is under test here.
+   */
+  @Test
+  @Timeout(value = 15, unit = TimeUnit.SECONDS)
+  void a_handful_of_permanently_hung_keys_do_not_starve_ticking_for_another_key() {
+    try (ProbeLoop realTicker = new ProbeLoop();
+        BoundedModuleScheduler hungScheduler = new BoundedModuleScheduler(ID, 5);
+        BoundedModuleScheduler healthyScheduler = new BoundedModuleScheduler(ID, 1)) {
+      for (int i = 0; i < 5; i++) {
+        realTicker.start(
+            "hung-" + i,
+            hungScheduler,
+            () -> {
+              Thread.sleep(Duration.ofMinutes(10));
+              return true;
+            },
+            Duration.ofMillis(50),
+            Duration.ofMillis(50),
+            ignored -> {});
+      }
+
+      List<Boolean> results = new CopyOnWriteArrayList<>();
+      realTicker.start(
+          "healthy",
+          healthyScheduler,
+          () -> true,
+          Duration.ofMillis(50),
+          Duration.ofSeconds(1),
+          results::add);
+
+      Await.until(() -> !results.isEmpty(), Duration.ofSeconds(10));
+      assertTrue(
+          results.get(0),
+          "a healthy key keeps reporting even while five other keys are permanently hung -- each"
+              + " key owns its own ticker thread now, so a hung one can never starve another's"
+              + " ticks");
     }
   }
 }

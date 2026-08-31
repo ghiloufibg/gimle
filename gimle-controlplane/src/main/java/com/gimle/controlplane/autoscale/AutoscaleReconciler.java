@@ -12,6 +12,9 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StoreReader;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalInt;
@@ -38,14 +41,28 @@ import org.slf4j.LoggerFactory;
  * {@link com.gimle.controlplane.reconcile.DeploymentReconciler} reads this effective count in place
  * of the user-submitted {@code replicas} whenever a policy is present; this reconciler never
  * touches {@link com.gimle.mimir.store.InstanceAssignment}s itself.
+ *
+ * <p>Every sibling reconciler that reads a node heartbeat for a scheduling/health decision (e.g.
+ * {@link com.gimle.controlplane.reconcile.ReplicaCountReconciler}) gates on the heartbeat's own
+ * {@link ObservedHeartbeat#receivedAt()} freshness before trusting it -- without that, a dead
+ * node's last-known {@link InstanceObservation} values stay frozen and still marked ready in the
+ * store until {@code ReplicaCountReconciler} actually evicts the stale assignment, and this
+ * reconciler would keep averaging that frozen, no-longer-real data into every scale decision for
+ * the whole window in between. {@link #readyInstanceObservations} applies the identical
+ * {@code nodeDarkTimeout} gate.
  */
 public final class AutoscaleReconciler {
 
   private static final Logger log = LoggerFactory.getLogger(AutoscaleReconciler.class);
 
+  /** Matches every sibling reconciler's own default node-dark timeout in production wiring. */
+  private static final Duration DEFAULT_NODE_DARK_TIMEOUT = Duration.ofSeconds(15);
+
   private final StoreReader store;
   private final MutationSink mutations;
   private final ArtifactResolver artifactResolver;
+  private final Duration nodeDarkTimeout;
+  private final Clock clock;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public AutoscaleReconciler(StateStore store) {
@@ -59,9 +76,26 @@ public final class AutoscaleReconciler {
 
   public AutoscaleReconciler(
       StoreReader store, MutationSink mutations, ArtifactResolver artifactResolver) {
+    this(store, mutations, artifactResolver, DEFAULT_NODE_DARK_TIMEOUT, Clock.systemUTC());
+  }
+
+  /**
+   * Canonical constructor, mirroring {@code ReplicaCountReconciler}'s own {@code nodeDarkTimeout}/
+   * {@code clock} shape -- {@code clock} is injectable so a test can drive heartbeat staleness
+   * deterministically via {@code TestClock} in {@code gimle-core}'s test-jar instead of sleeping
+   * past a real timeout.
+   */
+  public AutoscaleReconciler(
+      StoreReader store,
+      MutationSink mutations,
+      ArtifactResolver artifactResolver,
+      Duration nodeDarkTimeout,
+      Clock clock) {
     this.store = store;
     this.mutations = mutations;
     this.artifactResolver = artifactResolver;
+    this.nodeDarkTimeout = nodeDarkTimeout;
+    this.clock = clock;
   }
 
   public void reconcileOnce() {
@@ -298,10 +332,12 @@ public final class AutoscaleReconciler {
   }
 
   private List<InstanceObservation> readyInstanceObservations(DeploymentSpec spec) {
+    Instant now = clock.instant();
     List<InstanceObservation> result = new ArrayList<>();
     for (InstanceAssignment assignment : store.listAssignmentsFor(spec.tenantId(), spec.name())) {
       store
           .getNodeHeartbeat(assignment.nodeId())
+          .filter(observed -> !nodeIsDark(observed, now))
           .map(ObservedHeartbeat::heartbeat)
           .map(NodeHeartbeat::instances)
           .orElse(List.of())
@@ -316,5 +352,9 @@ public final class AutoscaleReconciler {
           .ifPresent(result::add);
     }
     return result;
+  }
+
+  private boolean nodeIsDark(ObservedHeartbeat observed, Instant now) {
+    return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
   }
 }

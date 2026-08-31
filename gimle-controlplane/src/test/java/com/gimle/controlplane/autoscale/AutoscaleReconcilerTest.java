@@ -2,11 +2,13 @@ package com.gimle.controlplane.autoscale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import com.gimle.core.time.TestClock;
 import com.gimle.mimir.manifest.AutoscalePolicy;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
@@ -15,6 +17,7 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -131,6 +134,35 @@ class AutoscaleReconcilerTest {
 
     reconciler.reconcileOnce();
     assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+  }
+
+  @Test
+  void a_dead_nodes_frozen_observation_is_not_averaged_into_the_scale_decision() {
+    StateStore store = new StateStore();
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    // 10m used out of a 10m request: 100% utilization, double the 50% target -- would normally
+    // drive a scale-up.
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
+
+    // The heartbeat's own receivedAt is stamped by StateStore with the system clock (the same
+    // anchoring ReplicaCountReconcilerTest's own stale-heartbeat test uses), so the reconciler's
+    // injected clock is anchored at real now and advanced past the node-dark timeout from there.
+    Duration nodeDarkTimeout = Duration.ofSeconds(15);
+    TestClock clock = TestClock.startingNow().advance(nodeDarkTimeout.plusSeconds(1));
+
+    AutoscaleReconciler reconciler =
+        new AutoscaleReconciler(store, store, ArtifactResolver.localOnly(), nodeDarkTimeout, clock);
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        2,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "node-a's heartbeat has gone dark, so its frozen high-utilization observation must not"
+            + " drive a scale-up -- holding the current count, the same 'no signal yet' behavior"
+            + " as no observations at all");
   }
 
   @Test

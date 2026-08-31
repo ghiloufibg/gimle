@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -25,10 +26,12 @@ import org.slf4j.LoggerFactory;
  * vessel process never speaks Gimlé's own control protocol, so there is nothing to append), started
  * with {@code env} applied on top of whatever this agent's own JVM inherited. Restart-on-crash
  * reuses the same {@link RestartTracker}-driven destroy-and-respawn policy {@link
- * WorkerProcessSupervisor} already established for a dedicated worker JVM -- a vessel gets the
- * identical Tier-2-equivalent crash-domain guarantee -- but captures every stdout/stderr line
- * unconditionally as this instance's own APPLICATION log rather than JSON-sniffing it: a vessel's
- * output is whatever arbitrary program it runs, never Gimlé's own structured Logback JSON.
+ * WorkerProcessSupervisor} already established for a dedicated worker JVM -- including that class's
+ * {@code recordSuccess()}-once-stabilized behavior (see {@link #scheduleStabilityConfirmation}) --
+ * a vessel gets the identical Tier-2-equivalent crash-domain guarantee -- but captures every
+ * stdout/stderr line unconditionally as this instance's own APPLICATION log rather than
+ * JSON-sniffing it: a vessel's output is whatever arbitrary program it runs, never Gimlé's own
+ * structured Logback JSON.
  */
 final class VesselProcessSupervisor implements AutoCloseable {
 
@@ -45,6 +48,7 @@ final class VesselProcessSupervisor implements AutoCloseable {
   private final Consumer<String> onRestartBudgetExhausted;
   private final Path applicationLogFile;
   private final Consumer<String> onRespawned;
+  private final Duration stableUptimeThreshold;
 
   private volatile Process process;
   private volatile boolean closed;
@@ -59,6 +63,34 @@ final class VesselProcessSupervisor implements AutoCloseable {
       Consumer<String> onRestartBudgetExhausted,
       Path applicationLogFile,
       Consumer<String> onRespawned) {
+    this(
+        key,
+        command,
+        env,
+        workingDirectory,
+        restartTracker,
+        onRestartBudgetExhausted,
+        applicationLogFile,
+        onRespawned,
+        WorkerProcessSupervisor.DEFAULT_STABLE_UPTIME_THRESHOLD);
+  }
+
+  /**
+   * Same as the eight-arg constructor, with an explicit {@code stableUptimeThreshold} rather than
+   * {@link WorkerProcessSupervisor#DEFAULT_STABLE_UPTIME_THRESHOLD} -- for tests that need a
+   * respawned vessel to be confirmed stable inside a bounded test timeout instead of ten real
+   * seconds, the same reason {@link WorkerProcessSupervisor} exposes the equivalent overload.
+   */
+  VesselProcessSupervisor(
+      String key,
+      List<String> command,
+      Map<String, String> env,
+      Optional<Path> workingDirectory,
+      RestartTracker restartTracker,
+      Consumer<String> onRestartBudgetExhausted,
+      Path applicationLogFile,
+      Consumer<String> onRespawned,
+      Duration stableUptimeThreshold) {
     this.key = key;
     this.command = List.copyOf(command);
     this.env = Map.copyOf(env);
@@ -67,6 +99,7 @@ final class VesselProcessSupervisor implements AutoCloseable {
     this.onRestartBudgetExhausted = onRestartBudgetExhausted;
     this.applicationLogFile = applicationLogFile;
     this.onRespawned = onRespawned;
+    this.stableUptimeThreshold = stableUptimeThreshold;
   }
 
   synchronized void start() throws IOException {
@@ -180,12 +213,43 @@ final class VesselProcessSupervisor implements AutoCloseable {
                 }
                 try {
                   spawn();
+                  scheduleStabilityConfirmation(process);
                 } catch (IOException e) {
                   log.error("vessel {} respawn failed: {}", key, e.getMessage());
                   return;
                 }
               }
               onRespawned.accept(key);
+            });
+  }
+
+  /**
+   * Only calls {@link RestartTracker#recordSuccess()} once {@code spawnedProcess} has stayed alive
+   * for {@code stableUptimeThreshold} -- see {@link
+   * WorkerProcessSupervisor#DEFAULT_STABLE_UPTIME_THRESHOLD}'s javadoc for why an immediate call
+   * would defeat backoff escalation for a fast crash loop. Without this, a vessel that crashes and
+   * cleanly recovers every couple of minutes -- running healthily far longer than any reasonable
+   * "stabilized" threshold in between -- accumulates toward the same restart budget with no reset,
+   * and is eventually abandoned even though every individual outage was brief. Guarded against a
+   * stale confirmation firing after a later respawn already replaced {@link #process}: that later
+   * respawn's own confirmation is what gets to decide, not this one.
+   */
+  private void scheduleStabilityConfirmation(Process spawnedProcess) {
+    Thread.ofVirtual()
+        .name("gimle-vessel-stability-check-" + key)
+        .start(
+            () -> {
+              try {
+                Thread.sleep(stableUptimeThreshold);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+              }
+              synchronized (this) {
+                if (!closed && process == spawnedProcess && spawnedProcess.isAlive()) {
+                  restartTracker.recordSuccess();
+                }
+              }
             });
   }
 
