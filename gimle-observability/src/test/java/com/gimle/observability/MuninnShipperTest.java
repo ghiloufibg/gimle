@@ -16,6 +16,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -121,6 +122,53 @@ class MuninnShipperTest {
     // one POST total, rather than "no more had arrived by the time we looked".
     scheduler.advance(SHIP_INTERVAL.multipliedBy(3));
     assertEquals(1, receivedBodies.size());
+  }
+
+  /**
+   * The regression case for the cursor's exact-duplicate-timestamp loss: {@code readAfter}'s own
+   * comparison is strictly "after," so a second line landing at the identical instant as the
+   * first-shipped one used to be excluded on every subsequent tick, forever, with no restart or
+   * error involved. A second line sharing {@code "one"}'s exact timestamp is appended between two
+   * ticks here -- before the fix this test fails with only one body ever received.
+   */
+  @Test
+  @Timeout(10)
+  void two_lines_sharing_the_exact_same_timestamp_across_ticks_are_both_shipped(
+      @TempDir Path tempDir, TestClock clock) throws Exception {
+    List<String> receivedBodies = new CopyOnWriteArrayList<>();
+    stub =
+        startStub(
+            body -> {
+              receivedBodies.add(body);
+              return 200;
+            });
+
+    Path logFile = tempDir.resolve("app.log");
+    String sharedTimestamp = "2026-08-10T10:00:00.500Z";
+    Files.writeString(logFile, structuredLine(sharedTimestamp, "one") + "\n");
+
+    TestScheduler scheduler = new TestScheduler(clock);
+    shipper = shipperOn(scheduler, SHIP_INTERVAL);
+    shipper.startShippingLogFile(logFile, 1);
+
+    scheduler.runUntilIdle();
+    assertEquals(1, receivedBodies.size());
+    assertTrue(receivedBodies.get(0).contains("\"message\":\"one\""));
+
+    // A sibling line lands at the identical instant on a later tick -- bursty logging can produce
+    // this at any timestamp resolution, not just as a contrived edge case.
+    Files.writeString(
+        logFile, structuredLine(sharedTimestamp, "two") + "\n", StandardOpenOption.APPEND);
+    scheduler.advance(SHIP_INTERVAL);
+    assertEquals(2, receivedBodies.size(), "the same-instant sibling must still get shipped");
+    assertTrue(receivedBodies.get(1).contains("\"message\":\"two\""));
+    assertTrue(
+        !receivedBodies.get(1).contains("\"message\":\"one\""),
+        "the already-shipped sibling must not be re-sent");
+
+    // And the cursor is now genuinely caught up -- a further tick with nothing new ships nothing.
+    scheduler.advance(SHIP_INTERVAL.multipliedBy(3));
+    assertEquals(2, receivedBodies.size());
   }
 
   @Test
