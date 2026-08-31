@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 689,
+    "totalRequirements": 690,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 563,
+    "notCoveredByAutomatedTest": 564,
     "releaseReadinessPercent": 18.3
   },
   "items": [
@@ -7581,6 +7581,17 @@
       "category": "Service fabric / transport",
       "feature": "FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread",
       "step": "Given a FabricServer listening for connections; When a client sends a frame with a corrupted length prefix; Then that connection is closed cleanly with no exception escaping the connection's own thread. Given a FabricServer that just handled one malformed-frame connection; When a subsequent, well-formed call arrives; Then it is served normally, proving the malformed frame did not take the listener down.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-692",
+      "module": "gimle-fafnir",
+      "category": "Security / Authorization",
+      "feature": "FafnirServer authorizes cluster-wide secrets key rotation and retirement",
+      "step": "Given a caller authenticated over mTLS with no SECRET grant; When it calls POST /secrets/rotate-key or POST /secrets/retire-key directly against Fafnir; Then the request is rejected with 403. Given a caller presenting no client certificate, forwarded-principal header, or session cookie at all; When it calls either route; Then the request is rejected with 401. Given a caller holding an unscoped SECRET/WRITE grant; When it calls either route directly against Fafnir, or through gimle-controlplane's own proxy; Then the request succeeds and the decision is recorded in the durable audit trail.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

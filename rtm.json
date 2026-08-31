@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 689,
+  "requirementCount": 690,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11937,6 +11937,22 @@
       "otherTestCoverage": "`FabricServerTest#a_malformed_frame_closes_the_connection_cleanly_and_the_server_keeps_serving_other_connections` and `#a_malformed_frame_connection_releases_its_permit_the_same_as_a_well_formed_one` (composition proof with GIMLE-688). Full gimle-fabric module suite re-verified.",
       "sourceLocations": [
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`serve(SocketChannel)`, `serve(Socket)`, `logMalformedFrame`)"
+      ]
+    },
+    {
+      "id": "GIMLE-692",
+      "module": "gimle-fafnir",
+      "feature": "FafnirServer authorizes cluster-wide secrets key rotation and retirement",
+      "category": "Security / Authorization",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-85 -- handleRotateKey/handleRetireSecretsKey checked only the HTTP method, never calling authorizeSecrets/resolvePrincipal/decideAllowed the way every other /secrets/* handler in FafnirServer does, so any network-adjacent caller with zero credentials could rotate the cluster's active secrets key or permanently retire one (FafnirCrypto.retire is explicitly destructive -- a data-loss/denial-of-service primitive). Fixed by a new authorizeGlobalSecretsAdmin gate (unscoped SECRET/WRITE via Authorizer#authorize) on both handlers, plus threading the resolved caller's identity through gimle-controlplane's own proxy (ApiServer#forwardGlobalAdminRoute) so a legitimately-authorized proxied caller is not rejected once Fafnir's own independent check is in place.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario yet exercises key rotation/retirement authorization against a real running cluster -- coverage today is unit/route-level (FafnirSecretsAuthzTest, FafnirServerTlsTest, ApiServerAuthzTest) only, per this file's own coverageRule.",
+      "otherTestCoverage": "`FafnirSecretsAuthzTest#a_rotate_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden`/`#a_retire_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden`/`#a_rotate_key_request_from_a_caller_with_the_permission_succeeds`/`#a_retire_key_request_from_a_caller_with_the_permission_succeeds`/`#a_rotate_key_request_with_no_principal_information_at_all_is_unauthorized`/`#a_retire_key_request_with_no_principal_information_at_all_is_unauthorized`; `FafnirServerTlsTest#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server` (updated); `ApiServerAuthzTest#a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` (re-verified through the real proxy).",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleRotateKey`, `handleRetireSecretsKey`, `authorizeGlobalSecretsAdmin`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleRotateSecretsKey`, `forwardGlobalAdminRoute`)"
       ]
     }
   ]

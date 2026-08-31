@@ -327,15 +327,21 @@ public final class FafnirServer implements AutoCloseable {
 
   /**
    * Same semantics as the {@code ApiServer.handleRotateSecretsKey} endpoint it replaces: generates
-   * a new active key and re-encrypts every existing entry under it, gated on the caller having
-   * already been authorized upstream ({@code gimle-controlplane}'s own {@code requireAuthorized}
-   * check). Fafnir's own independent re-check below is wired for the versioned {@code /secrets/*}
-   * surface, not yet extended to this cluster-wide, non-tenant-scoped operation.
+   * a new active key and re-encrypts every existing entry under it. Gated on {@link
+   * #authorizeGlobalSecretsAdmin} -- Fafnir's own independent {@code SECRET}/{@code WRITE} check,
+   * unscoped by tenant since rotation is cluster-wide, the identical shape {@code ApiServer}'s own
+   * {@code requireAuthorized} gate already applies on the proxied route -- rather than trusting
+   * that upstream check alone. This route is an ordinary {@code HttpExchange} context reachable by
+   * anyone who can open a connection to this port directly (a node agent, or a compromised one), so
+   * "authorized upstream by the proxy" was never actually enforced here before this check existed.
    */
   private void handleRotateKey(HttpExchange exchange) {
     try {
       if (!"POST".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!authorizeGlobalSecretsAdmin(exchange, Verb.WRITE)) {
         return;
       }
       byte newKeyId = crypto.rotate();
@@ -349,15 +355,23 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   /**
-   * Sibling of {@link #handleRotateKey}, same unauthenticated-at-this-layer posture (the proxy is
-   * the actual trust boundary -- see that method's own class javadoc): {@code keyId} is a
-   * caller-named id to actually stop trusting, not a value Fafnir chooses itself, so a bad id or a
-   * request naming the still-active key surfaces as 400, distinct from a genuine internal error.
+   * Sibling of {@link #handleRotateKey}, same {@link #authorizeGlobalSecretsAdmin} gate: {@code
+   * keyId} is a caller-named id to actually stop trusting, not a value Fafnir chooses itself, so a
+   * bad id or a request naming the still-active key surfaces as 400, distinct from a genuine
+   * internal error -- but only for a caller who has already cleared the same cluster-wide {@code
+   * SECRET}/{@code WRITE} check {@link #handleRotateKey} requires. {@link FafnirCrypto#retire} is
+   * explicitly destructive (any ciphertext still encrypted under the retired id becomes permanently
+   * unrecoverable), which is exactly why leaving this route reachable by anyone who could open a
+   * connection here -- no authentication, let alone authorization -- was a real
+   * denial-of-service/data-loss primitive, not a theoretical one.
    */
   private void handleRetireSecretsKey(HttpExchange exchange) {
     try {
       if (!"POST".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!authorizeGlobalSecretsAdmin(exchange, Verb.WRITE)) {
         return;
       }
       byte keyId = parseKeyIdBody(exchange);
@@ -1030,7 +1044,8 @@ public final class FafnirServer implements AutoCloseable {
       // nothing at all for every request this process ever received in this mode. Attributed to
       // the same synthetic "anonymous" principal the console's own session endpoint already
       // reports for this mode (see handleAuthSession above).
-      recordAudit(kind, new Principal("anonymous", Set.of()), verb, tenantId, key, true);
+      recordAudit(
+          kind, new Principal("anonymous", Set.of()), verb, Optional.of(tenantId), key, true);
       return true;
     }
     Optional<Principal> resolved = resolvePrincipal(exchange);
@@ -1046,7 +1061,55 @@ public final class FafnirServer implements AutoCloseable {
       return false;
     }
     boolean allowed = decideAllowed(kind, principal, verb, tenantId);
-    recordAudit(kind, principal, verb, tenantId, key, allowed);
+    recordAudit(kind, principal, verb, Optional.of(tenantId), key, allowed);
+    if (!allowed) {
+      authzThrottle.recordFailure(throttleKey);
+      metrics.recordAuthzFailure(verb.name());
+      respondQuietly(exchange, 403, "forbidden");
+      return false;
+    }
+    authzThrottle.recordSuccess(throttleKey);
+    return true;
+  }
+
+  /**
+   * The cluster-wide sibling of {@link #authorizeSecrets}, used only by {@link #handleRotateKey}
+   * and {@link #handleRetireSecretsKey}: the identical plaintext-open / principal-resolve /
+   * throttle / audit shape, but checked unscoped by tenant ({@link Optional#empty()}) since key
+   * rotation and retirement act on the whole cluster's own key ring, not one tenant's data, and via
+   * {@link Authorizer#authorize} directly rather than {@link #decideAllowed} -- a {@code
+   * gimle:nodes} principal has no legitimate self-service reason to rotate or retire the cluster's
+   * secrets key the way it does to read its own tenant's secrets, so it is denied here exactly like
+   * any other caller with no matching grant, rather than routed through the node self-service
+   * short-circuit {@link #decideAllowed} exists for.
+   */
+  private boolean authorizeGlobalSecretsAdmin(HttpExchange exchange, Verb verb) {
+    if (!(exchange instanceof HttpsExchange)) {
+      recordAudit(
+          ResourceKind.SECRET,
+          new Principal("anonymous", Set.of()),
+          verb,
+          Optional.empty(),
+          Optional.empty(),
+          true);
+      return true;
+    }
+    Optional<Principal> resolved = resolvePrincipal(exchange);
+    if (resolved.isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
+      return false;
+    }
+    Principal principal = resolved.get();
+    String throttleKey = principal.name();
+    Optional<Instant> throttledUntil = authzThrottle.throttledUntil(throttleKey);
+    if (throttledUntil.isPresent()) {
+      respondThrottled(exchange, throttledUntil.get());
+      return false;
+    }
+    boolean allowed =
+        authorizer.authorize(
+            principal, ResourceKind.SECRET, verb, Optional.empty(), Optional.empty());
+    recordAudit(ResourceKind.SECRET, principal, verb, Optional.empty(), Optional.empty(), allowed);
     if (!allowed) {
       authzThrottle.recordFailure(throttleKey);
       metrics.recordAuthzFailure(verb.name());
@@ -1072,22 +1135,24 @@ public final class FafnirServer implements AutoCloseable {
 
   /**
    * Dual audit logging for a completed {@code /secrets/*}/{@code /secretmaps/*} authorization
-   * decision: the SLF4J {@code auditLog} line (independent value for an operator tailing this
+   * decision, plus {@link #authorizeGlobalSecretsAdmin}'s own cluster-wide key rotate/retire
+   * decisions: the SLF4J {@code auditLog} line (independent value for an operator tailing this
    * process's own log file, no query needed) plus the durable, queryable {@link AuditEvent}
    * counterpart, giving gimle-observability a general-purpose audit-event-log mechanism it
-   * previously lacked.
+   * previously lacked. {@code tenantId} is {@link Optional#empty()} only for the latter -- key
+   * rotation/retirement acts on the whole cluster's key ring, not one tenant's data.
    */
   private void recordAudit(
       ResourceKind kind,
       Principal principal,
       Verb verb,
-      String tenantId,
+      Optional<String> tenantId,
       Optional<String> key,
       boolean allowed) {
     auditLog.info(
         "principal={} tenant={} key={} verb={} allow={}",
         principal.name(),
-        tenantId,
+        tenantId.orElse("-"),
         key.orElse("-"),
         verb,
         allowed);
@@ -1101,7 +1166,7 @@ public final class FafnirServer implements AutoCloseable {
                     principal.groups(),
                     kind.name(),
                     verb.name(),
-                    Optional.of(tenantId),
+                    tenantId,
                     key,
                     allowed,
                     System.currentTimeMillis())));

@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 689
+- **Total requirements**: 690
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 563
+- **Not covered by automated test**: 564
 - **Release-readiness (automated coverage)**: 18.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -22,7 +22,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 38 | 1 | 37 | 2.6% |
 | gimle-controlplane | 90 | 15 | 75 | 16.7% |
-| gimle-fafnir | 28 | 11 | 17 | 39.3% |
+| gimle-fafnir | 29 | 11 | 18 | 37.9% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
@@ -1332,6 +1332,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-651 | Explicit SecretMap Replace Verb | Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely. | No |
+
+#### Security / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-692 | FafnirServer authorizes cluster-wide secrets key rotation and retirement | Given a caller authenticated over mTLS with no SECRET grant; When it calls POST /secrets/rotate-key or POST /secrets/retire-key directly against Fafnir; Then the request is rejected with 403. Given a caller presenting no client certificate, forwarded-principal header, or session cookie at all; When it calls either route; Then the request is rejected with 401. Given a caller holding an unscoped SECRET/WRITE grant; When it calls either route directly against Fafnir, or through gimle-controlplane's own proxy; Then the request succeeds and the decision is recorded in the durable audit trail. | No |
 
 ### gimle-andvari
 

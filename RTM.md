@@ -704,6 +704,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | New | Not Covered | — |
 | GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | New | Not Covered | — |
 | GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | New | Not Covered | — |
+| GIMLE-692 | FafnirServer authorizes cluster-wide secrets key rotation and retirement | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4389,6 +4390,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FafnirServerSecretMapTest#put_bulk_with_one_invalid_key_returns_207_and_reports_that_keys_own_failure`, `#replace_with_one_invalid_key_returns_207_but_still_writes_the_valid_ones`, `#rollback_returns_207_when_a_targeted_keys_version_was_hard_deleted`; `FafnirServerSealTest`'s per-key-failure tests (updated to assert 207); `SecretMapCommandTest#secretmap_set_with_every_key_valid_exits_zero`, `#secretmap_set_with_one_invalid_key_exits_nonzero_after_printing_every_keys_own_result`, `#secretmap_replace_with_one_invalid_key_exits_nonzero`.
 - **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java`, `gimle-cli/src/main/java/com/gimle/cli/SecretMapCommand.java`
 
+#### GIMLE-692 — FafnirServer authorizes cluster-wide secrets key rotation and retirement
+
+- **Category**: Security / Authorization
+- **Status**: New  _(New requirement: closes FUNC-85 -- handleRotateKey/handleRetireSecretsKey checked only the HTTP method, never calling authorizeSecrets/resolvePrincipal/decideAllowed the way every other /secrets/* handler in FafnirServer does, so any network-adjacent caller with zero credentials could rotate the cluster's active secrets key or permanently retire one (FafnirCrypto.retire is explicitly destructive -- a data-loss/denial-of-service primitive). Fixed by a new authorizeGlobalSecretsAdmin gate (unscoped SECRET/WRITE via Authorizer#authorize) on both handlers, plus threading the resolved caller's identity through gimle-controlplane's own proxy (ApiServer#forwardGlobalAdminRoute) so a legitimately-authorized proxied caller is not rejected once Fafnir's own independent check is in place.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario yet exercises key rotation/retirement authorization against a real running cluster -- coverage today is unit/route-level (FafnirSecretsAuthzTest, FafnirServerTlsTest, ApiServerAuthzTest) only, per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `FafnirSecretsAuthzTest#a_rotate_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden`/`#a_retire_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden`/`#a_rotate_key_request_from_a_caller_with_the_permission_succeeds`/`#a_retire_key_request_from_a_caller_with_the_permission_succeeds`/`#a_rotate_key_request_with_no_principal_information_at_all_is_unauthorized`/`#a_retire_key_request_with_no_principal_information_at_all_is_unauthorized`; `FafnirServerTlsTest#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server` (updated); `ApiServerAuthzTest#a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` (re-verified through the real proxy).
+- **Source location(s)**: `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`handleRotateKey`, `handleRetireSecretsKey`, `authorizeGlobalSecretsAdmin`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleRotateSecretsKey`, `forwardGlobalAdminRoute`)
+
 ### gimle-andvari
 
 #### GIMLE-297 — Immutable, content-addressed artifact store
@@ -7288,7 +7298,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**563 of 689 requirements are Not Covered.**
+**564 of 690 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7736,6 +7746,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |
 | GIMLE-017 | gimle-core | Session-signing key file load-or-create with owner-only permissions | Security | `SessionKeyFileManagerTest` (generates_on_first_run_reuses_on_later, rejects corrupted/empty key file) |
 | GIMLE-651 | gimle-fafnir | Explicit SecretMap Replace Verb | Security | `SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC) |
+| GIMLE-692 | gimle-fafnir | FafnirServer authorizes cluster-wide secrets key rotation and retirement | Security / Authorization | `FafnirSecretsAuthzTest#a_rotate_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden`/`#a_retire_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden`/`#a_rotate_key_request_from_a_caller_with_the_permission_succeeds`/`#a_retire_key_request_from_a_caller_with_the_permission_succeeds`/`#a_rotate_key_request_with_no_principal_information_at_all_is_unauthorized`/`#a_retire_key_request_with_no_principal_information_at_all_is_unauthorized`; `FafnirServerTlsTest#reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server` (updated); `ApiServerAuthzTest#a_secret_survives_key_rotation_and_new_secrets_use_the_rotated_key` (re-verified through the real proxy). |
 | GIMLE-627 | gimle-agent | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Security / Networking | `BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization) |
 | GIMLE-624 | gimle-controlplane | Certificate revocation denylist | Security / PKI | `ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip) |
 | GIMLE-614 | gimle-controlplane | Self-subject access review endpoint (/authz/can-i) | Security / RBAC | `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything) |

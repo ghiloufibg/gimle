@@ -9,6 +9,7 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.tls.SslContexts;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import com.gimle.fafnir.testsupport.TlsTestFixtures;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -403,6 +404,207 @@ class FafnirSecretsAuthzTest {
         assertEquals(true, events.get(0).allowed());
       }
     }
+  }
+
+  // ---- /secrets/rotate-key, /secrets/retire-key (GIMLE-692) ----
+  //
+  // Both routes are cluster-wide, non-tenant-scoped admin operations -- FafnirServer's own
+  // authorizeGlobalSecretsAdmin gate, not the tenant-scoped authorizeSecrets every /secrets/
+  // {tenantId}/... route above goes through. Mirrors this file's own established pattern: a
+  // no-permission caller is forbidden, a caller actually holding the (unscoped) SECRET/WRITE grant
+  // succeeds, and -- the scenario unique to these two routes -- a caller presenting no client
+  // certificate at all, with no forwarded header or session cookie either, is unauthorized rather
+  // than silently treated as permitted.
+
+  @Test
+  @Timeout(10)
+  void a_rotate_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      // No Role/RoleBinding granted to "caller" at all, same as this file's own
+      // a_caller_whose_own_certificate_holds_no_secret_permission_is_forbidden test.
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/rotate-key"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_retire_key_request_from_a_caller_with_no_secret_write_permission_is_forbidden()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/retire-key"))
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"keyId\":1}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_rotate_key_request_from_a_caller_with_the_permission_succeeds() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/rotate-key"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(200, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_retire_key_request_from_a_caller_with_the_permission_succeeds() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+        String rotateUrl = "https://localhost:" + server.port() + "/secrets/rotate-key";
+        // Rotate twice first (active key id 0 -> 1 -> 2) so key id 1 is retireable: #retire
+        // rejects retiring whichever id is currently active.
+        client.send(
+            HttpRequest.newBuilder(URI.create(rotateUrl))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        client.send(
+            HttpRequest.newBuilder(URI.create(rotateUrl))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/retire-key"))
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"keyId\":1}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(200, response.statusCode());
+      }
+    }
+  }
+
+  /**
+   * The scenario distinct from "authenticated but not permitted": a caller that never identifies
+   * itself at all -- no client certificate presented (Fafnir's server socket only ever {@code
+   * wantClientAuth}s, never {@code needClientAuth}s, so the handshake itself still completes), no
+   * forwarded-principal header, no session cookie. {@link FafnirServer#authorizeGlobalSecretsAdmin}
+   * must reject this as 401, the same "authentication required" outcome {@code
+   * authorizeSecrets}-gated routes already give a principal-less caller.
+   */
+  @Test
+  @Timeout(10)
+  void a_rotate_key_request_with_no_principal_information_at_all_is_unauthorized()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = trustOnlyClient(ca);
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/rotate-key"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(401, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_retire_key_request_with_no_principal_information_at_all_is_unauthorized()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = trustOnlyClient(ca);
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/retire-key"))
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"keyId\":1}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(401, response.statusCode());
+      }
+    }
+  }
+
+  /** An {@link HttpClient} trusting {@code ca} but presenting no client certificate of its own. */
+  private HttpClient trustOnlyClient(CertificateAuthority ca) throws Exception {
+    Path caFile = tls.writePem("trust-only-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
+    return HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
   }
 
   /**
