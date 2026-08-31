@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 683
+- **Total requirements**: 684
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 557
+- **Not covered by automated test**: 558
 - **Release-readiness (automated coverage)**: 18.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -26,7 +26,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 21 | 0 | 21 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
-| gimle-gateway | 17 | 0 | 17 | 0.0% |
+| gimle-gateway | 18 | 0 | 18 | 0.0% |
 | gimle-cli | 31 | 0 | 31 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
@@ -1489,6 +1489,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-363 | Route-table config DSL parsing | Given a gateway.routes value mixing FABRIC and VESSEL lines, blank lines, and "#" comments When GatewayRouteConfig.parse(text) is called Then blank/comment lines are ignored and each remaining line becomes the correct route type And a malformed line (wrong field count, unknown kind, bad majorVersion/paramType) throws GatewayConfigException naming the line number | No |
 | [ ] | GIMLE-364 | Duplicate route-path rejection at config-parse time | Given a config with two lines both declaring path "/api/orders" (one FABRIC, one VESSEL, or same-kind duplicates) When GatewayRouteConfig.parse is called Then it throws GatewayConfigException before any route table is built | No |
+
+#### Gateway / routing
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-684 | Gateway route dispatch supports longest-prefix-match routing for VESSEL/SERVICE routes, not exact-literal-path-only | Given a VESSEL (or SERVICE) route declared with a trailing `/*` prefix marker; When an inbound request's path is longer than the declared prefix and nested under it; Then the route matches and the request is proxied to the resolved target with its full, untouched inbound path. Given two overlapping prefix routes declared at different depths under the same base path; When an inbound request's path matches both; Then the longer, more specific prefix route wins. Given no declared route, exact or prefix, matches an inbound request's path; When the gateway dispatches it; Then the response is 404, exactly as before prefix routing existed. Given a FABRIC route declared at a path; When an inbound request's path extends past that path with an additional segment; Then no route matches it, since FABRIC routes are never treated as a prefix. | No |
 
 #### Gateway/Routing
 

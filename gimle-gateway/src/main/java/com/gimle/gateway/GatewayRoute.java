@@ -11,16 +11,34 @@ import java.util.function.Function;
  * ModuleContext#relayControlPlaneRead} (see {@link VesselEndpointCache}). {@link ServiceRoute}
  * proxies the inbound request the same way, but resolves its target through a control-plane-
  * declared {@code Service}'s own endpoint set instead of a named deployment port (see {@link
- * ServiceEndpointCache}). The three kinds share nothing beyond an HTTP path (and now an optional
- * host constraint) to dispatch on, which is why this is a sealed interface of record shapes rather
- * than one flat record trying to cover all three -- see {@link GatewayDispatcher#dispatch} for how
- * each kind is actually served.
+ * ServiceEndpointCache}). The three kinds share nothing beyond an HTTP path (an optional host
+ * constraint, and -- for {@link VesselRoute}/{@link ServiceRoute} only, see {@link #prefix()} -- an
+ * optional prefix-vs-exact match mode) to dispatch on, which is why this is a sealed interface of
+ * record shapes rather than one flat record trying to cover all three -- see {@link
+ * GatewayDispatcher#dispatch} for how each kind is actually served.
  */
 public sealed interface GatewayRoute
     permits GatewayRoute.FabricRoute, GatewayRoute.VesselRoute, GatewayRoute.ServiceRoute {
 
-  /** The HTTP path this route answers -- exact-match only, see {@link GatewayDispatcher}. */
+  /**
+   * The HTTP path this route answers. When {@link #prefix()} is {@code false} (the default), an
+   * exact literal path -- unchanged behavior from before this route kind gained prefix matching.
+   * When {@link #prefix()} is {@code true}, the prefix itself: normalized with no trailing slash
+   * (or exactly {@code "/"} for a catch-all matching every path), matching itself and everything
+   * path-segment-nested under it. See {@link GatewayDispatcher} for matching/precedence semantics.
+   */
   String path();
+
+  /**
+   * Whether {@link #path()} names a path prefix -- matching itself and everything nested under it
+   * -- rather than one exact literal path. {@code false} by default for every route kind, and
+   * permanently {@code false} for a {@link FabricRoute} (see its own override for why). Declared in
+   * the manifest-facing config via a trailing {@code /*} on the path field (see {@link
+   * GatewayRouteConfig}), the same spelling Kubernetes Ingress/nginx use for a prefix path.
+   */
+  default boolean prefix() {
+    return false;
+  }
 
   /**
    * The {@code Host} header value this route requires, or {@link Optional#empty()} if it matches
@@ -83,6 +101,22 @@ public sealed interface GatewayRoute
       if (paramType == null) {
         throw new GatewayConfigException("route paramType must not be null");
       }
+    }
+
+    /**
+     * Deliberately, permanently exact-path-only -- prefix matching is not offered for this route
+     * kind at all (there is no {@code /*}-suffixed spelling {@link GatewayRouteConfig} accepts for
+     * a {@code FABRIC} line; it is rejected at parse time). A {@code FABRIC} route names one
+     * specific fabric method call taking at most one simple-typed argument (see {@link ParamType}),
+     * not a resource subtree: {@link GatewayDispatcher#dispatchFabric} never even reads the inbound
+     * request path beyond the one this route is registered under, so a path segment past a would-be
+     * prefix would carry no meaning and be silently discarded -- inviting a confusing "why did that
+     * URL work" bug rather than serving any real use case the way a prefix genuinely does for a
+     * {@link VesselRoute}/{@link ServiceRoute}, which proxy the full inbound path onward.
+     */
+    @Override
+    public boolean prefix() {
+      return false;
     }
 
     /**
@@ -170,28 +204,33 @@ public sealed interface GatewayRoute
   }
 
   /**
-   * An HTTP-to-vessel route: an HTTP {@code path} that, when hit, proxies the inbound request
-   * verbatim to a live instance of {@code deploymentName}, on the port that instance exports under
-   * the env-var name {@code portName} (see {@code VesselEnvValue.PortAllocation} in {@code
-   * gimle-core} for where that name comes from, and {@link VesselEndpointCache} for how a live
-   * {@code host}/port pair is resolved and cached).
+   * An HTTP-to-vessel route: an HTTP {@code path} that, when hit, proxies the inbound request to a
+   * live instance of {@code deploymentName}, on the port that instance exports under the env-var
+   * name {@code portName} (see {@code VesselEnvValue.PortAllocation} in {@code gimle-core} for
+   * where that name comes from, and {@link VesselEndpointCache} for how a live {@code host}/port
+   * pair is resolved and cached).
    *
-   * <p>"Verbatim" means exact-path, no rewriting: this route's own {@code path} is forwarded to the
-   * target unchanged (never a prefix stripped or a wildcard expanded -- deliberately out of scope
-   * for v1, see {@link GatewayDispatcher}'s own javadoc), and every HTTP method plus the full
-   * request body pass through unchanged, unlike a {@link FabricRoute}'s method/argument-shape
-   * restrictions.
+   * <p>The request is proxied "verbatim": whatever HTTP method, request body, and -- critically --
+   * full inbound path the caller sent are forwarded to the target completely unchanged, never
+   * rewritten. This holds equally for an exact-path route and a {@link #prefix()} one: unlike a
+   * rewrite rule (e.g. an Ingress {@code rewrite-target} annotation, which strips the matched
+   * prefix before forwarding), a plain prefix match -- the kind this route declares -- keeps the
+   * full original path on the proxied call, the same as Kubernetes Ingress's own default {@code
+   * pathType: Prefix} behavior. That is a deliberate choice here, not an oversight: it is exactly
+   * what lets {@link GatewayDispatcher} hand {@link VesselProxyClient} the request's own untouched
+   * path with no new path-rewriting logic to get wrong, for both route shapes.
    */
-  record VesselRoute(Optional<String> host, String path, String deploymentName, String portName)
+  record VesselRoute(
+      Optional<String> host, String path, boolean prefix, String deploymentName, String portName)
       implements GatewayRoute {
 
     /**
-     * Convenience constructor for a route with no host constraint -- the only shape this route kind
-     * supported before host-based routing existed, kept so every pre-existing call site continues
-     * to compile and behave identically.
+     * Convenience constructor for a route with no host constraint and no prefix matching -- the
+     * only shape this route kind supported before either existed, kept so every pre-existing call
+     * site continues to compile and behave identically.
      */
     public VesselRoute(String path, String deploymentName, String portName) {
-      this(Optional.empty(), path, deploymentName, portName);
+      this(Optional.empty(), path, false, deploymentName, portName);
     }
 
     public VesselRoute {
@@ -201,6 +240,10 @@ public sealed interface GatewayRoute
       }
       if (path == null || !path.startsWith("/")) {
         throw new GatewayConfigException("route path must start with '/': " + path);
+      }
+      if (prefix && path.length() > 1 && path.endsWith("/")) {
+        throw new GatewayConfigException(
+            "prefix route path must not end with '/' (except the root prefix '/' itself): " + path);
       }
       if (deploymentName == null || deploymentName.isBlank()) {
         throw new GatewayConfigException("route deploymentName must not be blank");
@@ -212,25 +255,26 @@ public sealed interface GatewayRoute
   }
 
   /**
-   * An HTTP-to-service route: an HTTP {@code path} that, when hit, proxies the inbound request
-   * verbatim to a live endpoint of the control-plane-declared {@code Service} named {@code
-   * serviceName} (see {@link ServiceEndpointCache} for how a live {@code host}/port pair is
-   * resolved and cached). Unlike {@link VesselRoute}, there is no separate {@code portName} to name
-   * -- a {@code Service}'s endpoints already carry the one port they're reachable on, the same way
-   * a Kubernetes Service's own endpoint set does.
+   * An HTTP-to-service route: an HTTP {@code path} that, when hit, proxies the inbound request to a
+   * live endpoint of the control-plane-declared {@code Service} named {@code serviceName} (see
+   * {@link ServiceEndpointCache} for how a live {@code host}/port pair is resolved and cached).
+   * Unlike {@link VesselRoute}, there is no separate {@code portName} to name -- a {@code
+   * Service}'s endpoints already carry the one port they're reachable on, the same way a Kubernetes
+   * Service's own endpoint set does.
    *
-   * <p>Proxying behavior (verbatim path, unrestricted method/body) is otherwise identical to {@link
-   * VesselRoute} -- see that record's own javadoc for what "verbatim" excludes.
+   * <p>Proxying behavior (verbatim method/body, and -- for both exact and {@link #prefix()} routes
+   * -- the full untouched inbound path) is otherwise identical to {@link VesselRoute} -- see that
+   * record's own javadoc for exactly what "verbatim" means for a prefix match.
    */
-  record ServiceRoute(Optional<String> host, String path, String serviceName)
+  record ServiceRoute(Optional<String> host, String path, boolean prefix, String serviceName)
       implements GatewayRoute {
 
     /**
-     * Convenience constructor for a route with no host constraint, matching the same shape {@link
-     * FabricRoute} and {@link VesselRoute} offer.
+     * Convenience constructor for a route with no host constraint and no prefix matching, matching
+     * the same shape {@link FabricRoute} and {@link VesselRoute} offer.
      */
     public ServiceRoute(String path, String serviceName) {
-      this(Optional.empty(), path, serviceName);
+      this(Optional.empty(), path, false, serviceName);
     }
 
     public ServiceRoute {
@@ -240,6 +284,10 @@ public sealed interface GatewayRoute
       }
       if (path == null || !path.startsWith("/")) {
         throw new GatewayConfigException("route path must start with '/': " + path);
+      }
+      if (prefix && path.length() > 1 && path.endsWith("/")) {
+        throw new GatewayConfigException(
+            "prefix route path must not end with '/' (except the root prefix '/' itself): " + path);
       }
       if (serviceName == null || serviceName.isBlank()) {
         throw new GatewayConfigException("route serviceName must not be blank");

@@ -16,8 +16,8 @@ import java.util.Set;
  *
  * <pre>{@code
  * [HOST <hostname>] FABRIC <httpPath> <interfaceName> <majorVersion> <methodName> <paramType>
- * [HOST <hostname>] VESSEL <httpPath> <deploymentName> <portName>
- * [HOST <hostname>] SERVICE <httpPath> <serviceName>
+ * [HOST <hostname>] VESSEL <httpPath[/*]> <deploymentName> <portName>
+ * [HOST <hostname>] SERVICE <httpPath[/*]> <serviceName>
  * }</pre>
  *
  * <p>The {@code HOST} segment is additive: a line with no {@code HOST} segment behaves exactly as
@@ -29,27 +29,42 @@ import java.util.Set;
  * matching this module's own v1 restriction to zero or one simple-typed argument -- see {@link
  * ParamType}'s own javadoc for what that implies about the target method's declared signature and
  * about HTTP verb/body shape. A {@code VESSEL} line's remaining three fields are exactly {@link
- * GatewayRoute.VesselRoute}'s own fields (besides {@code host}). A {@code SERVICE} line's remaining
- * two fields are exactly {@link GatewayRoute.ServiceRoute}'s own fields (besides {@code host}) -- a
- * control-plane-declared {@code Service} name, resolved and proxied to at request time (see {@link
- * ServiceEndpointCache}). Blank lines and lines starting with {@code #} are ignored.
+ * GatewayRoute.VesselRoute}'s own fields (besides {@code host}/{@code prefix}). A {@code SERVICE}
+ * line's remaining two fields are exactly {@link GatewayRoute.ServiceRoute}'s own fields (besides
+ * {@code host}/{@code prefix}) -- a control-plane-declared {@code Service} name, resolved and
+ * proxied to at request time (see {@link ServiceEndpointCache}). Blank lines and lines starting
+ * with {@code #} are ignored.
  *
- * <p>Two routes declaring the same {@code httpPath} and the same host constraint (including two
- * routes both leaving the host unconstrained) is a config error regardless of either route's kind
- * (which one would ever serve a request is undefined), rejected the same way a malformed line is:
- * at parse time, not discovered lazily on a request. Two routes at the same {@code httpPath} with
- * *different* host constraints are not a duplicate -- that's the ordinary virtual-hosting shape,
- * one route per host sharing a path, optionally with one further host-unconstrained route at that
- * path as a default/fallback for a host matching none of the others.
+ * <p><b>Prefix routes.</b> A {@code VESSEL}/{@code SERVICE} line's {@code httpPath} field may end
+ * with a trailing {@code /*} (e.g. {@code /api/orders/*}, or bare {@code /*} for a catch-all
+ * matching every path) to declare a prefix route instead of an exact one -- the same {@code /*}
+ * spelling a Kubernetes Ingress path or an nginx {@code location} prefix uses, kept consistent with
+ * this codebase's own habit of following that vocabulary (see {@link GatewayRoute#prefix()} for
+ * match semantics and {@link GatewayDispatcher} for dispatch precedence). A {@code FABRIC} line's
+ * {@code httpPath} may never carry a {@code /*} suffix -- rejected at parse time -- since that
+ * route kind is permanently exact-path-only (see {@link GatewayRoute.FabricRoute#prefix()} for
+ * why).
+ *
+ * <p>Two routes declaring the same {@code httpPath}, the same host constraint (including two routes
+ * both leaving the host unconstrained), and the same exact-vs-prefix mode is a config error
+ * regardless of either route's kind (which one would ever serve a request is undefined), rejected
+ * the same way a malformed line is: at parse time, not discovered lazily on a request. Two routes
+ * at the same {@code httpPath} with *different* host constraints are not a duplicate -- that's the
+ * ordinary virtual-hosting shape, one route per host sharing a path, optionally with one further
+ * host-unconstrained route at that path as a default/fallback for a host matching none of the
+ * others. Likewise, an exact route and a prefix route declared at the same base path (with the same
+ * host constraint) are not a duplicate either -- a common, deliberate shape (an exact match on a
+ * collection's own root served one way, everything nested under it proxied another way), resolved
+ * unambiguously by {@link GatewayDispatcher}'s own exact-beats-prefix precedence.
  *
  * <p>Example, matching {@code greeter-provider}'s own committed {@code Greeter} service, a
- * hypothetical {@code orders-service} vessel deployment restricted to one virtual host, and a
- * hypothetical {@code payments} control-plane {@code Service}:
+ * hypothetical {@code orders-service} vessel deployment restricted to one virtual host and proxied
+ * as a whole resource subtree, and a hypothetical {@code payments} control-plane {@code Service}:
  *
  * <pre>{@code
- * # kind    path         interface/deployment/service                  version  method  paramType
- * FABRIC    /greet       com.gimle.examples.greeter.Greeter            1        greet   STRING
- * HOST orders.example.com VESSEL /api/orders orders-service HTTP_PORT
+ * # kind    path          interface/deployment/service                 version  method  paramType
+ * FABRIC    /greet        com.gimle.examples.greeter.Greeter           1        greet   STRING
+ * HOST orders.example.com VESSEL /api/orders/* orders-service HTTP_PORT
  * SERVICE   /api/payments payments
  * }</pre>
  */
@@ -67,7 +82,8 @@ public final class GatewayRouteConfig {
         continue;
       }
       GatewayRoute route = parseLine(line, lineNumber);
-      RouteKey key = new RouteKey(route.path(), route.host().map(String::toLowerCase));
+      RouteKey key =
+          new RouteKey(route.path(), route.host().map(String::toLowerCase), route.prefix());
       if (!seenKeys.add(key)) {
         String hostSuffix = route.host().map(h -> " for host '" + h + "'").orElse("");
         throw new GatewayConfigException(
@@ -125,6 +141,14 @@ public final class GatewayRouteConfig {
               + line);
     }
     String path = fields[1];
+    if (path.endsWith("/*")) {
+      throw new GatewayConfigException(
+          "malformed FABRIC route at line "
+              + lineNumber
+              + ": FABRIC routes do not support prefix matching (path must not end with '/*'),"
+              + " got: "
+              + path);
+    }
     String interfaceName = fields[2];
     int majorVersion = parseMajorVersion(fields[3], lineNumber);
     String methodName = fields[4];
@@ -149,11 +173,12 @@ public final class GatewayRouteConfig {
               + ": "
               + line);
     }
-    String path = fields[1];
+    ParsedPath parsedPath = parsePathField(fields[1]);
     String deploymentName = fields[2];
     String portName = fields[3];
     try {
-      return new GatewayRoute.VesselRoute(host, path, deploymentName, portName);
+      return new GatewayRoute.VesselRoute(
+          host, parsedPath.path(), parsedPath.prefix(), deploymentName, portName);
     } catch (GatewayConfigException e) {
       throw new GatewayConfigException(
           "malformed VESSEL route at line " + lineNumber + ": " + e.getMessage());
@@ -171,15 +196,37 @@ public final class GatewayRouteConfig {
               + ": "
               + line);
     }
-    String path = fields[1];
+    ParsedPath parsedPath = parsePathField(fields[1]);
     String serviceName = fields[2];
     try {
-      return new GatewayRoute.ServiceRoute(host, path, serviceName);
+      return new GatewayRoute.ServiceRoute(
+          host, parsedPath.path(), parsedPath.prefix(), serviceName);
     } catch (GatewayConfigException e) {
       throw new GatewayConfigException(
           "malformed SERVICE route at line " + lineNumber + ": " + e.getMessage());
     }
   }
+
+  /**
+   * Splits a raw {@code httpPath} config field into its base path and whether it declared prefix
+   * matching, recognizing a trailing {@code /*} the same way a Kubernetes Ingress path or nginx
+   * {@code location} prefix does. Bare {@code /*} (a catch-all) normalizes to the root path {@code
+   * "/"} with prefix matching on, matching {@link GatewayRoute}'s own normalized-path contract (no
+   * trailing slash except the root itself). A field with no {@code /*} suffix is returned
+   * unchanged, exact-matched -- the only shape this ever produced before prefix routes existed.
+   */
+  private static ParsedPath parsePathField(String raw) {
+    if (raw.equals("/*")) {
+      return new ParsedPath("/", true);
+    }
+    if (raw.endsWith("/*")) {
+      return new ParsedPath(raw.substring(0, raw.length() - 2), true);
+    }
+    return new ParsedPath(raw, false);
+  }
+
+  /** The result of {@link #parsePathField}: a route's base path plus its exact-vs-prefix mode. */
+  private record ParsedPath(String path, boolean prefix) {}
 
   private static int parseMajorVersion(String raw, int lineNumber) {
     try {
@@ -208,7 +255,10 @@ public final class GatewayRouteConfig {
   }
 
   /**
-   * Uniqueness key for duplicate-route detection: a path plus its (lower-cased) host constraint.
+   * Uniqueness key for duplicate-route detection: a path plus its (lower-cased) host constraint
+   * plus its exact-vs-prefix mode -- an exact route and a prefix route sharing the same base path
+   * and host are a legitimate, non-duplicate combination (see this class's own javadoc), so {@code
+   * prefix} has to be part of the key, not just an incidental route property.
    */
-  private record RouteKey(String path, Optional<String> host) {}
+  private record RouteKey(String path, Optional<String> host, boolean prefix) {}
 }

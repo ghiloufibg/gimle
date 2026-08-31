@@ -698,6 +698,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | New | Not Covered | — |
 | GIMLE-682 | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | New | Not Covered | — |
 | GIMLE-683 | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | New | Not Covered | — |
+| GIMLE-684 | Gateway route dispatch supports longest-prefix-match routing for VESSEL/SERVICE routes, not exact-literal-path-only | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -5065,6 +5066,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `GatewayHooksRouteReloadTest#a_route_added_to_the_config_becomes_reachable_without_a_restart`, `#a_route_removed_from_the_config_stops_being_reachable`, `#a_malformed_route_config_update_is_rejected_and_the_previous_table_keeps_serving`.
 - **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`
 
+#### GIMLE-684 — Gateway route dispatch supports longest-prefix-match routing for VESSEL/SERVICE routes, not exact-literal-path-only
+
+- **Category**: Gateway / routing
+- **Status**: New  _(New requirement: closes FUNC-05 -- GatewayDispatcher dispatched purely by exact literal path lookup, a v1 restriction its own javadoc documented but that had no requirement entry at all, unlike the other two documented v1 Gateway limitations. Fixed by adding longest-prefix-match dispatch for VesselRoute/ServiceRoute (declared via a trailing `/*` on the path in `gateway.routes`, exact-beats-prefix precedence, segment-boundary-aware matching), keeping FabricRoute permanently exact-path-only since it names one specific fabric method call rather than a resource subtree.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario against a live cluster that deploys gimle-gateway with a VESSEL prefix route (a trailing `/*` path) in front of a real vessel deployment, drives requests at several nested paths under that prefix, and asserts each is proxied to the target with its full inbound path intact; a second scenario asserting a more specific overlapping prefix route wins over a shorter one would close the precedence gap too. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `GatewayDispatcherTest#a_vessel_prefix_route_matches_a_longer_inbound_path_and_forwards_it_verbatim`, `#a_service_prefix_route_matches_a_longer_inbound_path_and_forwards_it_verbatim`, `#a_prefix_route_matches_its_own_root_path_exactly`, `#a_prefix_route_does_not_match_a_sibling_path_sharing_its_own_prefix_as_a_substring`, `#a_longer_more_specific_prefix_route_wins_over_a_shorter_overlapping_one`, `#an_inbound_path_matching_no_declared_route_exact_or_prefix_still_404s`, `#a_fabric_routes_path_is_never_matched_as_a_prefix_by_another_routes_suffix`; `GatewayRouteConfigTest#a_trailing_star_suffix_declares_a_vessel_prefix_route_with_the_slash_stripped`, `#a_bare_star_suffix_declares_a_catch_all_service_prefix_route_at_the_root`, `#a_vessel_line_with_no_star_suffix_declares_an_ordinary_exact_route`, `#a_fabric_route_with_a_star_suffix_path_is_rejected_at_parse_time`, `#an_exact_route_and_a_prefix_route_may_share_the_same_base_path_and_host`, `#a_duplicate_prefix_route_at_the_same_base_path_and_host_is_rejected`. Full gimle-gateway module suite re-verified.
+- **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayRoute.java`, `gimle-gateway/src/main/java/com/gimle/gateway/GatewayDispatcher.java`, `gimle-gateway/src/main/java/com/gimle/gateway/GatewayRouteConfig.java`
+
 ### gimle-cli
 
 #### GIMLE-371 — Deployment resource management (get/apply/delete)
@@ -7228,7 +7238,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**557 of 683 requirements are Not Covered.**
+**558 of 684 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7380,6 +7390,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-095 | gimle-worker | Control-plane read relay for hosted modules (RelayControlPlaneRead/Result round trip) | Fabric / Internal-Infra | `ControlPlaneRelayTest#a_matching_response_completes_the_waiting_caller_and_leaves_no_pending_entry`, `#no_response_times_out_and_still_leaves_no_pending_entry`, `#a_late_response_after_the_caller_already_gave_up_is_dropped_without_error` |
 | GIMLE-567 | gimle-fabric | Fabric listener-side tenant re-check on inbound service calls | Fabric / Multi-tenancy | `FabricServerTest` (4 tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage |
 | GIMLE-126 | gimle-agent | Gossip membership read-only HTTP surface | Fabric / Observability | `AgentGossipServerTest#reports_the_lone_self_member_alive_at_incarnation_zero`, `#reflects_a_peer_learned_through_real_swim_convergence`, `#rejects_non_get_methods` |
+| GIMLE-684 | gimle-gateway | Gateway route dispatch supports longest-prefix-match routing for VESSEL/SERVICE routes, not exact-literal-path-only | Gateway / routing | `GatewayDispatcherTest#a_vessel_prefix_route_matches_a_longer_inbound_path_and_forwards_it_verbatim`, `#a_service_prefix_route_matches_a_longer_inbound_path_and_forwards_it_verbatim`, `#a_prefix_route_matches_its_own_root_path_exactly`, `#a_prefix_route_does_not_match_a_sibling_path_sharing_its_own_prefix_as_a_substring`, `#a_longer_more_specific_prefix_route_wins_over_a_shorter_overlapping_one`, `#an_inbound_path_matching_no_declared_route_exact_or_prefix_still_404s`, `#a_fabric_routes_path_is_never_matched_as_a_prefix_by_another_routes_suffix`; `GatewayRouteConfigTest#a_trailing_star_suffix_declares_a_vessel_prefix_route_with_the_slash_stripped`, `#a_bare_star_suffix_declares_a_catch_all_service_prefix_route_at_the_root`, `#a_vessel_line_with_no_star_suffix_declares_an_ordinary_exact_route`, `#a_fabric_route_with_a_star_suffix_path_is_rejected_at_parse_time`, `#an_exact_route_and_a_prefix_route_may_share_the_same_base_path_and_host`, `#a_duplicate_prefix_route_at_the_same_base_path_and_host_is_rejected`. Full gimle-gateway module suite re-verified. |
 | GIMLE-356 | gimle-gateway | Fabric-route HTTP-to-service dispatch | Gateway/Routing | `GatewayDispatcherTest#a_string_argument_route_dispatches_and_returns_the_real_result`, `#a_no_argument_route_is_served_on_get`, `#an_int_argument_route_coerces_and_dispatches_correctly` |
 | GIMLE-357 | gimle-gateway | Fabric-route argument coercion (`ParamType`) | Gateway/Routing | `GatewayDispatcherTest#a_body_that_does_not_coerce_to_the_declared_param_type_returns_400`, `#the_wrong_http_method_for_a_fabric_route_returns_405` |
 | GIMLE-358 | gimle-gateway | Vessel-route HTTP reverse-proxy dispatch | Gateway/Routing | `GatewayDispatcherTest#a_vessel_route_proxies_to_the_real_target_with_method_path_body_and_response_intact` |

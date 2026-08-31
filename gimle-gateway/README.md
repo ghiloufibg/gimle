@@ -26,17 +26,37 @@ classes at runtime.
 | Kind | Target | Resolved via | Dispatch |
 |---|---|---|---|
 | `FabricRoute` | An interface/method by name | `ModuleContext#invokeServiceByName` (a runtime-config-driven name, not a compile-time generic type) | `GET` for a zero-arg route, `POST` for a one-arg route, body coerced to the declared `ParamType` |
-| `VesselRoute` | A live instance of a named deployment, on a named port | `VesselEndpointCache` → `ModuleContext#relayControlPlaneRead("/endpoints/{name}")` | Verbatim proxy — exact path, every HTTP method, full body, via `VesselProxyClient` |
+| `VesselRoute` | A live instance of a named deployment, on a named port | `VesselEndpointCache` → `ModuleContext#relayControlPlaneRead("/endpoints/{name}")` | Verbatim proxy — exact or prefix path (see below), every HTTP method, full body, via `VesselProxyClient` |
 | `ServiceRoute` | A live endpoint of a control-plane-declared `Service` | `ServiceEndpointCache` → `relayControlPlaneRead("/services/{name}/endpoints")` | Verbatim proxy, identical to `VesselRoute` but with no separate `portName` — a `Service`'s endpoints already carry the one port they're reachable on |
 
 `FabricRoute`'s argument shape is deliberately restricted in v1: zero arguments, or exactly one
 plain `String`/boxed primitive (`ParamType.NONE`/`STRING`/`INT`/`LONG`/`DOUBLE`/`BOOLEAN`) — never
 general JSON-to-POJO mapping. `VesselRoute`/`ServiceRoute` proxy the request unrestricted on method
-and body, but forward the inbound path to the target **verbatim** — no prefix stripping, no
-wildcard expansion, a deliberate v1 scope limit stated up front rather than discovered lazily.
-Dispatch itself is exact-path lookup only (`Map.get` against a route table keyed by literal path) —
-no prefix/wildcard routing for any route kind, which is exactly what lets the vessel/service
-proxying stay verbatim with no rewriting logic to get wrong.
+and body, and forward the inbound path to the target **verbatim** — the full, untouched inbound
+path, never a rewritten/stripped one, whether the matched route is exact or a prefix (see below).
+
+## Path matching: exact and prefix
+
+Dispatch has two tiers, tried in order: an exact-literal-path lookup exactly as this module has
+always done it, then, if that misses, a prefix-match scan — one bucket per declared prefix,
+pre-sorted longest-prefix-first, so the most specific matching prefix always wins (the same
+longest-prefix-match rule an nginx `location` block or a Kubernetes Ingress rule set uses, not
+"first registered wins"). Exact match is always the most specific possible match; it never loses to
+a prefix, even one whose declared string is identical.
+
+Only `VesselRoute`/`ServiceRoute` can be declared as a prefix, via a trailing `/*` on `httpPath` in
+the config format below (`/api/orders/*`, or bare `/*` for a catch-all matching every path) — the
+same spelling a Kubernetes Ingress path or an nginx `location` prefix uses. `FabricRoute` is
+permanently exact-path-only (rejected at parse time if given a `/*`-suffixed path): it names one
+specific fabric method call, not a resource subtree, and `GatewayDispatcher#dispatchFabric` never
+reads the inbound path beyond the one the route is registered under, so a path segment past a
+would-be prefix would carry no meaning. Matching is segment-boundary aware — `/api/orders/*`
+matches `/api/orders` and `/api/orders/42`, but not `/api/orders2`.
+
+A prefix match keeps the vessel/service proxying "verbatim" in exactly the sense above: unlike an
+Ingress `rewrite-target` rule, which strips the matched prefix before forwarding, a plain prefix
+match keeps the full original path on the proxied call (Kubernetes Ingress's own default
+`pathType: Prefix` behavior) — no new path-rewriting logic for `GatewayDispatcher` to get wrong.
 
 ## Host-constrained (vhost) routing
 
@@ -57,20 +77,23 @@ line-oriented format — not YAML/JSON, not a general route DSL:
 
 ```
 [HOST <hostname>] FABRIC <httpPath> <interfaceName> <majorVersion> <methodName> <paramType>
-[HOST <hostname>] VESSEL <httpPath> <deploymentName> <portName>
-[HOST <hostname>] SERVICE <httpPath> <serviceName>
+[HOST <hostname>] VESSEL <httpPath[/*]> <deploymentName> <portName>
+[HOST <hostname>] SERVICE <httpPath[/*]> <serviceName>
 ```
 
 ```
-# kind    path         interface/deployment/service                  version  method  paramType
-FABRIC    /greet       com.gimle.examples.greeter.Greeter            1        greet   STRING
-HOST orders.example.com VESSEL /api/orders orders-service HTTP_PORT
+# kind    path          interface/deployment/service                 version  method  paramType
+FABRIC    /greet        com.gimle.examples.greeter.Greeter           1        greet   STRING
+HOST orders.example.com VESSEL /api/orders/* orders-service HTTP_PORT
 SERVICE   /api/payments payments
 ```
 
 Two routes at the same path with the *same* host constraint (including two both left
-unconstrained) are a config error, rejected at parse time. Two routes at the same path with
-*different* host constraints are the ordinary virtual-hosting shape — not a duplicate. Blank lines
+unconstrained) *and* the same exact-vs-prefix mode are a config error, rejected at parse time. Two
+routes at the same path with *different* host constraints are the ordinary virtual-hosting shape —
+not a duplicate; likewise, an exact route and a prefix route sharing the same base path and host are
+not a duplicate either (an exact match on a collection's own root served one way, everything nested
+under it proxied another way), resolved unambiguously by exact-beats-prefix precedence. Blank lines
 and `#` comments are ignored.
 
 ## Lifecycle and transport

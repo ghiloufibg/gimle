@@ -6,6 +6,7 @@ import com.gimle.gateway.GatewayRoute.ServiceRoute;
 import com.gimle.gateway.GatewayRoute.VesselRoute;
 import com.gimle.module.lifecycle.ModuleContext;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,12 +18,32 @@ import org.slf4j.LoggerFactory;
  * The HTTP-request-to-response core of the gateway, deliberately kept free of {@code
  * com.sun.net.httpserver} types so it's testable against a hand-built {@link ModuleContext} without
  * a real bound socket -- {@link GatewayHooks} is the thin adapter that actually wires an {@code
- * HttpServer} to this. Dispatch is exact-path lookup only ({@link Map#get(Object)} against a route
- * table keyed by literal path) -- no prefix/wildcard routing for any route kind, a deliberate v1
- * restriction rather than an oversight: it's what lets a {@link VesselRoute}/{@link ServiceRoute}
- * forward its inbound path to its target verbatim (see those records' own javadoc) with no
- * rewriting logic to get wrong. Host matching (see {@link #selectRoute}) is exact-value too, the
- * same posture applied to a second dimension rather than a new kind of matching.
+ * HttpServer} to this.
+ *
+ * <p>Dispatch has two tiers, tried in order: an exact-literal-path lookup ({@link Map#get(Object)}
+ * against {@link #exactRoutesByPath}) exactly as this module has always done it, then, only if that
+ * misses, a prefix-match scan of {@link #prefixBuckets} -- one bucket per declared prefix (see
+ * {@link GatewayRoute#prefix()}), pre-sorted longest-prefix-first at construction time so the most
+ * specific matching prefix is always tried before a shorter, less specific one. This makes exact
+ * match strictly the most specific possible match (it never loses to a prefix, even one whose
+ * declared string is identical) and gives ordinary longest-prefix-match semantics among prefixes
+ * themselves -- the standard behavior for this kind of routing table (same idea as an nginx {@code
+ * location} block or a Kubernetes Ingress rule set), not "first registered wins." {@link
+ * #matchesPrefix} is segment-boundary aware ({@code /api/orders} matches {@code /api/orders/42} but
+ * not {@code /api/orders2}), and a bucket that matches the path but has no route willing to serve
+ * the request's host (see {@link #selectRoute}) falls through to the next, shorter matching prefix
+ * rather than 404ing outright -- the same "host-unconstrained sibling can still serve as a default"
+ * behavior the exact-path tier has always had, now available at every matching specificity level
+ * rather than just one. A handful to a few hundred declared routes -- this module's realistic scale
+ * as a {@code DaemonSet}-deployed edge gateway, not a CDN -- is well within what a plain sorted
+ * list scanned linearly handles fine; a trie or interval tree would be solving a problem this
+ * deployment shape doesn't have.
+ *
+ * <p>Only {@link VesselRoute} and {@link ServiceRoute} can declare a prefix; a {@link FabricRoute}
+ * is permanently exact-path-only (see {@link FabricRoute#prefix()} for why) and is never placed in
+ * {@link #prefixBuckets}. Host matching (see {@link #selectRoute}) is exact-value, unaffected by
+ * which path tier produced the candidate list it's applied to -- a route can be host-constrained
+ * and prefix-matched at the same time, two independent dimensions.
  *
  * <p>A {@link FabricRoute} is served exactly as before this module gained additional route kinds: a
  * {@link ParamType#NONE} route on {@code GET}, every other route on {@code POST} with the request
@@ -31,15 +52,18 @@ import org.slf4j.LoggerFactory;
  * String#valueOf}. A {@link VesselRoute} is served by resolving a live target through {@link
  * VesselEndpointCache} and proxying the request to it via {@link VesselProxyClient}; a {@link
  * ServiceRoute} is served the identical way but through {@link ServiceEndpointCache} instead. Both
- * are unrestricted on HTTP method and request body (see {@link VesselRoute}'s own javadoc for
- * exactly what "unrestricted" excludes -- request/response headers are not forwarded in v1).
+ * are unrestricted on HTTP method and request body, and -- exact-path or prefix-matched alike --
+ * always proxy the request's own full, untouched inbound path onward, never a rewritten/stripped
+ * one (see {@link VesselRoute}'s own javadoc for why that's the deliberate choice here, and for
+ * what "unrestricted" excludes -- request/response headers are not forwarded in v1).
  */
 public final class GatewayDispatcher {
 
   private static final Logger log = LoggerFactory.getLogger(GatewayDispatcher.class);
 
   private final ModuleContext ctx;
-  private final Map<String, List<GatewayRoute>> routesByPath;
+  private final Map<String, List<GatewayRoute>> exactRoutesByPath;
+  private final List<PrefixBucket> prefixBuckets;
   private final VesselEndpointCache vesselEndpointCache;
   private final ServiceEndpointCache serviceEndpointCache;
   private final VesselProxyClient vesselProxyClient;
@@ -80,18 +104,56 @@ public final class GatewayDispatcher {
       ServiceEndpointCache serviceEndpointCache,
       VesselProxyClient vesselProxyClient) {
     this.ctx = ctx;
-    Map<String, List<GatewayRoute>> byPath = new LinkedHashMap<>();
+    Map<String, List<GatewayRoute>> exactByPath = new LinkedHashMap<>();
+    Map<String, List<GatewayRoute>> prefixByPath = new LinkedHashMap<>();
     for (GatewayRoute route : routes) {
-      byPath.computeIfAbsent(route.path(), key -> new ArrayList<>()).add(route);
+      Map<String, List<GatewayRoute>> target = route.prefix() ? prefixByPath : exactByPath;
+      target.computeIfAbsent(route.path(), key -> new ArrayList<>()).add(route);
     }
-    Map<String, List<GatewayRoute>> immutableByPath = new LinkedHashMap<>();
-    for (Map.Entry<String, List<GatewayRoute>> entry : byPath.entrySet()) {
-      immutableByPath.put(entry.getKey(), List.copyOf(entry.getValue()));
+    this.exactRoutesByPath = immutableGroupedByPath(exactByPath);
+    List<PrefixBucket> buckets = new ArrayList<>();
+    for (Map.Entry<String, List<GatewayRoute>> entry : prefixByPath.entrySet()) {
+      buckets.add(new PrefixBucket(entry.getKey(), List.copyOf(entry.getValue())));
     }
-    this.routesByPath = Map.copyOf(immutableByPath);
+    // Longest prefix first, so dispatch always tries the most specific matching prefix before a
+    // shorter one -- see this class's own javadoc for why that's the right precedence rule here.
+    buckets.sort(
+        Comparator.comparingInt((PrefixBucket bucket) -> bucket.prefix().length()).reversed());
+    this.prefixBuckets = List.copyOf(buckets);
     this.vesselEndpointCache = vesselEndpointCache;
     this.serviceEndpointCache = serviceEndpointCache;
     this.vesselProxyClient = vesselProxyClient;
+  }
+
+  private static Map<String, List<GatewayRoute>> immutableGroupedByPath(
+      Map<String, List<GatewayRoute>> grouped) {
+    Map<String, List<GatewayRoute>> immutable = new LinkedHashMap<>();
+    for (Map.Entry<String, List<GatewayRoute>> entry : grouped.entrySet()) {
+      immutable.put(entry.getKey(), List.copyOf(entry.getValue()));
+    }
+    return Map.copyOf(immutable);
+  }
+
+  /**
+   * One declared path prefix and the (possibly host-differentiated) routes registered at it -- the
+   * prefix-match analogue of one key/value pair in {@link #exactRoutesByPath}, kept as its own
+   * record rather than another map entry since {@link #prefixBuckets} needs a stable sort order
+   * ({@link #dispatch} depends on longest-first) that a {@code Map} doesn't offer.
+   */
+  private record PrefixBucket(String prefix, List<GatewayRoute> routes) {}
+
+  /**
+   * Whether {@code path} is matched by the path prefix {@code prefix} -- segment-boundary aware, so
+   * {@code /api/orders} matches {@code /api/orders} and {@code /api/orders/42} but not {@code
+   * /api/orders2} (a naive {@link String#startsWith} would wrongly match the latter). The root
+   * prefix {@code "/"} is a special-cased catch-all: every valid Gimlé gateway path already starts
+   * with {@code "/"} (see every route record's own compact constructor), so it matches everything.
+   */
+  private static boolean matchesPrefix(String prefix, String path) {
+    if (prefix.equals("/")) {
+      return true;
+    }
+    return path.equals(prefix) || path.startsWith(prefix + "/");
   }
 
   /**
@@ -113,15 +175,38 @@ public final class GatewayDispatcher {
    * response.
    */
   public GatewayResponse dispatch(String httpMethod, String path, String body, String hostHeader) {
-    List<GatewayRoute> candidates = routesByPath.get(path);
-    if (candidates == null) {
-      return new GatewayResponse(404, "no gateway route for " + path);
+    List<GatewayRoute> exactCandidates = exactRoutesByPath.get(path);
+    if (exactCandidates != null) {
+      GatewayRoute route = selectRoute(exactCandidates, hostHeader);
+      if (route == null) {
+        return new GatewayResponse(
+            404, "no gateway route for " + path + " matching host '" + hostHeader + "'");
+      }
+      return serve(route, httpMethod, path, body);
     }
-    GatewayRoute route = selectRoute(candidates, hostHeader);
-    if (route == null) {
-      return new GatewayResponse(
-          404, "no gateway route for " + path + " matching host '" + hostHeader + "'");
+
+    boolean anyPrefixMatchedPath = false;
+    for (PrefixBucket bucket : prefixBuckets) {
+      if (!matchesPrefix(bucket.prefix(), path)) {
+        continue;
+      }
+      anyPrefixMatchedPath = true;
+      GatewayRoute route = selectRoute(bucket.routes(), hostHeader);
+      if (route != null) {
+        return serve(route, httpMethod, path, body);
+      }
+      // This prefix matched the path but none of its routes matched the request's host -- fall
+      // through to the next, shorter matching prefix rather than 404ing outright, the same
+      // "host-unconstrained sibling can still serve as a default" fallback the exact-path tier
+      // has always offered within one bucket, now honored across specificity levels too.
     }
+    return anyPrefixMatchedPath
+        ? new GatewayResponse(
+            404, "no gateway route for " + path + " matching host '" + hostHeader + "'")
+        : new GatewayResponse(404, "no gateway route for " + path);
+  }
+
+  private GatewayResponse serve(GatewayRoute route, String httpMethod, String path, String body) {
     return switch (route) {
       case FabricRoute fabricRoute -> dispatchFabric(fabricRoute, httpMethod, body);
       case VesselRoute vesselRoute -> dispatchVessel(vesselRoute, httpMethod, path, body);
