@@ -698,6 +698,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | New | Not Covered | — |
 | GIMLE-682 | A rolling update's disruption budget genuinely throttles concurrent migrations, immune to a flapping replacement | New | Not Covered | — |
 | GIMLE-683 | Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat | New | Not Covered | — |
+| GIMLE-685 | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3218,6 +3219,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that starts an agent with a seed that isn't listening yet, asserts the agent process survives and keeps running (rather than exiting), then starts the seed and asserts the two agents converge on membership without restarting either.
 - **Other test coverage (non-Holmgang, informational only)**: `GossipMemberTest#several_unreachable_seeds_do_not_throw_and_leave_the_node_running_unjoined`; `GossipMemberTest#a_node_still_isolated_after_join_returns_finds_its_seed_once_it_recovers`.
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/cluster/GossipMember.java`, `gimle-core/src/main/java/com/gimle/core/exception/GimleClusterException.java`
+
+#### GIMLE-685 — Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy
+
+- **Category**: Service fabric
+- **Status**: New  _(New requirement: closes FUNC-63 -- FabricServiceRegistry#lookup(Class<T>), the cross-worker/cross-node tier used for real multi-replica HA, called catalog.endpointsForInterface which returns every currently-present endpoint regardless of version and applied no version-based narrowing anywhere downstream, so a lookup during a cross-node hot redeploy could land on either the old or the new version's endpoint arbitrarily -- unlike SimpleServiceRegistry#selectEntry (the same-worker tier), which already did real version-aware cutover. Fixed by narrowing to the highest version with a currently-available (non-breaker-excluded) candidate before locality-aware selection, falling back to the next-highest version only when the top one has none, mirroring the same-worker tier's semantics exactly.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that deploys two versions of a real module exporting a service consumed cross-node (e.g. the greeter pair with a version bump), drives real fabric lookups against a live multi-node cluster while both versions are briefly registered together during the rollout, and asserts (via the consumer's own log or a captured response) that every lookup is served by exactly one version's endpoints at a time -- never a blend -- including a case where the newest version's endpoint is made unreachable so the scenario also proves the fallback-to-previous-version behavior against a real cluster.
+- **Other test coverage (non-Holmgang, informational only)**: `FabricServiceRegistryTest#only_the_highest_version_endpoints_are_selected_while_both_versions_are_available`, `#lookup_falls_back_to_the_next_highest_version_once_the_top_versions_sole_endpoint_is_breaker_excluded`, `#a_single_version_export_round_robins_normally_and_is_unaffected_by_version_narrowing`, `#locality_preference_still_applies_within_the_version_narrowed_pool_and_ignores_a_stale_older_version` (all in `gimle-fabric`).
+- **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java`, `gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java`
 
 ### gimle-controlplane
 
@@ -7228,7 +7238,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**557 of 683 requirements are Not Covered.**
+**558 of 684 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7699,6 +7709,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-568 | gimle-agent | gimle-bifrost: per-node service proxy (kube-proxy analogue) | Service Fabric | `BifrostProxyTest` (3 tests: round-robin across endpoints, listener closed on service disappearance, new listener bound on service appearance); `LoopbackAddressAllocatorTest`; `HttpServiceSourceTest` |
 | GIMLE-569 | gimle-skald | gimle-skald: cluster DNS server resolving Service names to live endpoints | Service Fabric | `SkaldServerTest` (6 tests over the real UDP responder: tenant-scoped hit, untenanted-hit round-robin, NXDOMAIN for unknown name, NOTIMP for unsupported query type/opcode, malformed datagram dropped); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest`; `DnsCodecTest`; `ServiceDnsNamesTest` |
 | GIMLE-618 | gimle-agent | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port) |
+| GIMLE-685 | gimle-fabric | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Service fabric | `FabricServiceRegistryTest#only_the_highest_version_endpoints_are_selected_while_both_versions_are_available`, `#lookup_falls_back_to_the_next_highest_version_once_the_top_versions_sole_endpoint_is_breaker_excluded`, `#a_single_version_export_round_robins_normally_and_is_unaffected_by_version_narrowing`, `#locality_preference_still_applies_within_the_version_narrowed_pool_and_ignores_a_stale_older_version` (all in `gimle-fabric`). |
 | GIMLE-672 | gimle-fabric | Gossip service-catalog anti-entropy performs a real paginated full-state sync, not a partial one | Service fabric / gossip membership | `ServiceCatalogTest` and `GossipMemberTest` gain new anti-entropy coverage. Full gimle-fabric module suite re-verified (133 tests, 0 failures/errors); the new tests confirmed to fail against the pre-fix code. |
 | GIMLE-606 | gimle-mimir | Group commit via batched mutations (StateMutation.Batch / proposeAll) | State Store | `MutationBatchTest#an_empty_batch_is_rejected`, `#a_nested_batch_is_rejected`, `#a_batch_applies_its_mutations_in_order`, `#propose_all_of_an_empty_list_proposes_nothing`, `#propose_all_of_a_single_mutation_proposes_it_bare_not_wrapped`, `#propose_all_of_several_mutations_proposes_one_batch_carrying_them_in_order`, `#a_batched_proposal_is_one_log_entry_and_applies_every_mutation`, `RaftCodecTest#round_trips_a_batch_mutation_through_a_log_entry` |
 | GIMLE-646 | gimle-mimir | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | State Store | ApiServerDeploymentConcurrencyTest (rewritten twice): 15 repetitions proving the achievable guarantee -- at least one side always wins, a loser is always a genuine 409, and the final state is always one of the two coherent total-order results -- for a race against an already-existing deployment, plus 5 repetitions proving a delete of a never-existing name never blocks a concurrent create of that same name. |

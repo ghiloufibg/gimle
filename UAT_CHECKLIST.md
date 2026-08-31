@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 683
+- **Total requirements**: 684
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 557
+- **Not covered by automated test**: 558
 - **Release-readiness (automated coverage)**: 18.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -20,7 +20,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-worker | 23 | 2 | 21 | 8.7% |
 | gimle-agent | 48 | 6 | 42 | 12.5% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
-| gimle-fabric | 35 | 1 | 34 | 2.9% |
+| gimle-fabric | 36 | 1 | 35 | 2.8% |
 | gimle-controlplane | 90 | 15 | 75 | 16.7% |
 | gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
@@ -880,6 +880,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-194 | Inbound Call Dispatch with Bounded Concurrency | Given a target module with a bounded ModuleWorkExecutor; When more concurrent inbound calls arrive than allowed; Then extra calls queue; ModuleContext's in-flight counter reflects real inbound calls. | No |
 | [ ] | GIMLE-195 | Distributed Trace Propagation Across Fabric Hops | Given a caller with an active span and baggage; When it invokes a remote service; Then the callee starts a child span parented on the caller's real span, observing the same baggage. | No |
 | [ ] | GIMLE-196 | Fabric Transport over Mutual TLS with Hot Cert Reload | Given fabric configured for mTLS; When a cross-machine invocation is made; Then it succeeds over TLS; a client trusting a different CA is rejected; reload lets a fresh connection succeed without restart. | No |
+
+#### Service fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-685 | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Given two versions of the same interface's export registered cross-worker (a hot redeploy in flight) and both currently available; When a caller looks up the interface repeatedly; Then every lookup is served exclusively by the highest version's endpoint(s), never a blend of both. Given the highest version's only cross-worker endpoint has an open circuit breaker (e.g. unreachable) while the next-highest version's endpoint is healthy; When a caller looks up the interface; Then lookup falls back to the next-highest version instead of returning nothing. Given only one version of the interface is registered cross-worker; When a caller looks up the interface repeatedly; Then ordinary least-outstanding-requests round-robin across that version's replicas is unaffected by the version-cutover logic. Given a stale older-version endpoint sits on the remote tier and the current highest version has endpoints on both the same-machine and remote tiers; When a caller looks up the interface; Then the stale older-version endpoint is never selected, and same-machine locality preference still applies within the version-narrowed pool. | No |
 
 #### Service fabric / gossip membership
 

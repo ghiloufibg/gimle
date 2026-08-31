@@ -264,8 +264,12 @@ public final class ServiceCatalog implements PiggybackExtension {
 
   /**
    * Every currently-present endpoint whose export's interface name matches, regardless of version
-   * -- needed because {@code ServiceRegistry#lookup(Class)} never carries a version to narrow by,
-   * so a cross-tier fabric lookup can't disambiguate by version at the call site either.
+   * -- needed because {@code ServiceRegistry#lookup(Class)} never carries a version to narrow by at
+   * this query itself: a {@code Class} identifies only the interface, not which version of it a
+   * caller wants. Version-aware cutover among the endpoints this returns -- preferring the highest
+   * version with an available candidate, mirroring the same-worker tier's own redeploy-cutover
+   * semantics -- happens downstream, in {@code FabricServiceRegistry#lookup}'s own consumption of
+   * this result, not here.
    */
   public List<ServiceEndpoint> endpointsForInterface(String interfaceName) {
     List<ServiceEndpoint> result = new ArrayList<>();

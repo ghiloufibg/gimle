@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -372,6 +373,146 @@ class FabricServiceRegistryTest {
   void no_known_exporter_anywhere_throws_gimle_cluster_exception() {
     FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), new ServiceCatalog());
     assertThrows(GimleClusterException.class, () -> registry.lookup(Greeter.class));
+  }
+
+  // ---- cross-worker version-aware cutover (mirrors SimpleServiceRegistry#selectEntry's
+  // same-worker cutover during a hot redeploy) ----
+
+  private static final ServiceExport GREETER_EXPORT_V1 =
+      new ServiceExport(Greeter.class.getName(), Version.parse("1.0.0"));
+  private static final ServiceExport GREETER_EXPORT_V2 =
+      new ServiceExport(Greeter.class.getName(), Version.parse("2.0.0"));
+
+  @Test
+  @Timeout(15)
+  void only_the_highest_version_endpoints_are_selected_while_both_versions_are_available()
+      throws Exception {
+    InetSocketAddress oldVersionAddress = startBackend(name -> "old:" + name);
+    InetSocketAddress newVersionAddress = startBackend(name -> "new:" + name);
+
+    ServiceCatalog catalog = new ServiceCatalog();
+    MemberId nodeB = new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947));
+    catalog.localRegister(
+        nodeB, "worker-old", OWNER, GREETER_EXPORT_V1, Optional.empty(), oldVersionAddress);
+    catalog.localRegister(
+        nodeB, "worker-new", OWNER, GREETER_EXPORT_V2, Optional.empty(), newVersionAddress);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    // Both versions' endpoints are healthy and idle throughout -- a blended round-robin across
+    // both (the pre-fix behavior) would sometimes return "old:x"; every lookup must land on the
+    // highest version only.
+    for (int i = 0; i < 10; i++) {
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      assertEquals("new:x", greeter.greet("x"));
+    }
+  }
+
+  @Test
+  @Timeout(15)
+  void
+      lookup_falls_back_to_the_next_highest_version_once_the_top_versions_sole_endpoint_is_breaker_excluded()
+          throws Exception {
+    InetSocketAddress oldVersionHealthyAddress = startBackend(name -> "old:" + name);
+    InetSocketAddress newVersionDeadAddress =
+        new InetSocketAddress("127.0.0.1", 1); // nothing listens here
+
+    ServiceCatalog catalog = new ServiceCatalog();
+    MemberId nodeB = new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947));
+    catalog.localRegister(
+        nodeB, "worker-old", OWNER, GREETER_EXPORT_V1, Optional.empty(), oldVersionHealthyAddress);
+    catalog.localRegister(
+        nodeB, "worker-new", OWNER, GREETER_EXPORT_V2, Optional.empty(), newVersionDeadAddress);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    // Same polling pattern as a_failing_endpoints_breaker_opens_and_is_excluded above: the top
+    // version (2.0.0) is the only one initially selected and its sole endpoint is dead, so early
+    // lookups fail; once its breaker opens, every further lookup must fall back to the next
+    // highest version (1.0.0) instead of returning nothing.
+    int consecutiveFallback = 0;
+    int attempts = 0;
+    while (consecutiveFallback < 5 && attempts < 500) {
+      attempts++;
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      String result;
+      try {
+        result = greeter.greet("x");
+      } catch (RuntimeException e) {
+        result = "failed";
+      }
+      consecutiveFallback = "old:x".equals(result) ? consecutiveFallback + 1 : 0;
+    }
+    assertTrue(
+        consecutiveFallback >= 5,
+        "never stabilized on the fallback (1.0.0) endpoint within " + attempts + " attempts");
+
+    // Once stabilized, every further lookup must keep landing on the fallback version -- never
+    // routing to the dead top-version endpoint again.
+    for (int i = 0; i < 10; i++) {
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      assertEquals("old:x", greeter.greet("x"));
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_single_version_export_round_robins_normally_and_is_unaffected_by_version_narrowing()
+      throws IOException {
+    InetSocketAddress addressA = startBackend(name -> "a:" + name);
+    InetSocketAddress addressB = startBackend(name -> "b:" + name);
+
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(selfNode, "worker-a", OWNER, GREETER_EXPORT, Optional.empty(), addressA);
+    catalog.localRegister(selfNode, "worker-b", OWNER, GREETER_EXPORT, Optional.empty(), addressB);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    // Only one version exists, so the version-cutover step must be a no-op: both replicas remain
+    // reachable via ordinary least-outstanding-requests selection, exactly like before this fix.
+    Set<String> observed = new HashSet<>();
+    for (int i = 0; i < 10; i++) {
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      observed.add(greeter.greet("x"));
+    }
+    assertEquals(Set.of("a:x", "b:x"), observed);
+  }
+
+  @Test
+  @Timeout(10)
+  void
+      locality_preference_still_applies_within_the_version_narrowed_pool_and_ignores_a_stale_older_version()
+          throws IOException {
+    InetSocketAddress staleOldVersionRemoteAddress = startBackend(name -> "stale-old:" + name);
+    InetSocketAddress newVersionSameMachineAddress = startBackend(name -> "same-machine:" + name);
+    InetSocketAddress newVersionRemoteAddress = startBackend(name -> "remote:" + name);
+
+    ServiceCatalog catalog = new ServiceCatalog();
+    MemberId nodeB = new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947));
+    // A stale 1.0.0 endpoint, remote -- must never be selected once 2.0.0 is present anywhere.
+    catalog.localRegister(
+        nodeB,
+        "worker-stale",
+        OWNER,
+        GREETER_EXPORT_V1,
+        Optional.empty(),
+        staleOldVersionRemoteAddress);
+    // The current 2.0.0 version, available both same-machine and remote.
+    catalog.localRegister(
+        selfNode,
+        "worker-other",
+        OWNER,
+        GREETER_EXPORT_V2,
+        Optional.empty(),
+        newVersionSameMachineAddress);
+    catalog.localRegister(
+        nodeB, "worker-new", OWNER, GREETER_EXPORT_V2, Optional.empty(), newVersionRemoteAddress);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    // Steady state (each call completes instantly, so outstanding counts stay tied at 0/0):
+    // same-machine must still be preferred over remote within the narrowed (2.0.0-only) pool, and
+    // the stale 1.0.0 remote endpoint must never be reached.
+    for (int i = 0; i < 5; i++) {
+      Greeter greeter = registry.lookup(Greeter.class).orElseThrow();
+      assertEquals("same-machine:x", greeter.greet("x"));
+    }
   }
 
   // ---- tenant permission filtering ----

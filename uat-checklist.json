@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 683,
+    "totalRequirements": 684,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 557,
+    "notCoveredByAutomatedTest": 558,
     "releaseReadinessPercent": 18.4
   },
   "items": [
@@ -7515,6 +7515,17 @@
       "category": "Reconcilers / self-healing",
       "feature": "Instance readiness requires a stabilization window of continuous observed readiness, not a single heartbeat",
       "step": "Given an instance that reports ready on exactly one heartbeat and then immediately flaps back to not-ready; When the reconciler evaluates its readiness on the very next tick, even after a full stabilization window's worth of time has since passed; Then it is never treated as ready, because the flap reset the stabilization timer. Given an instance genuinely, continuously ready for the full stabilization window; When the reconciler evaluates its readiness; Then it is correctly recognized as ready. Given a reconciler-leader failover mid-stabilization (a brand-new reconciler instance with no in-memory history, backed by the same store); When the persisted window has not yet elapsed; Then the new instance still refuses to treat the replacement as ready, and once the persisted window does elapse, correctly clears it. Given an index whose prior occupant's readiness had already stabilized; When a brand-new, different-moduleId instance is placed at that same index and reports ready for the first time; Then it is not instantly treated as stabilized -- the stale timer was cleared at placement.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-685",
+      "module": "gimle-fabric",
+      "category": "Service fabric",
+      "feature": "Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy",
+      "step": "Given two versions of the same interface's export registered cross-worker (a hot redeploy in flight) and both currently available; When a caller looks up the interface repeatedly; Then every lookup is served exclusively by the highest version's endpoint(s), never a blend of both. Given the highest version's only cross-worker endpoint has an open circuit breaker (e.g. unreachable) while the next-highest version's endpoint is healthy; When a caller looks up the interface; Then lookup falls back to the next-highest version instead of returning nothing. Given only one version of the interface is registered cross-worker; When a caller looks up the interface repeatedly; Then ordinary least-outstanding-requests round-robin across that version's replicas is unaffected by the version-cutover logic. Given a stale older-version endpoint sits on the remote tier and the current highest version has endpoints on both the same-machine and remote tiers; When a caller looks up the interface; Then the stale older-version endpoint is never selected, and same-machine locality preference still applies within the version-narrowed pool.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

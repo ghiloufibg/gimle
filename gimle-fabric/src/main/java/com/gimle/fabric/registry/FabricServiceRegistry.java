@@ -3,6 +3,7 @@ package com.gimle.fabric.registry;
 import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
+import com.gimle.core.module.Version;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.fabric.balance.LeastOutstandingRequestsSelector;
 import com.gimle.fabric.breaker.CircuitBreaker;
@@ -37,6 +38,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -331,12 +333,68 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       (isSameMachine ? sameMachine : remote).add(endpoint);
     }
 
+    Version cutoverVersion = highestVersionWithAnAvailableCandidate(sameMachine, remote);
+    if (cutoverVersion != null) {
+      sameMachine = filterByVersion(sameMachine, cutoverVersion);
+      remote = filterByVersion(remote, cutoverVersion);
+    }
+
     List<ServiceEndpoint> candidates = localityAwareCandidates(sameMachine, remote);
     ServiceEndpoint chosen = selectAllowedCandidate(candidates);
     if (chosen == null) {
       return Optional.empty();
     }
     return Optional.of(castProxy(createProxy(iface, chosen)));
+  }
+
+  /**
+   * The cross-worker counterpart to {@code SimpleServiceRegistry.selectEntry}'s same-worker
+   * cutover: during a hot redeploy, {@code sameMachine}/{@code remote} can carry endpoints for both
+   * the old and new version of one interface at once, deliberately. A blended selection across both
+   * would route a fraction of fresh lookups to the version being drained, so cutover here must be
+   * atomic per lookup too -- prefer the highest {@link Version} that currently has at least one
+   * candidate its own {@link CircuitBreaker} doesn't exclude, falling back to the next highest
+   * version only when the top one has none (e.g. every endpoint at that version has an open
+   * breaker). "Available" is deliberately not "breaker-excluded candidates removed for good" --
+   * {@link #selectAllowedCandidate}'s own panic-mode ejection floor still gets the final say once
+   * one version's pool is chosen, so a correlated failure across every candidate at every version
+   * still lets that floor admit the newest version's endpoints back in rather than silently routing
+   * to a stale one.
+   *
+   * <p>Returns {@code null} when {@code sameMachine} and {@code remote} are both empty (nothing to
+   * narrow), or the single highest version present when no version has an available candidate --
+   * narrowing to that version still lets {@link #selectAllowedCandidate}'s panic-mode floor pick a
+   * candidate rather than leaving every version's endpoints in the pool at once.
+   */
+  private Version highestVersionWithAnAvailableCandidate(
+      List<ServiceEndpoint> sameMachine, List<ServiceEndpoint> remote) {
+    List<ServiceEndpoint> combined = new ArrayList<>(sameMachine.size() + remote.size());
+    combined.addAll(sameMachine);
+    combined.addAll(remote);
+    if (combined.isEmpty()) {
+      return null;
+    }
+    List<Version> versionsDescending =
+        combined.stream()
+            .map(endpoint -> endpoint.export().version())
+            .distinct()
+            .sorted(Comparator.reverseOrder())
+            .toList();
+    for (Version version : versionsDescending) {
+      boolean anyAvailable =
+          combined.stream()
+              .filter(endpoint -> endpoint.export().version().equals(version))
+              .anyMatch(endpoint -> !breakerFor(endpoint).isExcluded());
+      if (anyAvailable) {
+        return version;
+      }
+    }
+    return versionsDescending.get(0);
+  }
+
+  private static List<ServiceEndpoint> filterByVersion(
+      List<ServiceEndpoint> endpoints, Version version) {
+    return endpoints.stream().filter(e -> e.export().version().equals(version)).toList();
   }
 
   /**
