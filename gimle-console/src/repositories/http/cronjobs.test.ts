@@ -102,6 +102,27 @@ describe("HttpCronJobsRepository", () => {
     expect(yaml).toContain('tenantId: "tenant-1"');
   });
 
+  it("create() omits artifactPath when blank, so the server resolves it from Andvari", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse(), () => jsonResponse(RAW_CRONJOB)]);
+    const repo = new HttpCronJobsRepository();
+
+    await repo.create({
+      name: "nightly-cleanup",
+      schedule: "0 2 * * *",
+      jobTemplate: {
+        moduleId: { name: "cleanup-job", version: "1.0.0" },
+        artifactPath: "",
+        backoffLimit: 3,
+      },
+      concurrencyPolicy: "ALLOW",
+      tenantId: null,
+    });
+
+    const [, putInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const yaml = putInit.body as string;
+    expect(yaml).not.toContain("artifactPath:");
+  });
+
   it("remove() DELETEs /cronjobs/{name}", async () => {
     const fetchMock = stubFetchSequence([() => okResponse()]);
     const repo = new HttpCronJobsRepository();

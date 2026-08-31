@@ -2,6 +2,7 @@ import type {
   ConcurrencyPolicy,
   ConfigEntry,
   ConfigMap,
+  ControllerRevision,
   CronJob,
   DaemonSet,
   DaemonSetInstance,
@@ -9,6 +10,7 @@ import type {
   DeploymentInstance,
   Job,
   LifecycleState,
+  ModuleId,
   Node,
   SecretMap,
   SecretMapGroupVersion,
@@ -103,6 +105,8 @@ export const nodes: Node[] = Array.from({ length: 10 }, (_, i) => {
       totalCpuMillicores: totalCpu,
       assignedCpuMillicores: Math.floor(totalCpu * (0.2 + rand() * 0.7)),
     },
+    cordoned: false,
+    taints: [],
   };
 });
 
@@ -460,6 +464,65 @@ export function addStatefulSet(s: StatefulSet) {
 export function removeStatefulSet(name: string) {
   const idx = statefulSets.findIndex((s) => s.spec.name === name);
   if (idx >= 0) statefulSets.splice(idx, 1);
+}
+
+// ---- controller revision history (Deployment/DaemonSet/StatefulSet) ----
+// Keyed by "<kind>:<name>", stored oldest-first. A single synthetic revision 1 is materialized
+// lazily from the workload's current spec the first time its history is asked for, mirroring the
+// real ApiServer's own invariant that a workload always has at least one revision -- the one that
+// created it.
+const controllerRevisionsByWorkload: Record<string, ControllerRevision[]> = {};
+
+function ensureRevisions(
+  kind: string,
+  name: string,
+  moduleId: ModuleId,
+  artifactPath: string,
+): ControllerRevision[] {
+  const key = `${kind}:${name}`;
+  if (!controllerRevisionsByWorkload[key]) {
+    controllerRevisionsByWorkload[key] = [
+      { revision: 1, createdAtEpochMilli: Date.now() - 86_400_000, moduleId, artifactPath },
+    ];
+  }
+  return controllerRevisionsByWorkload[key];
+}
+
+/** Newest-first, matching ApiServer.java's handleListControllerRevisions. */
+export function listControllerRevisions(
+  kind: string,
+  name: string,
+  moduleId: ModuleId,
+  artifactPath: string,
+): ControllerRevision[] {
+  return [...ensureRevisions(kind, name, moduleId, artifactPath)].reverse();
+}
+
+/** Appends a brand-new revision matching the target's module/artifact -- rollback is forward-only,
+ * it never rewrites the target revision or anything after it, mirroring the real
+ * resolveRollbackTarget/rollback semantics. Absent toRevision defaults to the previous revision. */
+export function rollbackControllerRevision(
+  kind: string,
+  name: string,
+  moduleId: ModuleId,
+  artifactPath: string,
+  toRevision: number | undefined,
+): ControllerRevision {
+  const revisions = ensureRevisions(kind, name, moduleId, artifactPath);
+  const target =
+    toRevision !== undefined
+      ? revisions.find((r) => r.revision === toRevision)
+      : revisions[revisions.length - 2];
+  if (!target) throw new Error(`no such revision of ${name}: ${toRevision}`);
+  const next: ControllerRevision = {
+    revision: revisions[revisions.length - 1].revision + 1,
+    createdAtEpochMilli: Date.now(),
+    rollbackOfRevision: target.revision,
+    moduleId: target.moduleId,
+    artifactPath: target.artifactPath,
+  };
+  revisions.push(next);
+  return next;
 }
 
 export function updateTenant(id: string, quota: Tenant["quota"]) {

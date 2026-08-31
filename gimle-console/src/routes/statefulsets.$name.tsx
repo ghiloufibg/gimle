@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useStatefulSetsStore } from "@/stores/useStatefulSetsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
+import { RevisionHistoryPanel } from "@/components/revision-history";
 import { LifecycleBadge, StatusBadge, StatusDot } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,12 +38,19 @@ function StatefulSetDetail() {
   const items = useStatefulSetsStore((s) => s.items);
   const getOrFetch = useStatefulSetsStore((s) => s.getOrFetch);
   const remove = useStatefulSetsStore((s) => s.remove);
+  const revisions = useStatefulSetsStore((s) => s.revisions);
+  const loadRevisions = useStatefulSetsStore((s) => s.loadRevisions);
+  const rollback = useStatefulSetsStore((s) => s.rollback);
   const [deleting, setDeleting] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     getOrFetch(name).catch(() => setNotFound(true));
   }, [name, getOrFetch]);
+
+  useEffect(() => {
+    loadRevisions(name);
+  }, [name, loadRevisions]);
 
   const s = items.find((x) => x.spec.name === name);
 
@@ -71,6 +79,13 @@ function StatefulSetDetail() {
       toast.error((e as Error).message);
       setDeleting(false);
     }
+  }
+
+  async function handleRollback(revision: number) {
+    await rollback(name, revision);
+    const err = useStatefulSetsStore.getState().error;
+    if (err) toast.error(err);
+    else toast.success(`Rolled back to revision ${revision}`);
   }
 
   return (
@@ -135,6 +150,8 @@ function StatefulSetDetail() {
       <div className="mb-6 rounded border border-border bg-muted/30 p-2 text-xs font-mono break-all">
         {s.spec.artifactPath}
       </div>
+
+      <RevisionHistoryPanel revisions={revisions} onRollback={handleRollback} />
 
       <div className="mb-2 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

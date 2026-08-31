@@ -253,4 +253,59 @@ describe("HttpDeploymentsRepository", () => {
     expect(urlWithNull).toBe("/deployments/checkout-service");
     expect(urlWithoutArg).toBe("/deployments/checkout-service");
   });
+
+  it("fetchRevisions GETs /deployments/{name}/revisions and unwraps the envelope", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          revisions: [
+            {
+              revision: 2,
+              createdAtEpochMilli: 2000,
+              moduleId: { name: "checkout-service", version: "1.2.3" },
+              artifactPath: "",
+            },
+          ],
+        }),
+    ]);
+    const repo = new HttpDeploymentsRepository();
+
+    const revisions = await repo.fetchRevisions("checkout-service", "acme");
+
+    expect(revisions).toHaveLength(1);
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("/deployments/checkout-service/revisions?tenant=acme");
+  });
+
+  it("rollback() POSTs {toRevision} and busts the cache", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          revision: 3,
+          createdAtEpochMilli: 3000,
+          rollbackOfRevision: 1,
+          moduleId: { name: "checkout-service", version: "1.0.0" },
+          artifactPath: "",
+        }),
+    ]);
+    const repo = new HttpDeploymentsRepository();
+
+    const rev = await repo.rollback("checkout-service", 1);
+
+    expect(rev.rollbackOfRevision).toBe(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/deployments/checkout-service/rollback");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ toRevision: 1 });
+  });
+
+  it("rollback() with no toRevision POSTs an empty body, letting the server default to the previous revision", async () => {
+    const fetchMock = stubFetchSequence([() => jsonResponse(RAW_DEPLOYMENT)]);
+    const repo = new HttpDeploymentsRepository();
+
+    await repo.rollback("checkout-service");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({});
+  });
 });

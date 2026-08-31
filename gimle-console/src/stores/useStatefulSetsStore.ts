@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { StatefulSet, StatefulSetSpecInput } from "@/types";
+import type { ControllerRevision, StatefulSet, StatefulSetSpecInput } from "@/types";
 import { statefulSetsRepo } from "@/repositories";
 
 const PAGE = 20;
@@ -10,12 +10,15 @@ interface State {
   hasMore: boolean;
   loading: boolean;
   error: string | null;
+  revisions: ControllerRevision[];
   loadFirstPage(): Promise<void>;
   loadMore(): Promise<void>;
   refresh(): Promise<void>;
   create(spec: StatefulSetSpecInput): Promise<StatefulSet>;
   remove(name: string): Promise<void>;
   getOrFetch(name: string): Promise<StatefulSet>;
+  loadRevisions(name: string): Promise<void>;
+  rollback(name: string, toRevision?: number): Promise<void>;
 }
 
 export const useStatefulSetsStore = create<State>((set, get) => ({
@@ -24,6 +27,7 @@ export const useStatefulSetsStore = create<State>((set, get) => ({
   hasMore: true,
   loading: false,
   error: null,
+  revisions: [],
   async loadFirstPage() {
     if (get().loading) return;
     set({ loading: true, error: null });
@@ -78,5 +82,30 @@ export const useStatefulSetsStore = create<State>((set, get) => ({
     const s = await statefulSetsRepo.fetchOne(name);
     set({ items: [...get().items, s] });
     return s;
+  },
+  async loadRevisions(name) {
+    const tenantId = get().items.find((s) => s.spec.name === name)?.spec.tenantId;
+    try {
+      const revisions = await statefulSetsRepo.fetchRevisions(name, tenantId);
+      set({ revisions });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+  async rollback(name, toRevision) {
+    const tenantId = get().items.find((s) => s.spec.name === name)?.spec.tenantId;
+    try {
+      await statefulSetsRepo.rollback(name, toRevision, tenantId);
+      const [s, revisions] = await Promise.all([
+        statefulSetsRepo.fetchOne(name),
+        statefulSetsRepo.fetchRevisions(name, tenantId),
+      ]);
+      set({
+        items: get().items.map((x) => (x.spec.name === name ? s : x)),
+        revisions,
+      });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
   },
 }));

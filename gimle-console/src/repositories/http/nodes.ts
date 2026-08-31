@@ -1,7 +1,7 @@
 import type { Node, Page } from "@/types";
 import type { NodesRepository, NodesSummary } from "@/repositories/nodes";
 import { isStale } from "@/lib/format";
-import { requestJson } from "./apiClient";
+import { requestJson, requestOk } from "./apiClient";
 
 // `capacity` and `lastHeartbeatAt` are only present once a node's first heartbeat has landed
 // (ApiServer.java's handleNodesList puts both inside the same `ifPresent`, or neither) -- both
@@ -13,6 +13,8 @@ interface RawNode {
   capabilities: { supportedTiers: Node["capabilities"]["supportedTiers"] };
   lastHeartbeatAt?: string | null;
   capacity?: Node["capacity"];
+  cordoned?: boolean;
+  taints?: string[];
 }
 
 const NO_CAPACITY: Node["capacity"] = {
@@ -27,6 +29,8 @@ function mapNode(raw: RawNode): Node {
     ...raw,
     lastHeartbeatAt: raw.lastHeartbeatAt ?? null,
     capacity: raw.capacity ?? NO_CAPACITY,
+    cordoned: raw.cordoned ?? false,
+    taints: raw.taints ?? [],
   };
 }
 
@@ -73,5 +77,24 @@ export class HttpNodesRepository implements NodesRepository {
       stale: all.filter((n) => isStale(n.lastHeartbeatAt)).length,
       recent: all.slice(0, 8),
     };
+  }
+
+  async setCordoned(nodeId: string, cordoned: boolean): Promise<void> {
+    // Empty-body POST, matching the CLI's own cordon/uncordon calls -- requestOk omits the body
+    // entirely when none is passed.
+    await requestOk(
+      "POST",
+      `/nodes/${encodeURIComponent(nodeId)}/${cordoned ? "cordon" : "uncordon"}`,
+    );
+    this.cache = null;
+  }
+
+  async setTaint(nodeId: string, tenantId: string, tainted: boolean): Promise<void> {
+    await requestOk(
+      "POST",
+      `/nodes/${encodeURIComponent(nodeId)}/${tainted ? "taint" : "untaint"}`,
+      { tenantId },
+    );
+    this.cache = null;
   }
 }

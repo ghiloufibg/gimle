@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 712
+- **Total requirements**: 715
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 586
-- **Release-readiness (automated coverage)**: 17.7%
+- **Not covered by automated test**: 589
+- **Release-readiness (automated coverage)**: 17.6%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 31 | 0 | 31 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 35 | 0 | 35 | 0.0% |
+| gimle-console | 38 | 0 | 38 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -1801,6 +1801,14 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-664 | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Given a defined kind with instances; When the Custom Resources screen loads; Then the kind picker lists the kind and its table renders the declared printColumns; When an instance row is opened; Then spec and status render side by side with the caught-up signal. | No |
+
+#### Module Web Console
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-713 | Job and CronJob console screens gain a create form, closing the console-only creation gap that previously forced apply -f as the only way to create either kind | Given the Jobs list screen; When the operator clicks "New job" and submits a valid name/module/version/backoffLimit; Then a JobSpec is created and the operator is navigated to its detail page. Given the CronJobs list screen; When the operator enters a schedule that is not exactly five whitespace-separated fields; Then submission is rejected with a schedule-format error before any request is sent. Given a create form with the artifact path left blank; When the spec is submitted; Then the emitted manifest omits the artifactPath key entirely rather than sending an empty string. | No |
+| [ ] | GIMLE-714 | Deployment/DaemonSet/StatefulSet detail pages gain a revision-history panel with rollback, exposing the already-real ControllerRevision/rollback API that previously had no console surface at all | Given a deployment's revision history is loaded; When the operator confirms "Roll back" on an older revision; Then a new revision is appended matching that revision's module, and both the deployment and its revision list refresh to reflect it. Given the revision history table; Then it renders newest-first with the current (index 0) revision showing no rollback action. Given a rollback request fails server-side; When it returns an error; Then the store surfaces it without silently leaving stale state. | No |
+| [ ] | GIMLE-715 | Node detail/list screens gain cordon/uncordon and taint/untaint controls, exposing the already-real node-scheduling API that previously had no console surface (and whose already-served cordoned/taints fields were silently discarded on the wire) | Given a node's detail page; When the operator confirms "Cordon"; Then the node is marked cordoned and a cordoned badge appears, with no running instance evicted. Given a cordoned node; When the operator adds a taint for a tenant; Then that tenant is added to the node's taint set, sorted and without duplicating an already-present entry. Given the node list screen; Then a cordoned node shows a cordoned badge alongside its stale/healthy status. | No |
 
 #### Observability
 

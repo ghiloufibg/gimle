@@ -722,6 +722,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-710 | The console's Metrics and Instances screens surface per-instance error rate, which the control plane already shipped on the wire but no console type or screen ever read | Observability | Complete | Yes |
 | GIMLE-711 | A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved | Observability | Complete | Yes |
 | GIMLE-712 | WorkerMetrics evicts a module's Micrometer meters on uninstall, so repeated redeploy no longer accumulates one permanent meter set per (module, version) forever | Observability | Complete | Yes |
+| GIMLE-713 | Job and CronJob console screens gain a create form, closing the console-only creation gap that previously forced apply -f as the only way to create either kind | Module Web Console | Complete | Yes |
+| GIMLE-714 | Deployment/DaemonSet/StatefulSet detail pages gain a revision-history panel with rollback, exposing the already-real ControllerRevision/rollback API that previously had no console surface at all | Module Web Console | Complete | Yes |
+| GIMLE-715 | Node detail/list screens gain cordon/uncordon and taint/untaint controls, exposing the already-real node-scheduling API that previously had no console surface (and whose already-served cordoned/taints fields were silently discarded on the wire) | Module Web Console | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -9025,6 +9028,51 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a deployment instance whose control-plane observation reports errorRatePerSecond=3.5; When the console's Instances screen loads that deployment's rows; Then the err/s column for that instance shows 3.50 and is visually flagged.
   Given the same instance; When the console's Metrics screen loads; Then the deployment appears in the 'Instances with errors' panel and contributes to the total error-rate stat tile.
+  ```
+
+#### GIMLE-713 — Job and CronJob console screens gain a create form, closing the console-only creation gap that previously forced apply -f as the only way to create either kind
+
+- **Category**: Module Web Console
+- **User story**: As a platform operator using the console, I want to create a Job or CronJob directly from the Jobs/CronJobs screens, the same way Deployments already support, so I don't have to drop to the CLI just to submit a run-to-completion or scheduled workload.
+- **Status**: Fixed: closes FUNC-49 -- the Jobs and CronJobs list screens carried a stale comment claiming apply -f was "the supported creation path for now," even though JobsRepository/CronJobsRepository, both Mock and Http implementations, and both Zustand stores already had a working create(spec) with no UI to reach it. Added routes/jobs.new.tsx and routes/cronjobs.new.tsx (mirroring deployments.new.tsx's form/validation/submit pattern) with a "New job"/"New cronjob" button wired into each list screen's header, replacing the stale comments. CronJob's form builds a nested jobTemplate at submit time from flat fields and validates the schedule as exactly five whitespace-separated cron fields via an exported isValidCronSchedule helper. Also fixed a latent bug the new forms would otherwise have hit: HttpJobsRepository/HttpCronJobsRepository's toManifestYaml helpers emitted artifactPath: "" unconditionally instead of omitting it for a blank (registry-resolved) path the way HttpDeploymentsRepository already does, which would have 400'd against ManifestFields.optionalArtifactPath's blank-rejection the moment a user left the artifact path blank to resolve from Andvari.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/routes/jobs.new.tsx` (new), `gimle-console/src/routes/cronjobs.new.tsx` (new), `gimle-console/src/routes/jobs.index.tsx` ("New job" button), `gimle-console/src/routes/cronjobs.index.tsx` ("New cronjob" button), `gimle-console/src/repositories/http/jobs.ts` (`toManifestYaml` blank-artifactPath omission), `gimle-console/src/repositories/http/cronjobs.ts` (`toManifestYaml` blank-artifactPath omission)
+- **Test coverage**: New -jobs-new.test.ts/-cronjobs-new.test.ts unit test the exported buildJobSpec/buildCronJobSpec/jobFormIsValid/cronJobFormIsValid/isValidCronSchedule helpers (required-field checks, optional-field omission, tenant NONE-sentinel resolution, backoffLimit clamping, 5-field schedule validation). http/jobs.test.ts and http/cronjobs.test.ts each gained a case asserting a blank artifactPath is omitted from the emitted YAML manifest rather than sent as an empty string.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the Jobs list screen; When the operator clicks "New job" and submits a valid name/module/version/backoffLimit; Then a JobSpec is created and the operator is navigated to its detail page.
+  Given the CronJobs list screen; When the operator enters a schedule that is not exactly five whitespace-separated fields; Then submission is rejected with a schedule-format error before any request is sent.
+  Given a create form with the artifact path left blank; When the spec is submitted; Then the emitted manifest omits the artifactPath key entirely rather than sending an empty string.
+  ```
+
+#### GIMLE-714 — Deployment/DaemonSet/StatefulSet detail pages gain a revision-history panel with rollback, exposing the already-real ControllerRevision/rollback API that previously had no console surface at all
+
+- **Category**: Module Web Console
+- **User story**: As a platform operator, I want to see a workload's revision history and roll it back from its console detail page, the same way I already can from the CLI, so I don't have to leave the console to recover from a bad rollout.
+- **Status**: Fixed: closes FUNC-06 -- GET .../revisions and POST .../rollback were real, CLI-covered APIs for Deployment/DaemonSet/StatefulSet with zero console surface: no type, no repository member, no store method, no UI. Added a shared ControllerRevision type and a new RevisionHistoryPanel component (src/components/revision-history.tsx) rendering a newest-first table with a per-row "Roll back" action behind an AlertDialog confirm, reused identically across all three workload detail routes. Extended DeploymentsRepository/DaemonSetsRepository/StatefulSetsRepository with fetchRevisions/rollback on both Mock (fixture-backed, lazily materializing a synthetic revision 1 and appending forward-only rollback revisions, mirroring the server's own resolveRollbackTarget default-to-previous-revision semantics) and Http implementations (GET .../revisions unwrapping the {revisions:[...]} envelope, POST .../rollback with an optional {toRevision} body), and added loadRevisions/rollback to all three Zustand stores.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/types/index.ts` (`ControllerRevision`), `gimle-console/src/components/revision-history.tsx` (new), `gimle-console/src/repositories/{deployments,daemonsets,statefulsets}.ts` (`fetchRevisions`, `rollback`), `gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets}.ts` (`fetchRevisions`, `rollback`), `gimle-console/src/repositories/fixture.ts` (`listControllerRevisions`, `rollbackControllerRevision`), `gimle-console/src/stores/use{Deployments,DaemonSets,StatefulSets}Store.ts` (`loadRevisions`, `rollback`), `gimle-console/src/routes/{deployments,daemonsets,statefulsets}.$name.tsx` (panel wiring)
+- **Test coverage**: http/{deployments,daemonsets,statefulsets}.test.ts each gained fetchRevisions (URL, envelope unwrap) and rollback (URL, method, {toRevision} body, no-toRevision empty-body default) cases. useDeploymentsStore.test.ts gained loadRevisions/rollback success and error-surfacing cases, including that a successful rollback both updates the item's moduleId in place and refreshes the revision list.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment's revision history is loaded; When the operator confirms "Roll back" on an older revision; Then a new revision is appended matching that revision's module, and both the deployment and its revision list refresh to reflect it.
+  Given the revision history table; Then it renders newest-first with the current (index 0) revision showing no rollback action.
+  Given a rollback request fails server-side; When it returns an error; Then the store surfaces it without silently leaving stale state.
+  ```
+
+#### GIMLE-715 — Node detail/list screens gain cordon/uncordon and taint/untaint controls, exposing the already-real node-scheduling API that previously had no console surface (and whose already-served cordoned/taints fields were silently discarded on the wire)
+
+- **Category**: Module Web Console
+- **User story**: As a platform operator, I want to cordon a node or taint it against a tenant directly from its console detail page, the same way I already can from the CLI, so I don't have to leave the console to take a node out of scheduling rotation.
+- **Status**: Fixed: closes FUNC-07 -- POST /nodes/{id}/{cordon|uncordon} and POST /nodes/{id}/{taint|untaint} were real, CLI-covered, idempotent, future-scheduling-only APIs (never evicting a running instance), and GET /nodes already served cordoned/taints per node -- but the console's own RawNode/mapNode silently discarded both fields, and the node detail page's only actions were Back and View logs. Extended the Node type with cordoned/taints, fixed HttpNodesRepository's mapNode to stop discarding them, added setCordoned/setTaint to NodesRepository (Mock mutating the fixture in place; Http issuing the same empty-body POST the CLI's own cordon/uncordon calls make, and a {tenantId}-bodied POST for taint/untaint) and to useNodesStore. The node detail page gained a Cordon/Uncordon button behind an AlertDialog confirm plus a cordoned status badge, and a Taints panel listing current taints with a per-taint remove action and a tenant picker to add one; the node list screen gained a cordoned badge alongside the existing stale/healthy status.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/types/index.ts` (`Node.cordoned`, `Node.taints`), `gimle-console/src/repositories/nodes.ts` (`setCordoned`, `setTaint`), `gimle-console/src/repositories/http/nodes.ts` (`mapNode` fix, `setCordoned`, `setTaint`), `gimle-console/src/stores/useNodesStore.ts` (`setCordoned`, `setTaint`), `gimle-console/src/routes/nodes.$nodeId.tsx` (cordon action, taints panel), `gimle-console/src/routes/nodes.index.tsx` (cordoned badge)
+- **Test coverage**: http/nodes.test.ts gained cordoned/taints wire-normalization cases (defaulted and real-value) plus setCordoned/setTaint URL/method/body cases. New useNodesStore.test.ts covers setCordoned/setTaint success (item mutated in place, taint set sorted and de-duplicated) and repository-rejection error surfacing.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node's detail page; When the operator confirms "Cordon"; Then the node is marked cordoned and a cordoned badge appears, with no running instance evicted.
+  Given a cordoned node; When the operator adds a taint for a tenant; Then that tenant is added to the node's taint set, sorted and without duplicating an already-present entry.
+  Given the node list screen; Then a cordoned node shows a cordoned badge alongside its stale/healthy status.
   ```
 
 ### gimle-fafnir-console

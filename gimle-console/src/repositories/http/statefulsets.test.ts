@@ -106,4 +106,49 @@ describe("HttpStatefulSetsRepository", () => {
     expect(url).toBe("/statefulsets/orders");
     expect(init.method).toBe("DELETE");
   });
+
+  it("fetchRevisions GETs /statefulsets/{name}/revisions and unwraps the envelope", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          revisions: [
+            {
+              revision: 1,
+              createdAtEpochMilli: 1000,
+              moduleId: { name: "orders", version: "1.0.0" },
+              artifactPath: "",
+            },
+          ],
+        }),
+    ]);
+    const repo = new HttpStatefulSetsRepository();
+
+    const revisions = await repo.fetchRevisions("orders");
+
+    expect(revisions).toHaveLength(1);
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("/statefulsets/orders/revisions");
+  });
+
+  it("rollback() POSTs {toRevision} to /statefulsets/{name}/rollback", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          revision: 2,
+          createdAtEpochMilli: 2000,
+          rollbackOfRevision: 1,
+          moduleId: { name: "orders", version: "0.9.0" },
+          artifactPath: "",
+        }),
+    ]);
+    const repo = new HttpStatefulSetsRepository();
+
+    const rev = await repo.rollback("orders", 1);
+
+    expect(rev.rollbackOfRevision).toBe(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/statefulsets/orders/rollback");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ toRevision: 1 });
+  });
 });

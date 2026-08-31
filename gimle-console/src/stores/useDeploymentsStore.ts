@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Deployment, DeploymentSpecInput } from "@/types";
+import type { ControllerRevision, Deployment, DeploymentSpecInput } from "@/types";
 import { deploymentsRepo } from "@/repositories";
 
 const PAGE = 20;
@@ -10,12 +10,15 @@ interface State {
   hasMore: boolean;
   loading: boolean;
   error: string | null;
+  revisions: ControllerRevision[];
   loadFirstPage(): Promise<void>;
   loadMore(): Promise<void>;
   refresh(): Promise<void>;
   create(spec: DeploymentSpecInput): Promise<Deployment>;
   remove(name: string): Promise<void>;
   getOrFetch(name: string): Promise<Deployment>;
+  loadRevisions(name: string): Promise<void>;
+  rollback(name: string, toRevision?: number): Promise<void>;
 }
 
 export const useDeploymentsStore = create<State>((set, get) => ({
@@ -24,6 +27,7 @@ export const useDeploymentsStore = create<State>((set, get) => ({
   hasMore: true,
   loading: false,
   error: null,
+  revisions: [],
   async loadFirstPage() {
     if (get().loading) return;
     set({ loading: true, error: null });
@@ -78,5 +82,31 @@ export const useDeploymentsStore = create<State>((set, get) => ({
     const d = await deploymentsRepo.fetchOne(name);
     set({ items: [...get().items, d] });
     return d;
+  },
+  async loadRevisions(name) {
+    const tenantId = get().items.find((d) => d.spec.name === name)?.spec.tenantId;
+    try {
+      const revisions = await deploymentsRepo.fetchRevisions(name, tenantId);
+      set({ revisions });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+  async rollback(name, toRevision) {
+    // Same tenantId-resolution rationale as remove() above.
+    const tenantId = get().items.find((d) => d.spec.name === name)?.spec.tenantId;
+    try {
+      await deploymentsRepo.rollback(name, toRevision, tenantId);
+      const [d, revisions] = await Promise.all([
+        deploymentsRepo.fetchOne(name),
+        deploymentsRepo.fetchRevisions(name, tenantId),
+      ]);
+      set({
+        items: get().items.map((x) => (x.spec.name === name ? d : x)),
+        revisions,
+      });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
   },
 }));

@@ -238,6 +238,11 @@ export interface Node {
     totalCpuMillicores: number;
     assignedCpuMillicores: number;
   };
+  /** Cordoned/tainted only ever affect future scheduling -- neither evicts an already-running
+   * instance. `taints` is the sorted set of tenant ids this node currently refuses new placements
+   * for. */
+  cordoned: boolean;
+  taints: string[];
 }
 
 export interface Tenant {
@@ -355,6 +360,18 @@ export interface SecretMapGroupVersion {
 export interface SecretMapRollbackResult {
   results: SecretMapKeyResult[];
   groupVersion: number;
+}
+
+/** One revision of a Deployment/DaemonSet/StatefulSet's ControllerRevision history -- mirrors
+ * ApiServer.java's controllerRevisionToJson(). Newest-first when returned by fetchRevisions.
+ * `rollbackOfRevision` is present only when this revision was itself produced by a rollback. */
+export interface ControllerRevision {
+  revision: number;
+  createdAtEpochMilli: number;
+  rollbackOfRevision?: number;
+  moduleId: ModuleId;
+  artifactPath: string;
+  artifactSha256?: string;
 }
 
 export interface ModuleInstance {

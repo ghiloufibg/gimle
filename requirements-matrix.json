@@ -1,7 +1,7 @@
 {
-  "title": "Giml\u00e9 Requirements Matrix",
-  "preamble": "This matrix was reverse-engineered directly from the Giml\u00e9 codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository \u2014 main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories \u2014 not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor \u2014 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`\u2026`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test \u2014 direct or indirect \u2014 was found for that specific behavior.",
-  "requirementCount": 712,
+  "title": "Gimlé Requirements Matrix",
+  "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
+  "requirementCount": 715,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -42,7 +42,7 @@
     {
       "id": "GIMLE-003",
       "module": "gimle-core",
-      "feature": "Module descriptor validation (request \u2264 limit invariant)",
+      "feature": "Module descriptor validation (request ≤ limit invariant)",
       "category": "Module System",
       "userStory": "As a platform operator, I want a module's resource request validated against its limit at construction time.",
       "statusDetail": "Complete",
@@ -63,7 +63,7 @@
       "feature": "Tiered isolation model (TIER_1/TIER_2/TIER_3)",
       "category": "Module System",
       "userStory": "As a module author, I want to declare an isolation tier per module.",
-      "statusDetail": "Complete (enum); TIER_3 enforcement Partial \u2014 see gimle-os",
+      "statusDetail": "Complete (enum); TIER_3 enforcement Partial — see gimle-os",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/IsolationTier.java`"
@@ -87,7 +87,7 @@
         "`gimle-core/src/main/java/com/gimle/core/module/ResourceSpec.java`",
         "`ResourceQuantity.java`"
       ],
-      "testCoverageDetail": "Indirect via ModuleDescriptorTest, VesselSpecTest \u2014 NONE direct",
+      "testCoverageDetail": "Indirect via ModuleDescriptorTest, VesselSpecTest — NONE direct",
       "gherkinSteps": [
         "Given ResourceSpec{memory:\"128Mi\", cpu:\"250m\"}, When memoryBytes()/cpuMillicores() called, Then 134217728 and 250 respectively."
       ],
@@ -491,7 +491,7 @@
       "module": "gimle-core",
       "feature": "Startup banner rendering with terminal color/Unicode auto-detection",
       "category": "Internal/Infra",
-      "userStory": "As an operator starting any Giml\u00e9 process, I want a branded startup banner falling back to ASCII on non-UTF-8 terminals.",
+      "userStory": "As an operator starting any Gimlé process, I want a branded startup banner falling back to ASCII on non-UTF-8 terminals.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -545,7 +545,7 @@
     {
       "id": "GIMLE-030",
       "module": "gimle-core",
-      "feature": "Agent\u2194worker control-channel protocol and codec",
+      "feature": "Agent↔worker control-channel protocol and codec",
       "category": "Internal/Infra / Protocol",
       "userStory": "As a platform developer, I want a simple, human-debuggable line-oriented protocol for the agent-worker control channel.",
       "statusDetail": "Complete",
@@ -826,9 +826,9 @@
     {
       "id": "GIMLE-045",
       "module": "gimle-module",
-      "feature": "Module lifecycle state machine (INSTALLED\u2192RESOLVED\u2192STARTING\u2192ACTIVE\u2192STOPPING\u2192UNINSTALLED, plus FAILED/COMPLETED)",
+      "feature": "Module lifecycle state machine (INSTALLED→RESOLVED→STARTING→ACTIVE→STOPPING→UNINSTALLED, plus FAILED/COMPLETED)",
       "category": "Module System",
-      "userStory": "As the platform, I want a module driven through a strict lifecycle state machine \u2014 gating hooks abort/propagate synchronously, teardown hooks best-effort never blocking.",
+      "userStory": "As the platform, I want a module driven through a strict lifecycle state machine — gating hooks abort/propagate synchronously, teardown hooks best-effort never blocking.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -1092,7 +1092,7 @@
       "module": "gimle-module",
       "feature": "gimle-module.yaml descriptor parsing and validation",
       "category": "Module System",
-      "userStory": "As a module author, I want my gimle-module.yaml parsed with strict validation (safe YAML loading, well-formed fields, request\u2264limit invariant).",
+      "userStory": "As a module author, I want my gimle-module.yaml parsed with strict validation (safe YAML loading, well-formed fields, request≤limit invariant).",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -1108,7 +1108,7 @@
     {
       "id": "GIMLE-060",
       "module": "gimle-module",
-      "feature": "Module artifact reading \u2014 real-JPMS-module and descriptor-presence validation",
+      "feature": "Module artifact reading — real-JPMS-module and descriptor-presence validation",
       "category": "Module System",
       "userStory": "As the platform, I want a module jar rejected outright if it lacks a real module-info.class or its bundled gimle-module.yaml.",
       "statusDetail": "Complete",
@@ -1218,10 +1218,10 @@
     {
       "id": "GIMLE-066",
       "module": "gimle-os",
-      "feature": "Tier 3 (namespace isolation) \u2014 deliberately unsupported by the current limiter",
+      "feature": "Tier 3 (namespace isolation) — deliberately unsupported by the current limiter",
       "category": "Resource Limiting",
       "userStory": "As the platform, I want the only current resource limiter to explicitly report it does not support TIER_3.",
-      "statusDetail": "Partial \u2014 Tier 3 (FFM unshare/setns) unimplemented on any platform, deliberate deferral per CLAUDE.md",
+      "statusDetail": "Partial — Tier 3 (FFM unshare/setns) unimplemented on any platform, deliberate deferral per CLAUDE.md",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-os/src/main/java/com/gimle/os/portable/PortableJvmFlagsResourceLimiter.java` (`supports`); rejection (GimleIsolationException.tierUnsupported) is invoked by callers outside this module (e.g. gimle-agent)"
@@ -1236,17 +1236,17 @@
     {
       "id": "GIMLE-067",
       "module": "gimle-os",
-      "feature": "Kernel-level (cgroup v2) resource enforcement \u2014 deferred",
+      "feature": "Kernel-level (cgroup v2) resource enforcement — deferred",
       "category": "Resource Limiting",
       "userStory": "As a platform operator on Linux, I would want CPU/memory limits enforced at the kernel level via cgroup v2, catching runaway native allocations JVM flags alone can't.",
-      "statusDetail": "Partial/Not Implemented \u2014 explicitly, deliberately deferred per ResourceLimiter's own javadoc and CLAUDE.md, not a discovered gap",
+      "statusDetail": "Partial/Not Implemented — explicitly, deliberately deferred per ResourceLimiter's own javadoc and CLAUDE.md, not a discovered gap",
       "confidence": "High",
       "sourceLocations": [
-        "N/A \u2014 no cgroup-writing code exists anywhere in gimle-os; only PortableJvmFlagsResourceLimiter exists"
+        "N/A — no cgroup-writing code exists anywhere in gimle-os; only PortableJvmFlagsResourceLimiter exists"
       ],
       "testCoverageDetail": "NONE (nothing to test)",
       "gherkinSteps": [
-        "N/A \u2014 not implemented"
+        "N/A — not implemented"
       ],
       "statusSummary": "Partial",
       "testCoverageLevel": "None"
@@ -1384,7 +1384,7 @@
       "module": "gimle-pki",
       "feature": "Randomized certificate-renewal scheduling (anti-thundering-herd)",
       "category": "PKI",
-      "userStory": "As a cluster operator, I want each certificate's renewal point randomized within the last 20\u201330% of validity, so many nodes provisioned at once don't all renew simultaneously.",
+      "userStory": "As a cluster operator, I want each certificate's renewal point randomized within the last 20–30% of validity, so many nodes provisioned at once don't all renew simultaneously.",
       "statusDetail": "Complete",
       "confidence": "Medium",
       "sourceLocations": [
@@ -1392,7 +1392,7 @@
       ],
       "testCoverageDetail": "NONE dedicated found",
       "gherkinSteps": [
-        "Given a certificate's validity window, When RenewalSchedule.of(certificate) is called, Then renewAt falls within the last 20\u201330% of validity."
+        "Given a certificate's validity window, When RenewalSchedule.of(certificate) is called, Then renewAt falls within the last 20–30% of validity."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "None"
@@ -1444,7 +1444,7 @@
       "sourceLocations": [
         "`gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`"
       ],
-      "testCoverageDetail": "NONE direct (constituent pieces \u2014 CertificateAuthority, CertificateSigningRequests, PasswordHashes, Pem \u2014 each independently tested)",
+      "testCoverageDetail": "NONE direct (constituent pieces — CertificateAuthority, CertificateSigningRequests, PasswordHashes, Pem — each independently tested)",
       "gherkinSteps": [
         "Given an empty output directory, When PkiBootstrapMain.main([\"outDir\",\"MyClusterCA\",\"localhost\"]) runs, Then outDir contains ca.crt/.key, controlplane/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash."
       ],
@@ -1679,9 +1679,9 @@
     {
       "id": "GIMLE-089",
       "module": "gimle-worker",
-      "feature": "Module-tier self-healing \u2014 restart on repeated liveness failure with backoff and budget exhaustion",
+      "feature": "Module-tier self-healing — restart on repeated liveness failure with backoff and budget exhaustion",
       "category": "Worker Supervision / Self-Healing",
-      "userStory": "As an operator, I want a module that fails its liveness probe a threshold number of times in a row to be disposed and reinstantiated automatically (with exponential backoff), and \u2014 once its restart budget is exhausted \u2014 escalated to FAILED so the worker/machine-tier self-healing chain can take over, so that a genuinely broken module doesn't loop forever without ever surfacing as needing intervention.",
+      "userStory": "As an operator, I want a module that fails its liveness probe a threshold number of times in a row to be disposed and reinstantiated automatically (with exponential backoff), and — once its restart budget is exhausted — escalated to FAILED so the worker/machine-tier self-healing chain can take over, so that a genuinely broken module doesn't loop forever without ever surfacing as needing intervention.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -1867,12 +1867,12 @@
       "feature": "Per-module CPU/memory/request-rate/error-rate metrics reporting (portable, no cgroup)",
       "category": "Observability / Cgroup Management",
       "userStory": "As the autoscaler, I want each worker to self-report its own JVM-wide CPU/heap usage plus per-module request/error rate and queue depth every 5 seconds via portable `java.lang.management` APIs, so that AutoscaleReconciler's CPU-utilization math has real data instead of always seeing zero.",
-      "statusDetail": "Partial \u2014 deliberately portable-only; explicitly documented as not reading cgroup data (`gimle-os`'s kernel-level `ResourceLimiter` remains deferred per CLAUDE.md/`ResourceLimiter` javadoc)",
+      "statusDetail": "Partial — deliberately portable-only; explicitly documented as not reading cgroup data (`gimle-os`'s kernel-level `ResourceLimiter` remains deferred per CLAUDE.md/`ResourceLimiter` javadoc)",
       "confidence": "Medium",
       "sourceLocations": [
         "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`metricsReportLoop`, `rateSince`)"
       ],
-      "testCoverageDetail": "NONE at unit level in gimle-worker (portable-by-design, matching `PortableJvmFlagsResourceLimiter`'s own bar \u2014 see gimle-os for the sibling implementation's own tests)",
+      "testCoverageDetail": "NONE at unit level in gimle-worker (portable-by-design, matching `PortableJvmFlagsResourceLimiter`'s own bar — see gimle-os for the sibling implementation's own tests)",
       "gherkinSteps": [
         "Given a worker has one or more ACTIVE modules",
         "When METRICS_REPORT_INTERVAL (5s) elapses",
@@ -2026,7 +2026,7 @@
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/WorkerProcessSupervisor.java` (`stop`, `onExit`'s `closed` guard)"
       ],
-      "testCoverageDetail": "Implicit in `WorkerProcessSupervisorTest` setup/teardown paths; no dedicated `@Test` name asserting this directly \u2014 NONE explicit",
+      "testCoverageDetail": "Implicit in `WorkerProcessSupervisorTest` setup/teardown paths; no dedicated `@Test` name asserting this directly — NONE explicit",
       "gherkinSteps": [
         "Given the supervisor's stop() sets closed=true and calls process.destroyForcibly()",
         "When the process's onExit() callback then fires",
@@ -2085,7 +2085,7 @@
       "feature": "Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred",
       "category": "Cgroup Management",
       "userStory": "As the platform, I want a worker's `-Xmx`/`-XX:ActiveProcessorCount` computed from a module's resource LIMIT and applied at spawn time, identically on Linux/macOS/Windows, so that Tier 1/2 isolation has a guaranteed-minimum enforcement mechanism even before kernel-level enforcement exists.",
-      "statusDetail": "Partial \u2014 kernel-level cgroup v2 enforcement is explicitly documented as deferred (see `ResourceLimiter`'s own javadoc: \"a future kernel-level implementation drops in without touching a caller\"); today only the portable JVM-flags path exists, and a runaway native allocation is not caught",
+      "statusDetail": "Partial — kernel-level cgroup v2 enforcement is explicitly documented as deferred (see `ResourceLimiter`'s own javadoc: \"a future kernel-level implementation drops in without touching a caller\"); today only the portable JVM-flags path exists, and a runaway native allocation is not caught",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-os/src/main/java/com/gimle/os/portable/PortableJvmFlagsResourceLimiter.java`",
@@ -2096,7 +2096,7 @@
         "Given a ModuleDescriptor's resourceLimit (memoryBytes, cpuMillicores)",
         "When PortableJvmFlagsResourceLimiter.prepare/jvmFlags are called",
         "Then it returns \"-Xmx<bytes>\" and \"-XX:ActiveProcessorCount=<ceil(millicores/1000)>\", with no cgroup file writes, no FFM downcalls",
-        "And supports(tier) is true only for TIER_1/TIER_2 \u2014 TIER_3 is unsupported"
+        "And supports(tier) is true only for TIER_1/TIER_2 — TIER_3 is unsupported"
       ],
       "statusSummary": "Partial",
       "testCoverageLevel": "Yes"
@@ -2107,10 +2107,10 @@
       "feature": "Tier 3 isolation rejection",
       "category": "Cgroup Management / Config",
       "userStory": "As the platform, I want an assignment that requires an isolation tier the current ResourceLimiter doesn't support (Tier 3, unimplemented on every platform) to fail loudly with `GimleIsolationException` rather than silently downgrading.",
-      "statusDetail": "Partial \u2014 deliberately rejected outright, not implemented; FFM `unshare`/`setns` namespace isolation does not exist on any platform in this codebase.",
+      "statusDetail": "Partial — deliberately rejected outright, not implemented; FFM `unshare`/`setns` namespace isolation does not exist on any platform in this codebase.",
       "confidence": "Medium",
       "sourceLocations": [
-        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`reconcileAssignments`, `startVesselInstance` \u2014 both call `resourceLimiter.supports`/`GimleIsolationException.tierUnsupported`)"
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`reconcileAssignments`, `startVesselInstance` — both call `resourceLimiter.supports`/`GimleIsolationException.tierUnsupported`)"
       ],
       "testCoverageDetail": "NONE directly asserting Tier 3 rejection in gimle-agent tests found (PortableJvmFlagsResourceLimiter's own `supports()` behavior for TIER_3 is covered in `gimle-os`'s `PortableJvmFlagsResourceLimiterTest`, not re-asserted at the agent call site)",
       "gherkinSteps": [
@@ -2126,7 +2126,7 @@
       "module": "gimle-agent",
       "feature": "Assignment reconciliation loop (fetch, start, replace, stop)",
       "category": "Worker Supervision",
-      "userStory": "As the control plane, I want the agent to poll `GET /nodes/{nodeId}/assignments` and reconcile its locally-supervised instance set to match \u2014 starting new ones, replacing ones whose moduleId/artifactPath changed, and stopping ones no longer assigned \u2014 every tick, so that node state converges to desired state even after missed events (level-triggered).",
+      "userStory": "As the control plane, I want the agent to poll `GET /nodes/{nodeId}/assignments` and reconcile its locally-supervised instance set to match — starting new ones, replacing ones whose moduleId/artifactPath changed, and stopping ones no longer assigned — every tick, so that node state converges to desired state even after missed events (level-triggered).",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -2146,7 +2146,7 @@
     {
       "id": "GIMLE-110",
       "module": "gimle-agent",
-      "feature": "Tier 1 density \u2014 shared-worker reuse for multiple module instances",
+      "feature": "Tier 1 density — shared-worker reuse for multiple module instances",
       "category": "Worker Supervision",
       "userStory": "As the platform, I want up to MAX_TIER1_DENSITY (4) Tier 1 instances of the same tenant, distinct modules, to be packed into one already-running worker JVM instead of always spawning a fresh one, so that classloader-level density is realized without a per-instance JVM cost.",
       "statusDetail": "Complete",
@@ -2294,7 +2294,7 @@
         "And Fafnir secrets are fetched directly via this agent's own mTLS node identity (never relayed through the control plane) if fafnirBaseUrl is configured",
         "And each entry is sent as ControlMessage.ConfigDelivered(key, value, wasEncrypted)",
         "Given the plain config fetch fails (e.g. a node principal isn't authorized for /config under mTLS)",
-        "Then secret delivery still proceeds independently \u2014 one failure never blocks the other"
+        "Then secret delivery still proceeds independently — one failure never blocks the other"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "None"
@@ -2330,7 +2330,7 @@
       "module": "gimle-agent",
       "feature": "Vessel process supervision (plain-jar workload as its own dedicated process)",
       "category": "Worker Supervision",
-      "userStory": "As an operator running a plain runnable-jar workload (not a Giml\u00e9 module), I want it spawned and supervised like a dedicated worker (ResourceLimiter flags, RestartTracker crash-respawn) but without any Giml\u00e9 control-protocol handshake, volume allocation, or fabric/gossip registration, so that non-module workloads still get consistent process-lifecycle guarantees.",
+      "userStory": "As an operator running a plain runnable-jar workload (not a Gimlé module), I want it spawned and supervised like a dedicated worker (ResourceLimiter flags, RestartTracker crash-respawn) but without any Gimlé control-protocol handshake, volume allocation, or fabric/gossip registration, so that non-module workloads still get consistent process-lifecycle guarantees.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -2353,7 +2353,7 @@
       "module": "gimle-agent",
       "feature": "Vessel port allocation (dynamic/fixed) and env resolution (literal/port/secret)",
       "category": "Config",
-      "userStory": "As a vessel author, I want my declared env vars to resolve to literal values, dynamically-allocated (or fixed) ports, or Fafnir secret values, so that a plain jar can be configured the same declarative way a Giml\u00e9 module can, without writing its own bootstrap logic.",
+      "userStory": "As a vessel author, I want my declared env vars to resolve to literal values, dynamically-allocated (or fixed) ports, or Fafnir secret values, so that a plain jar can be configured the same declarative way a Gimlé module can, without writing its own bootstrap logic.",
       "statusDetail": "Complete",
       "confidence": "Medium",
       "sourceLocations": [
@@ -2535,7 +2535,7 @@
       "module": "gimle-agent",
       "feature": "Node/instance log-serving HTTP surface with tailing and follow",
       "category": "Observability",
-      "userStory": "As the console/CLI, I want to fetch or follow a node's PLATFORM log or an instance's PLATFORM/APPLICATION log directly from the agent hosting it (control plane proxies to the right node), so that log viewing works the same \"API server \u2192 kubelet \u2192 node log\" way `kubectl logs` does, including live tailing.",
+      "userStory": "As the console/CLI, I want to fetch or follow a node's PLATFORM log or an instance's PLATFORM/APPLICATION log directly from the agent hosting it (control plane proxies to the right node), so that log viewing works the same \"API server → kubelet → node log\" way `kubectl logs` does, including live tailing.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -2571,7 +2571,7 @@
         "When GET /logs/nodes/{nodeId}?category=SYSTEM is requested",
         "Then every *-system.log file under workers/ is read and merged, sorted by timestamp",
         "Given follow=true is requested for SYSTEM",
-        "Then 400 is returned (not supported \u2014 multiple underlying files)"
+        "Then 400 is returned (not supported — multiple underlying files)"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "None"
@@ -2627,7 +2627,7 @@
     {
       "id": "GIMLE-131",
       "module": "gimle-agent",
-      "feature": "Whitelisted control-plane read relay (worker\u2192agent\u2192control plane) with independent re-validation",
+      "feature": "Whitelisted control-plane read relay (worker→agent→control plane) with independent re-validation",
       "category": "Fabric / Config",
       "userStory": "As the trust boundary of the whole relay mechanism, I want the agent to independently re-validate a worker-relayed read request's path against a strict whitelist regex (exactly `GET /endpoints/{name}`, no traversal, no smuggled segments) before ever making the real call, so that a hosted module is never implicitly trusted to only ask for something already allowed.",
       "statusDetail": "Complete",
@@ -2688,7 +2688,7 @@
         "When postInstanceEvent is called",
         "Then it POSTs the event body to /nodes/{nodeId}/events",
         "Given the POST fails (network error, control plane down)",
-        "Then it is logged and swallowed \u2014 never propagated to stall the caller"
+        "Then it is logged and swallowed — never propagated to stall the caller"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Partial"
@@ -3194,7 +3194,7 @@
         "`#addSurgeIndex`/`#getSurgeIndices`",
         "`StateMutation.AddRollingIndex`/`AddSurgeIndex`"
       ],
-      "testCoverageDetail": "Covered indirectly by `RaftCodecTest` mutation round-trips \u2014 NONE direct StateStoreTest method found",
+      "testCoverageDetail": "Covered indirectly by `RaftCodecTest` mutation round-trips — NONE direct StateStoreTest method found",
       "gherkinSteps": [
         "Given a deployment mid-rolling-update with index 2 marked in flight; When the control-plane process restarts; Then getRollingIndices still reports index 2 as in flight."
       ],
@@ -3253,7 +3253,7 @@
         "`StateStore#putQuotaViolation`",
         "`#isQuotaViolating`"
       ],
-      "testCoverageDetail": "Covered indirectly via `rpc.StoreClientClusterTest`/`StoreNodeTest` \u2014 NONE direct",
+      "testCoverageDetail": "Covered indirectly via `rpc.StoreClientClusterTest`/`StoreNodeTest` — NONE direct",
       "gherkinSteps": [
         "Given a deployment marked quota-violating; When putQuotaViolation is called again with violating=false; Then isQuotaViolating reports false and the file is deleted."
       ],
@@ -4151,7 +4151,7 @@
         "`#resolveParamTypes`",
         "`FabricServer#invokeLocally`"
       ],
-      "testCoverageDetail": "Exercised indirectly through `FabricServiceRegistryInvokeByNameTest`/`FabricServerTest` \u2014 NONE dedicated",
+      "testCoverageDetail": "Exercised indirectly through `FabricServiceRegistryInvokeByNameTest`/`FabricServerTest` — NONE dedicated",
       "gherkinSteps": [
         "Given an inbound call naming an interface/method/param types belonging to a module-private interface; When ReflectiveDispatch resolves and FabricServer invokes it; Then it resolves against the instance's own declaring interface, avoiding IllegalAccessException."
       ],
@@ -4188,7 +4188,7 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`",
         "`NodeCandidate.java`"
       ],
-      "testCoverageDetail": "`SchedulerTest` \u2014 `places_on_the_only_feasible_node`, `prefers_the_node_with_more_free_capacity`, `throws_when_no_node_has_enough_free_capacity`",
+      "testCoverageDetail": "`SchedulerTest` — `places_on_the_only_feasible_node`, `prefers_the_node_with_more_free_capacity`, `throws_when_no_node_has_enough_free_capacity`",
       "gherkinSteps": [
         "Given multiple registered nodes with differing free memory/CPU; When a replica is placed for a deployment; Then the node with the most free memory (tie-broken by free CPU) among tier-eligible, uncordoned nodes is chosen."
       ],
@@ -4206,7 +4206,7 @@
       "sourceLocations": [
         "`Scheduler.filterByTier`"
       ],
-      "testCoverageDetail": "`SchedulerTest` \u2014 `rejects_a_node_that_does_not_support_the_requested_tier`, `throws_when_no_node_supports_the_requested_tier`",
+      "testCoverageDetail": "`SchedulerTest` — `rejects_a_node_that_does_not_support_the_requested_tier`, `throws_when_no_node_supports_the_requested_tier`",
       "gherkinSteps": [
         "Given a node that does not declare support for TIER_2; When a TIER_2 replica is placed; Then that node is excluded and placement fails if no other node supports the tier."
       ],
@@ -4224,7 +4224,7 @@
       "sourceLocations": [
         "`Scheduler.filterByCordon`; `ApiServer.handleCordon` (`POST /nodes/{id}/cordon|uncordon`)"
       ],
-      "testCoverageDetail": "`SchedulerTest` \u2014 `cordon_excludes_a_cordoned_node_from_placement`, `cordon_fails_outright_when_every_capable_node_is_cordoned`; `DaemonSetReconcilerTest#cordoning_a_node_removes_its_assignment_on_the_next_tick`",
+      "testCoverageDetail": "`SchedulerTest` — `cordon_excludes_a_cordoned_node_from_placement`, `cordon_fails_outright_when_every_capable_node_is_cordoned`; `DaemonSetReconcilerTest#cordoning_a_node_removes_its_assignment_on_the_next_tick`",
       "gherkinSteps": [
         "Given a node marked cordoned; When a new replica needs placement; Then the cordoned node is excluded from candidacy, but its existing instances are untouched."
       ],
@@ -4243,7 +4243,7 @@
         "`Scheduler.filterByAntiAffinity`",
         "`GimleSchedulingException.antiAffinityViolated`"
       ],
-      "testCoverageDetail": "`SchedulerTest` \u2014 `anti_affinity_excludes_nodes_already_running_a_replica_of_the_same_deployment`, `anti_affinity_fails_outright_rather_than_placing_on_an_occupied_node`",
+      "testCoverageDetail": "`SchedulerTest` — `anti_affinity_excludes_nodes_already_running_a_replica_of_the_same_deployment`, `anti_affinity_fails_outright_rather_than_placing_on_an_occupied_node`",
       "gherkinSteps": [
         "Given anti-affinity is requested and every eligible node already runs a replica; When another replica is placed; Then placement fails outright rather than co-locating."
       ],
@@ -4261,7 +4261,7 @@
       "sourceLocations": [
         "`Scheduler.filterByTenant`/`enforcesTenantIsolation`; `DeploymentReconciler.buildCandidates`"
       ],
-      "testCoverageDetail": "`SchedulerTest` \u2014 `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant`",
+      "testCoverageDetail": "`SchedulerTest` — `tenant_isolation_permits_a_node_already_running_the_same_tenant`, `tenant_isolation_fails_outright_when_every_capable_node_hosts_a_different_tenant`",
       "gherkinSteps": [
         "Given a node already running Tier 2 instances for tenant A; When a Tier 2 replica for tenant B is scheduled; Then that node is excluded; if every candidate hosts a different tenant, placement fails outright."
       ],
@@ -4279,7 +4279,7 @@
       "sourceLocations": [
         "`Scheduler.filterByLabels`"
       ],
-      "testCoverageDetail": "`SchedulerTest` \u2014 `required_labels_excludes_a_node_missing_one_of_them`, `required_labels_fails_outright_when_no_capable_node_carries_them`",
+      "testCoverageDetail": "`SchedulerTest` — `required_labels_excludes_a_node_missing_one_of_them`, `required_labels_fails_outright_when_no_capable_node_carries_them`",
       "gherkinSteps": [
         "Given a manifest declares placement.requiredLabels; When placement runs; Then only nodes carrying every required label are candidates; fails outright if none qualify."
       ],
@@ -4299,7 +4299,7 @@
         "`Scheduler.placeSticky`",
         "`GimleSchedulingException.stickyNodeUnavailable`"
       ],
-      "testCoverageDetail": "`SchedulerTest` \u2014 `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone`",
+      "testCoverageDetail": "`SchedulerTest` — `sticky_placement_returns_the_sticky_node_even_when_a_roomier_node_exists`, `sticky_placement_fails_outright_rather_than_choosing_a_different_node_when_sticky_is_gone`",
       "gherkinSteps": [
         "Given index 3 was previously placed on node-A; When index 3 needs re-placement; Then it is placed on node-A again if eligible, and fails outright (never relocated) if node-A is unavailable."
       ],
@@ -4317,7 +4317,7 @@
       "sourceLocations": [
         "`Scheduler.eligibleNodes`; `DaemonSetReconciler.reconcileDaemonSet`"
       ],
-      "testCoverageDetail": "`SchedulerTest` \u2014 `eligible_nodes_returns_every_node_that_passes_every_filter`, `eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies`; `DaemonSetReconcilerTest#places_an_assignment_on_every_registered_node`",
+      "testCoverageDetail": "`SchedulerTest` — `eligible_nodes_returns_every_node_that_passes_every_filter`, `eligible_nodes_returns_an_empty_list_rather_than_throwing_when_nothing_qualifies`; `DaemonSetReconcilerTest#places_an_assignment_on_every_registered_node`",
       "gherkinSteps": [
         "Given several nodes, some cordoned, some missing required labels; When DaemonSetReconciler computes eligible nodes; Then every node passing tier/cordon/tenant/label filters is returned, no single-winner pick."
       ],
@@ -4335,7 +4335,7 @@
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java`"
       ],
-      "testCoverageDetail": "`DeploymentReconcilerTest` \u2014 `creates_assignments_for_every_missing_index_when_capacity_exists`, `an_arbitrary_starting_snapshot_converges_the_same_as_a_fresh_reconcile`",
+      "testCoverageDetail": "`DeploymentReconcilerTest` — `creates_assignments_for_every_missing_index_when_capacity_exists`, `an_arbitrary_starting_snapshot_converges_the_same_as_a_fresh_reconcile`",
       "gherkinSteps": [
         "Given a deployment declares 3 replicas and only 1 assignment exists; When DeploymentReconciler ticks; Then 2 more are placed; an arbitrary starting snapshot converges to the identical result a fresh reconcile would produce."
       ],
@@ -4371,7 +4371,7 @@
       "sourceLocations": [
         "`DeploymentReconciler.validateArtifact`"
       ],
-      "testCoverageDetail": "`DeploymentReconcilerTest` \u2014 `places_new_instances_when_the_recorded_artifact_hash_still_matches_the_jar_on_disk`, `refuses_to_place_new_instances_once_the_jar_on_disk_no_longer_matches_the_recorded_hash`",
+      "testCoverageDetail": "`DeploymentReconcilerTest` — `places_new_instances_when_the_recorded_artifact_hash_still_matches_the_jar_on_disk`, `refuses_to_place_new_instances_once_the_jar_on_disk_no_longer_matches_the_recorded_hash`",
       "gherkinSteps": [
         "Given a deployment admitted with artifactSha256 recorded; When the jar is later swapped for different bytes; Then no new instance is placed until resubmitted."
       ],
@@ -4466,7 +4466,7 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/HealthReconciler.java`",
         "`RestartTracker`"
       ],
-      "testCoverageDetail": "`HealthReconcilerTest` \u2014 `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states`",
+      "testCoverageDetail": "`HealthReconcilerTest` — `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states`",
       "gherkinSteps": [
         "Given an instance's heartbeat reports alive=false or lifecycleState=FAILED; When HealthReconciler ticks; Then it is rescheduled after growing delay; once maxAttemptsPerWindow is exhausted it's marked permanently failed."
       ],
@@ -4503,7 +4503,7 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/QuotaReconciler.java`",
         "`TenantUsage`"
       ],
-      "testCoverageDetail": "`QuotaReconcilerTest` \u2014 `marks_a_deployment_violating_when_its_tenant_exceeds_quota`, `clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state`, `proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists`",
+      "testCoverageDetail": "`QuotaReconcilerTest` — `marks_a_deployment_violating_when_its_tenant_exceeds_quota`, `clears_a_violation_once_the_quota_is_raised_again_convergence_from_arbitrary_state`, `proposes_exactly_once_when_a_violation_is_introduced_then_nothing_more_while_it_persists`",
       "gherkinSteps": [
         "Given a tenant's quota is lowered below already-running usage; When QuotaReconciler ticks; Then affected deployments are marked quota-violating with no instances evicted."
       ],
@@ -4513,7 +4513,7 @@
     {
       "id": "GIMLE-229",
       "module": "gimle-controlplane",
-      "feature": "Horizontal autoscaling \u2014 multi-signal (`AutoscaleReconciler`)",
+      "feature": "Horizontal autoscaling — multi-signal (`AutoscaleReconciler`)",
       "category": "Reconciliation / Scheduling",
       "userStory": "As an operator, I want replica count to auto-adjust based on CPU, request rate, error rate, and queue depth.",
       "statusDetail": "Complete",
@@ -4521,7 +4521,7 @@
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/autoscale/AutoscaleReconciler.java`"
       ],
-      "testCoverageDetail": "`AutoscaleReconcilerTest` \u2014 `scales_up_by_one_replica_per_tick_under_sustained_high_utilization`, `queue_depth_alone_can_drive_scale_up_when_cpu_is_under_target`, `converges_correctly_from_an_arbitrary_out_of_range_persisted_replica_count`",
+      "testCoverageDetail": "`AutoscaleReconcilerTest` — `scales_up_by_one_replica_per_tick_under_sustained_high_utilization`, `queue_depth_alone_can_drive_scale_up_when_cpu_is_under_target`, `converges_correctly_from_an_arbitrary_out_of_range_persisted_replica_count`",
       "gherkinSteps": [
         "Given a policy targeting CPU and queue depth, WORST_SIGNAL mode; When queue depth implies more replicas than CPU; Then effective count moves toward the worst signal's ideal, one replica per tick, clamped to [min,max]."
       ],
@@ -4539,7 +4539,7 @@
       "sourceLocations": [
         "`AutoscaleReconciler.computeWeightedIdeal`"
       ],
-      "testCoverageDetail": "`AutoscaleReconcilerTest` \u2014 `weighted_mode_blends_two_signals_instead_of_taking_the_max`, `weighted_mode_with_no_weights_configured_behaves_like_an_unweighted_average`",
+      "testCoverageDetail": "`AutoscaleReconcilerTest` — `weighted_mode_blends_two_signals_instead_of_taking_the_max`, `weighted_mode_with_no_weights_configured_behaves_like_an_unweighted_average`",
       "gherkinSteps": [
         "Given combinationMode=WEIGHTED with per-signal weights; When two signals disagree; Then effective count is driven by the weighted-average blended ratio."
       ],
@@ -4593,7 +4593,7 @@
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`"
       ],
-      "testCoverageDetail": "`StatefulSetReconcilerTest` \u2014 `does_not_place_index_one_until_index_zero_reports_ready`, `places_index_one_once_index_zero_becomes_ready`",
+      "testCoverageDetail": "`StatefulSetReconcilerTest` — `does_not_place_index_one_until_index_zero_reports_ready`, `places_index_one_once_index_zero_becomes_ready`",
       "gherkinSteps": [
         "Given index 0 is not yet ready; When StatefulSetReconciler ticks; Then index 1 is never placed."
       ],
@@ -4629,7 +4629,7 @@
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/JobReconciler.java`"
       ],
-      "testCoverageDetail": "`JobReconcilerTest` \u2014 `a_failed_observation_retries_the_next_attempt_when_backoff_budget_remains`, `exhausting_the_backoff_limit_marks_the_job_permanently_failed`, `an_arbitrary_starting_snapshot_with_two_coexisting_runs_converges_to_the_highest_attempt`",
+      "testCoverageDetail": "`JobReconcilerTest` — `a_failed_observation_retries_the_next_attempt_when_backoff_budget_remains`, `exhausting_the_backoff_limit_marks_the_job_permanently_failed`, `an_arbitrary_starting_snapshot_with_two_coexisting_runs_converges_to_the_highest_attempt`",
       "gherkinSteps": [
         "Given a Job's current attempt fails and backoffLimit allows another; When JobReconciler ticks; Then a new attempt is placed; once exhausted, the Job is marked FAILED."
       ],
@@ -4665,7 +4665,7 @@
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`"
       ],
-      "testCoverageDetail": "`CronJobReconcilerTest` \u2014 `first_tick_records_a_baseline_and_materializes_nothing`, `a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix`",
+      "testCoverageDetail": "`CronJobReconcilerTest` — `first_tick_records_a_baseline_and_materializes_nothing`, `a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix`",
       "gherkinSteps": [
         "Given a CronJobSpec with schedule \"* * * * *\" and no prior lastSchedule; When first ticked; Then baseline is recorded with no retroactive burst; on the next due tick a Job named \"{name}-{epochSeconds}\" is materialized."
       ],
@@ -4683,7 +4683,7 @@
       "sourceLocations": [
         "`CronJobReconciler.materializeFiring`"
       ],
-      "testCoverageDetail": "`CronJobReconcilerTest` \u2014 `concurrency_policy_forbid_skips_a_firing_while_the_previous_one_is_still_running`, `concurrency_policy_replace_removes_the_still_running_job_before_placing_the_new_one`, `concurrency_policy_allow_lets_a_new_firing_run_alongside_a_still_running_one`",
+      "testCoverageDetail": "`CronJobReconcilerTest` — `concurrency_policy_forbid_skips_a_firing_while_the_previous_one_is_still_running`, `concurrency_policy_replace_removes_the_still_running_job_before_placing_the_new_one`, `concurrency_policy_allow_lets_a_new_firing_run_alongside_a_still_running_one`",
       "gherkinSteps": [
         "Given the previous firing is still non-terminal and concurrencyPolicy=FORBID; When a new firing is due; Then it is skipped and logged."
       ],
@@ -4753,7 +4753,7 @@
       "statusDetail": "Complete",
       "confidence": "Medium",
       "sourceLocations": [
-        "`ControlPlaneMain` \u2014 `leaseTick`",
+        "`ControlPlaneMain` — `leaseTick`",
         "`StoreClient.tryAcquireOrRenewLease`"
       ],
       "testCoverageDetail": "Indirect (multi-replica smoke/holmgang tests)",
@@ -4774,7 +4774,7 @@
       "sourceLocations": [
         "`ControlPlaneMain.scheduleIndependentTickers`"
       ],
-      "testCoverageDetail": "`ControlPlaneSchedulingTest` \u2014 `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_is_blocked_forever`, `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_throws_every_time`",
+      "testCoverageDetail": "`ControlPlaneSchedulingTest` — `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_is_blocked_forever`, `cert_rotation_and_lease_renewal_keep_ticking_while_the_reconcile_tick_throws_every_time`",
       "gherkinSteps": [
         "Given the reconcile tick is deliberately blocked forever; When cert rotation and lease renewal keep ticking on their own executors; Then both continue unaffected."
       ],
@@ -4812,7 +4812,7 @@
         "`AdmissionPlugin.java`",
         "`AdmissionDecision.java`"
       ],
-      "testCoverageDetail": "`AdmissionChainTest` \u2014 `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated`",
+      "testCoverageDetail": "`AdmissionChainTest` — `empty_chain_allows_the_spec_unchanged`, `a_rejecting_plugin_short_circuits_every_later_plugin`, `a_later_plugin_sees_the_spec_an_earlier_plugin_mutated`",
       "gherkinSteps": [
         "Given a chain with a rejecting plugin followed by an allowing plugin; When admit() runs; Then processing short-circuits at the first rejection; a later plugin sees an earlier plugin's mutated spec."
       ],
@@ -4832,7 +4832,7 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/WorkloadResourceProfile.java`",
         "`TenantUsage.java`"
       ],
-      "testCoverageDetail": "`TenantQuotaPluginTest` \u2014 `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected`",
+      "testCoverageDetail": "`TenantQuotaPluginTest` — `deployment_exceeding_its_tenants_quota_is_rejected`, `a_deployment_fitting_at_replicas_alone_but_not_with_surge_is_rejected`",
       "gherkinSteps": [
         "Given tenant T's quota is nearly exhausted; When a submission with maxCommittedInstances (replicas+maxSurge) would exceed it; Then admission rejects with 409."
       ],
@@ -4850,7 +4850,7 @@
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/admission/PolicyConfigPlugin.java`"
       ],
-      "testCoverageDetail": "`PolicyConfigPluginTest` \u2014 `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed`",
+      "testCoverageDetail": "`PolicyConfigPluginTest` — `a_deployment_exceeding_the_configured_ceiling_is_rejected`, `a_malformed_policy_value_is_rejected_rather_than_silently_ignored`, `exactly_at_the_ceiling_is_allowed`",
       "gherkinSteps": [
         "Given tenant T has policy.maxReplicasPerDeployment=10; When a submission requests 15 replicas; Then admission rejects citing the ceiling."
       ],
@@ -4981,7 +4981,7 @@
         "`ApiServer.authorizeEndpointsRead`",
         "`Authorizer.isTenantAssignedToNode`"
       ],
-      "testCoverageDetail": "`ApiServerEndpointsAuthzTest` \u2014 `a_node_with_an_active_assignment_for_the_deployments_tenant_may_read_its_endpoints`, `a_node_with_no_assignment_for_the_deployments_tenant_is_forbidden`",
+      "testCoverageDetail": "`ApiServerEndpointsAuthzTest` — `a_node_with_an_active_assignment_for_the_deployments_tenant_may_read_its_endpoints`, `a_node_with_no_assignment_for_the_deployments_tenant_is_forbidden`",
       "gherkinSteps": [
         "Given node-42 has an active instance for tenant T; When it calls GET /endpoints/{workload-of-T}; Then access is granted; a request for a tenant it has no assignment for is rejected 403."
       ],
@@ -5001,7 +5001,7 @@
         "`resolvePrincipal`",
         "`peerCertificate`"
       ],
-      "testCoverageDetail": "`ApiServerTlsTest` \u2014 `https_request_with_a_valid_client_cert_succeeds`, `https_request_without_a_client_cert_is_rejected`",
+      "testCoverageDetail": "`ApiServerTlsTest` — `https_request_with_a_valid_client_cert_succeeds`, `https_request_without_a_client_cert_is_rejected`",
       "gherkinSteps": [
         "Given gimle.transport.protocol=tls and a CA-signed client cert; When any request is made; Then the principal is resolved from the certificate subject; absent a cert, a session cookie is checked."
       ],
@@ -5058,7 +5058,7 @@
         "`ApiServer.handleNodeJoinRequest`",
         "`BootstrapTokenRegistry`"
       ],
-      "testCoverageDetail": "`NodeBootstrapCsrTest` \u2014 `fresh_agent_obtains_a_signed_certificate_and_completes_mtls_handshake`, `invalid_bootstrap_token_is_rejected`; `BootstrapTokenRegistryTest` \u2014 `issued_token_can_be_consumed_exactly_once`, `expired_token_cannot_be_consumed`",
+      "testCoverageDetail": "`NodeBootstrapCsrTest` — `fresh_agent_obtains_a_signed_certificate_and_completes_mtls_handshake`, `invalid_bootstrap_token_is_rejected`; `BootstrapTokenRegistryTest` — `issued_token_can_be_consumed_exactly_once`, `expired_token_cannot_be_consumed`",
       "gherkinSteps": [
         "Given an operator issued a bootstrap token; When a new node submits a CSR (purpose=NODE_CLIENT) with that token; Then the CA signs a cert stamped O=gimle:nodes, and the token cannot be reused."
       ],
@@ -5078,7 +5078,7 @@
         "`PendingCsrStore`",
         "`handleApprove`"
       ],
-      "testCoverageDetail": "`HumanOperatorCsrTest` \u2014 `operator_csr_sits_pending_until_an_existing_operator_approves_it`, `approve_without_a_client_certificate_is_rejected`",
+      "testCoverageDetail": "`HumanOperatorCsrTest` — `operator_csr_sits_pending_until_an_existing_operator_approves_it`, `approve_without_a_client_certificate_is_rejected`",
       "gherkinSteps": [
         "Given a human submits a CSR (purpose=OPERATOR_CLIENT) with no client certificate; When submitted; Then it sits pending (202) until an existing operator approves it."
       ],
@@ -5097,7 +5097,7 @@
         "`ApiServer.handleRotationRequest`; `checkAndRotateOwnCertificateIfDue`",
         "`reloadTlsMaterial`"
       ],
-      "testCoverageDetail": "`CertificateRotationTest` \u2014 `rotation_issues_a_new_cert_for_the_same_subject_and_it_works_immediately`, `rotation_csr_with_a_mismatched_subject_is_rejected`",
+      "testCoverageDetail": "`CertificateRotationTest` — `rotation_issues_a_new_cert_for_the_same_subject_and_it_works_immediately`, `rotation_csr_with_a_mismatched_subject_is_rejected`",
       "gherkinSteps": [
         "Given a caller presents its own still-valid cert with a matching-subject rotation CSR; When submitted; Then a new cert is issued for the identical subject; a mismatched subject is rejected 403."
       ],
@@ -5208,7 +5208,7 @@
         "`head`",
         "`forward`"
       ],
-      "testCoverageDetail": "`AndvariClientTest` \u2014 `a_head_call_fails_over_from_an_unreachable_endpoint_to_a_reachable_one`, `unreachable_on_every_configured_endpoint_answers_unreachable`",
+      "testCoverageDetail": "`AndvariClientTest` — `a_head_call_fails_over_from_an_unreachable_endpoint_to_a_reachable_one`, `unreachable_on_every_configured_endpoint_answers_unreachable`",
       "gherkinSteps": [
         "Given two configured endpoints, the first unreachable; When a HEAD request is made; Then it transparently retries against the second endpoint."
       ],
@@ -5227,7 +5227,7 @@
         "`ApiServer.handleInstanceLogsProxy`/`handleNodeLogsProxy`",
         "`MuninnClient.get`"
       ],
-      "testCoverageDetail": "`ApiServerLogsFallbackTest` \u2014 `a_node_with_no_registration_falls_through_to_muninn_when_configured`, `a_registered_but_unreachable_agent_falls_through_to_muninn_when_configured`, `a_live_reachable_agent_is_still_served_directly_not_from_muninn`, `a_muninn_fallback_fails_over_to_a_second_configured_endpoint_when_the_first_is_unreachable`",
+      "testCoverageDetail": "`ApiServerLogsFallbackTest` — `a_node_with_no_registration_falls_through_to_muninn_when_configured`, `a_registered_but_unreachable_agent_falls_through_to_muninn_when_configured`, `a_live_reachable_agent_is_still_served_directly_not_from_muninn`, `a_muninn_fallback_fails_over_to_a_second_configured_endpoint_when_the_first_is_unreachable`",
       "gherkinSteps": [
         "Given an instance's owning node is unregistered or unreachable, and Muninn is configured; When a caller requests logs; Then ApiServer falls through to Muninn instead of 404/502."
       ],
@@ -5281,7 +5281,7 @@
       "sourceLocations": [
         "`ApiServer.handleAssignments`"
       ],
-      "testCoverageDetail": "`ApiServerEndpointsTest` \u2014 `a_job_run_is_listed_under_its_own_endpoints_route`, `a_daemonset_assignment_is_listed_under_its_own_endpoints_route`, `a_statefulset_assignment_is_listed_under_its_own_endpoints_route`",
+      "testCoverageDetail": "`ApiServerEndpointsTest` — `a_job_run_is_listed_under_its_own_endpoints_route`, `a_daemonset_assignment_is_listed_under_its_own_endpoints_route`, `a_statefulset_assignment_is_listed_under_its_own_endpoints_route`",
       "gherkinSteps": [
         "Given a node has a mix of assignment kinds; When GET /nodes/{id}/assignments; Then every kind is represented uniformly as AssignedInstance entries."
       ],
@@ -5356,7 +5356,7 @@
       "sourceLocations": [
         "`ApiServer.handleDeployment`/`handleJob`/`handleDaemonSet`/`handleStatefulSet`"
       ],
-      "testCoverageDetail": "`ApiServerTest` \u2014 extensive PUT/GET/DELETE/list round-trip coverage",
+      "testCoverageDetail": "`ApiServerTest` — extensive PUT/GET/DELETE/list round-trip coverage",
       "gherkinSteps": [
         "Given a valid Deployment manifest YAML; When PUT /deployments/{name}; Then GET returns the round-tripped spec, and DELETE removes it."
       ],
@@ -5393,7 +5393,7 @@
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SecretCipher.java`"
       ],
-      "testCoverageDetail": "`SecretCipherTest` \u2014 `round_trips_plaintext_through_encryption_and_decryption`, `round_trips_through_a_specific_key_id`, `ciphertext_never_contains_the_plaintext_bytes`, `the_same_plaintext_encrypts_differently_each_time_due_to_a_random_iv`",
+      "testCoverageDetail": "`SecretCipherTest` — `round_trips_plaintext_through_encryption_and_decryption`, `round_trips_through_a_specific_key_id`, `ciphertext_never_contains_the_plaintext_bytes`, `the_same_plaintext_encrypts_differently_each_time_due_to_a_random_iv`",
       "gherkinSteps": [
         "Given a secret encrypted under key id 3; When decrypted after the ring rotates to key id 5; Then decryption succeeds by looking up key id 3 from the embedded byte."
       ],
@@ -5429,7 +5429,7 @@
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java`"
       ],
-      "testCoverageDetail": "`KeyFileManagerTest` \u2014 `generates_a_key_on_first_run_and_reuses_it_on_later_runs`, `a_key_loaded_via_a_second_manager_instance_can_decrypt_what_the_first_encrypted`",
+      "testCoverageDetail": "`KeyFileManagerTest` — `generates_a_key_on_first_run_and_reuses_it_on_later_runs`, `a_key_loaded_via_a_second_manager_instance_can_decrypt_what_the_first_encrypted`",
       "gherkinSteps": [
         "Given no key file exists; When KeyFileManager.loadOrCreate runs; Then a fresh key is generated, written rw-------, and reused on later loads."
       ],
@@ -5465,7 +5465,7 @@
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyRing.java`"
       ],
-      "testCoverageDetail": "`KeyRingTest` \u2014 `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager`",
+      "testCoverageDetail": "`KeyRingTest` — `fingerprint_does_not_depend_on_keysbyid_map_iteration_order`, `fingerprint_changes_when_key_material_differs`, `fingerprint_changes_after_a_real_rotation_via_keyfilemanager`",
       "gherkinSteps": [
         "Given two replicas hold identical key material in different map order; When fingerprint() is computed; Then both produce the identical SHA-256 hex digest."
       ],
@@ -5483,7 +5483,7 @@
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirCrypto.java`"
       ],
-      "testCoverageDetail": "`FafnirCryptoTest` \u2014 `rotate_reencrypts_every_existing_encrypted_entry_under_the_new_active_key`, `rotate_never_loses_a_previously_encrypted_value_still_decryptable_after_multiple_rounds`, `a_plain_unencrypted_entry_is_untouched_by_rotation`",
+      "testCoverageDetail": "`FafnirCryptoTest` — `rotate_reencrypts_every_existing_encrypted_entry_under_the_new_active_key`, `rotate_never_loses_a_previously_encrypted_value_still_decryptable_after_multiple_rounds`, `a_plain_unencrypted_entry_is_untouched_by_rotation`",
       "gherkinSteps": [
         "Given several tenants have encrypted entries under the old key; When FafnirCrypto.rotate() runs; Then every encrypted entry is re-encrypted under the new key."
       ],
@@ -5573,7 +5573,7 @@
       "sourceLocations": [
         "`FafnirServer.decideAllowed`; `Authorizer.isTenantAssignedToNode`"
       ],
-      "testCoverageDetail": "`FafnirSecretsAuthzTest` \u2014 `a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets`, `a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key`, `a_node_may_never_write_a_secret_even_with_an_active_assignment`",
+      "testCoverageDetail": "`FafnirSecretsAuthzTest` — `a_node_with_an_active_assignment_for_the_tenant_may_read_its_secrets`, `a_node_with_no_assignment_for_the_tenant_is_forbidden_regardless_of_key`, `a_node_may_never_write_a_secret_even_with_an_active_assignment`",
       "gherkinSteps": [
         "Given node-42 has an active assignment for tenant T; When it reads GET /secrets/T/{key}; Then granted; PUT/DELETE, or reading an unassigned tenant, is rejected."
       ],
@@ -5593,7 +5593,7 @@
         "`recordAudit`",
         "`authzThrottle`"
       ],
-      "testCoverageDetail": "`FafnirObservabilityTest` \u2014 `repeated_authorization_failures_from_the_same_principal_are_eventually_throttled`, `a_successful_authorization_clears_prior_recorded_failures`, `audit_log_records_the_decision_without_ever_logging_the_secret_value`",
+      "testCoverageDetail": "`FafnirObservabilityTest` — `repeated_authorization_failures_from_the_same_principal_are_eventually_throttled`, `a_successful_authorization_clears_prior_recorded_failures`, `audit_log_records_the_decision_without_ever_logging_the_secret_value`",
       "gherkinSteps": [
         "Given a principal repeatedly fails authorization; When the failure count crosses the threshold; Then further requests are throttled with 429+Retry-After."
       ],
@@ -5629,7 +5629,7 @@
       "sourceLocations": [
         "`FafnirServer.reloadTlsMaterial`; `FafnirMain`'s cert-rotation ticker"
       ],
-      "testCoverageDetail": "`FafnirServerTlsTest` \u2014 `a_real_mtls_request_with_a_ca_signed_client_cert_succeeds`, `reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server`",
+      "testCoverageDetail": "`FafnirServerTlsTest` — `a_real_mtls_request_with_a_ca_signed_client_cert_succeeds`, `reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server`",
       "gherkinSteps": [
         "Given Fafnir's cert is rotated; When reloadTlsMaterial runs; Then a fresh mTLS connection using the new cert succeeds without restart."
       ],
@@ -5647,7 +5647,7 @@
       "sourceLocations": [
         "`FafnirServer.handleAuthLogin`/`handleAuthLogout`/`handleAuthSession`"
       ],
-      "testCoverageDetail": "`FafnirServerAuthTest` \u2014 `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
+      "testCoverageDetail": "`FafnirServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
       "gherkinSteps": [
         "Given a valid Account; When logging in via Fafnir's /auth/login; Then a distinct gimle_fafnir_session cookie is issued."
       ],
@@ -5683,7 +5683,7 @@
       "sourceLocations": [
         "`FafnirServer.serveConsole`; `FafnirMain`"
       ],
-      "testCoverageDetail": "`FafnirServerConsoleTest` \u2014 `console_static_files_are_served_once_wired`, `the_real_bundled_console_jar_resolves_and_serves_its_own_index_html`",
+      "testCoverageDetail": "`FafnirServerConsoleTest` — `console_static_files_are_served_once_wired`, `the_real_bundled_console_jar_resolves_and_serves_its_own_index_html`",
       "gherkinSteps": [
         "Given fafnir-console/index.html is on the classpath; When FafnirMain starts; Then the SPA is served at /console."
       ],
@@ -5703,7 +5703,7 @@
       ],
       "testCoverageDetail": "`FafnirServerAuthTest#status_reports_uptime_active_key_and_transport_mode`",
       "gherkinSteps": [
-        "Given Fafnir has run with one key rotation; When GET /status; Then it returns uptimeSeconds/activeKeyId/secretsKeyRingFingerprint/transportProtocol/tenant list \u2014 never a raw key."
+        "Given Fafnir has run with one key rotation; When GET /status; Then it returns uptimeSeconds/activeKeyId/secretsKeyRingFingerprint/transportProtocol/tenant list — never a raw key."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -5774,7 +5774,7 @@
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/ArtifactStore.java`"
       ],
-      "testCoverageDetail": "`ArtifactStoreTest` \u2014 `an_identical_re_push_is_idempotent`, `a_differing_re_push_is_a_conflict_and_the_stored_bytes_are_untouched`; `AndvariServerTest` \u2014 `a_differing_re_push_is_refused_as_immutable`, `an_identical_re_push_is_idempotent`",
+      "testCoverageDetail": "`ArtifactStoreTest` — `an_identical_re_push_is_idempotent`, `a_differing_re_push_is_a_conflict_and_the_stored_bytes_are_untouched`; `AndvariServerTest` — `a_differing_re_push_is_refused_as_immutable`, `an_identical_re_push_is_idempotent`",
       "gherkinSteps": [
         "Given moduleId:version was never pushed; When pushed with jar bytes X; Then CREATED; re-pushing identical X is IDENTICAL (no-op); re-pushing different Y is CONFLICT (409)."
       ],
@@ -5795,7 +5795,7 @@
       ],
       "testCoverageDetail": "`ArtifactStoreTest` (push mechanics covered by round-trip tests)",
       "gherkinSteps": [
-        "Given a push is streaming when the process is killed; When it restarts; Then no torn file is visible at the coordinate's path \u2014 only an orphaned temp file (swept later)."
+        "Given a push is streaming when the process is killed; When it restarts; Then no torn file is visible at the coordinate's path — only an orphaned temp file (swept later)."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -5844,12 +5844,12 @@
       "feature": "Periodic full-store integrity scrub",
       "category": "Artifact Registry / Internal-Infra",
       "userStory": "As a platform operator, I want an optional background job re-digesting every stored artifact regardless of download activity.",
-      "statusDetail": "Complete (off by default, opt-in \u2014 deliberate)",
+      "statusDetail": "Complete (off by default, opt-in — deliberate)",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/IntegrityScrubber.java`; `AndvariMain`"
       ],
-      "testCoverageDetail": "`IntegrityScrubberTest` \u2014 `a_coordinate_whose_bytes_no_longer_match_its_recorded_digest_is_reported`, `an_uncorrupted_coordinate_is_never_reported`, `a_version_missing_its_jar_is_skipped_rather_than_reported_as_corrupted`",
+      "testCoverageDetail": "`IntegrityScrubberTest` — `a_coordinate_whose_bytes_no_longer_match_its_recorded_digest_is_reported`, `an_uncorrupted_coordinate_is_never_reported`, `a_version_missing_its_jar_is_skipped_rather_than_reported_as_corrupted`",
       "gherkinSteps": [
         "Given -Dgimle.andvari.scrub.enabled=true and a stored jar is silently corrupted; When the scheduled scrub runs; Then the mismatch is detected and reported through the same quarantine/audit path."
       ],
@@ -5862,12 +5862,12 @@
       "feature": "Version retention sweeping (count and age based)",
       "category": "Artifact Registry",
       "userStory": "As a platform operator, I want to optionally retire old artifact versions once a module exceeds a max-versions or max-age threshold.",
-      "statusDetail": "Complete (off by default, opt-in \u2014 deliberate)",
+      "statusDetail": "Complete (off by default, opt-in — deliberate)",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/ArtifactRetentionSweeper.java`"
       ],
-      "testCoverageDetail": "`ArtifactRetentionSweeperTest` \u2014 `retires_the_oldest_versions_once_a_module_exceeds_the_configured_count`, `retires_versions_older_than_the_configured_age`, `a_version_over_both_limits_is_reported_once_with_a_combined_reason`, `neither_policy_configured_retires_nothing`",
+      "testCoverageDetail": "`ArtifactRetentionSweeperTest` — `retires_the_oldest_versions_once_a_module_exceeds_the_configured_count`, `retires_versions_older_than_the_configured_age`, `a_version_over_both_limits_is_reported_once_with_a_combined_reason`, `neither_policy_configured_retires_nothing`",
       "gherkinSteps": [
         "Given -Dgimle.andvari.retention.enabled=true with maxVersionsPerModule=10; When a module has 15 versions; Then the 5 oldest-by-push-time versions are retired, dual-audited under a synthetic system principal."
       ],
@@ -5885,7 +5885,7 @@
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariPeerSync.java`"
       ],
-      "testCoverageDetail": "`AndvariPeerSyncTest` \u2014 `a_sync_tick_pulls_an_artifact_that_only_exists_on_a_peer`, `a_push_to_one_replica_becomes_visible_through_another_after_a_sync_tick`, `an_already_present_coordinate_is_never_re_pulled`",
+      "testCoverageDetail": "`AndvariPeerSyncTest` — `a_sync_tick_pulls_an_artifact_that_only_exists_on_a_peer`, `a_push_to_one_replica_becomes_visible_through_another_after_a_sync_tick`, `an_already_present_coordinate_is_never_re_pulled`",
       "gherkinSteps": [
         "Given two peer replicas and a jar pushed only to A; When B's periodic sync tick runs; Then B pulls the coordinate from A, verifies the digest, and quarantines on mismatch."
       ],
@@ -5921,7 +5921,7 @@
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java`"
       ],
-      "testCoverageDetail": "`AndvariServerTest` \u2014 `push_head_and_download_round_trip_with_the_digest_in_the_header`, `the_catalog_and_version_listing_reflect_pushed_artifacts`, `delete_removes_the_artifact`",
+      "testCoverageDetail": "`AndvariServerTest` — `push_head_and_download_round_trip_with_the_digest_in_the_header`, `the_catalog_and_version_listing_reflect_pushed_artifacts`, `delete_removes_the_artifact`",
       "gherkinSteps": [
         "Given a jar is pushed via PUT /artifacts/{moduleId}/{version}; When HEAD is called; Then a 200 with X-Gimle-Artifact-Sha256; GET streams the jar; DELETE removes it."
       ],
@@ -5940,7 +5940,7 @@
         "`AndvariServer.handleRepository`",
         "`MavenCoordinates`"
       ],
-      "testCoverageDetail": "`AndvariServerMavenRepositoryTest` \u2014 `a_jar_pushed_through_the_repository_path_is_readable_from_the_operational_surface`, `a_jar_pushed_through_the_operational_surface_is_downloadable_via_the_repository_path`, `a_differing_re_push_through_the_repository_path_is_still_refused_as_immutable`",
+      "testCoverageDetail": "`AndvariServerMavenRepositoryTest` — `a_jar_pushed_through_the_repository_path_is_readable_from_the_operational_surface`, `a_jar_pushed_through_the_operational_surface_is_downloadable_via_the_repository_path`, `a_differing_re_push_through_the_repository_path_is_still_refused_as_immutable`",
       "gherkinSteps": [
         "Given a jar is pushed via mvn deploy to /repository/com/gimle/.../provider-1.0.0.jar; When fetched via GET /artifacts/com.gimle.examples.greeter.provider/1.0.0; Then identical bytes are returned."
       ],
@@ -5977,7 +5977,7 @@
         "`AndvariServer.handleRepositoryMetadata`",
         "`generateMavenMetadataXml`; `ArtifactStore.versions`/`compareVersions`"
       ],
-      "testCoverageDetail": "`AndvariServerMavenRepositoryTest` \u2014 `maven_metadata_lists_every_pushed_version_and_names_the_latest`, `maven_metadata_checksum_is_computed_over_the_generated_document`, `a_single_segment_module_has_an_empty_group_id_in_the_generated_metadata`; `ArtifactStoreTest#versions_sort_semver_aware_not_lexicographically`",
+      "testCoverageDetail": "`AndvariServerMavenRepositoryTest` — `maven_metadata_lists_every_pushed_version_and_names_the_latest`, `maven_metadata_checksum_is_computed_over_the_generated_document`, `a_single_segment_module_has_an_empty_group_id_in_the_generated_metadata`; `ArtifactStoreTest#versions_sort_semver_aware_not_lexicographically`",
       "gherkinSteps": [
         "Given three versions pushed out of order; When GET .../maven-metadata.xml; Then the document lists every version in semver order and names the correct latest/release."
       ],
@@ -5995,7 +5995,7 @@
       "sourceLocations": [
         "`gimle-andvari/src/main/java/com/gimle/andvari/MavenCoordinates.java`"
       ],
-      "testCoverageDetail": "`MavenCoordinatesTest` \u2014 `a_multi_segment_group_joins_with_the_artifact_id_by_dots`, `distinct_gavs_can_alias_to_the_same_module_coordinate`",
+      "testCoverageDetail": "`MavenCoordinatesTest` — `a_multi_segment_group_joins_with_the_artifact_id_by_dots`, `distinct_gavs_can_alias_to_the_same_module_coordinate`",
       "gherkinSteps": [
         "Given com/gimle/examples/greeter/provider/1.0.0/provider-1.0.0.jar; When MavenCoordinates.parseArtifactFile parses it; Then it resolves to module com.gimle.examples.greeter.provider, artifactId provider, version 1.0.0."
       ],
@@ -6031,7 +6031,7 @@
       "sourceLocations": [
         "`AndvariServer.authorizeArtifacts`"
       ],
-      "testCoverageDetail": "`AndvariServerTlsTest` \u2014 `a_module_scoped_permission_grants_access_to_only_that_module`, `a_module_scoped_permission_cannot_list_the_full_catalog`",
+      "testCoverageDetail": "`AndvariServerTlsTest` — `a_module_scoped_permission_grants_access_to_only_that_module`, `a_module_scoped_permission_cannot_list_the_full_catalog`",
       "gherkinSteps": [
         "Given a principal holds a permission scoped to only module com.example.foo; When it pushes/pulls that module; Then granted; catalog listing (whole registry) is denied."
       ],
@@ -6072,7 +6072,7 @@
       ],
       "testCoverageDetail": "Exercised via `AndvariServerTlsTest`'s auth test set",
       "gherkinSteps": [
-        "Given a push or delete is attempted; When authorizeArtifacts completes; Then a SLF4J line and a durable AuditEvent are both recorded \u2014 reads (pulls) are not durably audited."
+        "Given a push or delete is attempted; When authorizeArtifacts completes; Then a SLF4J line and a durable AuditEvent are both recorded — reads (pulls) are not durably audited."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -6088,7 +6088,7 @@
       "sourceLocations": [
         "`AndvariServer.handleAuthLogin`/`handleAuthLogout`/`handleAuthSession`/`serveConsole`; `AndvariMain`"
       ],
-      "testCoverageDetail": "`AndvariServerAuthTest` \u2014 `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
+      "testCoverageDetail": "`AndvariServerAuthTest` — `login_session_and_logout_round_trip_with_no_client_certificate_at_all`, `a_wrong_password_is_rejected_with_no_cookie_set`",
       "gherkinSteps": [
         "Given a valid Account exists; When logging in via Andvari's /auth/login; Then a distinct gimle_andvari_session cookie is issued and the bundled SPA is served at /console."
       ],
@@ -6142,7 +6142,7 @@
       "sourceLocations": [
         "`AndvariServer.instrument`; `com.gimle.observability.AndvariMetrics`; `AndvariMain`"
       ],
-      "testCoverageDetail": "`AndvariObservabilityTest` \u2014 `a_real_request_is_recorded_in_andvari_metrics`, `every_registered_route_is_independently_tagged`",
+      "testCoverageDetail": "`AndvariObservabilityTest` — `a_real_request_is_recorded_in_andvari_metrics`, `every_registered_route_is_independently_tagged`",
       "gherkinSteps": [
         "Given a real request hits any Andvari endpoint; When the handler completes; Then AndvariMetrics records it per-endpoint."
       ],
@@ -6257,7 +6257,7 @@
       "module": "gimle-muninn",
       "feature": "Metrics ingest",
       "category": "Metrics",
-      "userStory": "As any Giml\u00e9 process (control plane, Fafnir, Mimir, Andvari, agent), I want to ship my own Micrometer meter snapshots to Muninn, so that fleet-wide metrics history survives past any one process's own lifetime.",
+      "userStory": "As any Gimlé process (control plane, Fafnir, Mimir, Andvari, agent), I want to ship my own Micrometer meter snapshots to Muninn, so that fleet-wide metrics history survives past any one process's own lifetime.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -6296,7 +6296,7 @@
       "module": "gimle-muninn",
       "feature": "Traces ingest",
       "category": "Tracing",
-      "userStory": "As any Giml\u00e9 process, I want to ship exported OpenTelemetry spans to Muninn, so that distributed traces survive past the exporting process and are queryable centrally.",
+      "userStory": "As any Gimlé process, I want to ship exported OpenTelemetry spans to Muninn, so that distributed traces survive past the exporting process and are queryable centrally.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -6565,8 +6565,8 @@
       "module": "gimle-muninn",
       "feature": "Read surface has no RBAC/authorization re-check (documented-vs-actual gap)",
       "category": "Internal/Infra",
-      "userStory": "CLAUDE.md and this class's own field-level comment (`MuninnServer.storeClient` javadoc, `MuninnMain`'s own class javadoc) both state Muninn \"re-runs its own independent `Authorizer.authorize(...)` check on every read, gated on `ResourceKind.LOGS`\" \u2014 but the actual `read()`/`handleReadNodeLogs`/`handleReadInstanceLogs`/`handleReadMetrics`/`handleReadTraces` code path in `MuninnServer.java` contains no call to `com.gimle.mimir.authz.Authorizer` anywhere; only the *ingest* handlers perform any identity check, and only in TLS mode. In plaintext mode (the default), and for every read regardless of mode, there is no authorization check at all beyond whatever the reverse proxy in front of Muninn enforces.",
-      "statusDetail": "Partial \u2014 the RBAC re-check described in the module's own comments/CLAUDE.md is not implemented in code; reads are unauthenticated/unauthorized beyond transport-level TLS peer-cert presence (which itself is only checked on ingest, not reads)",
+      "userStory": "CLAUDE.md and this class's own field-level comment (`MuninnServer.storeClient` javadoc, `MuninnMain`'s own class javadoc) both state Muninn \"re-runs its own independent `Authorizer.authorize(...)` check on every read, gated on `ResourceKind.LOGS`\" — but the actual `read()`/`handleReadNodeLogs`/`handleReadInstanceLogs`/`handleReadMetrics`/`handleReadTraces` code path in `MuninnServer.java` contains no call to `com.gimle.mimir.authz.Authorizer` anywhere; only the *ingest* handlers perform any identity check, and only in TLS mode. In plaintext mode (the default), and for every read regardless of mode, there is no authorization check at all beyond whatever the reverse proxy in front of Muninn enforces.",
+      "statusDetail": "Partial — the RBAC re-check described in the module's own comments/CLAUDE.md is not implemented in code; reads are unauthenticated/unauthorized beyond transport-level TLS peer-cert presence (which itself is only checked on ingest, not reads)",
       "confidence": "High",
       "sourceLocations": [
         "`MuninnServer.java` (absence of any `Authorizer` import/call, contradicting its own field comment at lines 76-80); `com.gimle.mimir.authz.Authorizer` exists in `gimle-mimir` but is never referenced from `gimle-muninn`"
@@ -6606,7 +6606,7 @@
       "module": "gimle-observability",
       "feature": "Default OpenTelemetry tracer installation",
       "category": "Tracing",
-      "userStory": "As any Giml\u00e9 process, I want a working, idempotent process-wide `OpenTelemetry` tracer installed with a sensible default exporter, so cross-JVM spans are correctly parented even before a real shipping backend is configured.",
+      "userStory": "As any Gimlé process, I want a working, idempotent process-wide `OpenTelemetry` tracer installed with a sensible default exporter, so cross-JVM spans are correctly parented even before a real shipping backend is configured.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -6770,7 +6770,7 @@
     {
       "id": "GIMLE-348",
       "module": "gimle-observability",
-      "feature": "Micrometer meter \u2192 NDJSON codec",
+      "feature": "Micrometer meter → NDJSON codec",
       "category": "Internal/Infra",
       "userStory": "As the shipping pipeline, I want a pure (no-I/O) function turning a `MeterRegistry` snapshot into one NDJSON line per meter (including Timer percentiles when configured), so a worker's own relayed snapshot and a directly-shipping process produce byte-identical wire output.",
       "statusDetail": "Complete",
@@ -6792,7 +6792,7 @@
     {
       "id": "GIMLE-349",
       "module": "gimle-observability",
-      "feature": "OpenTelemetry span \u2192 NDJSON codec",
+      "feature": "OpenTelemetry span → NDJSON codec",
       "category": "Internal/Infra",
       "userStory": "As the shipping pipeline, I want a pure function turning exported `SpanData` into one flat NDJSON line per span (fixed fields plus every attribute flattened onto the line), so `MuninnSpanExporter` and a worker's relaying exporter share byte-identical output.",
       "statusDetail": "Complete",
@@ -6842,7 +6842,7 @@
       "sourceLocations": [
         "`ThreadNameJfrAttributor.java`"
       ],
-      "testCoverageDetail": "`ThreadNameJfrAttributorTest#construction_and_shutdown_do_not_throw`, `#register_and_unregister_module_do_not_throw`, `#unregistering_a_module_never_registered_does_not_throw` (no test directly asserts a classified sample producing a counter increment \u2014 JFR event emission isn't driven from the test)",
+      "testCoverageDetail": "`ThreadNameJfrAttributorTest#construction_and_shutdown_do_not_throw`, `#register_and_unregister_module_do_not_throw`, `#unregistering_a_module_never_registered_does_not_throw` (no test directly asserts a classified sample producing a counter increment — JFR event emission isn't driven from the test)",
       "gherkinSteps": [
         "Given a module registered under a thread-name prefix \"gimle-<module>-<version>-\"",
         "When a JFR jdk.ExecutionSample/jdk.ThreadAllocationStatistics event fires on a thread with that prefix",
@@ -6858,7 +6858,7 @@
       "module": "gimle-observability",
       "feature": "Per-process tagged Micrometer metrics wrappers",
       "category": "Metrics",
-      "userStory": "As each Giml\u00e9 process kind (agent, control-plane API server, worker, store, Fafnir, Andvari), I want a dedicated request-latency/count/error-count metrics wrapper tagged by that process's own meaningful dimension (endpoint+verb, ModuleId, or RPC kind), so per-process request behavior is queryable without cross-process tag collisions.",
+      "userStory": "As each Gimlé process kind (agent, control-plane API server, worker, store, Fafnir, Andvari), I want a dedicated request-latency/count/error-count metrics wrapper tagged by that process's own meaningful dimension (endpoint+verb, ModuleId, or RPC kind), so per-process request behavior is queryable without cross-process tag collisions.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -6952,7 +6952,7 @@
       "testCoverageDetail": "`GatewayDispatcherTest#a_string_argument_route_dispatches_and_returns_the_real_result`, `#a_no_argument_route_is_served_on_get`, `#an_int_argument_route_coerces_and_dispatches_correctly`",
       "gherkinSteps": [
         "Given a FabricRoute \"/greet\" bound to interface Greeter, version 1, method \"greet\", ParamType.STRING",
-        "When a POST /greet request arrives with body \"Giml\u00e9\"",
+        "When a POST /greet request arrives with body \"Gimlé\"",
         "Then ModuleContext#invokeServiceByName is called with the coerced argument",
         "And the response is 200 with the real return value as plain text"
       ],
@@ -6985,7 +6985,7 @@
       "module": "gimle-gateway",
       "feature": "Vessel-route HTTP reverse-proxy dispatch",
       "category": "Gateway/Routing",
-      "userStory": "As an operator, I want an HTTP path to reverse-proxy verbatim (method, path, body) to a live instance of a named deployment's named port, so I can front any HTTP-speaking Giml\u00e9 deployment through one gateway without the gateway understanding its protocol.",
+      "userStory": "As an operator, I want an HTTP path to reverse-proxy verbatim (method, path, body) to a live instance of a named deployment's named port, so I can front any HTTP-speaking Gimlé deployment through one gateway without the gateway understanding its protocol.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -7075,8 +7075,8 @@
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
-        "`VesselEndpointCache.java` (`resolve` \u2014 the 503 case)",
-        "`VesselProxyClient.java` (`proxy` \u2014 IOException \u2192 502)"
+        "`VesselEndpointCache.java` (`resolve` — the 503 case)",
+        "`VesselProxyClient.java` (`proxy` — IOException → 502)"
       ],
       "testCoverageDetail": "`GatewayDispatcherTest#a_vessel_route_for_a_deployment_with_no_usable_endpoints_returns_a_clear_error_not_a_200`, `#a_vessel_route_reports_a_target_that_refuses_the_connection_as_a_clean_502`; `VesselEndpointCacheTest#an_empty_endpoint_list_is_a_clear_error_not_a_silent_200`",
       "gherkinSteps": [
@@ -7205,7 +7205,7 @@
       "module": "gimle-gateway",
       "feature": "Boot-only platform-layer JPMS workaround (`requires static`)",
       "category": "Internal/Infra",
-      "userStory": "As the module system, I want `gimle-gateway` to declare `com.gimle.module`/`com.gimle.core`/`org.slf4j` as `requires static` rather than plain `requires`, so JPMS `Configuration.resolve` succeeds even though no real `gimle-api` platform module exists yet \u2014 resolution then relies on `ModuleLayerFactory` separately granting readability to the platform's unnamed module at runtime.",
+      "userStory": "As the module system, I want `gimle-gateway` to declare `com.gimle.module`/`com.gimle.core`/`org.slf4j` as `requires static` rather than plain `requires`, so JPMS `Configuration.resolve` succeeds even though no real `gimle-api` platform module exists yet — resolution then relies on `ModuleLayerFactory` separately granting readability to the platform's unnamed module at runtime.",
       "statusDetail": "Complete (deliberate, documented stopgap per module's own javadoc, not a gap)",
       "confidence": "Medium",
       "sourceLocations": [
@@ -7223,11 +7223,11 @@
       "module": "gimle-gateway",
       "feature": "Vessel proxy: no TLS, no header forwarding (v1 scope limitation)",
       "category": "Gateway/Routing",
-      "userStory": "As implemented, `VesselProxyClient` forwards only method, path, and body to a resolved vessel target \u2014 plaintext only (no TLS support at all for the gateway's outbound or inbound side) and no request/response header forwarding in either direction (documented as deliberate v1 scope, not an oversight: correct header forwarding requires hop-by-hop stripping, `Host` rewriting, and avoiding double `Content-Length`, none of which is attempted).",
-      "statusDetail": "Partial \u2014 explicitly out of scope for v1, documented in the class's own javadoc rather than a discovered gap",
+      "userStory": "As implemented, `VesselProxyClient` forwards only method, path, and body to a resolved vessel target — plaintext only (no TLS support at all for the gateway's outbound or inbound side) and no request/response header forwarding in either direction (documented as deliberate v1 scope, not an oversight: correct header forwarding requires hop-by-hop stripping, `Host` rewriting, and avoiding double `Content-Length`, none of which is attempted).",
+      "statusDetail": "Partial — explicitly out of scope for v1, documented in the class's own javadoc rather than a discovered gap",
       "confidence": "High",
       "sourceLocations": [
-        "`VesselProxyClient.java` (class javadoc, `proxy` method \u2014 only method/path/body set on the outbound request)"
+        "`VesselProxyClient.java` (class javadoc, `proxy` method — only method/path/body set on the outbound request)"
       ],
       "testCoverageDetail": "`GatewayDispatcherTest#a_vessel_route_proxies_to_the_real_target_with_method_path_body_and_response_intact` confirms what *is* forwarded; no test exercises header forwarding since none exists",
       "gherkinSteps": [
@@ -7245,7 +7245,7 @@
       "feature": "Fabric route \"quiet success\" ambiguity for a misrouted service name",
       "category": "Gateway/Routing",
       "userStory": "As implemented, a `FabricRoute` naming an interface/method nothing currently exports is served as `200` with an empty body rather than a `404`/`502`, because `ModuleContext#invokeServiceByName`'s `Optional.empty()` return means either \"no exporter known\" or \"found and returned void/null,\" and the dispatcher has no separate signal to distinguish the two.",
-      "statusDetail": "Partial \u2014 documented, accepted limitation of routing purely by name with no separate existence check, not an oversight",
+      "statusDetail": "Partial — documented, accepted limitation of routing purely by name with no separate existence check, not an oversight",
       "confidence": "High",
       "sourceLocations": [
         "`GatewayDispatcher.java#dispatchFabric` (own javadoc explicitly documents this as a known v1 limitation)"
@@ -7909,7 +7909,7 @@
       "feature": "`--watch` interval loop for sync",
       "category": "Release Management",
       "userStory": "As an operator, I want \"hilmir sync --watch <seconds>\" to keep re-running the reconcile pass on an interval.",
-      "statusDetail": "Partial \u2014 deliberately untested, per its own documentation",
+      "statusDetail": "Partial — deliberately untested, per its own documentation",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/sync/SyncCommand.java`"
@@ -8151,7 +8151,7 @@
     {
       "id": "GIMLE-418",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:agent` \u2014 spawn a real node agent (plus its worker command tail)",
+      "feature": "`mvn gimle:agent` — spawn a real node agent (plus its worker command tail)",
       "category": "Build Tooling",
       "userStory": "As a developer doing local-dev, I want a single goal that launches a real AgentMain with sensible dev defaults.",
       "statusDetail": "Complete",
@@ -8171,7 +8171,7 @@
     {
       "id": "GIMLE-419",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:bootstrap` \u2014 full local-dev cluster orchestration in one foreground command",
+      "feature": "`mvn gimle:bootstrap` — full local-dev cluster orchestration in one foreground command",
       "category": "Build Tooling",
       "userStory": "As a developer, I want one command bringing up store/muninn/andvari/fafnir/control-plane/agent+worker with a connection summary and clean Ctrl+C teardown.",
       "statusDetail": "Complete",
@@ -8207,7 +8207,7 @@
     {
       "id": "GIMLE-421",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:deploy` \u2014 apply a deployment manifest via a real CLI subprocess",
+      "feature": "`mvn gimle:deploy` — apply a deployment manifest via a real CLI subprocess",
       "category": "Build Tooling",
       "userStory": "As a developer, I want to apply a manifest to a running control plane as part of a Maven build/dev loop.",
       "statusDetail": "Complete",
@@ -8225,7 +8225,7 @@
     {
       "id": "GIMLE-422",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:doctor` \u2014 run hilmir doctor against the invoking project's own built jar",
+      "feature": "`mvn gimle:doctor` — run hilmir doctor against the invoking project's own built jar",
       "category": "Build Tooling",
       "userStory": "As a developer of any module, I want a goal running \"hilmir doctor\" against my own built jar without needing gimle-hilmir on my classpath.",
       "statusDetail": "Complete",
@@ -8243,7 +8243,7 @@
     {
       "id": "GIMLE-423",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:init` \u2014 scaffold manifests for the invoking project's own built jar",
+      "feature": "`mvn gimle:init` — scaffold manifests for the invoking project's own built jar",
       "category": "Build Tooling",
       "userStory": "As a developer, I want a goal running \"hilmir init\" against my own built jar.",
       "statusDetail": "Complete",
@@ -8261,7 +8261,7 @@
     {
       "id": "GIMLE-424",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:publish` \u2014 push a built module jar to the artifact registry",
+      "feature": "`mvn gimle:publish` — push a built module jar to the artifact registry",
       "category": "Build Tooling",
       "userStory": "As a module developer, I want a goal that pushes my just-built jar to Andvari via a real CLI subprocess.",
       "statusDetail": "Complete",
@@ -8279,7 +8279,7 @@
     {
       "id": "GIMLE-425",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:docs` \u2014 full documentation site build pipeline",
+      "feature": "`mvn gimle:docs` — full documentation site build pipeline",
       "category": "Build Tooling",
       "userStory": "As a maintainer, I want one command running javadoc:aggregate, copying it into the docs site's static assets, and building the Docusaurus site via Bun.",
       "statusDetail": "Complete",
@@ -8297,7 +8297,7 @@
     {
       "id": "GIMLE-426",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:flaky-tests` \u2014 run known-flaky-tagged tests in isolated standalone reactors",
+      "feature": "`mvn gimle:flaky-tests` — run known-flaky-tagged tests in isolated standalone reactors",
       "category": "Build Tooling",
       "userStory": "As a maintainer, I want each module's @Tag(\"flaky\") tests run as their own genuinely separate child mvn process, removing cross-module Surefire-JVM contention.",
       "statusDetail": "Complete",
@@ -8315,7 +8315,7 @@
     {
       "id": "GIMLE-427",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:saga` \u2014 ensure a Saga test-report server is running",
+      "feature": "`mvn gimle:saga` — ensure a Saga test-report server is running",
       "category": "Build Tooling",
       "userStory": "As a developer, I want a goal reusing an already-healthy Saga server or spawning a fresh detached one.",
       "statusDetail": "Complete",
@@ -8336,7 +8336,7 @@
     {
       "id": "GIMLE-428",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:verify` \u2014 full build run under Saga tracking",
+      "feature": "`mvn gimle:verify` — full build run under Saga tracking",
       "category": "Build Tooling",
       "userStory": "As a developer, I want a goal ensuring Saga is up, minting a run id, spawning the actual build as a separate child, and importing surefire reports at the end.",
       "statusDetail": "Complete",
@@ -8357,7 +8357,7 @@
     {
       "id": "GIMLE-429",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:saga-import` \u2014 standalone sweep-and-import of existing surefire reports",
+      "feature": "`mvn gimle:saga-import` — standalone sweep-and-import of existing surefire reports",
       "category": "Build Tooling",
       "userStory": "As a developer who already ran a plain \"mvn verify\", I want to import its surefire results into an already-running Saga server after the fact.",
       "statusDetail": "Complete",
@@ -8375,7 +8375,7 @@
     {
       "id": "GIMLE-430",
       "module": "gimle-maven-plugin",
-      "feature": "`mvn gimle:saga-stop` \u2014 best-effort local Saga server shutdown",
+      "feature": "`mvn gimle:saga-stop` — best-effort local Saga server shutdown",
       "category": "Build Tooling",
       "userStory": "As a developer, I want a goal that asks the Saga server to shut down gracefully, falling back to signalling its recorded pid.",
       "statusDetail": "Complete",
@@ -8393,7 +8393,7 @@
     {
       "id": "GIMLE-431",
       "module": "gimle-maven-plugin",
-      "feature": "Internal \u2014 Aether-based cross-module runtime classpath resolution",
+      "feature": "Internal — Aether-based cross-module runtime classpath resolution",
       "category": "Internal/Infra",
       "userStory": "As a goal that spawns a different reactor module's process, I need to resolve that module's full runtime classpath against its already-installed jar via Maven's dependency resolver, independent of reactor build order.",
       "statusDetail": "Complete",
@@ -8411,7 +8411,7 @@
     {
       "id": "GIMLE-432",
       "module": "gimle-maven-plugin",
-      "feature": "Internal \u2014 host-matching java/mvn executable resolution and subprocess supervision",
+      "feature": "Internal — host-matching java/mvn executable resolution and subprocess supervision",
       "category": "Internal/Infra",
       "userStory": "As every process-spawning goal, I need to resolve the exact java/mvn launcher the current build is running under, and shared spawn/wait/shutdown-hook helpers.",
       "statusDetail": "Complete",
@@ -8429,7 +8429,7 @@
     {
       "id": "GIMLE-433",
       "module": "gimle-maven-plugin",
-      "feature": "Internal \u2014 git commit/branch capture for run identification",
+      "feature": "Internal — git commit/branch capture for run identification",
       "category": "Internal/Infra",
       "userStory": "As gimle:verify/gimle:saga-import, I need the working tree's current short commit sha and branch, degrading gracefully with no git.",
       "statusDetail": "Complete",
@@ -8447,7 +8447,7 @@
     {
       "id": "GIMLE-434",
       "module": "gimle-maven-plugin",
-      "feature": "Internal \u2014 surefire report discovery and totals aggregation, including flaky-testcase counting",
+      "feature": "Internal — surefire report discovery and totals aggregation, including flaky-testcase counting",
       "category": "Internal/Infra",
       "userStory": "As every Saga goal, I need to recursively discover surefire XML reports, parse both testsuite shapes, sum totals, and count flaky testcases once per testcase.",
       "statusDetail": "Complete",
@@ -8468,14 +8468,14 @@
       "feature": "Operator session login / logout",
       "category": "Web Console / Auth",
       "userStory": "As a cluster operator, I want to sign in with a username/password, so that only authorized people can operate the cluster through the console.",
-      "statusDetail": "Complete (plaintext mode reports a synthetic anonymous principal instead of forcing login \u2014 deliberate)",
+      "statusDetail": "Complete (plaintext mode reports a synthetic anonymous principal instead of forcing login — deliberate)",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-console/src/routes/login.tsx`",
         "`src/stores/useAuthStore.ts`",
         "`src/repositories/http/auth.ts`"
       ],
-      "testCoverageDetail": "`src/stores/useAuthStore.test.ts` \u2014 \"a successful login sets status authenticated and clears any previous error\", \"login failure surfaces a generic error and leaves status unauthenticated\"",
+      "testCoverageDetail": "`src/stores/useAuthStore.test.ts` — \"a successful login sets status authenticated and clears any previous error\", \"login failure surfaces a generic error and leaves status unauthenticated\"",
       "gherkinSteps": [
         "Given I am unauthenticated, When I submit valid credentials on `/login`, Then I am redirected to the Overview screen and my principal is stored; Given invalid credentials, Then an \"invalid username or password\" error is shown."
       ],
@@ -8495,7 +8495,7 @@
         "`src/repositories/http/apiClient.ts`",
         "`src/routes/__root.tsx`"
       ],
-      "testCoverageDetail": "`useAuthStore.test.ts` \u2014 \"init() only calls session() once even if invoked twice\", \"handleUnauthorized clears principal and sets status unauthenticated\"",
+      "testCoverageDetail": "`useAuthStore.test.ts` — \"init() only calls session() once even if invoked twice\", \"handleUnauthorized clears principal and sets status unauthenticated\"",
       "gherkinSteps": [
         "Given a valid session cookie exists, When the app loads, Then `/auth/session` resolves my principal without a login prompt; Given any API call returns 401, Then the store clears my principal and redirects to `/login`."
       ],
@@ -8992,7 +8992,7 @@
       "feature": "Vault operator login/logout (session-cookie auth)",
       "category": "Web Console / Auth",
       "userStory": "As a vault operator, I want to sign in to the Fafnir console with credentials.",
-      "statusDetail": "Complete (deliberate auth, mirroring gimle-console \u2014 unlike gimle-saga-console)",
+      "statusDetail": "Complete (deliberate auth, mirroring gimle-console — unlike gimle-saga-console)",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-fafnir-console/src/routes/login.tsx`",
@@ -9117,7 +9117,7 @@
         "`src/stores/authStore.ts`",
         "`src/repositories/http/authRepository.ts`; backend `AndvariServer.java`"
       ],
-      "testCoverageDetail": "`src/repositories/__tests__/repositories.test.ts` \u2014 \"returns an anonymous principal by default\", \"rejects empty credentials\"",
+      "testCoverageDetail": "`src/repositories/__tests__/repositories.test.ts` — \"returns an anonymous principal by default\", \"rejects empty credentials\"",
       "gherkinSteps": [
         "Given plaintext mode with no account seeded, When session endpoint loads, Then an anonymous principal is returned rather than 401."
       ],
@@ -9158,7 +9158,7 @@
         "`src/stores/artifactsStore.ts`",
         "`src/repositories/http/artifactsRepository.ts`"
       ],
-      "testCoverageDetail": "`repositories.test.ts` \u2014 \"returns a sorted catalog of module ids\"",
+      "testCoverageDetail": "`repositories.test.ts` — \"returns a sorted catalog of module ids\"",
       "gherkinSteps": [
         "Given the catalog is loaded, When I type into the search box, Then the list filters client-side by substring match."
       ],
@@ -9215,7 +9215,7 @@
         "`src/components/PushArtifactDialog.tsx`",
         "`src/stores/artifactsStore.ts`"
       ],
-      "testCoverageDetail": "`repositories.test.ts` \u2014 \"rejects re-pushing an existing version with 409\"",
+      "testCoverageDetail": "`repositories.test.ts` — \"rejects re-pushing an existing version with 409\"",
       "gherkinSteps": [
         "Given I push an existing module@version unmodified, When upload completes, Then it's treated as an idempotent no-op; a differing re-push surfaces a 409 conflict."
       ],
@@ -9264,15 +9264,15 @@
       "module": "gimle-saga-console",
       "feature": "Runs list (no authentication)",
       "category": "Web Console / Reporting",
-      "userStory": "As a developer, I want to see every Giml\u00e9 test run newest-first with status, totals, flake counts, and duration.",
-      "statusDetail": "Complete (deliberately no authentication \u2014 local development tool, loopback-bound by default)",
+      "userStory": "As a developer, I want to see every Gimlé test run newest-first with status, totals, flake counts, and duration.",
+      "statusDetail": "Complete (deliberately no authentication — local development tool, loopback-bound by default)",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-saga-console/src/routes/index.tsx`",
         "`src/stores/runsStore.ts`",
         "`src/repositories/http/runs.ts`"
       ],
-      "testCoverageDetail": "`src/repositories/http/runs.test.ts` \u2014 \"listRuns fetches /api/runs and maps every entry\"",
+      "testCoverageDetail": "`src/repositories/http/runs.test.ts` — \"listRuns fetches /api/runs and maps every entry\"",
       "gherkinSteps": [
         "Given runs exist, When I open `/`, Then rows are searchable by runId/branch/gitSha/command via client-side filtering."
       ],
@@ -9294,7 +9294,7 @@
         "`src/repositories/http/eventsClient.ts`",
         "`src/repositories/http/runs.ts`"
       ],
-      "testCoverageDetail": "`src/repositories/http/runs.test.ts` \u2014 \"followRunEvents streams new finished-test events and skips the already-known count\"",
+      "testCoverageDetail": "`src/repositories/http/runs.test.ts` — \"followRunEvents streams new finished-test events and skips the already-known count\"",
       "gherkinSteps": [
         "Given a run is LIVE, When I open its detail page, Then new finished-test events are streamed in via NDJSON polling, ending once terminal."
       ],
@@ -9313,7 +9313,7 @@
         "`src/components/saga/RunAttachments.tsx`",
         "`src/routes/runs.$runId.tsx`"
       ],
-      "testCoverageDetail": "`src/repositories/http/mapping.test.ts` \u2014 \"groups attachment events by kind and skips unparseable or unrecognized payloads\", \"accepts a payload shipped as an array of the shape\"",
+      "testCoverageDetail": "`src/repositories/http/mapping.test.ts` — \"groups attachment events by kind and skips unparseable or unrecognized payloads\", \"accepts a payload shipped as an array of the shape\"",
       "gherkinSteps": [
         "Given a run's events include attachment payloads, When I switch tabs, Then each tab renders its own structured view."
       ],
@@ -9387,13 +9387,13 @@
       "feature": "Saga console theming (no auth surface)",
       "category": "Web Console / Frontend",
       "userStory": "As a developer, I want the Saga console to load directly without a login screen.",
-      "statusDetail": "Complete (deliberately no auth \u2014 local dev tool)",
+      "statusDetail": "Complete (deliberately no auth — local dev tool)",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-saga/src/main/java/com/gimle/saga/SagaServer.java` (no `/auth/*` contexts)",
         "`gimle-saga-console`"
       ],
-      "testCoverageDetail": "`SagaServerTest.java` \u2014 \"the_bundled_console_is_served_at_console\"",
+      "testCoverageDetail": "`SagaServerTest.java` — \"the_bundled_console_is_served_at_console\"",
       "gherkinSteps": [
         "Given the console is served, When I navigate to any route, Then no authentication check or redirect occurs."
       ],
@@ -9412,7 +9412,7 @@
         "`gimle-saga/src/main/java/com/gimle/saga/SagaServer.java`",
         "`SagaStore.ingest`"
       ],
-      "testCoverageDetail": "`SagaServerTest.java` \u2014 \"ingested_events_round_trip_through_the_runs_and_events_apis\", \"a_malformed_ingest_line_is_rejected_with_its_line_number\"; `SagaStoreTest.java#ingest_then_read_round_trips_events_and_meta`",
+      "testCoverageDetail": "`SagaServerTest.java` — \"ingested_events_round_trip_through_the_runs_and_events_apis\", \"a_malformed_ingest_line_is_rejected_with_its_line_number\"; `SagaStoreTest.java#ingest_then_read_round_trips_events_and_meta`",
       "gherkinSteps": [
         "Given a batch with a malformed event on line 3, When I POST it, Then rejected with 400 naming the line number, none persisted."
       ],
@@ -9807,7 +9807,7 @@
     {
       "id": "GIMLE-503",
       "module": "gimle-examples",
-      "feature": "`hello-module` \u2014 minimal inert deployable fixture",
+      "feature": "`hello-module` — minimal inert deployable fixture",
       "category": "Sample Module",
       "userStory": "As a platform developer doing manual QA, I want a trivial, deliberately inert real module artifact with distinct request/limit resource values.",
       "statusDetail": "Complete (deliberately minimal by design)",
@@ -9827,7 +9827,7 @@
     {
       "id": "GIMLE-504",
       "module": "gimle-examples",
-      "feature": "`greeter-provider` \u2014 real fabric service export with lifecycle hooks and health probes",
+      "feature": "`greeter-provider` — real fabric service export with lifecycle hooks and health probes",
       "category": "Sample Module",
       "userStory": "As a platform developer proving the fabric works end to end, I want a real Tier 2 module that registers a Greeter service on onStart, reports readiness once registered, and reads a tenant secret/config value.",
       "statusDetail": "Complete",
@@ -9845,7 +9845,7 @@
     {
       "id": "GIMLE-505",
       "module": "gimle-examples",
-      "feature": "`greeter-consumer` \u2014 real cross-worker fabric call with MDC-tagged background caller",
+      "feature": "`greeter-consumer` — real cross-worker fabric call with MDC-tagged background caller",
       "category": "Sample Module",
       "userStory": "As a platform developer proving cross-worker service invocation, I want a module that repeatedly looks up and calls Greeter on a background virtual thread, re-resolving on every call.",
       "statusDetail": "Complete",
@@ -9855,7 +9855,7 @@
       ],
       "testCoverageDetail": "`GreeterClusterTopologyIT`; `deployment-lifecycle.feature`",
       "gherkinSteps": [
-        "Given greeter-consumer deployed alongside greeter-provider, When the consumer's background loop runs, Then every 5s it looks up Greeter, calls greet(\"Giml\u00e9\"), and logs the reply with its own instance's MDC tags applied."
+        "Given greeter-consumer deployed alongside greeter-provider, When the consumer's background loop runs, Then every 5s it looks up Greeter, calls greet(\"Gimlé\"), and logs the reply with its own instance's MDC tags applied."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -9863,7 +9863,7 @@
     {
       "id": "GIMLE-506",
       "module": "gimle-examples",
-      "feature": "`greeter-load-generator` \u2014 HTTP bridge for external load tools driving real fabric traffic",
+      "feature": "`greeter-load-generator` — HTTP bridge for external load tools driving real fabric traffic",
       "category": "Sample Module / Load Testing",
       "userStory": "As a load-testing harness (Gatling), I want an HTTP endpoint inside a real hosted module that performs a synchronous fabric lookup+call per request.",
       "statusDetail": "Complete",
@@ -10662,7 +10662,7 @@
       "feature": "Surtr Muninn-window measurement (documented gap)",
       "category": "Load Testing",
       "userStory": "As a platform performance engineer, I want Surtr to also report Muninn-shipped metric windows for a burn.",
-      "statusDetail": "Partial \u2014 explicitly deferred, self-documented in code",
+      "statusDetail": "Partial — explicitly deferred, self-documented in code",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-holmgang/src/test/java/com/gimle/holmgang/surtr/SurtrRunner.java` (`skippedMuninn()`)"
@@ -10737,7 +10737,7 @@
       "module": "gimle-holmgang",
       "feature": "Loki fault-injection proxy for store/control-plane link partitions",
       "category": "Internal/Infra",
-      "userStory": "As a chaos/partition scenario author, I want to interpose proxies on control-plane\u2192store and store\u2192store links at boot, so I can cut or blackhole specific links live and heal them again.",
+      "userStory": "As a chaos/partition scenario author, I want to interpose proxies on control-plane→store and store→store links at boot, so I can cut or blackhole specific links live and heal them again.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -10859,7 +10859,7 @@
         "`topology-bundled-jre.yaml`",
         "`topology-full-jre.yaml`"
       ],
-      "testCoverageDetail": "NONE automated \u2014 documented manual validation flow per README",
+      "testCoverageDetail": "NONE automated — documented manual validation flow per README",
       "gherkinSteps": [
         "Given `mvn -pl gimle-dist -am install -P dist-with-jre` produced the tarball, When `docker compose -f docker-compose.bundled-jre.yml up` runs, Then every service launches off `jre/<component>/bin/java` from a shared volume, with agent alone using a real eclipse-temurin base image."
       ],
@@ -10956,7 +10956,7 @@
       "feature": "Distribution archive checksums and SBOM generation",
       "category": "Packaging",
       "userStory": "As a security-conscious operator, I want every distribution archive accompanied by a SHA-256 checksum file and a CycloneDX SBOM.",
-      "statusDetail": "Complete (one combined SBOM covering all three archives \u2014 deliberate simplification, documented in the pom's own comment)",
+      "statusDetail": "Complete (one combined SBOM covering all three archives — deliberate simplification, documented in the pom's own comment)",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-dist/pom.xml` (cyclonedx-maven-plugin and maven-antrun-plugin executions)"
@@ -10981,9 +10981,9 @@
         "`gimle-mimir/src/test/java/com/gimle/mimir/raft/NornScheduler.java`",
         "`gimle-mimir/src/test/java/com/gimle/mimir/raft/NornRaftSimulationTest.java` (added in commit `6bd450f`, \"test: add Norn deterministic Raft fault-injection simulation\")"
       ],
-      "testCoverageDetail": "`NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` \u2014 20 seeds x 40 rounds; each round applies one weighted, seeded action (isolate a node, restart a node, heal all, propose a `PutTenant` mutation via the current leader, or a no-op time advance) then asserts `NornCluster.assertSafetyInvariants` (Raft's own Election Safety \u00a75.2 \u2014 at most one leader per term, checked against each node's own `currentTerm()`; and Log Matching \u00a75.3 \u2014 identical entries at any index/term both nodes agree on, checked pairwise over every node and every appended index) after every round, plus `assertEventuallyLive` (liveness \u2014 the cluster elects a leader and commits a fresh write within a 10-second virtual-time budget) once each seed's fault storm ends via `healAll`. A failing seed's ledger of per-round actions is printed on assertion failure so it reproduces by rerunning just that one seed.",
+      "testCoverageDetail": "`NornRaftSimulationTest#raft_safety_invariants_hold_across_many_seeded_fault_schedules` — 20 seeds x 40 rounds; each round applies one weighted, seeded action (isolate a node, restart a node, heal all, propose a `PutTenant` mutation via the current leader, or a no-op time advance) then asserts `NornCluster.assertSafetyInvariants` (Raft's own Election Safety §5.2 — at most one leader per term, checked against each node's own `currentTerm()`; and Log Matching §5.3 — identical entries at any index/term both nodes agree on, checked pairwise over every node and every appended index) after every round, plus `assertEventuallyLive` (liveness — the cluster elects a leader and commits a fresh write within a 10-second virtual-time budget) once each seed's fault storm ends via `healAll`. A failing seed's ledger of per-round actions is printed on assertion failure so it reproduces by rerunning just that one seed.",
       "gherkinSteps": [
-        "Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run \u2014 each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader \u2014 Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round.",
+        "Given a 3-node NornCluster wired in-process with a shared virtual TestClock, When 20 seeded fault schedules of 40 rounds each are run — each round randomly isolating a node, restarting a node, healing all nodes, or proposing a state mutation through the current leader — Then Election Safety (at most one leader per term) and Log Matching (agreeing entries at any shared index/term are identical) hold after every single round.",
         "Given a seed's 40-round fault storm has just ended, When every node is healed via healAll, Then the cluster eventually elects a leader and commits a fresh proposal within a 10-second virtual-time liveness budget.",
         "Given one of the 20 seeds fails a safety or liveness assertion, When the failure is reported, Then it includes that seed's full per-round action ledger so the exact failing schedule reproduces by rerunning only that seed."
       ],
@@ -12377,7 +12377,7 @@
       "module": "gimle-agent",
       "feature": "Vessel persistent volumes and secret-backed file mounts",
       "category": "Storage / Vessels",
-      "userStory": "As an operator running a stateful or secret-consuming external process as a vessel, I want a declared volume's host path injected as an env var and secret values rendered to owner-only files, so a StatefulSet-shaped vessel and a secret file mount both work without the process knowing anything about Giml\u00e9.",
+      "userStory": "As an operator running a stateful or secret-consuming external process as a vessel, I want a declared volume's host path injected as an env var and secret values rendered to owner-only files, so a StatefulSet-shaped vessel and a secret file mount both work without the process knowing anything about Gimlé.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
@@ -13354,7 +13354,7 @@
       "feature": "DaemonSet opt-in taint toleration (tolerateAllTaints)",
       "category": "Multi-tenancy / Self-healing",
       "userStory": "As a platform operator, I want a genuinely cluster-wide DaemonSet (a log shipper, a node exporter) to be able to opt into covering every node -- including ones an operator has tainted for a specific tenant -- so a DaemonSet, the one workload kind that exists specifically to run on every eligible node, is not permanently blocked from 100% node coverage in a cluster with any tenant-reserved nodes.",
-      "statusDetail": "Complete. `Scheduler.eligibleNodes` -- the only placement path `DaemonSetReconciler` uses -- ran the identical taint filter a Deployment/StatefulSet replica goes through, with no way for a DaemonSet to opt out: an untenanted DaemonSet (the common case for a cluster-wide daemon) could never be placed on any tainted node at all, regardless of intent. Fixed via a new `DaemonSetSpec.tolerateAllTaints` boolean (default `false`, preserving today's strict behavior for every existing manifest via a back-compat constructor) and a new `tolerateAllTaints` parameter on `Scheduler.eligibleNodes` that skips the taint-filter stage entirely when set -- `DaemonSetReconciler` passes `spec.tolerateAllTaints()` straight through. `DaemonSetManifestParser` parses the new top-level `tolerateAllTaints:` YAML field (defaulting `false`), and `ApiServer.withArtifactSha256`'s field-by-field DaemonSetSpec reconstruction (used on both PUT admission and rollback) was fixed to carry the field forward rather than silently resetting it to `false` on every rollback -- a real bug this change would otherwise have introduced. Deliberately opt-in rather than an unconditional default: unlike Kubernetes, where a DaemonSet's baseline tolerations cover only a handful of built-in system taints, every Giml\u00e9 taint is an operator-declared tenant reservation, so bypassing one must be a deliberate, visible per-DaemonSet choice, not silent. `Scheduler.place` (used by Deployment/Job/StatefulSet) is untouched -- only `eligibleNodes`, DaemonSet's own placement path, gained the parameter.",
+      "statusDetail": "Complete. `Scheduler.eligibleNodes` -- the only placement path `DaemonSetReconciler` uses -- ran the identical taint filter a Deployment/StatefulSet replica goes through, with no way for a DaemonSet to opt out: an untenanted DaemonSet (the common case for a cluster-wide daemon) could never be placed on any tainted node at all, regardless of intent. Fixed via a new `DaemonSetSpec.tolerateAllTaints` boolean (default `false`, preserving today's strict behavior for every existing manifest via a back-compat constructor) and a new `tolerateAllTaints` parameter on `Scheduler.eligibleNodes` that skips the taint-filter stage entirely when set -- `DaemonSetReconciler` passes `spec.tolerateAllTaints()` straight through. `DaemonSetManifestParser` parses the new top-level `tolerateAllTaints:` YAML field (defaulting `false`), and `ApiServer.withArtifactSha256`'s field-by-field DaemonSetSpec reconstruction (used on both PUT admission and rollback) was fixed to carry the field forward rather than silently resetting it to `false` on every rollback -- a real bug this change would otherwise have introduced. Deliberately opt-in rather than an unconditional default: unlike Kubernetes, where a DaemonSet's baseline tolerations cover only a handful of built-in system taints, every Gimlé taint is an operator-declared tenant reservation, so bypassing one must be a deliberate, visible per-DaemonSet choice, not silent. `Scheduler.place` (used by Deployment/Job/StatefulSet) is untouched -- only `eligibleNodes`, DaemonSet's own placement path, gained the parameter.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`eligibleNodes`, `filterByTaint`)",
@@ -14178,6 +14178,82 @@
         "Given a worker has recorded requests, thread counts, and metaspace bytes for module 'orders@1.0.0'; When that module is successfully uninstalled; Then every meter WorkerMetrics registered for it is removed from the registry.",
         "Given the same module is later reinstalled and recordThreadCount is called again; When its gauge is queried; Then a fresh gauge reflects the new value rather than a stale, already-removed one silently failing to update.",
         "Given two modules 'orders@1.0.0' and 'catalog@1.0.0' both have recorded metrics; When 'orders@1.0.0' is uninstalled and evicted; Then 'catalog@1.0.0''s own meters are untouched."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-713",
+      "module": "gimle-console",
+      "feature": "Job and CronJob console screens gain a create form, closing the console-only creation gap that previously forced apply -f as the only way to create either kind",
+      "category": "Module Web Console",
+      "userStory": "As a platform operator using the console, I want to create a Job or CronJob directly from the Jobs/CronJobs screens, the same way Deployments already support, so I don't have to drop to the CLI just to submit a run-to-completion or scheduled workload.",
+      "statusDetail": "Fixed: closes FUNC-49 -- the Jobs and CronJobs list screens carried a stale comment claiming apply -f was \"the supported creation path for now,\" even though JobsRepository/CronJobsRepository, both Mock and Http implementations, and both Zustand stores already had a working create(spec) with no UI to reach it. Added routes/jobs.new.tsx and routes/cronjobs.new.tsx (mirroring deployments.new.tsx's form/validation/submit pattern) with a \"New job\"/\"New cronjob\" button wired into each list screen's header, replacing the stale comments. CronJob's form builds a nested jobTemplate at submit time from flat fields and validates the schedule as exactly five whitespace-separated cron fields via an exported isValidCronSchedule helper. Also fixed a latent bug the new forms would otherwise have hit: HttpJobsRepository/HttpCronJobsRepository's toManifestYaml helpers emitted artifactPath: \"\" unconditionally instead of omitting it for a blank (registry-resolved) path the way HttpDeploymentsRepository already does, which would have 400'd against ManifestFields.optionalArtifactPath's blank-rejection the moment a user left the artifact path blank to resolve from Andvari.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/routes/jobs.new.tsx` (new)",
+        "`gimle-console/src/routes/cronjobs.new.tsx` (new)",
+        "`gimle-console/src/routes/jobs.index.tsx` (\"New job\" button)",
+        "`gimle-console/src/routes/cronjobs.index.tsx` (\"New cronjob\" button)",
+        "`gimle-console/src/repositories/http/jobs.ts` (`toManifestYaml` blank-artifactPath omission)",
+        "`gimle-console/src/repositories/http/cronjobs.ts` (`toManifestYaml` blank-artifactPath omission)"
+      ],
+      "testCoverageDetail": "New -jobs-new.test.ts/-cronjobs-new.test.ts unit test the exported buildJobSpec/buildCronJobSpec/jobFormIsValid/cronJobFormIsValid/isValidCronSchedule helpers (required-field checks, optional-field omission, tenant NONE-sentinel resolution, backoffLimit clamping, 5-field schedule validation). http/jobs.test.ts and http/cronjobs.test.ts each gained a case asserting a blank artifactPath is omitted from the emitted YAML manifest rather than sent as an empty string.",
+      "gherkinSteps": [
+        "Given the Jobs list screen; When the operator clicks \"New job\" and submits a valid name/module/version/backoffLimit; Then a JobSpec is created and the operator is navigated to its detail page.",
+        "Given the CronJobs list screen; When the operator enters a schedule that is not exactly five whitespace-separated fields; Then submission is rejected with a schedule-format error before any request is sent.",
+        "Given a create form with the artifact path left blank; When the spec is submitted; Then the emitted manifest omits the artifactPath key entirely rather than sending an empty string."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-714",
+      "module": "gimle-console",
+      "feature": "Deployment/DaemonSet/StatefulSet detail pages gain a revision-history panel with rollback, exposing the already-real ControllerRevision/rollback API that previously had no console surface at all",
+      "category": "Module Web Console",
+      "userStory": "As a platform operator, I want to see a workload's revision history and roll it back from its console detail page, the same way I already can from the CLI, so I don't have to leave the console to recover from a bad rollout.",
+      "statusDetail": "Fixed: closes FUNC-06 -- GET .../revisions and POST .../rollback were real, CLI-covered APIs for Deployment/DaemonSet/StatefulSet with zero console surface: no type, no repository member, no store method, no UI. Added a shared ControllerRevision type and a new RevisionHistoryPanel component (src/components/revision-history.tsx) rendering a newest-first table with a per-row \"Roll back\" action behind an AlertDialog confirm, reused identically across all three workload detail routes. Extended DeploymentsRepository/DaemonSetsRepository/StatefulSetsRepository with fetchRevisions/rollback on both Mock (fixture-backed, lazily materializing a synthetic revision 1 and appending forward-only rollback revisions, mirroring the server's own resolveRollbackTarget default-to-previous-revision semantics) and Http implementations (GET .../revisions unwrapping the {revisions:[...]} envelope, POST .../rollback with an optional {toRevision} body), and added loadRevisions/rollback to all three Zustand stores.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/types/index.ts` (`ControllerRevision`)",
+        "`gimle-console/src/components/revision-history.tsx` (new)",
+        "`gimle-console/src/repositories/{deployments,daemonsets,statefulsets}.ts` (`fetchRevisions`, `rollback`)",
+        "`gimle-console/src/repositories/http/{deployments,daemonsets,statefulsets}.ts` (`fetchRevisions`, `rollback`)",
+        "`gimle-console/src/repositories/fixture.ts` (`listControllerRevisions`, `rollbackControllerRevision`)",
+        "`gimle-console/src/stores/use{Deployments,DaemonSets,StatefulSets}Store.ts` (`loadRevisions`, `rollback`)",
+        "`gimle-console/src/routes/{deployments,daemonsets,statefulsets}.$name.tsx` (panel wiring)"
+      ],
+      "testCoverageDetail": "http/{deployments,daemonsets,statefulsets}.test.ts each gained fetchRevisions (URL, envelope unwrap) and rollback (URL, method, {toRevision} body, no-toRevision empty-body default) cases. useDeploymentsStore.test.ts gained loadRevisions/rollback success and error-surfacing cases, including that a successful rollback both updates the item's moduleId in place and refreshes the revision list.",
+      "gherkinSteps": [
+        "Given a deployment's revision history is loaded; When the operator confirms \"Roll back\" on an older revision; Then a new revision is appended matching that revision's module, and both the deployment and its revision list refresh to reflect it.",
+        "Given the revision history table; Then it renders newest-first with the current (index 0) revision showing no rollback action.",
+        "Given a rollback request fails server-side; When it returns an error; Then the store surfaces it without silently leaving stale state."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-715",
+      "module": "gimle-console",
+      "feature": "Node detail/list screens gain cordon/uncordon and taint/untaint controls, exposing the already-real node-scheduling API that previously had no console surface (and whose already-served cordoned/taints fields were silently discarded on the wire)",
+      "category": "Module Web Console",
+      "userStory": "As a platform operator, I want to cordon a node or taint it against a tenant directly from its console detail page, the same way I already can from the CLI, so I don't have to leave the console to take a node out of scheduling rotation.",
+      "statusDetail": "Fixed: closes FUNC-07 -- POST /nodes/{id}/{cordon|uncordon} and POST /nodes/{id}/{taint|untaint} were real, CLI-covered, idempotent, future-scheduling-only APIs (never evicting a running instance), and GET /nodes already served cordoned/taints per node -- but the console's own RawNode/mapNode silently discarded both fields, and the node detail page's only actions were Back and View logs. Extended the Node type with cordoned/taints, fixed HttpNodesRepository's mapNode to stop discarding them, added setCordoned/setTaint to NodesRepository (Mock mutating the fixture in place; Http issuing the same empty-body POST the CLI's own cordon/uncordon calls make, and a {tenantId}-bodied POST for taint/untaint) and to useNodesStore. The node detail page gained a Cordon/Uncordon button behind an AlertDialog confirm plus a cordoned status badge, and a Taints panel listing current taints with a per-taint remove action and a tenant picker to add one; the node list screen gained a cordoned badge alongside the existing stale/healthy status.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/types/index.ts` (`Node.cordoned`, `Node.taints`)",
+        "`gimle-console/src/repositories/nodes.ts` (`setCordoned`, `setTaint`)",
+        "`gimle-console/src/repositories/http/nodes.ts` (`mapNode` fix, `setCordoned`, `setTaint`)",
+        "`gimle-console/src/stores/useNodesStore.ts` (`setCordoned`, `setTaint`)",
+        "`gimle-console/src/routes/nodes.$nodeId.tsx` (cordon action, taints panel)",
+        "`gimle-console/src/routes/nodes.index.tsx` (cordoned badge)"
+      ],
+      "testCoverageDetail": "http/nodes.test.ts gained cordoned/taints wire-normalization cases (defaulted and real-value) plus setCordoned/setTaint URL/method/body cases. New useNodesStore.test.ts covers setCordoned/setTaint success (item mutated in place, taint set sorted and de-duplicated) and repository-rejection error surfacing.",
+      "gherkinSteps": [
+        "Given a node's detail page; When the operator confirms \"Cordon\"; Then the node is marked cordoned and a cordoned badge appears, with no running instance evicted.",
+        "Given a cordoned node; When the operator adds a taint for a tenant; Then that tenant is added to the node's taint set, sorted and without duplicating an already-present entry.",
+        "Given the node list screen; Then a cordoned node shows a cordoned badge alongside its stale/healthy status."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

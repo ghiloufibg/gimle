@@ -84,11 +84,14 @@ function NodesList() {
                   <td className="px-2 py-1.5 font-mono text-right">{cpuPct.toFixed(0)}%</td>
                   <td className="px-2 py-1.5 font-mono text-right">{memPct.toFixed(0)}%</td>
                   <td className="px-2 py-1.5">
-                    {stale ? (
-                      <StatusBadge variant="warn">stale</StatusBadge>
-                    ) : (
-                      <StatusBadge variant="ok">healthy</StatusBadge>
-                    )}
+                    <div className="flex gap-1">
+                      {stale ? (
+                        <StatusBadge variant="warn">stale</StatusBadge>
+                      ) : (
+                        <StatusBadge variant="ok">healthy</StatusBadge>
+                      )}
+                      {n.cordoned && <StatusBadge variant="warn">cordoned</StatusBadge>}
+                    </div>
                   </td>
                 </tr>
               );

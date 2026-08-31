@@ -13,6 +13,8 @@ export interface NodesRepository {
   fetchPage(args: { cursor: string | null; pageSize: number }): Promise<Page<Node>>;
   fetchOne(nodeId: string): Promise<Node>;
   fetchSummary(): Promise<NodesSummary>;
+  setCordoned(nodeId: string, cordoned: boolean): Promise<void>;
+  setTaint(nodeId: string, tenantId: string, tainted: boolean): Promise<void>;
 }
 
 export class MockNodesRepository implements NodesRepository {
@@ -30,5 +32,19 @@ export class MockNodesRepository implements NodesRepository {
       stale: nodes.filter((n) => isStale(n.lastHeartbeatAt)).length,
       recent: nodes.slice(0, 8),
     });
+  }
+  async setCordoned(nodeId: string, cordoned: boolean) {
+    const n = nodes.find((x) => x.nodeId === nodeId);
+    if (!n) throw new Error(`Node not found: ${nodeId}`);
+    n.cordoned = cordoned;
+    return delay(undefined);
+  }
+  async setTaint(nodeId: string, tenantId: string, tainted: boolean) {
+    const n = nodes.find((x) => x.nodeId === nodeId);
+    if (!n) throw new Error(`Node not found: ${nodeId}`);
+    n.taints = tainted
+      ? [...new Set([...n.taints, tenantId])].sort()
+      : n.taints.filter((t) => t !== tenantId);
+    return delay(undefined);
   }
 }

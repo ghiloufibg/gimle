@@ -4,6 +4,7 @@ import { useCronJobsStore } from "@/stores/useCronJobsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { StatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 export const Route = createFileRoute("/cronjobs/")({
   head: () => ({
@@ -20,9 +21,6 @@ export const Route = createFileRoute("/cronjobs/")({
   component: CronJobsList,
 });
 
-// No "New cronjob" button here, matching JobsList's own reasoning: a CronJob manifest's shape
-// (schedule, jobTemplate, concurrencyPolicy) has no natural short create form yet -- `gimle
-// cronjob apply -f <manifest.yaml>` is the supported creation path for now.
 function CronJobsList() {
   const { items, hasMore, loading, loadFirstPage, loadMore, refresh } = useCronJobsStore();
 
@@ -37,9 +35,17 @@ function CronJobsList() {
         title="CronJobs"
         subtitle={`${items.length} loaded${hasMore ? " · more available" : ""}`}
         actions={
-          <Button variant="outline" size="sm" onClick={() => refresh()} disabled={loading}>
-            Refresh
-          </Button>
+          <>
+            <Button variant="outline" size="sm" onClick={() => refresh()} disabled={loading}>
+              Refresh
+            </Button>
+            <Button size="sm" asChild>
+              <Link to="/cronjobs/new">
+                <Plus className="h-4 w-4" />
+                New cronjob
+              </Link>
+            </Button>
+          </>
         }
       />
       <div className="overflow-x-auto rounded border border-border bg-card">

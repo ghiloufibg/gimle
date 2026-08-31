@@ -1,5 +1,6 @@
 import type {
   AutoscalePolicy,
+  ControllerRevision,
   Deployment,
   DeploymentInstance,
   DeploymentSpecInput,
@@ -7,7 +8,13 @@ import type {
   Page,
 } from "@/types";
 import type { DeploymentsRepository, DeploymentsSummary } from "@/repositories/deployments";
-import { requestJson, requestOk, requestOkYaml, tenantQuery } from "./apiClient";
+import {
+  requestJson,
+  requestJsonWithBody,
+  requestOk,
+  requestOkYaml,
+  tenantQuery,
+} from "./apiClient";
 
 // Wire shapes -- mirrors ApiServer.java's deploymentStatus()/handleDeploymentsList serialization.
 // `instances[].observation` and `spec.tenantId` are both optional on the wire (an instance can be
@@ -193,5 +200,27 @@ export class HttpDeploymentsRepository implements DeploymentsRepository {
   async remove(name: string, tenantId?: string | null): Promise<void> {
     await requestOk("DELETE", `/deployments/${encodeURIComponent(name)}${tenantQuery(tenantId)}`);
     this.cache = null;
+  }
+
+  async fetchRevisions(name: string, tenantId?: string | null): Promise<ControllerRevision[]> {
+    const raw = await requestJson<{ revisions: ControllerRevision[] }>(
+      "GET",
+      `/deployments/${encodeURIComponent(name)}/revisions${tenantQuery(tenantId)}`,
+    );
+    return raw.revisions;
+  }
+
+  async rollback(
+    name: string,
+    toRevision?: number,
+    tenantId?: string | null,
+  ): Promise<ControllerRevision> {
+    const rev = await requestJsonWithBody<ControllerRevision>(
+      "POST",
+      `/deployments/${encodeURIComponent(name)}/rollback${tenantQuery(tenantId)}`,
+      toRevision === undefined ? {} : { toRevision },
+    );
+    this.cache = null;
+    return rev;
   }
 }

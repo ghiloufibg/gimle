@@ -1,5 +1,11 @@
-import type { Deployment, DeploymentSpecInput, Page } from "@/types";
-import { addDeployment, deployments, removeDeployment } from "./fixture";
+import type { ControllerRevision, Deployment, DeploymentSpecInput, Page } from "@/types";
+import {
+  addDeployment,
+  deployments,
+  listControllerRevisions,
+  removeDeployment,
+  rollbackControllerRevision,
+} from "./fixture";
 import { delay, paginate } from "./util";
 
 export interface DeploymentsSummary {
@@ -15,6 +21,12 @@ export interface DeploymentsRepository {
   fetchSummary(): Promise<DeploymentsSummary>;
   create(spec: DeploymentSpecInput): Promise<Deployment>;
   remove(name: string, tenantId?: string | null): Promise<void>;
+  fetchRevisions(name: string, tenantId?: string | null): Promise<ControllerRevision[]>;
+  rollback(
+    name: string,
+    toRevision?: number,
+    tenantId?: string | null,
+  ): Promise<ControllerRevision>;
 }
 
 export class MockDeploymentsRepository implements DeploymentsRepository {
@@ -50,5 +62,24 @@ export class MockDeploymentsRepository implements DeploymentsRepository {
     // HttpDeploymentsRepository but unused here.
     removeDeployment(name);
     return delay(undefined);
+  }
+  async fetchRevisions(name: string, _tenantId?: string | null) {
+    const d = deployments.find((x) => x.spec.name === name);
+    if (!d) throw new Error(`Deployment not found: ${name}`);
+    return delay(listControllerRevisions("deployment", name, d.spec.moduleId, d.spec.artifactPath));
+  }
+  async rollback(name: string, toRevision?: number, _tenantId?: string | null) {
+    const d = deployments.find((x) => x.spec.name === name);
+    if (!d) throw new Error(`Deployment not found: ${name}`);
+    const rev = rollbackControllerRevision(
+      "deployment",
+      name,
+      d.spec.moduleId,
+      d.spec.artifactPath,
+      toRevision,
+    );
+    d.spec.moduleId = rev.moduleId;
+    d.spec.artifactPath = rev.artifactPath;
+    return delay(rev);
   }
 }

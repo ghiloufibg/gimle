@@ -14,6 +14,8 @@ interface State {
   loadMore(): Promise<void>;
   refresh(): Promise<void>;
   getOrFetch(nodeId: string): Promise<Node>;
+  setCordoned(nodeId: string, cordoned: boolean): Promise<void>;
+  setTaint(nodeId: string, tenantId: string, tainted: boolean): Promise<void>;
 }
 
 export const useNodesStore = create<State>((set, get) => ({
@@ -63,5 +65,34 @@ export const useNodesStore = create<State>((set, get) => ({
     const n = await nodesRepo.fetchOne(nodeId);
     set({ items: [...get().items, n] });
     return n;
+  },
+  async setCordoned(nodeId, cordoned) {
+    try {
+      await nodesRepo.setCordoned(nodeId, cordoned);
+      set({
+        items: get().items.map((n) => (n.nodeId === nodeId ? { ...n, cordoned } : n)),
+      });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+  async setTaint(nodeId, tenantId, tainted) {
+    try {
+      await nodesRepo.setTaint(nodeId, tenantId, tainted);
+      set({
+        items: get().items.map((n) =>
+          n.nodeId === nodeId
+            ? {
+                ...n,
+                taints: tainted
+                  ? [...new Set([...n.taints, tenantId])].sort()
+                  : n.taints.filter((t) => t !== tenantId),
+              }
+            : n,
+        ),
+      });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
   },
 }));

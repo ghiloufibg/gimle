@@ -1,6 +1,18 @@
-import type { Page, StatefulSet, StatefulSetInstance, StatefulSetSpecInput } from "@/types";
+import type {
+  ControllerRevision,
+  Page,
+  StatefulSet,
+  StatefulSetInstance,
+  StatefulSetSpecInput,
+} from "@/types";
 import type { StatefulSetsRepository } from "@/repositories/statefulsets";
-import { requestJson, requestOk, requestOkYaml, tenantQuery } from "./apiClient";
+import {
+  requestJson,
+  requestJsonWithBody,
+  requestOk,
+  requestOkYaml,
+  tenantQuery,
+} from "./apiClient";
 
 // Wire shape -- mirrors ApiServer.java's statefulSetStatus()/handleStatefulSetsList serialization.
 // `instances[].observation` and `spec.tenantId` are both optional on the wire (an index can be
@@ -123,5 +135,27 @@ export class HttpStatefulSetsRepository implements StatefulSetsRepository {
   async remove(name: string, tenantId?: string | null): Promise<void> {
     await requestOk("DELETE", `/statefulsets/${encodeURIComponent(name)}${tenantQuery(tenantId)}`);
     this.cache = null;
+  }
+
+  async fetchRevisions(name: string, tenantId?: string | null): Promise<ControllerRevision[]> {
+    const raw = await requestJson<{ revisions: ControllerRevision[] }>(
+      "GET",
+      `/statefulsets/${encodeURIComponent(name)}/revisions${tenantQuery(tenantId)}`,
+    );
+    return raw.revisions;
+  }
+
+  async rollback(
+    name: string,
+    toRevision?: number,
+    tenantId?: string | null,
+  ): Promise<ControllerRevision> {
+    const rev = await requestJsonWithBody<ControllerRevision>(
+      "POST",
+      `/statefulsets/${encodeURIComponent(name)}/rollback${tenantQuery(tenantId)}`,
+      toRevision === undefined ? {} : { toRevision },
+    );
+    this.cache = null;
+    return rev;
   }
 }

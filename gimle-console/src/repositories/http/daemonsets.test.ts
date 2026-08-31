@@ -131,4 +131,49 @@ describe("HttpDaemonSetsRepository", () => {
     expect(url).toBe("/daemonsets/node-exporter");
     expect(init.method).toBe("DELETE");
   });
+
+  it("fetchRevisions GETs /daemonsets/{name}/revisions and unwraps the envelope", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          revisions: [
+            {
+              revision: 1,
+              createdAtEpochMilli: 1000,
+              moduleId: { name: "node-exporter", version: "1.0.0" },
+              artifactPath: "",
+            },
+          ],
+        }),
+    ]);
+    const repo = new HttpDaemonSetsRepository();
+
+    const revisions = await repo.fetchRevisions("node-exporter");
+
+    expect(revisions).toHaveLength(1);
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("/daemonsets/node-exporter/revisions");
+  });
+
+  it("rollback() POSTs {toRevision} to /daemonsets/{name}/rollback", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          revision: 2,
+          createdAtEpochMilli: 2000,
+          rollbackOfRevision: 1,
+          moduleId: { name: "node-exporter", version: "0.9.0" },
+          artifactPath: "",
+        }),
+    ]);
+    const repo = new HttpDaemonSetsRepository();
+
+    const rev = await repo.rollback("node-exporter", 1);
+
+    expect(rev.rollbackOfRevision).toBe(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/daemonsets/node-exporter/rollback");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ toRevision: 1 });
+  });
 });

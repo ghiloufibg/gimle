@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useDeploymentsStore } from "@/stores/useDeploymentsStore";
 import { PageContainer, PageHeader, Panel } from "@/components/page-shell";
+import { RevisionHistoryPanel } from "@/components/revision-history";
 import { LifecycleBadge, StatusBadge, StatusDot } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,12 +40,19 @@ function DeploymentDetail() {
   const items = useDeploymentsStore((s) => s.items);
   const getOrFetch = useDeploymentsStore((s) => s.getOrFetch);
   const remove = useDeploymentsStore((s) => s.remove);
+  const revisions = useDeploymentsStore((s) => s.revisions);
+  const loadRevisions = useDeploymentsStore((s) => s.loadRevisions);
+  const rollback = useDeploymentsStore((s) => s.rollback);
   const [deleting, setDeleting] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     getOrFetch(name).catch(() => setNotFound(true));
   }, [name, getOrFetch]);
+
+  useEffect(() => {
+    loadRevisions(name);
+  }, [name, loadRevisions]);
 
   const d = items.find((x) => x.spec.name === name);
 
@@ -73,6 +81,13 @@ function DeploymentDetail() {
       toast.error((e as Error).message);
       setDeleting(false);
     }
+  }
+
+  async function handleRollback(revision: number) {
+    await rollback(name, revision);
+    const err = useDeploymentsStore.getState().error;
+    if (err) toast.error(err);
+    else toast.success(`Rolled back to revision ${revision}`);
   }
 
   return (
@@ -144,6 +159,7 @@ function DeploymentDetail() {
 
       {d.spec.autoscale && <AutoscalePanel policy={d.spec.autoscale} />}
       {d.spec.disruption && <DisruptionPanel budget={d.spec.disruption} />}
+      <RevisionHistoryPanel revisions={revisions} onRollback={handleRollback} />
 
       <div className="mb-2 flex items-center justify-between">
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">

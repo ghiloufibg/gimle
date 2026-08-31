@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 712,
+    "totalRequirements": 715,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 586,
-    "releaseReadinessPercent": 17.7
+    "notCoveredByAutomatedTest": 589,
+    "releaseReadinessPercent": 17.6
   },
   "items": [
     {
@@ -7834,6 +7834,39 @@
       "category": "Observability",
       "feature": "WorkerMetrics evicts a module's Micrometer meters on uninstall, so repeated redeploy no longer accumulates one permanent meter set per (module, version) forever",
       "step": "Given a worker has recorded requests, thread counts, and metaspace bytes for module 'orders@1.0.0'; When that module is successfully uninstalled; Then every meter WorkerMetrics registered for it is removed from the registry. Given the same module is later reinstalled and recordThreadCount is called again; When its gauge is queried; Then a fresh gauge reflects the new value rather than a stale, already-removed one silently failing to update. Given two modules 'orders@1.0.0' and 'catalog@1.0.0' both have recorded metrics; When 'orders@1.0.0' is uninstalled and evicted; Then 'catalog@1.0.0''s own meters are untouched.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-713",
+      "module": "gimle-console",
+      "category": "Module Web Console",
+      "feature": "Job and CronJob console screens gain a create form, closing the console-only creation gap that previously forced apply -f as the only way to create either kind",
+      "step": "Given the Jobs list screen; When the operator clicks \"New job\" and submits a valid name/module/version/backoffLimit; Then a JobSpec is created and the operator is navigated to its detail page. Given the CronJobs list screen; When the operator enters a schedule that is not exactly five whitespace-separated fields; Then submission is rejected with a schedule-format error before any request is sent. Given a create form with the artifact path left blank; When the spec is submitted; Then the emitted manifest omits the artifactPath key entirely rather than sending an empty string.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-714",
+      "module": "gimle-console",
+      "category": "Module Web Console",
+      "feature": "Deployment/DaemonSet/StatefulSet detail pages gain a revision-history panel with rollback, exposing the already-real ControllerRevision/rollback API that previously had no console surface at all",
+      "step": "Given a deployment's revision history is loaded; When the operator confirms \"Roll back\" on an older revision; Then a new revision is appended matching that revision's module, and both the deployment and its revision list refresh to reflect it. Given the revision history table; Then it renders newest-first with the current (index 0) revision showing no rollback action. Given a rollback request fails server-side; When it returns an error; Then the store surfaces it without silently leaving stale state.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-715",
+      "module": "gimle-console",
+      "category": "Module Web Console",
+      "feature": "Node detail/list screens gain cordon/uncordon and taint/untaint controls, exposing the already-real node-scheduling API that previously had no console surface (and whose already-served cordoned/taints fields were silently discarded on the wire)",
+      "step": "Given a node's detail page; When the operator confirms \"Cordon\"; Then the node is marked cordoned and a cordoned badge appears, with no running instance evicted. Given a cordoned node; When the operator adds a taint for a tenant; Then that tenant is added to the node's taint set, sorted and without duplicating an already-present entry. Given the node list screen; Then a cordoned node shows a cordoned badge alongside its stale/healthy status.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

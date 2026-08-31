@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useDaemonSetsStore } from "@/stores/useDaemonSetsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
+import { RevisionHistoryPanel } from "@/components/revision-history";
 import { LifecycleBadge, StatusDot } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,12 +38,19 @@ function DaemonSetDetail() {
   const items = useDaemonSetsStore((s) => s.items);
   const getOrFetch = useDaemonSetsStore((s) => s.getOrFetch);
   const remove = useDaemonSetsStore((s) => s.remove);
+  const revisions = useDaemonSetsStore((s) => s.revisions);
+  const loadRevisions = useDaemonSetsStore((s) => s.loadRevisions);
+  const rollback = useDaemonSetsStore((s) => s.rollback);
   const [deleting, setDeleting] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     getOrFetch(name).catch(() => setNotFound(true));
   }, [name, getOrFetch]);
+
+  useEffect(() => {
+    loadRevisions(name);
+  }, [name, loadRevisions]);
 
   const d = items.find((x) => x.spec.name === name);
 
@@ -71,6 +79,13 @@ function DaemonSetDetail() {
       toast.error((e as Error).message);
       setDeleting(false);
     }
+  }
+
+  async function handleRollback(revision: number) {
+    await rollback(name, revision);
+    const err = useDaemonSetsStore.getState().error;
+    if (err) toast.error(err);
+    else toast.success(`Rolled back to revision ${revision}`);
   }
 
   return (
@@ -138,6 +153,8 @@ function DaemonSetDetail() {
       <div className="mb-6 rounded border border-border bg-muted/30 p-2 text-xs font-mono break-all">
         {d.spec.artifactPath}
       </div>
+
+      <RevisionHistoryPanel revisions={revisions} onRollback={handleRollback} />
 
       <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         Instances ({d.instances.length})

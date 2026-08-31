@@ -44,9 +44,11 @@ function toManifestYaml(spec: CronJobSpecInput): string {
     `  module:`,
     `    name: ${q(spec.jobTemplate.moduleId.name)}`,
     `    version: ${q(spec.jobTemplate.moduleId.version)}`,
-    `  artifactPath: ${q(spec.jobTemplate.artifactPath)}`,
-    `  backoffLimit: ${spec.jobTemplate.backoffLimit}`,
   ];
+  if (spec.jobTemplate.artifactPath.trim() !== "") {
+    lines.push(`  artifactPath: ${q(spec.jobTemplate.artifactPath)}`);
+  }
+  lines.push(`  backoffLimit: ${spec.jobTemplate.backoffLimit}`);
   if (spec.jobTemplate.activeDeadlineSeconds !== undefined) {
     lines.push(`  activeDeadlineSeconds: ${spec.jobTemplate.activeDeadlineSeconds}`);
   }

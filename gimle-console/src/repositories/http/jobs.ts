@@ -44,9 +44,9 @@ function toManifestYaml(spec: JobSpecInput): string {
     `module:`,
     `  name: ${q(spec.moduleId.name)}`,
     `  version: ${q(spec.moduleId.version)}`,
-    `artifactPath: ${q(spec.artifactPath)}`,
-    `backoffLimit: ${spec.backoffLimit}`,
   ];
+  if (spec.artifactPath.trim() !== "") lines.push(`artifactPath: ${q(spec.artifactPath)}`);
+  lines.push(`backoffLimit: ${spec.backoffLimit}`);
   if (spec.activeDeadlineSeconds !== undefined) {
     lines.push(`activeDeadlineSeconds: ${spec.activeDeadlineSeconds}`);
   }
