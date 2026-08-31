@@ -20,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,6 +76,16 @@ public final class SkaldServer implements AutoCloseable {
   private final Thread listenerThread;
   private final Thread tcpListenerThread;
   private volatile boolean closed;
+
+  /**
+   * Rate-limits {@link #staleServfail}'s own warning to at most once per {@link #staleThreshold} --
+   * initialized far enough in the past that the very first stale query still logs immediately.
+   * {@code compareAndSet} rather than a plain read-then-write: queries are handled concurrently
+   * (see {@code acceptDatagram}/{@code acceptTcp}, one virtual thread each), so a bare check would
+   * let two racing threads both win past a stale last-logged value at once.
+   */
+  private final AtomicLong lastStaleWarnLoggedAtNanos =
+      new AtomicLong(System.nanoTime() - Duration.ofDays(1).toNanos());
 
   public SkaldServer(ServiceDirectory directory, int port) throws IOException {
     this(directory, port, DEFAULT_STALE_THRESHOLD);
@@ -318,15 +329,23 @@ public final class SkaldServer implements AutoCloseable {
    * arbitrarily out of date" means. Logged at WARN, not per query (that would flood the log for as
    * long as the outage lasts): {@link com.gimle.skald.directory.ControlPlaneServicePoller} already
    * escalates its own per-poll logging as the failure streak grows, so this is a query-side echo of
-   * the same condition, not the primary alarm.
+   * the same condition, not the primary alarm -- throttled via {@link #lastStaleWarnLoggedAtNanos}
+   * to at most once per {@link #staleThreshold}, since queries keep arriving at whatever rate
+   * callers retry at for as long as the outage lasts, unlike the poller's own naturally
+   * poll-interval-paced logging.
    */
   private byte[] staleServfail(DnsCodec.Query query) {
-    log.warn(
-        "refusing to answer '{}' with cached data {} old (threshold {}) -- control plane appears"
-            + " to have been unreachable for a while, not just a brief blip",
-        query.question().name(),
-        directory.timeSinceLastSuccess(),
-        staleThreshold);
+    long now = System.nanoTime();
+    long last = lastStaleWarnLoggedAtNanos.get();
+    if (now - last >= staleThreshold.toNanos()
+        && lastStaleWarnLoggedAtNanos.compareAndSet(last, now)) {
+      log.warn(
+          "refusing to answer '{}' with cached data {} old (threshold {}) -- control plane appears"
+              + " to have been unreachable for a while, not just a brief blip",
+          query.question().name(),
+          directory.timeSinceLastSuccess(),
+          staleThreshold);
+    }
     return DnsCodec.encodeResponse(query, DnsCodec.RCODE_SERVFAIL, List.of());
   }
 

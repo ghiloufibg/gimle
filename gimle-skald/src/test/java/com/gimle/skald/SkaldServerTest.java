@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gimle.core.time.TestClock;
 import com.gimle.skald.directory.CachingServiceDirectory;
 import com.gimle.skald.directory.HostPort;
@@ -293,6 +295,40 @@ final class SkaldServerTest {
       int recoveredFlags = unsignedShort(recovered, 2);
       assertNotEquals(2, recoveredFlags & 0xF); // no longer SERVFAIL
       assertEquals(0, recoveredFlags & 0xF); // RCODE: NOERROR
+    }
+  }
+
+  @Test
+  void the_staleness_warning_is_not_logged_once_per_query() throws IOException {
+    // A caller keeps retrying at whatever cadence it likes for as long as an outage lasts --
+    // unlike ControlPlaneServicePoller's own naturally poll-interval-paced escalation, nothing
+    // here caps query frequency, so the warning itself must be self-throttled or a sustained
+    // outage floods the log with one identical line per query.
+    ch.qos.logback.classic.Logger logger =
+        (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(SkaldServer.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      TestClock clock = new TestClock();
+      CachingServiceDirectory staleDirectory = new CachingServiceDirectory(clock);
+      staleDirectory.replaceAll(Map.of("orders.acme", List.of(new HostPort("10.0.0.5", 8080))));
+      Duration threshold = Duration.ofSeconds(30);
+      try (SkaldServer staleServer = new SkaldServer(staleDirectory, 0, threshold)) {
+        clock.advance(threshold.plusSeconds(1));
+        for (int i = 0; i < 5; i++) {
+          byte[] stale = query(staleServer.port(), 0x6000 + i, "orders.acme.svc.gimle.local", 1);
+          assertEquals(2, unsignedShort(stale, 2) & 0xF); // RCODE: SERVFAIL
+        }
+      }
+      long staleWarnings =
+          appender.list.stream()
+              .filter(event -> event.getFormattedMessage().contains("refusing to answer"))
+              .count();
+      assertEquals(
+          1, staleWarnings, "five queries in immediate succession should log once, not five times");
+    } finally {
+      logger.detachAppender(appender);
     }
   }
 
