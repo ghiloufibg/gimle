@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
@@ -189,27 +190,34 @@ final class MuninnDayFileStore {
   }
 
   private static void appendLinesFrom(Path file, List<Map<String, Object>> out) {
+    List<String> lines;
     try {
-      for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
-        if (line.isBlank()) {
-          continue;
-        }
-        // A plain-append writer (see appendLines' own comment on why this file is never
-        // written-then-renamed) can leave a torn last line behind a crash mid-write. Skipping just
-        // that one malformed line -- rather than letting the exception propagate -- is what keeps a
-        // single torn write from permanently breaking every future read of this whole day file.
-        try {
-          out.add(Json.asObject(Json.parse(line)));
-        } catch (IllegalArgumentException | ClassCastException e) {
-          log.warn(
-              "skipping malformed line in muninn day file {}: {}",
-              file,
-              truncateForLogging(line),
-              e);
-        }
-      }
+      lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+    } catch (NoSuchFileException e) {
+      // Lost a race against RetentionSweeper's own deleteIfExists: this file was still in the
+      // listing readAllLinesSorted just took, but aged past the cutoff and got swept before this
+      // read reached it. Treat exactly like the file never existed -- the same graceful-skip
+      // posture already applied to a malformed line below -- rather than letting a read that
+      // should have simply returned one file short surface as a 500.
+      log.debug("muninn day file {} was removed by a concurrent retention sweep; skipping", file);
+      return;
     } catch (IOException e) {
       throw new UncheckedIOException("failed to read muninn day file " + file, e);
+    }
+    for (String line : lines) {
+      if (line.isBlank()) {
+        continue;
+      }
+      // A plain-append writer (see appendLines' own comment on why this file is never
+      // written-then-renamed) can leave a torn last line behind a crash mid-write. Skipping just
+      // that one malformed line -- rather than letting the exception propagate -- is what keeps a
+      // single torn write from permanently breaking every future read of this whole day file.
+      try {
+        out.add(Json.asObject(Json.parse(line)));
+      } catch (IllegalArgumentException | ClassCastException e) {
+        log.warn(
+            "skipping malformed line in muninn day file {}: {}", file, truncateForLogging(line), e);
+      }
     }
   }
 

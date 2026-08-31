@@ -1,16 +1,19 @@
 package com.gimle.muninn;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.LogFileReader.LogPage;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -92,6 +95,47 @@ class MuninnDayFileStoreTest {
     assertEquals(2, page.lines().size());
     assertEquals("two", page.lines().get(0).get("message"));
     assertEquals("three", page.lines().get(1).get("message"));
+  }
+
+  /**
+   * Reproduces the real race between a read (list day files, then read each one) and {@code
+   * RetentionSweeper}'s own {@code deleteIfExists} on the same directory: a second day file is
+   * repeatedly recreated and deleted from another thread while the main thread keeps reading, so
+   * across enough iterations the reader is guaranteed to land squarely between "file was in the
+   * listing" and "file is now gone" -- the exact interleaving a single deterministic delete can't
+   * express. Before the fix this surfaced as an {@code UncheckedIOException} escaping the read; the
+   * fix's contract is that a vanished day file is silently skipped, same as a malformed line.
+   */
+  @Test
+  void a_day_file_removed_by_a_concurrent_retention_sweep_is_skipped_not_thrown() throws Exception {
+    String subtree = "logs/nodes/n1/PLATFORM";
+    store.appendLines(subtree, List.of(line("2026-08-10T10:00:00Z", "survivor")));
+    Path racyFile = tempDir.resolve(subtree).resolve("2026-08-11.log");
+
+    AtomicBoolean stop = new AtomicBoolean(false);
+    Thread racer =
+        Thread.ofVirtual()
+            .start(
+                () -> {
+                  while (!stop.get()) {
+                    try {
+                      store.appendLines(subtree, List.of(line("2026-08-11T10:00:00Z", "racy")));
+                      Files.deleteIfExists(racyFile);
+                    } catch (IOException ignored) {
+                      // Benign: this thread's own write can itself lose a race against its own
+                      // delete on the very next loop iteration -- not the condition under test.
+                    }
+                  }
+                });
+    try {
+      for (int i = 0; i < 300; i++) {
+        assertDoesNotThrow(() -> store.readAfter(subtree, null, 1000));
+        assertDoesNotThrow(() -> store.readOlder(subtree, null, 1000));
+      }
+    } finally {
+      stop.set(true);
+      racer.join();
+    }
   }
 
   @Test
