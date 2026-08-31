@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 690,
+  "requirementCount": 691,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -11953,6 +11953,21 @@
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`resolvePrincipal`)",
         "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`resolvePrincipal`)"
+      ]
+    },
+    {
+      "id": "GIMLE-691",
+      "module": "gimle-muninn",
+      "feature": "MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port",
+      "category": "Security / Authorization",
+      "status": "New",
+      "statusNote": "New requirement: closes FUNC-84 -- MuninnServer's four read handlers (handleReadNodeLogs, handleReadInstanceLogs, handleReadMetrics, handleReadTraces) never resolved a caller identity or ran an authorization check at all, despite this project's own CLAUDE.md already (incorrectly) documenting an independent Authorizer.authorize(...) re-check gated on ResourceKind.LOGS as already shipped; any principal holding a cluster leaf certificate, or anyone at all in plaintext mode, could read any tenant's or any node's logs, metrics, and traces directly from Muninn's own port, bypassing gimle-controlplane's RBAC-checked /logs/*, /metrics-history/*, and /traces-history/* proxy entirely. Fixed via a new authorizeRead gate mirroring FafnirServer#authorizeSecrets's own defense-in-depth posture: plaintext mode stays open, TLS mode resolves a Principal (trusted forwarded header, else peer certificate) and re-runs Authorizer.authorize(...) gated on ResourceKind.LOGS/Verb.READ, tenant/target-scoped the same way ApiServer#handleLogs already scopes the equivalent proxy routes.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "New `MuninnServerReadAuthzTest` (9 tests, real mTLS against a real MuninnServer): `#a_caller_whose_own_certificate_holds_the_logs_permission_can_read_instance_logs`, `#a_caller_with_an_unscoped_logs_permission_can_read_metrics` (legitimate cases, confirmed passing pre-fix); `#a_caller_with_no_logs_permission_is_forbidden_reading_instance_logs`, `#a_caller_with_no_logs_permission_is_forbidden_reading_metrics`, `#a_caller_with_no_logs_permission_is_forbidden_reading_traces`, `#a_grant_for_a_different_tenant_does_not_authorize_reading_this_ones_instance_logs`, `#a_node_may_not_read_a_different_nodes_logs` (confirmed failing pre-fix, proving the gap, then passing post-fix); `#a_node_may_read_its_own_node_logs`, `#an_unauthenticated_plaintext_read_is_allowed`. Full gimle-muninn module suite (8 classes, 35 tests) re-verified green, run per-class.",
+      "sourceLocations": [
+        "`gimle-muninn/src/main/java/com/gimle/muninn/MuninnServer.java` (`authorizeRead`, `resolvePrincipal`, `firstHeader`, `splitHeader`, `instanceTenantHint`, `peerCertificate`, `handleReadNodeLogs`, `handleReadInstanceLogs`, `handleReadMetrics`, `handleReadTraces`)"
       ]
     }
   ]
