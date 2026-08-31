@@ -86,5 +86,11 @@ public enum ResourceKind {
   // widening this enum per user-defined kind -- the enum is load-bearing (BuiltinRoles, audit
   // filters, defense-in-depth re-checks in four processes) and cannot enumerate names only known
   // at runtime.
-  CUSTOM_RESOURCE
+  CUSTOM_RESOURCE,
+  // Guards taking or restoring a full-cluster-state backup -- reading or overwriting every
+  // tenant's entire durable state in one call, a strictly more consequential grant than any
+  // single tenant-scoped kind above. Deliberately absent from every tenant role template, the
+  // same cluster-admin-only-by-default posture FAULT/KIND_DEFINITION already take; an operator
+  // delegating it must create an explicit Role/RoleBinding.
+  BACKUP
 }

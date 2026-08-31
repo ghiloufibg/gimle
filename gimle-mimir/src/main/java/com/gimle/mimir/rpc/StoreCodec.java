@@ -43,16 +43,28 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Encodes/decodes a {@link StoreRpc} the same length-prefix-plus-tag-byte shape {@link RaftCodec}
- * uses for {@code RaftRpc} -- deliberately not sharing transport-level code with {@code RaftCodec},
- * since the two wire formats serve different peers and are free to diverge, but both delegate
- * domain-type (de)serialization to {@link DomainCodec} so {@code DeploymentSpec}/{@code
+ * Encodes/decodes a {@link StoreRpc} the same length-prefix-plus-version-plus-tag-byte shape {@link
+ * RaftCodec} uses for {@code RaftRpc} -- deliberately not sharing transport-level code with {@code
+ * RaftCodec}, since the two wire formats serve different peers and are free to diverge, but both
+ * delegate domain-type (de)serialization to {@link DomainCodec} so {@code DeploymentSpec}/{@code
  * InstanceAssignment}/RBAC/etc. are encoded exactly one way across the whole module. {@code
  * StateMutation} payloads inside a {@link StoreRpc.Propose} reuse {@link
  * RaftCodec#encodeLogEntryMutation}/{@link RaftCodec#decodeLogEntryMutation} rather than a third
  * copy of {@code StateMutation}'s own 18-variant switch.
+ *
+ * <p>The version byte is checked before any version-specific field is decoded, exactly the way
+ * {@code RaftCodec}/{@code FabricCodec} check their own: a client either understands {@link
+ * #CURRENT_VERSION} or the RPC is rejected outright rather than misdecoded -- what actually matters
+ * while a control-plane replica on one binary version and a store replica on another are both live
+ * during a rolling upgrade.
  */
 public final class StoreCodec {
+
+  /**
+   * The only wire-protocol version any writer produces today; bump this when {@link StoreRpc}'s own
+   * encoding shape changes.
+   */
+  private static final int CURRENT_VERSION = 1;
 
   // ---- requests ----
   private static final byte TAG_PROPOSE = 0;
@@ -196,6 +208,8 @@ public final class StoreCodec {
   private static final byte TAG_LIST_WORKLOAD_HEALTH_STATES = -123;
   private static final byte TAG_WORKLOAD_HEALTH_STATE_LIST_RESULT = -122;
   private static final byte TAG_GET_SESSION_REVOKED_BEFORE_EPOCH_MILLI = -121;
+  private static final byte TAG_GET_SNAPSHOT = -120;
+  private static final byte TAG_SNAPSHOT_RESULT = -119;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -231,6 +245,7 @@ public final class StoreCodec {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
     try {
+      out.writeByte(CURRENT_VERSION);
       switch (rpc) {
         case StoreRpc.Propose v -> {
           out.writeByte(TAG_PROPOSE);
@@ -444,6 +459,7 @@ public final class StoreCodec {
           out.writeByte(TAG_GET_NODE_HEARTBEAT);
           out.writeUTF(v.nodeId());
         }
+        case StoreRpc.GetSnapshot v -> out.writeByte(TAG_GET_SNAPSHOT);
         case StoreRpc.ListConfigEntriesForLinearizable v -> {
           out.writeByte(TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE);
           out.writeUTF(v.tenantId());
@@ -802,6 +818,10 @@ public final class StoreCodec {
             DomainCodec.writeWorkloadTokenRecord(out, v.value());
           }
         }
+        case StoreRpc.SnapshotResult v -> {
+          out.writeByte(TAG_SNAPSHOT_RESULT);
+          DomainCodec.writeBytes(out, v.snapshot());
+        }
         case StoreRpc.HeartbeatResult v -> {
           out.writeByte(TAG_HEARTBEAT_RESULT);
           out.writeBoolean(v.present());
@@ -931,6 +951,8 @@ public final class StoreCodec {
   private static StoreRpc decodeBody(byte[] body) {
     try {
       DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+      int version = in.readByte();
+      GimleCodecException.checkVersion(version, CURRENT_VERSION);
       byte tag = in.readByte();
       return switch (tag) {
         case TAG_PROPOSE ->
@@ -1024,6 +1046,7 @@ public final class StoreCodec {
         case TAG_LIST_SURGE_INDICES ->
             new StoreRpc.ListSurgeIndices(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
+        case TAG_GET_SNAPSHOT -> new StoreRpc.GetSnapshot();
         case TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE ->
             new StoreRpc.ListConfigEntriesForLinearizable(in.readUTF());
         case TAG_GET_RECONCILER_INSTANCE_STATE ->
@@ -1234,6 +1257,7 @@ public final class StoreCodec {
           yield new StoreRpc.HeartbeatResult(
               present, present ? DomainCodec.readObservedHeartbeat(in) : null);
         }
+        case TAG_SNAPSHOT_RESULT -> new StoreRpc.SnapshotResult(DomainCodec.readBytes(in));
         case TAG_ACCOUNT_LIST_RESULT -> {
           int count = in.readInt();
           List<Account> values = new ArrayList<>();

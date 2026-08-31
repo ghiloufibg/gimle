@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
@@ -20,6 +21,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -294,6 +296,79 @@ class CertificateAuthorityTest {
         () ->
             ca.signCertificateRequest(
                 tamperedCsr, new X500Name("O=gimle:nodes,CN=attacker"), Duration.ofDays(1)));
+  }
+
+  @Test
+  void verified_san_signing_keeps_only_the_ip_the_csr_actually_requested_and_arrived_from()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=ca"), Duration.ofDays(1));
+    KeyPair leafKeyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(
+            leafKeyPair, new X500Name("CN=node-1"), List.of("203.0.113.7"));
+
+    X509Certificate leaf =
+        ca.signCertificateRequestWithVerifiedSan(
+            csr,
+            new X500Name("O=gimle:nodes,CN=node-1"),
+            Duration.ofDays(1),
+            Optional.of(InetAddress.getByName("203.0.113.7")));
+
+    Collection<List<?>> sans = leaf.getSubjectAlternativeNames();
+    assertTrue(sans != null && !sans.isEmpty(), "the CSR's own connecting address must survive");
+    Set<String> ipAddresses = new LinkedHashSet<>();
+    for (List<?> entry : sans) {
+      // GeneralName tag 7 == iPAddress, matching java.security.cert's own SAN encoding.
+      if (((Number) entry.get(0)).intValue() == 7) {
+        ipAddresses.add((String) entry.get(1));
+      }
+    }
+    assertEquals(Set.of("203.0.113.7"), ipAddresses);
+  }
+
+  @Test
+  void verified_san_signing_drops_a_requested_ip_the_request_did_not_actually_arrive_from()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=ca"), Duration.ofDays(1));
+    KeyPair leafKeyPair = generateRsaKeyPair();
+    // A malicious CSR requesting a SAN it has no way to prove it owns -- e.g. some other
+    // component's real address -- rather than the one it's actually connecting from.
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(
+            leafKeyPair, new X500Name("CN=attacker"), List.of("10.0.0.1"));
+
+    X509Certificate leaf =
+        ca.signCertificateRequestWithVerifiedSan(
+            csr,
+            new X500Name("O=gimle:nodes,CN=attacker"),
+            Duration.ofDays(1),
+            Optional.of(InetAddress.getByName("198.51.100.9")));
+
+    Collection<List<?>> sans = leaf.getSubjectAlternativeNames();
+    assertTrue(
+        sans == null || sans.isEmpty(),
+        "an unverifiable requested SAN must never be signed, not even partially");
+  }
+
+  @Test
+  void verified_san_signing_with_no_verified_address_drops_every_requested_san() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=ca"), Duration.ofDays(1));
+    KeyPair leafKeyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(
+            leafKeyPair, new X500Name("CN=operator"), List.of("203.0.113.7"));
+
+    // No live connection to attribute a claim to -- e.g. signing a CSR an operator submitted
+    // earlier and someone else is now approving.
+    X509Certificate leaf =
+        ca.signCertificateRequestWithVerifiedSan(
+            csr, csr.getSubject(), Duration.ofDays(1), Optional.empty());
+
+    Collection<List<?>> sans = leaf.getSubjectAlternativeNames();
+    assertTrue(sans == null || sans.isEmpty());
   }
 
   private static KeyPair generateRsaKeyPair() throws NoSuchAlgorithmException {

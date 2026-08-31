@@ -18,6 +18,7 @@ import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationOutcome;
 import com.gimle.mimir.raft.PeerAddress;
+import com.gimle.mimir.raft.RaftCodec;
 import com.gimle.mimir.raft.RaftNode;
 import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.JobPhase;
@@ -180,6 +181,7 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListSurgeIndices r ->
           surgeIndicesResult(store.getSurgeIndices(r.tenantId(), r.deploymentName()));
       case StoreRpc.GetNodeHeartbeat r -> handleGetNodeHeartbeat(r);
+      case StoreRpc.GetSnapshot r -> handleGetSnapshot();
       case StoreRpc.ListConfigEntriesForLinearizable r -> handleListConfigEntriesForLinearizable(r);
       case StoreRpc.GetReconcilerInstanceState r ->
           reconcilerInstanceStateResult(
@@ -267,6 +269,17 @@ public final class StoreNode implements StoreRpcHandler {
       return notLeaderResponse();
     }
     return heartbeatResult(store.getNodeHeartbeat(request.nodeId()));
+  }
+
+  /**
+   * Leader-only per {@link StoreRpc.GetSnapshot}'s own javadoc: a point-in-time backup should never
+   * be a not-yet-caught-up follower's stale replay of the log.
+   */
+  private StoreRpc.Response handleGetSnapshot() {
+    if (!raftNode.isLeader()) {
+      return notLeaderResponse();
+    }
+    return new StoreRpc.SnapshotResult(RaftCodec.encodeSnapshot(store.snapshot()));
   }
 
   /**

@@ -46,6 +46,7 @@ import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.logging.LogFileReader;
@@ -130,6 +131,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -513,6 +515,8 @@ public final class ApiServer implements AutoCloseable {
     // prefix matching would otherwise let "/artifactsX" through -- same defense AndvariServer's
     // own routing documents.
     target.createContext("/artifacts", instrument("artifacts", this::handleArtifactsProxy));
+    target.createContext("/backup", instrument("backup", this::handleBackup));
+    target.createContext("/restore", instrument("restore", this::handleRestore));
     target.createContext("/auth/login", instrument("auth-login", this::handleAuthLogin));
     target.createContext("/auth/logout", instrument("auth-logout", this::handleAuthLogout));
     target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
@@ -5875,6 +5879,80 @@ public final class ApiServer implements AutoCloseable {
   // ---- /artifacts/** -- a streaming proxy to the Andvari artifact registry ----
 
   /**
+   * {@code GET /backup} -- a full-cluster-state snapshot, straight from {@link
+   * StoreClient#getSnapshot()} (leader-routed, so never a not-yet-caught-up follower's stale view).
+   * The response body is {@code RaftCodec.encodeSnapshot}'s own already-versioned bytes, opaque to
+   * every caller here -- {@code gimle backup create} writes it straight to a file, and {@code gimle
+   * backup restore} reads that same file straight back for {@link #handleRestore} below, never
+   * inspecting or re-encoding it in between.
+   */
+  private void handleBackup(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.BACKUP, Verb.READ, Optional.empty())) {
+        return;
+      }
+      byte[] snapshot = storeClient.getSnapshot();
+      exchange.getResponseHeaders().add("Content-Type", "application/octet-stream");
+      exchange.sendResponseHeaders(200, snapshot.length);
+      try (OutputStream out = exchange.getResponseBody()) {
+        out.write(snapshot);
+      }
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * {@code PUT /restore} -- restores full cluster state from a prior {@code GET /backup}'s own
+   * bytes, proposed through {@link StoreClient#restore(byte[])} so every replica applies it through
+   * the ordinary replicated log rather than only this request's leader-of-the-moment silently
+   * diverging from the rest of the cluster. {@code PUT}, matching {@code /artifacts/*}'s own
+   * binary-upload convention (idempotent replace-with-this-exact-content, the same shape a restore
+   * actually has), so {@code gimle backup restore} can reuse {@code ControlPlaneClient#putFile}
+   * unchanged rather than a bespoke streaming-POST method. The body is decoded here, before ever
+   * reaching {@code StoreClient}, so a corrupt or foreign file is rejected with a {@code 400}
+   * rather than proposed -- the same "reject before proposing" posture every manifest-accepting
+   * endpoint here already follows.
+   */
+  private void handleRestore(HttpExchange exchange) {
+    try {
+      if (!"PUT".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (!requireAuthorized(exchange, ResourceKind.BACKUP, Verb.WRITE, Optional.empty())) {
+        return;
+      }
+      byte[] snapshotBytes;
+      try (InputStream body = exchange.getRequestBody()) {
+        snapshotBytes = body.readAllBytes();
+      }
+      MutationOutcome outcome;
+      try {
+        outcome = storeClient.restore(snapshotBytes);
+      } catch (GimleCodecException e) {
+        respondQuietly(exchange, 400, "not a valid backup: " + e.getMessage());
+        return;
+      }
+      if (outcome instanceof MutationOutcome.Rejected rejected) {
+        respond(exchange, 500, "restore was rejected: " + rejected.reason());
+        return;
+      }
+      respond(exchange, 200, "cluster state restored");
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
    * The push/pull/list surface for the artifact registry, proxied the same way {@code /secrets/*}
    * proxies to Fafnir: this process's own {@code requireAuthorized} gate runs first, the calling
    * principal travels as an internal claim, and Andvari independently re-authorizes regardless.
@@ -7378,9 +7456,16 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     // Server-stamped O=, never the CSR's own: a
-    // NODE_CLIENT CSR that self-declared O=gimle:operators must not be signed with it.
+    // NODE_CLIENT CSR that self-declared O=gimle:operators must not be signed with it. The SAN a
+    // joining node requests (its own advertised host, so other components can dial it by hostname
+    // and pass TLS hostname verification) is trusted only as far as this very connection's own
+    // remote address can back it -- see respondSigned's verified-SAN overload.
     respondSigned(
-        exchange, 200, csr, Subjects.withOrganization(csr.getSubject(), BuiltinRoles.GROUP_NODES));
+        exchange,
+        200,
+        csr,
+        Subjects.withOrganization(csr.getSubject(), BuiltinRoles.GROUP_NODES),
+        remoteAddress(exchange));
   }
 
   private void handleOperatorJoinRequest(HttpExchange exchange, PKCS10CertificationRequest csr)
@@ -7410,17 +7495,45 @@ public final class ApiServer implements AutoCloseable {
         Subjects.withOrganization(csr.getSubject(), BuiltinRoles.tenantGroup(tenantId)));
   }
 
+  /**
+   * Signs with no SAN trusted from the CSR at all -- the correct default for rotation and
+   * tenant-client issuance, neither of which has any legitimate use for one (see {@link
+   * CertificateAuthority#signCertificateRequestWithVerifiedSan}'s own javadoc).
+   */
   private void respondSigned(
       HttpExchange exchange, int status, PKCS10CertificationRequest csr, X500Name subjectOverride)
       throws IOException {
+    respondSigned(exchange, status, csr, subjectOverride, Optional.empty());
+  }
+
+  private void respondSigned(
+      HttpExchange exchange,
+      int status,
+      PKCS10CertificationRequest csr,
+      X500Name subjectOverride,
+      Optional<InetAddress> verifiedRequesterAddress)
+      throws IOException {
     CertificateAuthority ca = certificateAuthority.orElseThrow();
-    X509Certificate signed = ca.signCertificateRequest(csr, subjectOverride, LEAF_VALIDITY);
+    X509Certificate signed =
+        ca.signCertificateRequestWithVerifiedSan(
+            csr, subjectOverride, LEAF_VALIDITY, verifiedRequesterAddress);
     respondJson(
         exchange,
         status,
         csrResultToJson(
             CsrResult.approved(
                 Pem.encodeCertificate(signed), Pem.encodeCertificate(ca.certificate()))));
+  }
+
+  /**
+   * The connection's own remote address as a verified-SAN-ownership claim -- never a
+   * client-supplied header, for the same reason {@link #remoteAddressKey} isn't either. Absent when
+   * the exchange carries none, which the verified-SAN signing path already treats as "sign with no
+   * SAN" rather than failing the request.
+   */
+  private static Optional<InetAddress> remoteAddress(HttpExchange exchange) {
+    InetSocketAddress remote = exchange.getRemoteAddress();
+    return remote == null ? Optional.empty() : Optional.ofNullable(remote.getAddress());
   }
 
   /** {@code GET /bootstrap/csr/{id}} (status poll) or {@code POST /bootstrap/csr/{id}/approve}. */
@@ -7489,12 +7602,16 @@ public final class ApiServer implements AutoCloseable {
     PKCS10CertificationRequest csr = Pem.decodeCsr(entry.get().csrPem());
     CertificateAuthority ca = certificateAuthority.orElseThrow();
     // Server-stamped O=, mirroring handleNodeJoinRequest -- an OPERATOR_CLIENT CSR's own Subject
-    // is never trusted verbatim either.
+    // is never trusted verbatim either. No SAN is trusted from the CSR at all: this signs a
+    // request submitted over a since-closed connection (a different operator approves it later),
+    // so there's no live remote address to verify one against, and an operator client cert has no
+    // legitimate use for a SAN in the first place.
     X509Certificate signed =
-        ca.signCertificateRequest(
+        ca.signCertificateRequestWithVerifiedSan(
             csr,
             Subjects.withOrganization(csr.getSubject(), BuiltinRoles.GROUP_OPERATORS),
-            LEAF_VALIDITY);
+            LEAF_VALIDITY,
+            Optional.empty());
     pendingCsrStore.approve(requestId, signed);
     respondJson(
         exchange,

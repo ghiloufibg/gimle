@@ -119,6 +119,7 @@ public sealed interface StoreRpc {
           ListRollingIndices,
           ListSurgeIndices,
           GetNodeHeartbeat,
+          GetSnapshot,
           ListConfigEntriesForLinearizable,
           GetReconcilerInstanceState,
           ListReconcilerInstanceStates,
@@ -173,6 +174,7 @@ public sealed interface StoreRpc {
           NodeRegistrationResult,
           WorkloadTokenResult,
           HeartbeatResult,
+          SnapshotResult,
           AccountListResult,
           DeploymentListResult,
           ServiceResult,
@@ -232,6 +234,19 @@ public sealed interface StoreRpc {
    * the answer actually correct instead of merely available.
    */
   record GetNodeHeartbeat(String nodeId) implements Request {}
+
+  /**
+   * A full-state snapshot, taken from the current leader specifically so a caller backing up the
+   * cluster gets a point-in-time view that's never stale by a not-yet-caught-up follower's replay
+   * lag -- the same "why leader-only" reasoning {@link GetNodeHeartbeat} and {@link
+   * ListConfigEntriesForLinearizable} each give for their own different reasons. Answered by
+   * encoding {@code StateStore#snapshot()} via {@code RaftCodec#encodeSnapshot}; restoring one back
+   * goes through the ordinary replicated {@link Propose} path instead (as a {@code
+   * StateMutation.RestoreSnapshot}), not a dedicated request here, so every replica applies it the
+   * same way any other mutation is applied rather than one node's local state silently diverging
+   * from the rest of the cluster.
+   */
+  record GetSnapshot() implements Request {}
 
   /**
    * Same query and same {@link ConfigEntryListResult} response shape as {@link
@@ -554,6 +569,9 @@ public sealed interface StoreRpc {
   record WorkloadTokenResult(boolean present, WorkloadTokenRecord value) implements Response {}
 
   record HeartbeatResult(boolean present, ObservedHeartbeat value) implements Response {}
+
+  /** {@code snapshot} is {@code RaftCodec#encodeSnapshot}'s own already-versioned encoding. */
+  record SnapshotResult(byte[] snapshot) implements Response {}
 
   record AccountListResult(List<Account> values) implements Response {}
 

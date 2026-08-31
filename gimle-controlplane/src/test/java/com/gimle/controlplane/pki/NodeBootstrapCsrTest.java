@@ -14,6 +14,7 @@ import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,10 +25,15 @@ import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateParsingException;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.net.ssl.SSLContext;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -154,6 +160,78 @@ class NodeBootstrapCsrTest {
           rawSubmitCsr(trustOnlyClient, baseUrl, "NODE_CLIENT", csr, "not-a-real-token");
       assertEquals(401, response.statusCode());
     }
+  }
+
+  /**
+   * A joining node's own connecting address is the one SAN claim the server can actually verify, so
+   * it survives; an unrelated one the CSR merely asserts -- here, an address the request never came
+   * from -- does not, closing the impersonation vector a bootstrap-token holder would otherwise
+   * have (a signed cert carrying an arbitrary DNS/IP SAN of the requester's choosing).
+   */
+  @Test
+  void node_join_keeps_only_the_san_the_request_actually_arrived_from() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      // Whatever "localhost" actually resolves to here (v4 or v6) is exactly the address the
+      // server will see this HttpClient connect from -- comparing raw bytes downstream (see
+      // CertificateAuthority#verifiedSubjectAlternativeNames), not the literal text, so deriving
+      // it this way rather than hardcoding "127.0.0.1" is what makes the assertion below correct
+      // regardless of this environment's loopback resolution order.
+      String loopback = InetAddress.getByName("localhost").getHostAddress();
+
+      HttpClient operatorClient = mutualTlsClient(ca, "existing-operator");
+      String realToken = issueBootstrapToken(operatorClient, baseUrl);
+      String forgedToken = issueBootstrapToken(operatorClient, baseUrl);
+      HttpClient trustOnlyClient = trustOnlyClient();
+
+      // Requests exactly the loopback address this HttpClient will actually connect from --
+      // verifiable, and must survive.
+      PKCS10CertificationRequest genuineCsr =
+          CertificateSigningRequests.generate(
+              generateRsaKeyPair(), new X500Name("CN=node-1"), List.of(loopback));
+      Map<String, Object> genuineResult =
+          submitCsr(trustOnlyClient, baseUrl, "NODE_CLIENT", genuineCsr, realToken);
+      X509Certificate genuineLeaf =
+          Pem.decodeCertificate((String) genuineResult.get("certificatePem"));
+      assertEquals(Set.of(loopback), ipAddressSans(genuineLeaf));
+
+      // Requests an address this connection never came from -- e.g. attempting to impersonate the
+      // control plane's own advertised host -- must not survive.
+      PKCS10CertificationRequest forgedCsr =
+          CertificateSigningRequests.generate(
+              generateRsaKeyPair(), new X500Name("CN=node-2"), List.of("10.0.0.99"));
+      Map<String, Object> forgedResult =
+          submitCsr(trustOnlyClient, baseUrl, "NODE_CLIENT", forgedCsr, forgedToken);
+      X509Certificate forgedLeaf =
+          Pem.decodeCertificate((String) forgedResult.get("certificatePem"));
+      assertEquals(Set.of(), ipAddressSans(forgedLeaf));
+    }
+  }
+
+  private static Set<String> ipAddressSans(X509Certificate certificate)
+      throws CertificateParsingException {
+    Collection<List<?>> sans = certificate.getSubjectAlternativeNames();
+    if (sans == null) {
+      return Set.of();
+    }
+    Set<String> addresses = new LinkedHashSet<>();
+    for (List<?> entry : sans) {
+      // GeneralName tag 7 == iPAddress, matching java.security.cert's own SAN encoding.
+      if (((Number) entry.get(0)).intValue() == 7) {
+        addresses.add((String) entry.get(1));
+      }
+    }
+    return addresses;
   }
 
   private static String issueBootstrapToken(HttpClient operatorClient, String baseUrl)

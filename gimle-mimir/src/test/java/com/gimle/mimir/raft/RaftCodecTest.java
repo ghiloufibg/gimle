@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.authz.Account;
 import com.gimle.core.authz.Permission;
@@ -39,6 +40,7 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
 import com.gimle.mimir.store.StateSnapshot;
+import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.WorkloadHealthState;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import java.io.ByteArrayInputStream;
@@ -196,6 +198,7 @@ class RaftCodecTest {
   void rejects_a_forged_huge_entry_count_without_preallocating() throws IOException {
     ByteArrayOutputStream body = new ByteArrayOutputStream();
     DataOutputStream bodyOut = new DataOutputStream(body);
+    bodyOut.writeByte(1); // version
     bodyOut.writeByte(2); // TAG_APPEND_ENTRIES
     bodyOut.writeLong(1L); // term
     bodyOut.writeUTF("node-1"); // leaderId
@@ -213,6 +216,47 @@ class RaftCodecTest {
 
     assertThrows(
         UncheckedIOException.class, () -> RaftCodec.read(new ByteArrayInputStream(frameBytes)));
+  }
+
+  @Test
+  void rejects_an_unrecognized_rpc_version_before_decoding_the_tag() throws IOException {
+    ByteArrayOutputStream body = new ByteArrayOutputStream();
+    DataOutputStream bodyOut = new DataOutputStream(body);
+    bodyOut.writeByte(99); // an unrecognized future version
+    // Deliberately garbage after the version byte -- if the version check didn't happen first, a
+    // naive decoder might still try (and fail differently, or worse, succeed with garbage) to
+    // interpret this as a tag/fields. The version check must reject before any of that runs.
+    bodyOut.writeByte(0);
+    bodyOut.writeLong(0L);
+    byte[] bodyBytes = body.toByteArray();
+
+    ByteArrayOutputStream frame = new ByteArrayOutputStream();
+    new DataOutputStream(frame).writeInt(bodyBytes.length);
+    frame.write(bodyBytes);
+    byte[] frameBytes = frame.toByteArray();
+
+    GimleCodecException thrown =
+        assertThrows(
+            GimleCodecException.class, () -> RaftCodec.read(new ByteArrayInputStream(frameBytes)));
+    assertTrue(
+        thrown.getMessage().contains("99") && thrown.getMessage().contains("1"),
+        "expected the message to name both the declared (99) and max supported (1) versions, got: "
+            + thrown.getMessage());
+  }
+
+  @Test
+  void rejects_an_unrecognized_snapshot_version() {
+    ByteArrayOutputStream body = new ByteArrayOutputStream();
+    DataOutputStream bodyOut = new DataOutputStream(body);
+    try {
+      bodyOut.writeByte(99); // an unrecognized future version
+      bodyOut.writeInt(0); // deliberately garbage after the version byte, same rationale as above
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+    byte[] bytes = body.toByteArray();
+
+    assertThrows(GimleCodecException.class, () -> RaftCodec.decodeSnapshot(bytes));
   }
 
   @Test
@@ -434,6 +478,20 @@ class RaftCodecTest {
     assertArrayEquals(originalResource.statusJson(), decodedResource.statusJson());
     assertEquals(
         snapshot.sessionRevokedBeforeEpochMilli(), decoded.sessionRevokedBeforeEpochMilli());
+  }
+
+  @Test
+  void round_trips_a_restore_snapshot_mutation_through_a_log_entry() {
+    StateStore seedStore = new StateStore();
+    seedStore.putDeployment(deploymentSpec());
+    StateSnapshot snapshot = seedStore.snapshot();
+    LogEntry entry = logEntry(1L, new StateMutation.RestoreSnapshot(snapshot));
+    LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(entry));
+    StateMutation.RestoreSnapshot decodedMutation =
+        (StateMutation.RestoreSnapshot) decoded.payload();
+    assertEquals(snapshot.deployments(), decodedMutation.snapshot().deployments());
+    assertEquals(
+        snapshot.deploymentGenerations(), decodedMutation.snapshot().deploymentGenerations());
   }
 
   @Test

@@ -24,6 +24,7 @@ import com.gimle.mimir.store.JobPhase;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.JobRunSummary;
 import com.gimle.mimir.store.ReconcilerInstanceState;
+import com.gimle.mimir.store.StateSnapshot;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.WorkloadHealthState;
@@ -904,6 +905,23 @@ public sealed interface StateMutation extends RaftLogPayload {
       for (StateMutation mutation : mutations) {
         mutation.applyTo(store);
       }
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * A full-state replace, applied identically by every replica the same way any other mutation here
+   * is -- the operator-facing counterpart to {@link StateStore#snapshot()}/{@link
+   * StateStore#restoreFromSnapshot}, which round-trip full cluster state already but, until now,
+   * only ever internally (Raft catch-up/failover). Going through the ordinary replicated log rather
+   * than a side channel that pokes one node's {@code StateStore} directly is what keeps every
+   * replica consistent afterward: a restore that only touched the leader's own local state would
+   * silently diverge from every follower the instant it was applied.
+   */
+  record RestoreSnapshot(StateSnapshot snapshot) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.restoreFromSnapshot(snapshot);
       return MutationOutcome.accepted();
     }
   }

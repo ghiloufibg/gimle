@@ -1,6 +1,7 @@
 package com.gimle.pki;
 
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.security.InvalidKeyException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -12,8 +13,10 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Optional;
+import org.bouncycastle.asn1.ASN1OctetString;
 import org.bouncycastle.asn1.pkcs.Attribute;
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import org.bouncycastle.asn1.x500.X500Name;
@@ -21,6 +24,8 @@ import org.bouncycastle.asn1.x509.BasicConstraints;
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage;
 import org.bouncycastle.asn1.x509.Extension;
 import org.bouncycastle.asn1.x509.Extensions;
+import org.bouncycastle.asn1.x509.GeneralName;
+import org.bouncycastle.asn1.x509.GeneralNames;
 import org.bouncycastle.asn1.x509.KeyPurposeId;
 import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.cert.CertIOException;
@@ -142,6 +147,43 @@ public final class CertificateAuthority {
    */
   public X509Certificate signCertificateRequest(
       PKCS10CertificationRequest request, X500Name subjectOverride, Duration validity) {
+    return sign(request, subjectOverride, validity, requestedSubjectAlternativeNames(request));
+  }
+
+  /**
+   * Signs exactly as the three-argument overload above does, except a Subject Alternative Name the
+   * CSR itself requests is trusted only up to what {@code verifiedRequesterAddress} can actually
+   * back: included in the issued certificate solely as a single {@code iPAddress} entry, and only
+   * when the CSR requested that exact address among its own entries. Every other requested entry (a
+   * {@code dNSName}, or any IP the CSR requests but didn't arrive from) is dropped rather than
+   * signed, and an empty {@code verifiedRequesterAddress} drops the CSR's requested SAN entirely --
+   * the correct behavior for an issuance flow with no live connection to attribute a claim to (e.g.
+   * operator-join approval, which signs a CSR submitted by a since-disconnected caller). This is
+   * the signing path every network-reachable CSR submission goes through -- the CSR's own subject
+   * still passed the signature check the three-argument overload makes, but nothing about *what it
+   * was signed over* proves the requester actually controls the hostname/IP it names in a SAN
+   * extension, unlike the O= override above, which the server always stamps itself regardless of
+   * what the CSR asked for. This is the same problem for SAN that {@code subjectOverride} already
+   * solves for O=, just with a narrower answer: an IP the request's own connection is provably
+   * coming from is the one thing this method can verify without an out-of-band ownership proof.
+   */
+  public X509Certificate signCertificateRequestWithVerifiedSan(
+      PKCS10CertificationRequest request,
+      X500Name subjectOverride,
+      Duration validity,
+      Optional<InetAddress> verifiedRequesterAddress) {
+    return sign(
+        request,
+        subjectOverride,
+        validity,
+        verifiedSubjectAlternativeNames(request, verifiedRequesterAddress));
+  }
+
+  private X509Certificate sign(
+      PKCS10CertificationRequest request,
+      X500Name subjectOverride,
+      Duration validity,
+      Optional<GeneralNames> subjectAlternativeNames) {
     try {
       JcaPKCS10CertificationRequest jcaRequest = new JcaPKCS10CertificationRequest(request);
       PublicKey requestedPublicKey = jcaRequest.getPublicKey();
@@ -168,9 +210,9 @@ public final class CertificateAuthority {
           false,
           new ExtendedKeyUsage(
               new KeyPurposeId[] {KeyPurposeId.id_kp_serverAuth, KeyPurposeId.id_kp_clientAuth}));
-      Optional<Extension> requestedSan = requestedSubjectAlternativeName(request);
-      if (requestedSan.isPresent()) {
-        builder.addExtension(requestedSan.get());
+      if (subjectAlternativeNames.isPresent()) {
+        builder.addExtension(
+            Extension.subjectAlternativeName, false, subjectAlternativeNames.get());
       }
 
       ContentSigner signer = new JcaContentSignerBuilder(SIGNATURE_ALGORITHM).build(privateKey);
@@ -193,7 +235,7 @@ public final class CertificateAuthority {
    * external CSR that never requested one, both legitimate cases this returns empty for rather than
    * failing.
    */
-  private static Optional<Extension> requestedSubjectAlternativeName(
+  private static Optional<GeneralNames> requestedSubjectAlternativeNames(
       PKCS10CertificationRequest request) {
     Attribute[] extensionAttributes =
         request.getAttributes(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
@@ -202,7 +244,41 @@ public final class CertificateAuthority {
     }
     Extensions requestedExtensions =
         Extensions.getInstance(extensionAttributes[0].getAttributeValues()[0]);
-    return Optional.ofNullable(requestedExtensions.getExtension(Extension.subjectAlternativeName));
+    return Optional.ofNullable(
+        GeneralNames.fromExtensions(requestedExtensions, Extension.subjectAlternativeName));
+  }
+
+  /**
+   * Narrows a CSR's requested SAN down to the one entry a caller with no other ownership proof can
+   * actually back: an {@code iPAddress} entry byte-for-byte equal to {@code
+   * verifiedRequesterAddress}, the address the request establishing this signing call actually
+   * arrived from. Rebuilt as a fresh single-entry {@link GeneralNames} rather than forwarding
+   * whatever else the CSR asked for -- a CSR that also requested an unrelated dNSName, or a second
+   * IP it didn't connect from, gets neither smuggled through alongside the one verified entry.
+   */
+  private static Optional<GeneralNames> verifiedSubjectAlternativeNames(
+      PKCS10CertificationRequest request, Optional<InetAddress> verifiedRequesterAddress) {
+    if (verifiedRequesterAddress.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<GeneralNames> requested = requestedSubjectAlternativeNames(request);
+    if (requested.isEmpty()) {
+      return Optional.empty();
+    }
+    byte[] verifiedOctets = verifiedRequesterAddress.get().getAddress();
+    boolean requesterOwnsIt =
+        Arrays.stream(requested.get().getNames())
+            .anyMatch(
+                name ->
+                    name.getTagNo() == GeneralName.iPAddress
+                        && Arrays.equals(
+                            ASN1OctetString.getInstance(name.getName()).getOctets(),
+                            verifiedOctets));
+    if (!requesterOwnsIt) {
+      return Optional.empty();
+    }
+    String verifiedAddress = verifiedRequesterAddress.get().getHostAddress();
+    return Optional.of(new GeneralNames(new GeneralName(GeneralName.iPAddress, verifiedAddress)));
   }
 
   private static KeyPair generateKeyPair() {

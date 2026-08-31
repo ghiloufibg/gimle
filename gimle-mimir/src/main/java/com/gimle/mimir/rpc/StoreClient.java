@@ -23,6 +23,7 @@ import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.raft.MutationOutcome;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.PeerAddress;
+import com.gimle.mimir.raft.RaftCodec;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.ControllerRevision;
 import com.gimle.mimir.store.DaemonSetAssignment;
@@ -150,6 +151,31 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         (StoreRpc.HeartbeatResult)
             sendLeaderOnly("getNodeHeartbeat", new StoreRpc.GetNodeHeartbeat(nodeId));
     return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  /**
+   * A full-cluster-state backup, taken from the current leader (see {@link StoreRpc.GetSnapshot}'s
+   * own javadoc for why). The returned bytes are {@code RaftCodec#encodeSnapshot}'s own
+   * already-versioned encoding -- opaque to every caller above this class, written straight to a
+   * file by a backup command and read straight back by {@link #restore}, never parsed in between.
+   */
+  public byte[] getSnapshot() {
+    StoreRpc.SnapshotResult r =
+        (StoreRpc.SnapshotResult) sendLeaderOnly("getSnapshot", new StoreRpc.GetSnapshot());
+    return r.snapshot();
+  }
+
+  /**
+   * Restores full cluster state from {@code snapshotBytes} (a prior {@link #getSnapshot()}'s own
+   * output) by proposing it through the ordinary replicated {@link StoreRpc.Propose} path as a
+   * {@code StateMutation.RestoreSnapshot} -- every replica applies it the same way any other
+   * mutation is applied, so the whole cluster ends up consistent afterward rather than only the
+   * leader's own local state changing. Decodes the bytes here (not server-side) so a corrupt or
+   * foreign file is rejected before ever reaching the Raft log, the same "reject before proposing"
+   * posture {@code ApiServer}'s own manifest validation already follows for every other write.
+   */
+  public MutationOutcome restore(byte[] snapshotBytes) {
+    return propose(new StateMutation.RestoreSnapshot(RaftCodec.decodeSnapshot(snapshotBytes)));
   }
 
   // ---- reads: same names/signatures as StateStore ----

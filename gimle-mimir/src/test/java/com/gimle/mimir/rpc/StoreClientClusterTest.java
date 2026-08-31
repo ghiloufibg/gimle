@@ -11,6 +11,7 @@ import com.gimle.mimir.raft.AppendEntries;
 import com.gimle.mimir.raft.AppendEntriesResponse;
 import com.gimle.mimir.raft.InstallSnapshot;
 import com.gimle.mimir.raft.InstallSnapshotResponse;
+import com.gimle.mimir.raft.MutationOutcome;
 import com.gimle.mimir.raft.PeerConnection;
 import com.gimle.mimir.raft.RaftLog;
 import com.gimle.mimir.raft.RaftNode;
@@ -83,7 +84,8 @@ class StoreClientClusterTest {
       RaftNode raftNode,
       RaftTransport raftTransport,
       StoreTransport storeTransport,
-      SocketAddress clientAddress) {}
+      SocketAddress clientAddress,
+      StateStore store) {}
 
   private static final class HandlerRef implements RaftRpcHandler {
     volatile RaftRpcHandler delegate;
@@ -160,7 +162,7 @@ class StoreClientClusterTest {
 
       clusterNodes.add(
           new ClusterNode(
-              selfRaftId, raftNode, raftTransport, storeTransport, clientAddresses.get(i)));
+              selfRaftId, raftNode, raftTransport, storeTransport, clientAddresses.get(i), store));
     }
     return clusterNodes;
   }
@@ -316,5 +318,43 @@ class StoreClientClusterTest {
         new StateMutation.PutTenant(new Tenant("after-failover", new ResourceQuota(2, 2, 2))));
     Tenant found = awaitPresent(() -> client.getTenant("after-failover"), Duration.ofSeconds(5));
     assertEquals("after-failover", found.id());
+  }
+
+  /**
+   * The real value proposition of {@link StoreClient#getSnapshot()}/{@link
+   * StoreClient#restore(byte[])}: a restore proposed through any endpoint lands on every replica's
+   * own local {@link StateStore}, not just the leader's -- proven here by reading each node's store
+   * directly, bypassing {@link StoreClient} entirely, so a restore that only patched the leader
+   * (leaving followers silently diverged) would fail this test even though every client-routed read
+   * afterward would still happen to answer correctly by landing on the leader.
+   */
+  @Test
+  @Timeout(15)
+  void a_restored_backup_lands_on_every_replicas_own_store_not_just_the_leaders() throws Exception {
+    List<ClusterNode> cluster = buildCluster(3);
+    awaitLeader(cluster);
+    client = new StoreClient(clientAddresses(cluster));
+
+    client.propose(
+        new StateMutation.PutTenant(new Tenant("pre-backup", new ResourceQuota(1, 1, 1))));
+    awaitPresent(() -> client.getTenant("pre-backup"), Duration.ofSeconds(3));
+    byte[] backup = client.getSnapshot();
+
+    // Diverges every replica from the backed-up state -- restoring must overwrite this on every
+    // node, not merely leave the leader's own post-backup writes in place.
+    client.propose(
+        new StateMutation.PutTenant(new Tenant("post-backup", new ResourceQuota(2, 2, 2))));
+    awaitPresent(() -> client.getTenant("post-backup"), Duration.ofSeconds(3));
+
+    MutationOutcome outcome = client.restore(backup);
+    assertTrue(outcome instanceof MutationOutcome.Accepted, "restore was rejected: " + outcome);
+
+    for (ClusterNode node : cluster) {
+      Await.until(
+          () ->
+              node.store().getTenant("pre-backup").isPresent()
+                  && node.store().getTenant("post-backup").isEmpty(),
+          Duration.ofSeconds(5));
+    }
   }
 }

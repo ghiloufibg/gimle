@@ -104,6 +104,8 @@ import java.util.Map;
  *   gimle artifact list [moduleId]
  *   gimle artifact get &lt;moduleId&gt; &lt;version&gt; [--to &lt;path&gt;]
  *   gimle artifact delete &lt;moduleId&gt; &lt;version&gt;
+ *   gimle backup create [--to &lt;path&gt;]
+ *   gimle backup restore &lt;path&gt;
  *   gimle logs &lt;target&gt; [--category=CAT] [--follow|-f] [--since=&lt;cursor&gt;]
  *   gimle get roles [name]
  *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;[:&lt;qualifier&gt;]] [--permission ...]
@@ -230,6 +232,7 @@ public final class GimleCli {
       case "secretmap", "secretmaps" -> new SecretMapCommand(client, output, out).run(rest);
       case "seal", "seals" -> new SealCommand(client, output, out).run(rest);
       case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
+      case "backup" -> new BackupCommand(client, output, out).run(rest);
       case "volume", "volumes" -> new VolumesCommand(client, output, out).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "config", "configs" -> handleConfigVerb(rest, client, output, out);
@@ -577,6 +580,7 @@ public final class GimleCli {
       case "secretmap", "secretmaps" -> SecretMapCommand.usage();
       case "seal", "seals" -> SealCommand.usage();
       case "artifact", "artifacts" -> ArtifactCommand.usage();
+      case "backup" -> BackupCommand.usage();
       case "volume", "volumes" -> VolumesCommand.usage();
       case "cronjob", "cronjobs" -> CRONJOB_USAGE;
       case "config", "configs" -> CONFIG_VERB_USAGE;
@@ -931,6 +935,8 @@ public final class GimleCli {
           artifact list [moduleId]
           artifact get <moduleId> <version> [--to <path>]
           artifact delete <moduleId> <version>
+          backup create [--to <path>]
+          backup restore <path>
           audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                      [--since <epochMillis>] [--limit N]
           logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]

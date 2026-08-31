@@ -51,19 +51,33 @@ import java.util.Set;
 
 /**
  * Encodes/decodes a {@link RaftRpc} the same way {@code gimle-fabric}'s {@code FabricCodec} encodes
- * a {@code FabricFrame}: a 4-byte big-endian length prefix, a one-byte type tag, then {@link
- * DataOutputStream} primitive fields, with every {@code byte[]} field itself separately
- * length-prefixed. A {@link LogEntry} carrying a {@link StateMutation} is exactly the same kind of
- * arbitrary-byte payload {@code InvokeRequest}'s {@code serializedArgs} already is, so this reuses
- * that framing shape rather than inventing a third one. Every domain-type field ({@code
- * DeploymentSpec}, {@code InstanceAssignment}, RBAC types, ...) delegates to {@link DomainCodec},
- * shared with {@code StoreCodec} -- this class owns only the Raft-specific RPC/log-entry framing.
+ * a {@code FabricFrame}: a 4-byte big-endian length prefix, a one-byte wire-protocol version, a
+ * one-byte type tag, then {@link DataOutputStream} primitive fields, with every {@code byte[]}
+ * field itself separately length-prefixed. A {@link LogEntry} carrying a {@link StateMutation} is
+ * exactly the same kind of arbitrary-byte payload {@code InvokeRequest}'s {@code serializedArgs}
+ * already is, so this reuses that framing shape rather than inventing a third one. Every
+ * domain-type field ({@code DeploymentSpec}, {@code InstanceAssignment}, RBAC types, ...) delegates
+ * to {@link DomainCodec}, shared with {@code StoreCodec} -- this class owns only the Raft-specific
+ * RPC/log-entry framing.
+ *
+ * <p>The version byte is checked before any version-specific field is decoded, exactly the way
+ * {@code FabricCodec} checks its own: a Raft peer either understands {@link #CURRENT_VERSION} or
+ * rejects the RPC outright rather than misdecoding it -- what actually matters during a rolling
+ * upgrade, when a leader on one binary version and a follower on another are live on the wire at
+ * the same time.
  *
  * <p>Also encodes/decodes a {@link StateSnapshot} as a standalone byte array -- the payload an
- * {@link InstallSnapshot} RPC carries, and what {@link RaftLog} persists to disk after a local
- * compaction.
+ * {@link InstallSnapshot} RPC carries chunk by chunk to a follower catching up live, and what
+ * {@link RaftLog} separately persists to disk after a local compaction; carries its own version
+ * byte for the same reason, since it's decoded independently of {@link #read}'s framing.
  */
 public final class RaftCodec {
+
+  /**
+   * The only wire-protocol version any writer produces today; bump this when either {@link RaftRpc}
+   * or {@link StateSnapshot}'s own encoding shape changes.
+   */
+  private static final int CURRENT_VERSION = 1;
 
   private static final byte TAG_REQUEST_VOTE = 0;
   private static final byte TAG_REQUEST_VOTE_RESPONSE = 1;
@@ -142,6 +156,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_WORKLOAD_HEALTH_STATE = 67;
   private static final byte MUT_REMOVE_WORKLOAD_HEALTH_STATE = 68;
   private static final byte MUT_PUT_SESSION_REVOCATION = 69;
+  private static final byte MUT_RESTORE_SNAPSHOT = 70;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -187,6 +202,7 @@ public final class RaftCodec {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
     try {
+      out.writeByte(CURRENT_VERSION);
       switch (rpc) {
         case RequestVote v -> {
           out.writeByte(TAG_REQUEST_VOTE);
@@ -244,6 +260,8 @@ public final class RaftCodec {
   private static RaftRpc decodeRpcBody(byte[] body) {
     try {
       DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+      int version = in.readByte();
+      GimleCodecException.checkVersion(version, CURRENT_VERSION);
       byte tag = in.readByte();
       return switch (tag) {
         case TAG_REQUEST_VOTE ->
@@ -747,6 +765,15 @@ public final class RaftCodec {
         out.writeUTF(m.name());
         DomainCodec.writeBytes(out, m.statusJson());
       }
+      case StateMutation.RestoreSnapshot m -> {
+        out.writeByte(MUT_RESTORE_SNAPSHOT);
+        // Reuses encodeSnapshot's own already-versioned encoding wholesale rather than a second
+        // inline copy of StateSnapshot's field-by-field writer -- the nested version byte this
+        // embeds is redundant with the outer LogEntry's (both currently 1), but keeps the
+        // snapshot bytes independently decodable via decodeSnapshot on their own, not just as
+        // part of a full LogEntry.
+        DomainCodec.writeBytes(out, encodeSnapshot(m.snapshot()));
+      }
     }
   }
 
@@ -986,6 +1013,8 @@ public final class RaftCodec {
         yield new StateMutation.PutCustomResourceStatus(
             kindName, tenantId, name, DomainCodec.readBytes(in));
       }
+      case MUT_RESTORE_SNAPSHOT ->
+          new StateMutation.RestoreSnapshot(decodeSnapshot(DomainCodec.readBytes(in)));
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -996,6 +1025,7 @@ public final class RaftCodec {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DataOutputStream out = new DataOutputStream(buffer);
     try {
+      out.writeByte(CURRENT_VERSION);
       out.writeInt(snapshot.deployments().size());
       for (DeploymentSpec spec : snapshot.deployments()) {
         DomainCodec.writeDeploymentSpec(out, spec);
@@ -1208,6 +1238,8 @@ public final class RaftCodec {
   public static StateSnapshot decodeSnapshot(byte[] bytes) {
     try {
       DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
+      int version = in.readByte();
+      GimleCodecException.checkVersion(version, CURRENT_VERSION);
       List<DeploymentSpec> deployments = new ArrayList<>();
       int deploymentCount = in.readInt();
       for (int i = 0; i < deploymentCount; i++) {
