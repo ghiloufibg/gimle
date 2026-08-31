@@ -104,6 +104,8 @@ gimle artifact push <jar> [--tenant <id>]
 gimle artifact list [moduleId]
 gimle artifact get <moduleId> <version> [--to <path>]
 gimle artifact delete <moduleId> <version>
+gimle backup create [--to <path>]
+gimle backup restore <path>
 gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                   [--since <epochMillis>] [--limit N]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
@@ -248,6 +250,16 @@ coordinate from the jar's own bundled `gimle-module.yaml` rather than taking nam
 so the coordinate a jar is stored under and the identity it declares can never drift apart; a
 re-push of different bytes under an existing coordinate is refused (a stored version is
 immutable -- push the changed jar as a new version).
+
+`backup create [--to <path>]` takes a full-cluster-state snapshot (`GET /backup`, leader-routed so
+it's never a not-yet-caught-up follower's stale view) and streams it straight to a local file —
+opaque bytes, never parsed by the CLI. `backup restore <path>` streams that file back (`PUT
+/restore`) and proposes it through the ordinary replicated Raft log as a new
+`StateMutation.RestoreSnapshot`, the same way any other write here is proposed, so every replica
+ends up consistent rather than only whichever node answered the request. Cluster-admin-only by
+default (`ResourceKind.BACKUP`, absent from every tenant role template, the same posture `fault`
+and custom-kind definitions already take) — a restore overwrites every tenant's entire durable
+state in one call.
 
 `events` returns an instance's full lifecycle timeline, newest-first; `--limit N` caps how many of
 those entries print, applied client-side (the underlying `GET /events` call has no server-side

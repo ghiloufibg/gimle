@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 700,
+    "totalRequirements": 703,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 574,
-    "releaseReadinessPercent": 18.0
+    "notCoveredByAutomatedTest": 577,
+    "releaseReadinessPercent": 17.9
   },
   "items": [
     {
@@ -7702,6 +7702,39 @@
       "category": "Service fabric",
       "feature": "CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN",
       "step": "Given a breaker still OPEN (cooldown not elapsed, no HALF_OPEN trial ever claimed) and a call reaches it anyway (panic mode's own bypass); When that call succeeds; Then the breaker closes immediately rather than staying OPEN. Given a breaker that has re-opened at least once (backoff already doubled) and a panic-mode-admitted call against it succeeds while still OPEN; When the breaker closes as a result; Then its backoff resets to the base cooldown, identical to an ordinary HALF_OPEN success.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-701",
+      "module": "gimle-mimir",
+      "category": "Operations",
+      "feature": "Operator-facing cluster backup/restore (gimle backup create/restore, GET /backup, PUT /restore)",
+      "step": "Given a cluster with real state (a deployment, a tenant) and an operator takes a backup via gimle backup create; When further writes are made afterward; Then gimle backup restore brings every replica back to exactly the backed-up state, discarding everything written since. Given a restore proposed through any one endpoint of a multi-node cluster; When the underlying StateMutation.RestoreSnapshot commits; Then every replica's own local StateStore reflects the restored state, not only the leader that received the request. Given a file that is not a real backup (corrupt, foreign, or truncated); When an operator attempts gimle backup restore against it; Then the control plane rejects it with a 400 before ever proposing it to the Raft log.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-702",
+      "module": "gimle-pki",
+      "category": "Security",
+      "feature": "A CSR's requested Subject Alternative Name is trusted only up to what the connecting request can verify",
+      "step": "Given a node-join CSR requesting a SAN equal to the address this exact request is connecting from; When the control plane signs it; Then the issued certificate carries that SAN. Given a node-join CSR requesting a SAN for an address it is not actually connecting from (e.g. another component's real hostname); When the control plane signs it; Then no SAN is carried onto the issued certificate at all. Given an operator-join or certificate-rotation CSR requesting any SAN; When the control plane signs it; Then the SAN is dropped unconditionally, since neither flow has a live connection to verify a claim against.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-703",
+      "module": "gimle-mimir",
+      "category": "Upgrade path",
+      "feature": "RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding",
+      "step": "Given a RaftRpc or StoreRpc frame carrying a version byte higher than this reader's own CURRENT_VERSION; When the frame is decoded; Then decoding fails with GimleCodecException naming both versions, before any tag or field is read. Given a real Raft leader and follower both running the same CURRENT_VERSION; When AppendEntries/InstallSnapshot RPCs are exchanged; Then every existing round-trip behavior is unchanged.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

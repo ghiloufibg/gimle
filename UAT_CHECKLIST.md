@@ -6,20 +6,20 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 700
+- **Total requirements**: 703
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 574
-- **Release-readiness (automated coverage)**: 18.0%
+- **Not covered by automated test**: 577
+- **Release-readiness (automated coverage)**: 17.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
 | gimle-core | 46 | 15 | 31 | 32.6% |
 | gimle-module | 26 | 12 | 14 | 46.2% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
-| gimle-pki | 9 | 6 | 3 | 66.7% |
+| gimle-pki | 10 | 6 | 4 | 60.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
 | gimle-agent | 49 | 6 | 43 | 12.2% |
-| gimle-mimir | 62 | 36 | 26 | 58.1% |
+| gimle-mimir | 64 | 36 | 28 | 56.2% |
 | gimle-fabric | 39 | 1 | 38 | 2.6% |
 | gimle-controlplane | 93 | 15 | 78 | 16.1% |
 | gimle-fafnir | 30 | 11 | 19 | 36.7% |
@@ -341,6 +341,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-072 | Server-stamped Subject override on signing (prevents self-declared privileged group) | Given a CSR whose own Subject requests O=gimle:operators but the caller only has node-join authorization, When signed via the subject-override overload, Then the issued certificate's Subject is exactly the override; a bad self-signature is still rejected. | Yes |
 | [ ] | GIMLE-077 | X.500 Subject utilities: server-side O= stamping and Principal derivation | Given a Subject with CN=node-1 and no O=, When Subjects.withOrganization(subject,"gimle:nodes") is called, Then result is O=gimle:nodes,CN=node-1. | Yes |
+
+#### Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-702 | A CSR's requested Subject Alternative Name is trusted only up to what the connecting request can verify | Given a node-join CSR requesting a SAN equal to the address this exact request is connecting from; When the control plane signs it; Then the issued certificate carries that SAN. Given a node-join CSR requesting a SAN for an address it is not actually connecting from (e.g. another component's real hostname); When the control plane signs it; Then no SAN is carried onto the issued certificate at all. Given an operator-join or certificate-rotation CSR requesting any SAN; When the control plane signs it; Then the SAN is dropped unconditionally, since neither flow has a live connection to verify a claim against. | No |
 
 ### gimle-worker
 
@@ -755,6 +761,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-572 | NetworkPolicySpec durable persistence through StoreClient | Given a NetworkPolicySpec POSTed to one control-plane replica's /networkpolicies API, When a second independent replica backed by the same store queries GET /networkpolicies, Then the policy is visible there too. Given a control-plane process restarts, When it reloads its state from the store on startup, Then previously created NetworkPolicySpecs are loaded back, not lost, mirroring ServiceSpec's own persistence guarantee. | Yes |
 
+#### Operations
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-701 | Operator-facing cluster backup/restore (gimle backup create/restore, GET /backup, PUT /restore) | Given a cluster with real state (a deployment, a tenant) and an operator takes a backup via gimle backup create; When further writes are made afterward; Then gimle backup restore brings every replica back to exactly the backed-up state, discarding everything written since. Given a restore proposed through any one endpoint of a multi-node cluster; When the underlying StateMutation.RestoreSnapshot commits; Then every replica's own local StateStore reflects the restored state, not only the leader that received the request. Given a file that is not a real backup (corrupt, foreign, or truncated); When an operator attempts gimle backup restore against it; Then the control plane rejects it with a 400 before ever proposing it to the Raft log. | No |
+
 #### Raft Consensus
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -811,6 +823,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
 | [ ] | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright. | No |
 | [ ] | GIMLE-646 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. | No |
+
+#### Upgrade path
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-703 | RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding | Given a RaftRpc or StoreRpc frame carrying a version byte higher than this reader's own CURRENT_VERSION; When the frame is decoded; Then decoding fails with GimleCodecException naming both versions, before any tag or field is read. Given a real Raft leader and follower both running the same CURRENT_VERSION; When AppendEntries/InstallSnapshot RPCs are exchanged; Then every existing round-trip behavior is unchanged. | No |
 
 #### Workload Lifecycle
 

@@ -710,6 +710,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-698 | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Observability | Complete | Yes |
 | GIMLE-699 | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | Observability | Complete | Yes |
 | GIMLE-700 | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Service fabric | Complete | Yes |
+| GIMLE-701 | Operator-facing cluster backup/restore (gimle backup create/restore, GET /backup, PUT /restore) | Operations | Complete | Yes |
+| GIMLE-702 | A CSR's requested Subject Alternative Name is trusted only up to what the connecting request can verify | Security | Complete | Yes |
+| GIMLE-703 | RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding | Upgrade path | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -1887,6 +1890,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given an empty output directory, When PkiBootstrapMain.main(["outDir","MyClusterCA","localhost"]) runs, Then outDir contains ca.crt/.key, controlplane/fafnir/muninn/andvari/operator .crt/.key, and bootstrap-account.yaml with only a username and password hash.
+  ```
+
+#### GIMLE-702 — A CSR's requested Subject Alternative Name is trusted only up to what the connecting request can verify
+
+- **Category**: Security
+- **User story**: As a cluster operator, I want a bootstrap-token holder's CSR to never get an arbitrary DNS/IP SAN signed onto its certificate just because it asked for one, so a compromised or malicious token cannot be used to mint a certificate impersonating another cluster component (e.g. the control plane's own advertised hostname).
+- **Status**: Fixed: closes BETA-02 -- CertificateAuthority.signCertificateRequest previously copied whatever subjectAltName a CSR itself requested straight into the issued certificate, with no check that the requester actually controlled that hostname/IP; both node-join and operator-join issuance went through this same path. Added signCertificateRequestWithVerifiedSan(request, subjectOverride, validity, verifiedRequesterAddress): a requested SAN entry is included only when it is a single iPAddress entry byte-for-byte equal to the address the request actually arrived from -- the one ownership claim a bootstrap flow can verify without an out-of-band proof, the same server-derived-not-CSR-declared posture O= already has via subjectOverride. ApiServer wires this consistently: node-join passes the live connection's own remote address (the only legitimate SAN use in this codebase -- a node's own advertised host); operator-join/approve and certificate rotation pass no verified address at all (an operator client cert has no legitimate SAN use, and rotation/tenant-client approval may run over a since-closed connection with nothing to verify against), so every one of those paths now signs with no SAN rather than trusting the CSR's own claim.
+- **Confidence**: High
+- **Source location(s)**: `gimle-pki/src/main/java/com/gimle/pki/CertificateAuthority.java` (`signCertificateRequestWithVerifiedSan`, `verifiedSubjectAlternativeNames`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`respondSigned`, `handleNodeJoinRequest`, `handleApprove`, `remoteAddress`)
+- **Test coverage**: CertificateAuthorityTest#verified_san_signing_keeps_only_the_ip_the_csr_actually_requested_and_arrived_from, #verified_san_signing_drops_a_requested_ip_the_request_did_not_actually_arrive_from, and #verified_san_signing_with_no_verified_address_drops_every_requested_san cover the codec-level policy directly. NodeBootstrapCsrTest#node_join_keeps_only_the_san_the_request_actually_arrived_from is a real end-to-end proof over a real ApiServer + real HttpClient: a genuine loopback-address SAN request survives, an unrelated address (simulating an impersonation attempt) does not. Full gimle-pki and gimle-controlplane module suites re-verified.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node-join CSR requesting a SAN equal to the address this exact request is connecting from; When the control plane signs it; Then the issued certificate carries that SAN.
+  Given a node-join CSR requesting a SAN for an address it is not actually connecting from (e.g. another component's real hostname); When the control plane signs it; Then no SAN is carried onto the issued certificate at all.
+  Given an operator-join or certificate-rotation CSR requesting any SAN; When the control plane signs it; Then the SAN is dropped unconditionally, since neither flow has a live connection to verify a claim against.
   ```
 
 ### gimle-worker
@@ -3928,6 +3946,35 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked.
   Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated.
   Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event.
+  ```
+
+#### GIMLE-701 — Operator-facing cluster backup/restore (gimle backup create/restore, GET /backup, PUT /restore)
+
+- **Category**: Operations
+- **User story**: As a platform operator responsible for a cluster with real state to preserve, I want to take a full-cluster-state backup and restore it later through gimle-cli, so a cluster's durable state (deployments, tenants, RBAC, secrets metadata, and every other StateSnapshot field) can be recovered after data loss without depending on StateStore#snapshot()/#restoreFromSnapshot staying an internal-only Raft catch-up mechanism nothing operator-facing ever reaches.
+- **Status**: Implemented: StateStore#snapshot()/#restoreFromSnapshot() already round-tripped full cluster state internally (Raft catch-up/failover) but had no operator-facing path. Added a new StateMutation.RestoreSnapshot variant (RaftCodec MUT_RESTORE_SNAPSHOT tag, reusing encodeSnapshot/decodeSnapshot's own already-versioned encoding as an embedded field) so a restore is proposed through the ordinary replicated Raft log like any other mutation -- every replica applies it identically, rather than one node's local state silently diverging from the rest of the cluster. Added StoreRpc.GetSnapshot/SnapshotResult (a leader-only read, same staleness reasoning as GetNodeHeartbeat/ListConfigEntriesForLinearizable) and StoreClient#getSnapshot()/#restore(byte[]). gimle-controlplane's ApiServer gained GET /backup and PUT /restore, gated by a new ResourceKind.BACKUP (cluster-admin-only by default, same posture as FAULT/KIND_DEFINITION), proxying to StoreClient; a restore body is decoded (and rejected with 400 on a corrupt/foreign file) before ever being proposed. gimle-cli gained gimle backup create [--to <path>] (GET /backup via ControlPlaneClient#downloadFile, streamed straight to a file) and gimle backup restore <path> (PUT /restore via ControlPlaneClient#putFile, streamed straight from a file) -- neither buffers a whole cluster's state in the CLI process beyond what the existing streaming helpers already do for artifact push/pull.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`RestoreSnapshot`), `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java` (`MUT_RESTORE_SNAPSHOT`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java` (`GetSnapshot`, `SnapshotResult`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java` (`handleGetSnapshot`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java` (`getSnapshot`, `restore`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleBackup`, `handleRestore`), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java` (`BACKUP`), `gimle-cli/src/main/java/com/gimle/cli/BackupCommand.java`
+- **Test coverage**: CertificateAuthorityTest-style unit coverage at the codec layer: RaftCodecTest#round_trips_a_restore_snapshot_mutation_through_a_log_entry (byte-level round trip through LogEntry encode/decode) plus the pre-existing round_trips_a_state_snapshot coverage the new mutation reuses. Real 3-node Raft cluster integration test: StoreClientClusterTest#a_restored_backup_lands_on_every_replicas_own_store_not_just_the_leaders proves a restore proposed through any endpoint lands on every replica's own local StateStore (read directly, bypassing StoreClient's own routing) -- not just the leader's. Real HTTP integration: ApiServerBackupTest (GET /backup + PUT /restore over a real loopback ApiServer, real StateStore) proves the full round trip a real CLI invocation would make, including rejecting a corrupt backup body with 400 and a non-GET/backup method with 405.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with real state (a deployment, a tenant) and an operator takes a backup via gimle backup create; When further writes are made afterward; Then gimle backup restore brings every replica back to exactly the backed-up state, discarding everything written since.
+  Given a restore proposed through any one endpoint of a multi-node cluster; When the underlying StateMutation.RestoreSnapshot commits; Then every replica's own local StateStore reflects the restored state, not only the leader that received the request.
+  Given a file that is not a real backup (corrupt, foreign, or truncated); When an operator attempts gimle backup restore against it; Then the control plane rejects it with a 400 before ever proposing it to the Raft log.
+  ```
+
+#### GIMLE-703 — RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding
+
+- **Category**: Upgrade path
+- **User story**: As a platform operator performing a rolling upgrade, I want a control-plane/store replica on one Gimle binary version and a peer on another to reject an incompatible wire frame outright rather than silently corrupt or crash on decode, so state mutations flowing through StoreRpc.Propose/RaftCodec during the upgrade window are never misinterpreted.
+- **Status**: Fixed: closes BETA-03 -- FabricCodec/SwimCodec already carried a version byte and rejected a mismatch outright, but RaftCodec/StoreCodec were explicitly left unversioned. Both now write a one-byte CURRENT_VERSION immediately after the existing 4-byte length prefix and check it via the shared GimleCodecException.checkVersion helper before decoding any version-specific field, mirroring FabricCodec's own 'reject, don't misdecode' posture exactly. Covers RaftCodec's RaftRpc envelope (RequestVote/AppendEntries/InstallSnapshot/etc, including every embedded LogEntry) and its standalone StateSnapshot encoding (the same bytes an InstallSnapshot RPC streams live to a catching-up follower, and what RaftLog persists to disk after compaction), plus StoreCodec's StoreRpc envelope (covering an embedded StateMutation inside StoreRpc.Propose automatically, since it sits inside the already-versioned outer frame).
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java` (`CURRENT_VERSION`, `encodeRpcBody`, `decodeRpcBody`, `encodeSnapshot`, `decodeSnapshot`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreCodec.java` (`CURRENT_VERSION`, `encodeBody`, `decodeBody`)
+- **Test coverage**: RaftCodecTest#rejects_an_unrecognized_rpc_version_before_decoding_the_tag and #rejects_an_unrecognized_snapshot_version; StoreCodecTest#rejects_an_unrecognized_version_before_decoding_the_tag -- each forges a frame carrying an out-of-range version byte and asserts GimleCodecException naming both the declared and max-supported version, decoded before any tag/field is touched. Full gimle-mimir module suite (500+ pre-existing cases across both codecs) re-verified against the new framing.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a RaftRpc or StoreRpc frame carrying a version byte higher than this reader's own CURRENT_VERSION; When the frame is decoded; Then decoding fails with GimleCodecException naming both versions, before any tag or field is read.
+  Given a real Raft leader and follower both running the same CURRENT_VERSION; When AppendEntries/InstallSnapshot RPCs are exchanged; Then every existing round-trip behavior is unchanged.
   ```
 
 ### gimle-fabric
