@@ -192,8 +192,14 @@ proxy wasn't already reducing itself to internally.
   locality-aware/circuit-breaking endpoint selection `lookup(Class<T>)` uses (same-worker →
   same-machine → remote, least-outstanding-requests, the same tenant-scoping check
   `permitsUnderTenantPolicy` already enforces for the `Class<T>`-based path), but additionally able
-  to filter same-machine/remote candidates by `majorVersion` — something `lookup(Class<T>)` can
-  never do, since a bare `Class` carries no export version to filter by in the first place.
+  to filter same-machine/remote candidates by a caller-supplied `majorVersion` — something
+  `lookup(Class<T>)` can never do, since a bare `Class` carries no export version for a caller to
+  supply in the first place. `lookup(Class<T>)` instead narrows by version on its own: it selects the
+  highest `Version` among the candidates `endpointsForInterface` returns that currently has an
+  available (non-breaker-excluded) endpoint, falling back to the next highest only when the top one
+  has none — the cross-worker counterpart of `SimpleServiceRegistry#selectEntry`'s same-worker
+  cutover, so a hot redeploy's old and new version, registered under the same interface at once, is
+  never blended within one lookup at either tier.
 - Returns `Optional.empty()` for an unresolvable route the same way `lookupByInterfaceName` already
   does for "nothing registered" — not an exception — but a resolvable route whose method name or
   parameter types don't actually match throws, same as a wrong-overload call would anywhere else.
