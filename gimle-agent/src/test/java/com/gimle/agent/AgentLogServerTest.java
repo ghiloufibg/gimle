@@ -132,6 +132,29 @@ class AgentLogServerTest {
   }
 
   @Test
+  void health_reports_up_with_no_configuration_needed() throws Exception {
+    startServer();
+
+    Map<String, Object> body = get("/health");
+
+    assertEquals("UP", body.get("status"));
+  }
+
+  @Test
+  void health_rejects_a_non_get_method() throws Exception {
+    startServer();
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + "/health"))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .build();
+
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(405, response.statusCode());
+  }
+
+  @Test
   void volumes_are_listed_with_usage_and_in_use_flags_and_destroy_respects_them() throws Exception {
     Path dataRoot = logRoot.resolve("data");
     LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);

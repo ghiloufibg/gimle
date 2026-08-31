@@ -31,6 +31,7 @@ describe("useAuditStore", () => {
   beforeEach(() => {
     useAuditStore.setState({
       items: [],
+      status: null,
       filter: { limit: 100 },
       loading: false,
       loaded: false,
@@ -54,7 +55,12 @@ describe("useAuditStore", () => {
   });
 
   it("a successful search sorts results newest-first regardless of response order", async () => {
-    vi.mocked(auditRepo.query).mockResolvedValueOnce([OLDER, NEWER]);
+    vi.mocked(auditRepo.query).mockResolvedValueOnce({
+      events: [OLDER, NEWER],
+      retainedCount: 2,
+      evictedTotal: 0,
+      truncated: false,
+    });
 
     await useAuditStore.getState().search();
 
@@ -62,6 +68,23 @@ describe("useAuditStore", () => {
     expect(state.items.map((e) => e.id)).toEqual(["audit-2", "audit-1"]);
     expect(state.loaded).toBe(true);
     expect(state.error).toBeNull();
+  });
+
+  it("a successful search surfaces the trail's own retention status", async () => {
+    vi.mocked(auditRepo.query).mockResolvedValueOnce({
+      events: [],
+      retainedCount: 50_000,
+      evictedTotal: 12,
+      truncated: true,
+    });
+
+    await useAuditStore.getState().search();
+
+    expect(useAuditStore.getState().status).toEqual({
+      retainedCount: 50_000,
+      evictedTotal: 12,
+      truncated: true,
+    });
   });
 
   it("setFilter drops empty-string and undefined values instead of sending them as filters", () => {
@@ -79,7 +102,12 @@ describe("useAuditStore", () => {
 
   it("reset clears the filter back to defaults and re-runs search", async () => {
     useAuditStore.getState().setFilter({ principal: "alice", limit: 5 });
-    vi.mocked(auditRepo.query).mockResolvedValueOnce([]);
+    vi.mocked(auditRepo.query).mockResolvedValueOnce({
+      events: [],
+      retainedCount: 0,
+      evictedTotal: 0,
+      truncated: false,
+    });
 
     await useAuditStore.getState().reset();
 

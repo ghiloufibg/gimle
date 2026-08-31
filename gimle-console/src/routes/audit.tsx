@@ -44,6 +44,7 @@ const VERB_TONE: Record<string, string> = {
 
 function Audit() {
   const items = useAuditStore((s) => s.items);
+  const status = useAuditStore((s) => s.status);
   const filter = useAuditStore((s) => s.filter);
   const loading = useAuditStore((s) => s.loading);
   const loaded = useAuditStore((s) => s.loaded);
@@ -85,6 +86,14 @@ function Audit() {
         <StatTile label="Principals" value={principals} />
         <StatTile label="Limit" value={filter.limit ?? 100} tone="muted" />
       </div>
+
+      {status?.truncated && (
+        <div className="mb-6 rounded-sm border border-status-warn/30 bg-status-warn/10 px-3 py-2 font-mono text-[11px] text-status-warn">
+          The audit trail has exceeded its retention cap — {status.evictedTotal.toLocaleString()}{" "}
+          older event(s) have been discarded, retaining {status.retainedCount.toLocaleString()}.
+          This is the trail&apos;s own retention state, independent of the filters below.
+        </div>
+      )}
 
       <Panel title="Filters" className="mb-6">
         <form

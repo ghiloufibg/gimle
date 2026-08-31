@@ -201,6 +201,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListAuditEvents r ->
           new StoreRpc.AuditEventListResult(
               store.listAuditEvents(r.principal(), r.resourceKind(), r.tenantId(), r.since()));
+      case StoreRpc.GetAuditTrailStatus r ->
+          new StoreRpc.AuditTrailStatusResult(store.auditTrailStatus());
       case StoreRpc.ListControllerRevisions r ->
           new StoreRpc.ControllerRevisionListResult(
               store.listControllerRevisions(r.workloadKind(), r.tenantId(), r.name()));

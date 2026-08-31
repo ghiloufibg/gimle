@@ -1,7 +1,9 @@
 package com.gimle.cli;
 
+import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -39,7 +41,16 @@ public final class AuditCommand {
     separator = appendFilter(path, separator, "since", flags.getOrDefault("--since", null));
     appendFilter(path, separator, "limit", flags.getOrDefault("--limit", null));
 
-    OutputFormat.printList(output, client.getList(path.toString()), out);
+    Map<String, Object> response = client.getObject(path.toString());
+    OutputFormat.printList(output, Json.asObjectList(response.get("events")), out);
+    // Independent of any filter/limit the query above applied -- see ApiServer#handleAudit's own
+    // javadoc for why this describes the whole trail, not just what this call returned.
+    if (Boolean.TRUE.equals(response.get("truncated"))) {
+      out.printf(
+          "note: the audit trail has exceeded its retention cap; %s older event(s) have been"
+              + " discarded (retaining %s)%n",
+          response.get("evictedTotal"), response.get("retainedCount"));
+    }
   }
 
   private static char appendFilter(StringBuilder path, char separator, String name, String value) {

@@ -212,10 +212,10 @@ class ProbeLoopTest {
   /**
    * Real ticker only -- {@code TestScheduler} runs every tick on the single advancing thread by
    * design (see its own javadoc), so it can't exercise the platform-wide starvation this proves
-   * against: five permanently-hung keys used to be enough to exhaust the old shared 4-thread
-   * ticker pool and silently stop ticking every other key. Each key's checks run on its own
-   * {@link BoundedModuleScheduler} so that scheduler's own concurrency limit can't be the thing
-   * blocking the healthy key -- only the ticker itself is under test here.
+   * against: five permanently-hung keys used to be enough to exhaust the old shared 4-thread ticker
+   * pool and silently stop ticking every other key. Each key's checks run on its own {@link
+   * BoundedModuleScheduler} so that scheduler's own concurrency limit can't be the thing blocking
+   * the healthy key -- only the ticker itself is under test here.
    */
   @Test
   @Timeout(value = 15, unit = TimeUnit.SECONDS)

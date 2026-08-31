@@ -426,13 +426,16 @@ class ApiServerCustomKindsTest {
     assertEquals(200, put("/resources/custom.Greeting/hello-world", HELLO_INSTANCE).statusCode());
 
     List<Map<String, Object>> rows =
-        Json.asObjectList(Json.parse(get("/audit?resource=CustomResource:custom.Greeting").body()));
+        Json.asObjectList(
+            Json.asObject(Json.parse(get("/audit?resource=CustomResource:custom.Greeting").body()))
+                .get("events"));
     assertFalse(rows.isEmpty(), "the instance put must have produced a qualified audit row");
     assertEquals("WRITE", rows.get(0).get("verb"));
     assertEquals("hello-world", rows.get(0).get("targetId"));
 
     List<Map<String, Object>> definitionRows =
-        Json.asObjectList(Json.parse(get("/audit?resource=KIND_DEFINITION").body()));
+        Json.asObjectList(
+            Json.asObject(Json.parse(get("/audit?resource=KIND_DEFINITION").body())).get("events"));
     assertFalse(definitionRows.isEmpty(), "the definition put must have been audited too");
   }
 

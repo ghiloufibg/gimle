@@ -60,6 +60,7 @@ import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.AuditOutcome;
+import com.gimle.core.protocol.AuditTrailStatus;
 import com.gimle.core.protocol.CsrPurpose;
 import com.gimle.core.protocol.CsrResult;
 import com.gimle.core.protocol.CsrSubmission;
@@ -292,6 +293,7 @@ public final class ApiServer implements AutoCloseable {
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
+  private final Instant startedAt = Instant.now();
   // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
   // node -- either way, /bootstrap/csr and its siblings simply aren't registered (see
   // #registerContexts). This node's CA key never rotates (only leaf certs do), so unlike
@@ -459,6 +461,7 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private void registerContexts(HttpServer target) throws IOException {
+    target.createContext("/health", instrument("health", this::handleHealth));
     target.createContext("/deployments/", instrument("deployments", this::handleDeployment));
     target.createContext("/deployments", instrument("deployments", this::handleDeploymentsList));
     target.createContext("/jobs/", instrument("jobs", this::handleJob));
@@ -3627,6 +3630,13 @@ public final class ApiServer implements AutoCloseable {
    * "reading the trail is itself an access-controlled action" framing already applied to {@code
    * ROLE}/{@code ROLE_BINDING}/{@code ACCOUNT} -- every filter is optional and independently
    * combinable, matching {@link com.gimle.mimir.store.StoreReader#listAuditEvents}'s own shape.
+   *
+   * <p>The response is an envelope, not a bare array: {@code retainedCount}/{@code evictedTotal}/
+   * {@code oldestRetainedAtEpochMilli}/{@code truncated} describe the trail's own retention state
+   * (see {@link AuditTrailStatus}), independent of whatever this call's own filters/limit narrowed
+   * {@code events} down to -- an operator reviewing the trail during an incident needs to be able
+   * to tell "this is the complete record" from "this cluster crossed the retention cap" without
+   * cross-referencing a log line.
    */
   private void handleAudit(HttpExchange exchange) {
     try {
@@ -3652,7 +3662,14 @@ public final class ApiServer implements AutoCloseable {
         }
         events.add(auditEventToJson(event));
       }
-      respondJson(exchange, 200, events);
+      AuditTrailStatus status = storeClient.auditTrailStatus();
+      Map<String, Object> body = new LinkedHashMap<>();
+      body.put("events", events);
+      body.put("retainedCount", status.retainedCount());
+      body.put("evictedTotal", status.evictedTotal());
+      status.oldestRetainedAtEpochMilli().ifPresent(t -> body.put("oldestRetainedAtEpochMilli", t));
+      body.put("truncated", status.truncated());
+      respondJson(exchange, 200, body);
     } catch (NumberFormatException e) {
       respondQuietly(exchange, 400, "since/limit must be numeric");
     } catch (IOException | RuntimeException e) {
@@ -5876,6 +5893,46 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  // ---- /health ----
+
+  /**
+   * Unauthenticated, matching {@code FafnirServer}/{@code MuninnServer}/{@code AndvariServer}'s own
+   * {@code /status} posture -- process-level liveness a load balancer or orchestrator probe needs
+   * to reach with nothing but raw TCP, before any identity has been established. Fails closed on a
+   * downstream outage rather than reporting healthy regardless: {@code storeClient.listTenants()}
+   * is a real round trip to the {@code gimle-mimir} cluster this process depends on for every other
+   * request it serves, so a store that's unreachable or has no leader turns into a {@code 503} here
+   * exactly as it would turn into failures everywhere else -- the one signal this process had no
+   * operator-pollable way to surface at all before this endpoint existed (see {@code gimle-mimir}'s
+   * own lack of any HTTP surface, which is why this checks the dependency rather than only this
+   * process's own liveness).
+   */
+  private void handleHealth(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      Map<String, Object> status = new LinkedHashMap<>();
+      status.put("uptimeSeconds", Duration.between(startedAt, Instant.now()).toSeconds());
+      status.put("transportProtocol", TransportProtocol.fromConfig().name());
+      try {
+        status.put("storeTenantCount", storeClient.listTenants().size());
+        status.put("status", "UP");
+        respondJson(exchange, 200, status);
+      } catch (RuntimeException e) {
+        status.put("status", "DOWN");
+        status.put("reason", String.valueOf(e.getMessage()));
+        respondJson(exchange, 503, status);
+      }
+    } catch (IOException | RuntimeException e) {
+      log.warn("health request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
   // ---- /artifacts/** -- a streaming proxy to the Andvari artifact registry ----
 
   /**
@@ -7448,10 +7505,26 @@ public final class ApiServer implements AutoCloseable {
     respondSigned(exchange, 200, csr, csr.getSubject());
   }
 
+  /**
+   * Neither branch has a pre-existing principal to run {@link #requireAuthorized} against -- a
+   * one-time bootstrap token stands in for one here -- so both outcomes are audited directly
+   * against {@link ResourceKind#CERTIFICATE_REQUEST}/{@link Verb#APPROVE} instead: this is exactly
+   * "who was granted trust, and when," and a rejected token attempt is as worth a durable trace as
+   * an accepted one.
+   */
   private void handleNodeJoinRequest(
       HttpExchange exchange, PKCS10CertificationRequest csr, Optional<String> bootstrapToken)
       throws IOException {
-    if (bootstrapToken.isEmpty() || !bootstrapTokenRegistry.tryConsume(bootstrapToken.get())) {
+    boolean tokenAccepted =
+        bootstrapToken.isPresent() && bootstrapTokenRegistry.tryConsume(bootstrapToken.get());
+    recordAuditEvent(
+        new Principal("bootstrap-token", Set.of()),
+        ResourceKind.CERTIFICATE_REQUEST,
+        Verb.APPROVE,
+        Optional.empty(),
+        Optional.of(csr.getSubject().toString()),
+        tokenAccepted);
+    if (!tokenAccepted) {
       respond(exchange, 401, "missing or invalid bootstrap token");
       return;
     }
@@ -7468,9 +7541,22 @@ public final class ApiServer implements AutoCloseable {
         remoteAddress(exchange));
   }
 
+  /**
+   * Not yet a grant of trust -- {@link #handleApprove} is, and already runs through {@link
+   * #requireAuthorized} -- but recording the submission itself closes the timeline gap between "a
+   * CSR arrived" and "an operator acted on it," the same forensic need {@link
+   * #handleNodeJoinRequest}'s own audit call serves.
+   */
   private void handleOperatorJoinRequest(HttpExchange exchange, PKCS10CertificationRequest csr)
       throws IOException {
     String requestId = pendingCsrStore.submit(Pem.encodeCsr(csr));
+    recordAuditEvent(
+        new Principal("anonymous", Set.of()),
+        ResourceKind.CERTIFICATE_REQUEST,
+        Verb.WRITE,
+        Optional.empty(),
+        Optional.of(requestId),
+        true);
     respondJson(exchange, 202, csrResultToJson(CsrResult.pending(requestId)));
   }
 
@@ -7696,13 +7782,14 @@ public final class ApiServer implements AutoCloseable {
    * it.
    *
    * <p>Also the single choke point every mutating decision passes through with its principal,
-   * resource, and verb already in hand -- so for {@link Verb#WRITE}/{@link Verb#DELETE} (never
-   * {@link Verb#READ}, matching Kubernetes' own default audit policy: a console page-load's worth
-   * of {@code GET}s would dwarf the mutating-action volume actually worth capturing) this is where
-   * the decision is recorded into the durable, queryable audit trail (see {@link AuditEvent}), both
-   * allowed and denied alike -- a denial is exactly as auditable as a grant. A bare {@code 401} (no
-   * principal resolved at all) is deliberately not audited, since there's no principal to attribute
-   * the attempt to; only a resolved-but-denied principal produces an event.
+   * resource, and verb already in hand -- so for {@link Verb#WRITE}/{@link Verb#DELETE}/{@link
+   * Verb#APPROVE} (never {@link Verb#READ}, matching Kubernetes' own default audit policy: a
+   * console page-load's worth of {@code GET}s would dwarf the mutating-action volume actually worth
+   * capturing) this is where the decision is recorded into the durable, queryable audit trail (see
+   * {@link AuditEvent}), both allowed and denied alike -- a denial is exactly as auditable as a
+   * grant. A bare {@code 401} (no principal resolved at all) is deliberately not audited, since
+   * there's no principal to attribute the attempt to; only a resolved-but-denied principal produces
+   * an event.
    */
   private boolean requireAuthorized(
       HttpExchange exchange,
@@ -7718,6 +7805,7 @@ public final class ApiServer implements AutoCloseable {
       // reports for this mode (see handleAuthSession above).
       if (verb == Verb.WRITE
           || verb == Verb.DELETE
+          || verb == Verb.APPROVE
           || (verb == Verb.READ && auditReadResourceKinds.contains(resource))) {
         recordAuditEvent(
             new Principal("anonymous", Set.of()), resource, verb, tenant, targetId, true);
@@ -7732,6 +7820,7 @@ public final class ApiServer implements AutoCloseable {
     boolean authorized = authorizer.authorize(principal.get(), resource, verb, tenant, targetId);
     if (verb == Verb.WRITE
         || verb == Verb.DELETE
+        || verb == Verb.APPROVE
         || (verb == Verb.READ && auditReadResourceKinds.contains(resource))) {
       recordAuditEvent(principal.get(), resource, verb, tenant, targetId, authorized);
     }

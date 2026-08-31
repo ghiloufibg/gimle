@@ -5,6 +5,7 @@ import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditTrailStatus;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
@@ -127,6 +128,7 @@ public sealed interface StoreRpc {
           ListWorkloadHealthStates,
           ListInstanceEvents,
           ListAuditEvents,
+          GetAuditTrailStatus,
           ListControllerRevisions,
           GetControllerRevision,
           GetLimitRange,
@@ -193,6 +195,7 @@ public sealed interface StoreRpc {
           WorkloadHealthStateListResult,
           InstanceEventListResult,
           AuditEventListResult,
+          AuditTrailStatusResult,
           ControllerRevisionListResult,
           ControllerRevisionResult,
           LimitRangeResult,
@@ -443,6 +446,14 @@ public sealed interface StoreRpc {
       Optional<Long> since)
       implements Request {}
 
+  /**
+   * The trail's own retention state -- see {@link AuditTrailStatus}'s own javadoc for why this is a
+   * separate request from {@link ListAuditEvents} rather than a field tacked onto its response: the
+   * status describes the *whole* trail regardless of query filters, while a {@link ListAuditEvents}
+   * answer may be a filtered subset of it.
+   */
+  record GetAuditTrailStatus() implements Request {}
+
   record ListControllerRevisions(String workloadKind, Optional<String> tenantId, String name)
       implements Request {}
 
@@ -611,6 +622,8 @@ public sealed interface StoreRpc {
   record InstanceEventListResult(List<InstanceEvent> values) implements Response {}
 
   record AuditEventListResult(List<AuditEvent> values) implements Response {}
+
+  record AuditTrailStatusResult(AuditTrailStatus status) implements Response {}
 
   record ControllerRevisionListResult(List<ControllerRevision> values) implements Response {}
 

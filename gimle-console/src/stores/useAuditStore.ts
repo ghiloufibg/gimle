@@ -1,11 +1,12 @@
 import { create } from "zustand";
-import type { AuditEvent, AuditFilter } from "@/types";
+import type { AuditEvent, AuditFilter, AuditTrailStatus } from "@/types";
 import { auditRepo } from "@/repositories";
 
 const DEFAULT_LIMIT = 100;
 
 interface State {
   items: AuditEvent[];
+  status: AuditTrailStatus | null;
   filter: AuditFilter;
   loading: boolean;
   loaded: boolean;
@@ -17,6 +18,7 @@ interface State {
 
 export const useAuditStore = create<State>((set, get) => ({
   items: [],
+  status: null,
   filter: { limit: DEFAULT_LIMIT },
   loading: false,
   loaded: false,
@@ -33,9 +35,10 @@ export const useAuditStore = create<State>((set, get) => ({
     if (get().loading) return;
     set({ loading: true, error: null });
     try {
-      const items = await auditRepo.query(get().filter);
+      const { events, ...status } = await auditRepo.query(get().filter);
       set({
-        items: [...items].sort((a, b) => b.occurredAtEpochMilli - a.occurredAtEpochMilli),
+        items: [...events].sort((a, b) => b.occurredAtEpochMilli - a.occurredAtEpochMilli),
+        status,
         loading: false,
         loaded: true,
       });
@@ -44,7 +47,7 @@ export const useAuditStore = create<State>((set, get) => ({
     }
   },
   async reset() {
-    set({ filter: { limit: DEFAULT_LIMIT }, items: [] });
+    set({ filter: { limit: DEFAULT_LIMIT }, items: [], status: null });
     await get().search();
   },
 }));

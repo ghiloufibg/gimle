@@ -292,7 +292,7 @@ public final class ClusterApi implements ControlPlaneClient {
       return List.of();
     }
     try {
-      return Json.asObjectList(Json.parse(response.get().body()));
+      return Json.asObjectList(Json.asObject(Json.parse(response.get().body())).get("events"));
     } catch (final RuntimeException e) {
       return List.of();
     }
@@ -839,7 +839,7 @@ public final class ClusterApi implements ControlPlaneClient {
     if (response.isEmpty() || response.get().statusCode() != 200) {
       return List.of();
     }
-    return Json.asObjectList(Json.parse(response.get().body()));
+    return Json.asObjectList(Json.asObject(Json.parse(response.get().body())).get("events"));
   }
 
   /**

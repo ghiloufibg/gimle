@@ -482,7 +482,7 @@ export interface TraceSpanLine {
  * Audit trail -- GET /audit
  * ------------------------------------------------------------------------ */
 
-export type AuditVerb = "READ" | "WRITE" | "DELETE";
+export type AuditVerb = "READ" | "WRITE" | "DELETE" | "APPROVE";
 
 export interface AuditEvent {
   id: string;
@@ -504,6 +504,22 @@ export interface AuditFilter {
   since?: string;
   limit?: number;
 }
+
+/**
+ * The trail's own retention state, independent of whatever filter/limit a given query applied --
+ * lets the console tell "this is the complete record" from "this cluster crossed the retention
+ * cap; earlier decisions are gone" without cross-referencing a control-plane log line.
+ */
+export interface AuditTrailStatus {
+  retainedCount: number;
+  evictedTotal: number;
+  oldestRetainedAtEpochMilli?: number;
+  truncated: boolean;
+}
+
+/** {@code GET /audit}'s actual wire shape -- {@link AuditTrailStatus}'s fields sit flat alongside
+ * {@code events}, not nested, matching {@code ApiServer#handleAudit}'s own response body. */
+export type AuditQueryResult = AuditTrailStatus & { events: AuditEvent[] };
 
 /* ---------------------------------------------------------------------------
  * Autoscale policy -- optional field on DeploymentSpec/DeploymentSpecInput above

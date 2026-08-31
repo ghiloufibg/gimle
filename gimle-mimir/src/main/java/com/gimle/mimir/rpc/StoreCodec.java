@@ -210,6 +210,8 @@ public final class StoreCodec {
   private static final byte TAG_GET_SESSION_REVOKED_BEFORE_EPOCH_MILLI = -121;
   private static final byte TAG_GET_SNAPSHOT = -120;
   private static final byte TAG_SNAPSHOT_RESULT = -119;
+  private static final byte TAG_GET_AUDIT_TRAIL_STATUS = -118;
+  private static final byte TAG_AUDIT_TRAIL_STATUS_RESULT = -117;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -460,6 +462,7 @@ public final class StoreCodec {
           out.writeUTF(v.nodeId());
         }
         case StoreRpc.GetSnapshot v -> out.writeByte(TAG_GET_SNAPSHOT);
+        case StoreRpc.GetAuditTrailStatus v -> out.writeByte(TAG_GET_AUDIT_TRAIL_STATUS);
         case StoreRpc.ListConfigEntriesForLinearizable v -> {
           out.writeByte(TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE);
           out.writeUTF(v.tenantId());
@@ -927,6 +930,10 @@ public final class StoreCodec {
             DomainCodec.writeAuditEvent(out, e);
           }
         }
+        case StoreRpc.AuditTrailStatusResult v -> {
+          out.writeByte(TAG_AUDIT_TRAIL_STATUS_RESULT);
+          DomainCodec.writeAuditTrailStatus(out, v.status());
+        }
         case StoreRpc.ControllerRevisionListResult v -> {
           out.writeByte(TAG_CONTROLLER_REVISION_LIST_RESULT);
           out.writeInt(v.values().size());
@@ -1047,6 +1054,7 @@ public final class StoreCodec {
             new StoreRpc.ListSurgeIndices(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_NODE_HEARTBEAT -> new StoreRpc.GetNodeHeartbeat(in.readUTF());
         case TAG_GET_SNAPSHOT -> new StoreRpc.GetSnapshot();
+        case TAG_GET_AUDIT_TRAIL_STATUS -> new StoreRpc.GetAuditTrailStatus();
         case TAG_LIST_CONFIG_ENTRIES_FOR_LINEARIZABLE ->
             new StoreRpc.ListConfigEntriesForLinearizable(in.readUTF());
         case TAG_GET_RECONCILER_INSTANCE_STATE ->
@@ -1401,6 +1409,8 @@ public final class StoreCodec {
           }
           yield new StoreRpc.AuditEventListResult(values);
         }
+        case TAG_AUDIT_TRAIL_STATUS_RESULT ->
+            new StoreRpc.AuditTrailStatusResult(DomainCodec.readAuditTrailStatus(in));
         case TAG_CONTROLLER_REVISION_LIST_RESULT -> {
           int count = in.readInt();
           List<ControllerRevision> values = new ArrayList<>();

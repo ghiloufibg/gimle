@@ -5,6 +5,7 @@ module com.gimle.mimir {
   requires micrometer.core;
   requires org.yaml.snakeyaml;
   requires org.slf4j;
+  requires jdk.httpserver;
 
   exports com.gimle.mimir.authz;
   exports com.gimle.mimir.cron;
@@ -13,5 +14,6 @@ module com.gimle.mimir {
   exports com.gimle.mimir.store;
   exports com.gimle.mimir.raft;
   exports com.gimle.mimir.rpc;
+  exports com.gimle.mimir.health;
   exports com.gimle.mimir;
 }

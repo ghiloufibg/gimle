@@ -5,6 +5,7 @@ import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditTrailStatus;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
@@ -30,6 +31,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The purely in-memory state machine the Raft log applies committed mutations to: concurrent maps,
@@ -40,6 +43,8 @@ import java.util.stream.Collectors;
  * before it's applied here, a second write per resource would buy durability nothing.
  */
 public final class StateStore implements StoreReader {
+
+  private static final Logger log = LoggerFactory.getLogger(StateStore.class);
 
   private final Clock clock;
   private final Map<String, DeploymentSpec> deployments = new ConcurrentHashMap<>();
@@ -154,6 +159,20 @@ public final class StateStore implements StoreReader {
   private final List<AuditEvent> auditEvents = new ArrayList<>();
 
   private final Object auditEventsLock = new Object();
+
+  // Guarded by auditEventsLock, same as auditEvents itself -- the ring-buffer's own running total
+  // of everything the MAX_AUDIT_EVENTS cap has ever discarded, surfaced through
+  // #auditTrailStatus() so a caller reviewing the trail can tell "complete record" from
+  // "truncated" instead of that transition happening silently.
+  private long auditEventsEvictedTotal;
+
+  /**
+   * How often a genuinely chatty cluster's eviction gets its own log line, once the cap is first
+   * reached -- every single eviction beyond the first would mean one log line per audited write
+   * forever, drowning out everything else; this keeps the signal ("this is still happening")
+   * without the flood.
+   */
+  private static final long AUDIT_EVICTION_LOG_INTERVAL = 1000;
 
   /**
    * Oldest events beyond this count are pruned on the next {@link #putAuditEvent} -- a generous
@@ -1160,8 +1179,33 @@ public final class StateStore implements StoreReader {
     synchronized (auditEventsLock) {
       auditEvents.add(event);
       while (auditEvents.size() > MAX_AUDIT_EVENTS) {
-        AuditEvent oldest = auditEvents.remove(0);
+        auditEvents.remove(0);
+        auditEventsEvictedTotal++;
+        if (auditEventsEvictedTotal == 1
+            || auditEventsEvictedTotal % AUDIT_EVICTION_LOG_INTERVAL == 0) {
+          log.warn(
+              "audit trail exceeded its {}-event cap; oldest events are being discarded "
+                  + "({} discarded so far)",
+              MAX_AUDIT_EVENTS,
+              auditEventsEvictedTotal);
+        }
       }
+    }
+  }
+
+  /**
+   * The trail's own retention state, independent of any {@link #listAuditEvents} filter -- see
+   * {@link AuditTrailStatus}'s own javadoc for why this rides alongside every {@code GET /audit}
+   * response rather than only ever showing up as a log line.
+   */
+  public AuditTrailStatus auditTrailStatus() {
+    synchronized (auditEventsLock) {
+      Optional<Long> oldestRetainedAtEpochMilli =
+          auditEvents.isEmpty()
+              ? Optional.empty()
+              : Optional.of(auditEvents.get(0).occurredAtEpochMilli());
+      return new AuditTrailStatus(
+          auditEvents.size(), auditEventsEvictedTotal, oldestRetainedAtEpochMilli);
     }
   }
 

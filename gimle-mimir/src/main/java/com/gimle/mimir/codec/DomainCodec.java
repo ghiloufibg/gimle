@@ -14,6 +14,7 @@ import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
 import com.gimle.core.protocol.AuditOutcome;
+import com.gimle.core.protocol.AuditTrailStatus;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
@@ -1290,6 +1291,20 @@ public final class DomainCodec {
         allowed,
         outcome,
         occurredAtEpochMilli);
+  }
+
+  public static void writeAuditTrailStatus(DataOutputStream out, AuditTrailStatus status)
+      throws IOException {
+    out.writeInt(status.retainedCount());
+    out.writeLong(status.evictedTotal());
+    writeOptionalLong(out, status.oldestRetainedAtEpochMilli());
+  }
+
+  public static AuditTrailStatus readAuditTrailStatus(DataInputStream in) throws IOException {
+    int retainedCount = in.readInt();
+    long evictedTotal = in.readLong();
+    Optional<Long> oldestRetainedAtEpochMilli = readOptionalLong(in);
+    return new AuditTrailStatus(retainedCount, evictedTotal, oldestRetainedAtEpochMilli);
   }
 
   /**

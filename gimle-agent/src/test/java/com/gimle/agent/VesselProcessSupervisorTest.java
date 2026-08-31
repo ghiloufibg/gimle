@@ -154,8 +154,8 @@ class VesselProcessSupervisorTest {
    * Mirrors {@code WorkerProcessSupervisorTest}'s own {@code
    * a_respawn_that_stays_up_past_the_stability_threshold_resets_the_backoff}: crashes instantly
    * twice, then stays up 1500ms (past the 1000ms stability threshold below) before crashing again.
-   * Without {@code recordSuccess()} being called for a vessel, that third respawn would never
-   * reset the tracker, and the gap after it would carry the still-escalated (not reset) delay.
+   * Without {@code recordSuccess()} being called for a vessel, that third respawn would never reset
+   * the tracker, and the gap after it would carry the still-escalated (not reset) delay.
    */
   @Test
   @Timeout(value = 30, unit = TimeUnit.SECONDS)

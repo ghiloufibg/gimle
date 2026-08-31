@@ -95,6 +95,7 @@ final class AgentLogServer implements AutoCloseable {
     this.volumeManager = volumeManager;
     this.inUseVolumeKeys = inUseVolumeKeys;
     this.server = HttpServer.create(new InetSocketAddress(port), 0);
+    server.createContext("/health", this::handleHealth);
     server.createContext("/logs/nodes/", this::handleNodeLogs);
     server.createContext("/logs/instances/", this::handleInstanceLogs);
     server.createContext("/volumes", this::handleVolumes);
@@ -112,6 +113,31 @@ final class AgentLogServer implements AutoCloseable {
   @Override
   public void close() {
     server.stop(0);
+  }
+
+  // ---- /health ----
+
+  /**
+   * This class is registered unconditionally by {@code AgentMain} (unlike {@code AgentAdminServer},
+   * which is opt-in) -- the one always-on HTTP surface every node agent exposes regardless of
+   * configuration -- so this is where the agent's own operator-pollable liveness signal lives,
+   * closing the gap {@code AgentGossipServer}/{@code AgentAdminServer} also lacked one for; a
+   * control plane or orchestrator probe now has a real endpoint to reach instead of only a raw TCP
+   * connect to the log-serving port.
+   */
+  private void handleHealth(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(exchange, 200, Map.of("status", "UP"));
+    } catch (IOException | RuntimeException e) {
+      log.warn("health request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
   }
 
   // ---- /logs/nodes/{nodeId} ----
@@ -171,14 +197,16 @@ final class AgentLogServer implements AutoCloseable {
     List<Map<String, Object>> merged = new ArrayList<>();
     if (Files.isDirectory(workersDir)) {
       try (var files = Files.list(workersDir)) {
+        // Listing only matches the active file's own bare name -- WorkerProcessSupervisor's own
+        // rotated copies land beside it as <name>.1, <name>.2, ... and LogFileReader finds those
+        // itself from the active file's path, the same way it already does for platform/instance
+        // logs.
         for (Path file : files.filter(p -> fileNameString(p).endsWith("-system.log")).toList()) {
-          // These raw-capture files aren't rotated (WorkerProcessSupervisor writes them directly,
-          // not through RollingFileAppenders), so there's exactly one file per instance --
-          // maxFiles=1.
+          int maxFiles = LogFileReader.configuredMaxFiles();
           merged.addAll(
               since != null
-                  ? LogFileReader.readAfter(file, 1, since)
-                  : LogFileReader.readOlder(file, 1, cursor, limit).lines());
+                  ? LogFileReader.readAfter(file, maxFiles, since)
+                  : LogFileReader.readOlder(file, maxFiles, cursor, limit).lines());
         }
       }
     }

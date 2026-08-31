@@ -6,6 +6,7 @@ import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.mimir.health.StoreHealthServer;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.PeerConnection;
 import com.gimle.mimir.raft.RaftLog;
@@ -68,7 +69,7 @@ public final class StoreMain {
       System.err.println(
           "usage: StoreMain <stateDir> <raftPort> <clientPort> [--host <hostname>] "
               + "[--peers host1:raftPort1:clientPort1,host2:raftPort2:clientPort2,...] "
-              + "[--csr-endpoint <host:port>]");
+              + "[--csr-endpoint <host:port>] [--health-port <port>]");
       System.exit(2);
       return;
     }
@@ -78,6 +79,9 @@ public final class StoreMain {
     String selfHost = "127.0.0.1";
     List<PeerSpec> peerSpecs = List.of();
     URI csrEndpoint = null;
+    // Absent (null) by default -- see StoreHealthServer's own javadoc for why this mirrors
+    // AgentAdminServer's opt-in precedent rather than always binding an extra listener.
+    Integer healthPort = null;
     for (int i = 3; i < args.length; i++) {
       if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
@@ -85,6 +89,8 @@ public final class StoreMain {
         peerSpecs = parsePeers(args[++i]);
       } else if ("--csr-endpoint".equals(args[i]) && i + 1 < args.length) {
         csrEndpoint = URI.create("https://" + args[++i] + "/bootstrap/csr");
+      } else if ("--health-port".equals(args[i]) && i + 1 < args.length) {
+        healthPort = Integer.parseInt(args[++i]);
       }
     }
     String selfRaftId = selfHost + ":" + raftPort;
@@ -134,6 +140,13 @@ public final class StoreMain {
     RaftTransport raftTransport = new RaftTransport(raftNode);
     raftTransport.listen(new InetSocketAddress(raftPort));
     raftNode.start();
+
+    StoreHealthServer healthServer = null;
+    if (healthPort != null) {
+      healthServer = new StoreHealthServer(raftNode, healthPort);
+      healthServer.start();
+      log.info("store node {} serving health at :{}", selfRaftId, healthServer.port());
+    }
 
     StoreNode storeNode = new StoreNode(raftNode, store, raftIdToClientAddress);
     // Per-RPC-kind request/error/latency metrics, wrapping the handler at construction time the
@@ -213,6 +226,7 @@ public final class StoreMain {
         selfRaftId,
         stateDir);
 
+    StoreHealthServer finalHealthServer = healthServer;
     Runtime.getRuntime()
         .addShutdownHook(
             Thread.ofPlatform()
@@ -227,6 +241,9 @@ public final class StoreMain {
                       }
                       if (tracesShipper != null) {
                         tracesShipper.close();
+                      }
+                      if (finalHealthServer != null) {
+                        finalHealthServer.close();
                       }
                     }));
 

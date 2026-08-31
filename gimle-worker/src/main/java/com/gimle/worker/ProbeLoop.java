@@ -49,9 +49,9 @@ public final class ProbeLoop implements AutoCloseable {
   }
 
   /**
-   * Accepts one ticker shared by every registered key, rather than production's one-per-key
-   * default above, so a test can supply a deterministic scheduler and drive every key's ticks by
-   * advancing virtual time on a single instance instead of sleeping past real ones -- see {@code
+   * Accepts one ticker shared by every registered key, rather than production's one-per-key default
+   * above, so a test can supply a deterministic scheduler and drive every key's ticks by advancing
+   * virtual time on a single instance instead of sleeping past real ones -- see {@code
    * TestScheduler} in {@code gimle-core}'s test-jar. Production uses the no-arg constructor above
    * and its own per-key virtual-thread tickers, unchanged.
    *

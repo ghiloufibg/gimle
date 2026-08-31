@@ -6,6 +6,7 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditTrailStatus;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.NodeHeartbeat;
 import com.gimle.core.protocol.NodeRegistration;
@@ -603,6 +604,11 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.AuditEventListResult)
             sendRead(new StoreRpc.ListAuditEvents(principal, resourceKind, tenantId, since)))
         .values();
+  }
+
+  public AuditTrailStatus auditTrailStatus() {
+    return ((StoreRpc.AuditTrailStatusResult) sendRead(new StoreRpc.GetAuditTrailStatus()))
+        .status();
   }
 
   public List<ControllerRevision> listControllerRevisions(

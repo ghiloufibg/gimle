@@ -1,5 +1,6 @@
 package com.gimle.agent;
 
+import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.restart.RestartTracker;
 import java.io.BufferedReader;
@@ -9,6 +10,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
@@ -74,6 +76,11 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
   private volatile boolean closed;
   private volatile OutputStream systemLogStream;
   private volatile long lastPid;
+  // Bytes written to systemLogStream's current target since it was last opened or rotated --
+  // tracked in memory rather than re-stat()ing the file on every captured line, the same
+  // avoid-a-syscall-per-write posture SizeBasedTriggeringPolicy's own checkIncrement exists to
+  // relax, just unconditional here since this path's volume is nowhere near where that matters.
+  private long systemLogBytes;
 
   public WorkerProcessSupervisor(
       String workerId,
@@ -272,6 +279,19 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     }
   }
 
+  /**
+   * The same size/count rotation {@link com.gimle.core.logging.RollingFileAppenders} gives every
+   * Logback-routed log stream, hand-rolled here since this capture never goes through Logback --
+   * raw stdout/stderr lines are drained and written directly. Reuses that class's own {@code .%i}
+   * {@code FixedWindowRollingPolicy} naming and the same {@code gimle.log.maxFileSizeBytes}/ {@code
+   * gimle.log.maxFiles} properties, so {@link com.gimle.core.logging.LogFileReader} (and this
+   * agent's own {@code readMergedSystemLogs}) reads a rotated SYSTEM-capture file exactly the same
+   * way it already reads a rotated platform/instance one. Before this, the file was opened {@code
+   * CREATE, APPEND} and never rotated at all, growing unbounded for the lifetime of a long-lived or
+   * crash-looping deployment.
+   */
+  private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 10L * 1024 * 1024;
+
   private void captureSystemLine(String line) {
     if (systemLogFile.isEmpty()) {
       return;
@@ -282,17 +302,22 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
     entry.put("raw", line);
     byte[] bytes = (Json.write(entry) + System.lineSeparator()).getBytes(StandardCharsets.UTF_8);
     try {
-      OutputStream out = systemLogStreamOrOpen();
       synchronized (this) {
+        OutputStream out = systemLogStreamOrOpenLocked();
+        long maxFileSize = Long.getLong("gimle.log.maxFileSizeBytes", DEFAULT_MAX_FILE_SIZE_BYTES);
+        if (systemLogBytes + bytes.length > maxFileSize) {
+          out = rotateSystemLogLocked();
+        }
         out.write(bytes);
         out.flush();
+        systemLogBytes += bytes.length;
       }
     } catch (IOException e) {
       log.warn("failed to write SYSTEM capture line for worker {}: {}", workerId, e.getMessage());
     }
   }
 
-  private synchronized OutputStream systemLogStreamOrOpen() throws IOException {
+  private synchronized OutputStream systemLogStreamOrOpenLocked() throws IOException {
     if (systemLogStream == null) {
       Path file = systemLogFile.orElseThrow();
       Path parent = file.getParent();
@@ -301,8 +326,45 @@ public final class WorkerProcessSupervisor implements AutoCloseable {
       }
       systemLogStream =
           Files.newOutputStream(file, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+      // A respawned supervisor reopens a file that may already carry bytes from before this
+      // process restart -- picking that up rather than assuming 0 is what keeps the very next
+      // write from silently exceeding maxFileSize before this class's own check ever fires.
+      systemLogBytes = Files.exists(file) ? Files.size(file) : 0;
     }
     return systemLogStream;
+  }
+
+  /**
+   * Classic {@code FixedWindowRollingPolicy} rollover: drop whatever already sits at the oldest
+   * index, shift every remaining rotated copy up by one, then rename the active file to {@code .1}
+   * and reopen a fresh empty one in its place.
+   */
+  private synchronized OutputStream rotateSystemLogLocked() throws IOException {
+    Path file = systemLogFile.orElseThrow();
+    if (systemLogStream != null) {
+      systemLogStream.close();
+      systemLogStream = null;
+    }
+    int maxIndex = Math.max(1, LogFileReader.configuredMaxFiles() - 1);
+    Path oldest = file.resolveSibling(file.getFileName() + "." + maxIndex);
+    Files.deleteIfExists(oldest);
+    for (int i = maxIndex - 1; i >= 1; i--) {
+      Path src = file.resolveSibling(file.getFileName() + "." + i);
+      if (Files.exists(src)) {
+        Files.move(
+            src,
+            file.resolveSibling(file.getFileName() + "." + (i + 1)),
+            StandardCopyOption.REPLACE_EXISTING);
+      }
+    }
+    if (Files.exists(file)) {
+      Files.move(
+          file,
+          file.resolveSibling(file.getFileName() + ".1"),
+          StandardCopyOption.REPLACE_EXISTING);
+    }
+    systemLogBytes = 0;
+    return systemLogStreamOrOpenLocked();
   }
 
   private synchronized void closeSystemLog() {
