@@ -1,12 +1,17 @@
 package com.gimle.muninn;
 
+import com.gimle.core.authz.Principal;
+import com.gimle.core.authz.ResourceKind;
+import com.gimle.core.authz.Verb;
 import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.logging.LogFileReader.LogPage;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.HttpResponses;
+import com.gimle.mimir.authz.Authorizer;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.pki.Subjects;
 import com.sun.net.httpserver.HttpExchange;
@@ -27,9 +32,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
 import javax.net.ssl.SSLContext;
@@ -74,12 +81,21 @@ public final class MuninnServer implements AutoCloseable {
 
   private static final int DEFAULT_LIMIT = 200;
 
-  // Read-only: Muninn re-runs its own independent Authorizer.authorize(...) check on proxied
-  // reads rather than trusting ApiServer's forwarded-principal claim as proof by itself -- the same
-  // defense-in-depth posture FafnirServer already established for /secrets/*. Also backs the
-  // ingest-side identity check below (an instance-log ingest's calling node must currently own an
-  // assignment for the deploymentName/instanceIndex it's writing into).
+  // gimle-controlplane's own claim about who originated a proxied read -- trusted only because it
+  // arrives over this mTLS-authenticated connection, never treated as itself proof of authorization
+  // (see #authorizeRead). The identical header pair FafnirServer/AndvariServer already establish
+  // for
+  // the same defense-in-depth posture.
+  private static final String FORWARDED_PRINCIPAL_HEADER = "X-Gimle-Forwarded-Principal";
+  private static final String FORWARDED_GROUPS_HEADER = "X-Gimle-Forwarded-Groups";
+
+  // Read-only: Muninn re-runs its own independent Authorizer.authorize(...) check on every read
+  // rather than trusting a caller's identity as proof by itself -- the same defense-in-depth
+  // posture FafnirServer already established for /secrets/*. Also backs the ingest-side identity
+  // check below (an instance-log ingest's calling node must currently own an assignment for the
+  // deploymentName/instanceIndex it's writing into).
   private final StoreClient storeClient;
+  private final Authorizer authorizer;
   private final MuninnDayFileStore dayFileStore;
   private final Instant startedAt = Instant.now();
   // Not final: a TLS rotation rebuilds this the same way FafnirServer's own #server field does --
@@ -89,6 +105,7 @@ public final class MuninnServer implements AutoCloseable {
 
   public MuninnServer(StoreClient storeClient, int port, Path dataRoot) throws IOException {
     this.storeClient = storeClient;
+    this.authorizer = new Authorizer(storeClient);
     this.dayFileStore = new MuninnDayFileStore(dataRoot);
     this.server = createHttpServer(port);
     this.boundPort = server.getAddress().getPort();
@@ -369,6 +386,13 @@ public final class MuninnServer implements AutoCloseable {
           if (parts == null) {
             return;
           }
+          // A node's own logs are the one log target a gimle:nodes principal may reach via
+          // self-service (Authorizer#isNodeSelfService) -- mirroring ApiServer#handleLogs's own
+          // targetId convention for /logs/nodes/{nodeId}: no single tenant to scope this to, since
+          // a node's log stream can span every tenant it has ever hosted an instance for.
+          if (!authorizeRead(ex, Optional.empty(), Optional.of(parts[0]))) {
+            return;
+          }
           read(ex, "logs/nodes/" + parts[0] + "/" + parts[1]);
         });
   }
@@ -383,6 +407,13 @@ public final class MuninnServer implements AutoCloseable {
         ex -> {
           InstanceLogPath ref = parseInstanceLogPath(ex, "/logs/instances/");
           if (ref == null) {
+            return;
+          }
+          // The owning tenant travels as ?tenant=<id>, the same convention
+          // ApiServer#workloadTenantHint establishes for its own /logs/instances/* route --
+          // scoping this read (and the RBAC check below) to the caller's own tenant rather than
+          // any tenant that happens to share this deploymentName.
+          if (!authorizeRead(ex, Optional.of(instanceTenantHint(ex)), Optional.empty())) {
             return;
           }
           read(
@@ -410,6 +441,11 @@ public final class MuninnServer implements AutoCloseable {
           if (parts == null) {
             return;
           }
+          // A process's own metrics have no single owning tenant -- unscoped, the same shape
+          // ApiServer#handleHistoryProxy already checks before proxying here.
+          if (!authorizeRead(ex, Optional.empty(), Optional.empty())) {
+            return;
+          }
           read(ex, "metrics/" + parts[0] + "/" + parts[1]);
         });
   }
@@ -426,6 +462,11 @@ public final class MuninnServer implements AutoCloseable {
               parseTwoSegments(
                   ex, "/traces/", PATH_SEGMENT, PROCESS_ID_SEGMENT, "{processKind}/{processId}");
           if (parts == null) {
+            return;
+          }
+          // Same unscoped shape as handleReadMetrics above -- a process's own traces have no
+          // single owning tenant.
+          if (!authorizeRead(ex, Optional.empty(), Optional.empty())) {
             return;
           }
           read(ex, "traces/" + parts[0] + "/" + parts[1]);
@@ -456,6 +497,84 @@ public final class MuninnServer implements AutoCloseable {
       return;
     }
     respondPage(exchange, dayFileStore.readOlder(subtreePath, query.get("cursor"), limit));
+  }
+
+  /**
+   * Muninn's own independent re-check of every {@code /logs/*}, {@code /metrics/*}, and {@code
+   * /traces/*} read -- never trusts "reachable at all on this port" as proof of authorization,
+   * mirroring the exact defense-in-depth posture {@code FafnirServer#authorizeSecrets} already
+   * established: plaintext mode is fully open (no identity exists to check), TLS mode resolves a
+   * {@link Principal} and re-runs {@link Authorizer#authorize} against RBAC data this process reads
+   * itself, gated on {@link ResourceKind#LOGS}/{@link Verb#READ} -- the same resource kind {@code
+   * ApiServer}'s own {@code /logs/*}, {@code /metrics-history/*}, and {@code /traces-history/*}
+   * routes already gate on. {@code tenantId} and {@code targetNodeId} are mutually exclusive here,
+   * matching {@code ApiServer#handleLogs}'s own split: a node-log read passes {@code targetNodeId}
+   * (letting a {@code gimle:nodes} principal self-service its own node's logs), an instance-log
+   * read passes {@code tenantId} (scoping to the instance's own tenant), and a metrics/traces read
+   * passes neither (no single tenant owns a process's own metrics/traces). Writes the {@code
+   * 401}/{@code 403} response itself on failure so every call site can just {@code return} without
+   * duplicating it.
+   */
+  private boolean authorizeRead(
+      HttpExchange exchange, Optional<String> tenantId, Optional<String> targetNodeId)
+      throws IOException {
+    if (!(exchange instanceof HttpsExchange)) {
+      return true;
+    }
+    Optional<Principal> principal = resolvePrincipal(exchange);
+    if (principal.isEmpty()) {
+      respond(exchange, 401, "authentication required");
+      return false;
+    }
+    if (!authorizer.authorize(
+        principal.get(), ResourceKind.LOGS, Verb.READ, tenantId, targetNodeId)) {
+      respond(exchange, 403, "forbidden");
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A forwarded principal (set only by a trusted proxy such as {@code ApiServer}'s own {@code
+   * /logs/*} fallback) wins over the connection's own peer certificate when both are present, the
+   * same precedence {@code FafnirServer#resolvePrincipal} already establishes -- a proxied
+   * request's own peer certificate identifies the proxy making the call, not the caller that
+   * originated it. Falls back to the peer certificate for a caller reaching Muninn directly (a node
+   * agent's own shipper, or a test simulating one). Muninn has no console session of its own, so
+   * there is no third fallback the way Fafnir's/Andvari's own {@code resolvePrincipal} has.
+   */
+  private static Optional<Principal> resolvePrincipal(HttpExchange exchange) {
+    Optional<String> forwardedName = firstHeader(exchange, FORWARDED_PRINCIPAL_HEADER);
+    if (forwardedName.isPresent()) {
+      Set<String> groups = new LinkedHashSet<>(splitHeader(exchange, FORWARDED_GROUPS_HEADER));
+      return Optional.of(new Principal(forwardedName.get(), groups));
+    }
+    if (!(exchange instanceof HttpsExchange httpsExchange)) {
+      return Optional.empty();
+    }
+    return peerCertificate(httpsExchange).map(Subjects::principalFrom);
+  }
+
+  private static Optional<String> firstHeader(HttpExchange exchange, String name) {
+    List<String> values = exchange.getRequestHeaders().get(name);
+    return values == null || values.isEmpty() ? Optional.empty() : Optional.of(values.get(0));
+  }
+
+  private static List<String> splitHeader(HttpExchange exchange, String name) {
+    Optional<String> value = firstHeader(exchange, name);
+    if (value.isEmpty() || value.get().isBlank()) {
+      return List.of();
+    }
+    return List.of(value.get().split(","));
+  }
+
+  /**
+   * The owning tenant of an instance-log read, the same {@code ?tenant=<id>} convention {@code
+   * ApiServer#workloadTenantHint} establishes -- an omitted query parameter resolves to the default
+   * tenant rather than "untenanted," matching that method's own javadoc.
+   */
+  private static String instanceTenantHint(HttpExchange exchange) {
+    return parseQuery(exchange).getOrDefault("tenant", Tenant.DEFAULT_TENANT_ID);
   }
 
   /**
@@ -518,12 +637,21 @@ public final class MuninnServer implements AutoCloseable {
   }
 
   private static Optional<String> peerCertificateCommonName(HttpsExchange exchange) {
+    return peerCertificate(exchange).map(Subjects::principalFrom).map(Principal::name);
+  }
+
+  /**
+   * Shared by the ingest-side identity checks above and {@link #resolvePrincipal} below -- the
+   * verified peer certificate's leaf, if the mTLS handshake actually presented one (it's optional
+   * at the handshake level, see {@link #createHttpServer}'s own {@code wantClientAuth} rather than
+   * {@code needClientAuth}).
+   */
+  private static Optional<X509Certificate> peerCertificate(HttpsExchange exchange) {
     try {
       Certificate[] certificates = exchange.getSSLSession().getPeerCertificates();
-      if (certificates.length == 0 || !(certificates[0] instanceof X509Certificate leaf)) {
-        return Optional.empty();
-      }
-      return Optional.of(Subjects.principalFrom(leaf).name());
+      return certificates.length > 0 && certificates[0] instanceof X509Certificate leaf
+          ? Optional.of(leaf)
+          : Optional.empty();
     } catch (SSLPeerUnverifiedException | RuntimeException e) {
       return Optional.empty();
     }

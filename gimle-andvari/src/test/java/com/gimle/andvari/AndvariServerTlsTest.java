@@ -45,8 +45,10 @@ import org.junit.jupiter.api.parallel.Resources;
  * HttpsServer} with real mTLS, and that the authorization posture holds against real CA-signed
  * client certificates: operators may push, an ungrouped principal is refused by this process's own
  * independent RBAC check, a {@code gimle:nodes} identity may only ever pull, and a forwarded
- * principal both wins over the peer certificate and is re-checked rather than trusted -- plus a
- * real cert-rotation reload, mirroring {@code FafnirServerTlsTest}'s own shape.
+ * principal from a genuine {@code gimle:controlplane} peer both wins over that peer's own
+ * certificate and is re-checked rather than trusted, while the same headers from any other peer are
+ * ignored entirely (GIMLE-690) -- plus a real cert-rotation reload, mirroring {@code
+ * FafnirServerTlsTest}'s own shape.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-andvari-server-http")
@@ -292,29 +294,54 @@ class AndvariServerTlsTest {
 
   @Test
   @Timeout(10)
-  void a_forwarded_principal_wins_over_the_peer_certificate_and_is_re_checked() throws Exception {
-    // The peer certificate carries the operators group, but the forwarded principal -- the
-    // originating caller a control-plane proxy names -- does not: the forwarded identity must win
-    // and be independently re-checked, so the push is refused despite the privileged transport.
-    HttpClient proxyLikeCaller =
-        tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_OPERATORS, "controlplane-proxy");
-    HttpRequest forwardedStranger =
-        HttpRequest.newBuilder(uri("com.example.app", "1.0.0"))
-            .header("X-Gimle-Forwarded-Principal", "user:stranger")
-            .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
-            .build();
-    assertEquals(403, send(proxyLikeCaller, forwardedStranger).statusCode());
-
-    // And the converse: an unprivileged peer certificate forwarding an operators-group principal
-    // is allowed -- the forwarded claim, not the connection's own leaf, is what gets authorized.
-    HttpClient plainProxy = tls.clientWithLeaf(ca, "plain-proxy");
+  void a_forwarded_principal_from_a_controlplane_peer_wins_and_is_independently_rechecked()
+      throws Exception {
+    // The peer certificate belongs to gimle:controlplane -- the one group resolvePrincipal trusts
+    // to have a forwarded header honored -- and on its own may only ever pull (see
+    // a_controlplane_group_certificate_may_pull_any_coordinate_but_never_push_or_delete above), so
+    // a push succeeding here proves the forwarded identity, not the peer cert's own limited
+    // permission, is what actually got authorized (GIMLE-690).
+    HttpClient controlPlanePeer =
+        tls.clientWithGroupLeaf(ca, BuiltinRoles.GROUP_CONTROLPLANE, "controlplane-1");
     HttpRequest forwardedOperator =
         HttpRequest.newBuilder(uri("com.example.app", "1.0.0"))
             .header("X-Gimle-Forwarded-Principal", "user:admin")
             .header("X-Gimle-Forwarded-Groups", BuiltinRoles.GROUP_OPERATORS)
             .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
             .build();
-    assertEquals(200, send(plainProxy, forwardedOperator).statusCode());
+    assertEquals(200, send(controlPlanePeer, forwardedOperator).statusCode());
+
+    // And the forwarded identity is independently re-checked, not blindly trusted just because the
+    // peer is the control plane: a forwarded principal with no permission of its own is still
+    // refused.
+    HttpRequest forwardedStranger =
+        HttpRequest.newBuilder(uri("com.example.app", "2.0.0"))
+            .header("X-Gimle-Forwarded-Principal", "user:stranger")
+            .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
+            .build();
+    assertEquals(403, send(controlPlanePeer, forwardedStranger).statusCode());
+  }
+
+  /**
+   * GIMLE-690: {@code SslContexts.forMutualTls} trusts any leaf the shared cluster CA signed, with
+   * no per-endpoint allow-list, so a plain, ungrouped certificate can present the same forwarded
+   * headers a genuine control-plane proxy hop would. Before the fix, a caller holding any valid
+   * cluster leaf -- not only the control plane's own -- could forward {@code gimle:operators} and
+   * reach the implicit cluster-admin-equivalent allow. The headers must now be ignored for a
+   * non-controlplane peer, falling through to the peer certificate's own (here, absent) permission.
+   */
+  @Test
+  @Timeout(10)
+  void a_forwarded_principal_presented_by_a_non_controlplane_peer_is_not_honored()
+      throws Exception {
+    HttpClient plainPeer = tls.clientWithLeaf(ca, "plain-proxy");
+    HttpRequest forwardedOperator =
+        HttpRequest.newBuilder(uri("com.example.app", "1.0.0"))
+            .header("X-Gimle-Forwarded-Principal", "user:admin")
+            .header("X-Gimle-Forwarded-Groups", BuiltinRoles.GROUP_OPERATORS)
+            .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
+            .build();
+    assertEquals(403, send(plainPeer, forwardedOperator).statusCode());
   }
 
   @Test

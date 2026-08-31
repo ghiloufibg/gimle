@@ -5629,32 +5629,16 @@ public final class ApiServer implements AutoCloseable {
   // ---- /secrets/rotate-key ----
 
   /**
-   * Proxies to Fafnir's own {@code /secrets/rotate-key} (moved there verbatim from this method's
-   * pre-extraction body -- see {@code FafnirCrypto.rotate}'s javadoc for the re-encryption walk's
-   * exact semantics, unchanged by the move). Gated on the same {@code SECRET:WRITE} permission a
-   * config write itself requires, unscoped since rotation is cluster-wide, not per-tenant -- this
-   * process's own authorization check; Fafnir does not yet re-run its own independent authorization
-   * check here the way it does for the versioned {@code /secrets/*} proxy below.
+   * Proxies to Fafnir's own {@code /secrets/rotate-key} via {@link #forwardGlobalAdminRoute}, the
+   * same generic relay style {@link #handleRetireSecretsKeyProxy} already used -- no dedicated
+   * typed request/response handling needed here, since Fafnir's own JSON response body ({@code
+   * {"activeKeyId": N}}) is exactly what this route already returned verbatim. Gated on the same
+   * {@code SECRET:WRITE} permission a config write itself requires, unscoped since rotation is
+   * cluster-wide, not per-tenant -- this process's own authorization check, forwarded onward to
+   * Fafnir's own independent re-check the way every other {@code /secrets/*} route already is.
    */
   private void handleRotateSecretsKey(HttpExchange exchange) {
-    try {
-      if (!requireAuthorized(exchange, ResourceKind.SECRET, Verb.WRITE, Optional.empty())) {
-        return;
-      }
-      if (!"POST".equals(exchange.getRequestMethod())) {
-        respond(exchange, 405, "method not allowed");
-        return;
-      }
-      byte newKeyId = fafnirClient.rotateKey();
-      respondJson(exchange, 200, Map.of("activeKeyId", Byte.toUnsignedInt(newKeyId)));
-    } catch (GimleRaftException e) {
-      respondStoreUnavailable(exchange);
-    } catch (IOException | RuntimeException e) {
-      log.warn("secrets key rotation failed: {}", e.getMessage());
-      respondQuietly(exchange, 500, "internal error");
-    } finally {
-      exchange.close();
-    }
+    forwardGlobalAdminRoute(exchange, "/secrets/rotate-key", ResourceKind.SECRET);
   }
 
   /**
@@ -5704,10 +5688,16 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Shared body for the three cluster-wide (non-tenant-scoped) admin routes above that require
+   * Shared body for the four cluster-wide (non-tenant-scoped) admin routes above that require
    * authorization: checks {@code kind}/{@code Verb.WRITE} unscoped (the same shape {@link
    * #handleRotateSecretsKey} already uses), then relays the request body verbatim to Fafnir's own
-   * identically-named route.
+   * identically-named route -- carrying the resolved caller's identity as the same {@code
+   * X-Gimle-Forwarded-Principal}/{@code X-Gimle-Forwarded-Groups} pair {@link #handleSecretsProxy}
+   * already forwards, so Fafnir's own independent {@code SECRET}/{@code WRITE} re-check (see {@code
+   * FafnirServer#authorizeGlobalSecretsAdmin}) has an actual principal to evaluate rather than
+   * falling back to this process's own peer certificate, which holds no such grant. The two {@code
+   * /seal/*} routes ignore the forwarded headers entirely (Fafnir never gates them -- the sealing
+   * key is meant to be public), so forwarding them there is harmless, not merely unnecessary.
    */
   private void forwardGlobalAdminRoute(HttpExchange exchange, String path, ResourceKind kind) {
     try {
@@ -5718,8 +5708,16 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
+      Map<String, String> forwardHeaders = new LinkedHashMap<>();
+      resolvePrincipal(exchange)
+          .ifPresent(
+              principal -> {
+                forwardHeaders.put("X-Gimle-Forwarded-Principal", principal.name());
+                forwardHeaders.put(
+                    "X-Gimle-Forwarded-Groups", String.join(",", principal.groups()));
+              });
       byte[] body = readBody(exchange).getBytes(StandardCharsets.UTF_8);
-      FafnirClient.RawResponse response = fafnirClient.forward("POST", path, body, Map.of());
+      FafnirClient.RawResponse response = fafnirClient.forward("POST", path, body, forwardHeaders);
       relay(exchange, response);
     } catch (GimleRaftException e) {
       respondStoreUnavailable(exchange);

@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 689
+- **Total requirements**: 692
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 563
-- **Release-readiness (automated coverage)**: 18.3%
+- **Not covered by automated test**: 566
+- **Release-readiness (automated coverage)**: 18.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -22,9 +22,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 38 | 1 | 37 | 2.6% |
 | gimle-controlplane | 90 | 15 | 75 | 16.7% |
-| gimle-fafnir | 28 | 11 | 17 | 39.3% |
+| gimle-fafnir | 30 | 11 | 19 | 36.7% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
-| gimle-muninn | 21 | 0 | 21 | 0.0% |
+| gimle-muninn | 22 | 0 | 22 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 18 | 0 | 18 | 0.0% |
 | gimle-cli | 31 | 0 | 31 | 0.0% |
@@ -1333,6 +1333,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-651 | Explicit SecretMap Replace Verb | Given a SecretMap with several existing keys; When a caller calls the replace verb with a new key set; Then every key not in the new set is removed, every key in the new set is written, and the change is stamped as one new group version reflecting the final state; When the new set is empty; Then the SecretMap is cleared entirely. | No |
 
+#### Security / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-690 | resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate | Given a caller holding a valid cluster leaf certificate that does not belong to group:gimle:controlplane (e.g. a gimle:nodes certificate, or no certificate at all in plaintext mode); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming a privileged identity; Then those headers are ignored and the request is authorized (or denied) based on the connection's own certificate or session identity instead. Given a caller holding a leaf certificate stamped group:gimle:controlplane (the control plane's own proxy hop); When it sends a request presenting X-Gimle-Forwarded-Principal and X-Gimle-Forwarded-Groups headers naming the real originating caller; Then the forwarded identity is honored and independently re-checked by the server's own Authorizer, exactly as before this fix. | No |
+| [ ] | GIMLE-692 | FafnirServer authorizes cluster-wide secrets key rotation and retirement | Given a caller authenticated over mTLS with no SECRET grant; When it calls POST /secrets/rotate-key or POST /secrets/retire-key directly against Fafnir; Then the request is rejected with 403. Given a caller presenting no client certificate, forwarded-principal header, or session cookie at all; When it calls either route; Then the request is rejected with 401. Given a caller holding an unscoped SECRET/WRITE grant; When it calls either route directly against Fafnir, or through gimle-controlplane's own proxy; Then the request succeeds and the decision is recorded in the durable audit trail. | No |
+
 ### gimle-andvari
 
 #### API Server
@@ -1444,6 +1451,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-331 | Age-based retention sweep | Given a day file older than the configured retentionDays When the retention sweep runs Then that file is deleted And a day file within the window is left untouched And sweeping twice, or sweeping a data root that doesn't exist yet, is a safe no-op | No |
 | [ ] | GIMLE-339 | `/status` operational endpoint | Given a running MuninnServer When GET /status is issued Then it returns 200 with uptimeSeconds and transportProtocol And a non-GET method is rejected with 405 | No |
+
+#### Security / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-691 | MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port | Given a caller holds a real, tenant-scoped LOGS/READ grant for tenant acme; When it requests GET /logs/instances/{deploymentName}/{instanceIndex}/{category}?tenant=acme over mTLS; Then Muninn returns 200. Given a caller holds no LOGS grant at all; When it requests the same acme instance-log read; Then Muninn returns 403, not the previously-shipped 200. Given a caller holds a LOGS/READ grant scoped only to a different tenant; When it requests acme's instance logs; Then Muninn returns 403 -- a grant for one tenant never authorizes reading another's. Given a gimle:nodes certificate identifying node-1; When it requests GET /logs/nodes/node-1/{category}; Then Muninn returns 200 via self-service, with no RoleBinding required. Given that same node-1 certificate; When it requests GET /logs/nodes/node-2/{category}; Then Muninn returns 403 -- self-service is scoped to exactly the node's own identity. Given a caller holds an unscoped LOGS/READ grant; When it requests GET /metrics/{processKind}/{processId} or GET /traces/{processKind}/{processId}; Then Muninn returns 200; given no grant at all, Muninn returns 403 for the same request. Given Muninn is running in its default plaintext mode; When any read request arrives with no client certificate; Then it is served with no identity check, matching every other Gimle process's documented plaintext posture. | No |
 
 #### Tracing
 
