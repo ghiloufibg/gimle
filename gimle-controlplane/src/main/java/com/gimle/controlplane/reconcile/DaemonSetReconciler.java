@@ -338,7 +338,7 @@ public final class DaemonSetReconciler {
     }
 
     store.listDaemonSetAssignmentsFor(spec.tenantId(), spec.name()).stream()
-        .filter(assignment -> !assignment.moduleId().equals(spec.moduleId()))
+        .filter(assignment -> isStale(assignment, spec))
         .filter(assignment -> !inFlight.contains(assignment.nodeId()))
         .sorted(Comparator.comparing(DaemonSetAssignment::nodeId))
         .limit(maxUnavailable - inFlight.size())
@@ -356,6 +356,16 @@ public final class DaemonSetReconciler {
                   mismatched.nodeId());
             });
     mutations.proposeAll(changes);
+  }
+
+  /**
+   * Mirrors {@link DeploymentReconciler#isStale} exactly, including comparing {@code artifactPath}
+   * alongside {@code moduleId}: a re-applied manifest with the same {@code moduleId} but a patched
+   * jar at a new {@code artifactPath} must actually roll out, not just look like it did.
+   */
+  private static boolean isStale(DaemonSetAssignment assignment, DaemonSetSpec spec) {
+    return !assignment.moduleId().equals(spec.moduleId())
+        || !assignment.artifactPath().equals(spec.artifactPath());
   }
 
   /**
