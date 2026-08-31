@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 692,
+  "requirementCount": 697,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13748,6 +13748,101 @@
         "Given a caller authenticated over mTLS with no SECRET grant; When it calls POST /secrets/rotate-key or POST /secrets/retire-key directly against Fafnir; Then the request is rejected with 403.",
         "Given a caller presenting no client certificate, forwarded-principal header, or session cookie at all; When it calls either route; Then the request is rejected with 401.",
         "Given a caller holding an unscoped SECRET/WRITE grant; When it calls either route directly against Fafnir, or through gimle-controlplane's own proxy; Then the request succeeds and the decision is recorded in the durable audit trail."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-693",
+      "module": "gimle-controlplane",
+      "feature": "CronJobReconciler scopes its generated-Job firing lookup by tenant",
+      "category": "Multi-tenancy",
+      "userStory": "As a platform operator running multiple tenants' CronJobs, I want a firing's ConcurrencyPolicy decision (FORBID/REPLACE) to only ever consider that tenant's own generated Jobs, so that two tenants whose generated Job names happen to share the same prefix can never interfere with each other's scheduled runs.",
+      "statusDetail": "Fixed (FUNC-86). The generated-Job lookup driving ConcurrencyPolicy (FORBID/REPLACE/ALLOW) decisions in planFiring filtered only on a name-prefix match against store.listJobSpecs() -- which returns JobSpecs cluster-wide across every tenant -- with no tenantId check, unlike the sibling pruneJobHistory lookup right above it in the same class, which was already correctly scoped. Two tenants with an identically-prefixed generated Job name could collide: under REPLACE, one tenant's CronJob firing could delete another tenant's running Job outright; under FORBID, a tenant's own legitimate firing could be silently skipped because it thought an unrelated tenant's Job was still in flight. Fixed by adding the same tenantId equality check pruneJobHistory already uses.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java` (`planFiring`)"
+      ],
+      "testCoverageDetail": "New `CronJobReconcilerTest#a_replace_firing_never_removes_a_different_tenants_colliding_prefix_job` -- confirmed failing against the pre-fix code (a REPLACE firing removed another tenant's colliding-prefix Job), passing after the fix.",
+      "gherkinSteps": [
+        "Given two tenants each have a CronJob whose generated Job names share the same prefix; When one tenant's CronJob fires under ConcurrencyPolicy REPLACE; Then only that tenant's own prior Job is removed, never the other tenant's colliding-prefix Job."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-694",
+      "module": "gimle-controlplane",
+      "feature": "StatefulSetReconciler and DaemonSetReconciler compare artifactPath in their rolling-update staleness check",
+      "category": "Self-healing / lifecycle",
+      "userStory": "As a platform operator re-applying a StatefulSet or DaemonSet manifest with a patched jar at a new artifact path but the same moduleId, I want the reconciler to actually trigger a rolling update, so that a hotfix rollout isn't silently skipped just because the module identity didn't change.",
+      "statusDetail": "Fixed (FUNC-87). Both reconcilers' rolling-update staleness check compared only assignment.moduleId() against the spec, unlike DeploymentReconciler.isStale, whose own comment explains why it must also compare artifactPath: a re-applied manifest with the same moduleId but a patched jar at a new path must actually roll out, not just look like it did. Both StatefulSetAssignment and DaemonSetAssignment already carried artifactPath -- the data needed was available, just not checked -- so an operator re-applying either workload kind with the same moduleId but a new artifactPath (a hotfix jar rebuilt at a new registry coordinate, same module identity) never triggered a rollout, a direct violation of the platform's own 'reconcilers must converge from any starting state' property. Fixed by mirroring DeploymentReconciler.isStale's artifactPath comparison in both.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`"
+      ],
+      "testCoverageDetail": "New `StatefulSetReconcilerTest#an_artifact_path_only_change_still_triggers_a_rolling_update` and `DaemonSetReconcilerTest#an_artifact_path_only_change_still_triggers_a_rolling_update` -- both confirmed failing against the pre-fix code (no rollout triggered) and passing after the fix.",
+      "gherkinSteps": [
+        "Given a StatefulSet or DaemonSet is ACTIVE with its current moduleId and artifactPath; When the manifest is re-applied with the same moduleId but a different artifactPath; Then the reconciler triggers a rolling update instead of reporting already-converged."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-695",
+      "module": "gimle-worker",
+      "feature": "ProbeLoop gives each check key its own ticker thread instead of a shared platform-wide pool",
+      "category": "Self-healing / lifecycle",
+      "userStory": "As a platform operator, I want a hung liveness/readiness probe on one module to never affect health checking for any other module on the same worker, so that a handful of permanently-wedged checks anywhere on a busy worker cannot silently stop every co-hosted module from being health-checked at all.",
+      "statusDetail": "Fixed (FUNC-88). WorkerRuntime owned exactly one ProbeLoop for the entire worker JVM, backed by a fixed 4-thread ScheduledThreadPoolExecutor. runOneTick -- the code that runs on one of those 4 shared ticker threads -- performs a blocking future.get(timeout, ...) itself, so a check that genuinely hangs makes its tick take longer than its own period and re-runs back-to-back forever, permanently pinning one of the 4 shared ticker threads; as few as 4 such hung checks anywhere on the worker exhausted the pool, silently stopping health-checking for every other co-hosted module. Fixed by giving each registered check key its own dedicated single-thread, virtual-thread-backed ticker in production (created lazily in start(), torn down in stop()), rather than sharing one fixed-size pool -- a hung check can now only ever pin its own key's ticker thread, never anyone else's. The injected-ticker constructor used by tests (TestScheduler-driven determinism) is unchanged: it still shares one ticker across every registered key, preserving every existing test's exact-tick-count assertions.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/ProbeLoop.java` (`tickerFor`, `start`, `stop`, `close`)"
+      ],
+      "testCoverageDetail": "New `ProbeLoopTest#a_handful_of_permanently_hung_keys_do_not_starve_ticking_for_another_key`: registers five permanently-hung checks against the real no-arg (production) ProbeLoop, each on its own BoundedModuleScheduler so that scheduler's own concurrency limit can't be the thing blocking a sixth, healthy key registered on a separate scheduler -- proving the healthy key keeps reporting results even while five other keys are permanently hung. Confirmed this test fails against the pre-fix shared-4-thread-pool code (the healthy key never gets ticked) and passes after the fix. Every pre-existing TestScheduler-driven test in the file re-verified unaffected.",
+      "gherkinSteps": [
+        "Given a worker has five registered probe keys whose checks never return; When a sixth, healthy key is registered and its interval elapses; Then the healthy key's check still runs and reports a result, unaffected by the five hung keys.",
+        "Given a worker's ProbeLoop is driven by an injected deterministic test scheduler; When several keys are registered and ticks are driven by advancing virtual time; Then every key still ticks exactly once per elapsed interval, with the same synchronous, exact-count semantics as before this fix."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-696",
+      "module": "gimle-controlplane",
+      "feature": "AutoscaleReconciler gates on node heartbeat freshness before trusting an instance observation",
+      "category": "Self-healing / lifecycle",
+      "userStory": "As a platform operator, I want AutoscaleReconciler to ignore an instance observation reported by a node whose heartbeat has gone stale, so that a dead node's last-known, no-longer-real CPU/request-rate/error-rate/queue-depth values stop being averaged into scale-up and scale-down decisions for every deployment placed on it.",
+      "statusDetail": "Fixed (FUNC-89). Every sibling reconciler that reads a node heartbeat for a scheduling/health decision (ReplicaCountReconciler, DeploymentReconciler, StatefulSetReconciler, JobReconciler, DaemonSetReconciler) gates on the heartbeat's own receivedAt freshness before trusting it. AutoscaleReconciler was constructed without any clock/timeout parameter at all and never checked ObservedHeartbeat.receivedAt() -- after a node died, its last-known InstanceObservation values stayed frozen and still marked ready in the store until ReplicaCountReconciler actually evicted the stale assignment (up to ~30s given nodeDarkTimeout plus placementGracePeriod), and AutoscaleReconciler kept averaging that frozen, no-longer-real data into every scale-up/scale-down decision during that window -- masking real overload on the surviving replicas, or triggering a spurious scale-up off a stale spike. Fixed by adding the identical nodeDarkTimeout/Clock constructor shape ReplicaCountReconciler already established, and filtering readyInstanceObservations to skip any assignment whose node's heartbeat has gone dark before folding its observation into the average -- the same 'no signal yet, hold the current count' behavior already used when there are no observations at all. ControlPlaneMain now wires it with the same shared NODE_DARK_TIMEOUT/Clock.systemUTC() every sibling reconciler already uses.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/autoscale/AutoscaleReconciler.java` (`nodeIsDark`, `readyInstanceObservations`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`"
+      ],
+      "testCoverageDetail": "New `AutoscaleReconcilerTest#a_dead_nodes_frozen_observation_is_not_averaged_into_the_scale_decision`: two instances at 100% CPU utilization (double the policy's 50% target, which would normally drive a scale-up) whose node's heartbeat is pushed past the node-dark timeout via a TestClock anchored at real now (the same anchoring ReplicaCountReconcilerTest's own stale-heartbeat test uses, since receivedAt is stamped by StateStore's own system clock), proving the effective replica count holds instead of scaling up. Confirmed failing against the pre-fix code (it scaled up regardless of heartbeat staleness) and passing after the fix. Full gimle-controlplane autoscale test suite re-verified.",
+      "gherkinSteps": [
+        "Given two ready instances of a deployment are reporting 100% CPU utilization against a 50% target; When their node's heartbeat has gone stale past the node-dark timeout; Then AutoscaleReconciler holds the current effective replica count instead of scaling up on the frozen observation.",
+        "Given the same deployment's node heartbeat is fresh; When the same 100% utilization is observed; Then AutoscaleReconciler scales up by one replica, unchanged from before this fix."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-697",
+      "module": "gimle-agent",
+      "feature": "VesselProcessSupervisor resets its restart budget once a respawned vessel stays up past a stability threshold",
+      "category": "Self-healing / lifecycle",
+      "userStory": "As a platform operator, I want a vessel that crashes and cleanly recovers to have its restart budget reset once it has run stably for a while, the same CrashLoopBackOff-style forgiveness WorkerProcessSupervisor already gives a dedicated worker JVM, so that a vessel with brief, infrequent outages is never permanently abandoned just because its total crash count over a long rolling window happens to cross the budget.",
+      "statusDetail": "Fixed (FUNC-90). WorkerProcessSupervisor calls restartTracker.recordSuccess() once a respawned process has stayed alive for a stableUptimeThreshold, resetting the attempt count -- its own javadoc explains why an immediate call right after spawn() would defeat backoff escalation for a fast crash loop. VesselProcessSupervisor's own javadoc claimed it 'reuses the same RestartTracker-driven destroy-and-respawn policy WorkerProcessSupervisor already established... a vessel gets the identical Tier-2-equivalent crash-domain guarantee', but onExit() never called recordSuccess() at all -- a vessel that crashed and cleanly recovered every couple of minutes, running healthily far longer than any reasonable stabilized threshold in between, accumulated toward the same restart budget with no reset, and was eventually abandoned (capacity released, dropped from supervision for good) even though every individual outage was brief. Fixed by adding the identical scheduleStabilityConfirmation mechanism WorkerProcessSupervisor already has, called after every crash-triggered respawn, with the same stale-confirmation guard (a later respawn's own confirmation is what gets to decide, not an earlier one still sleeping).",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/VesselProcessSupervisor.java` (`scheduleStabilityConfirmation`, `onExit`)"
+      ],
+      "testCoverageDetail": "New `VesselProcessSupervisorTest#a_respawn_that_stays_up_past_the_stability_threshold_resets_the_backoff`, mirroring WorkerProcessSupervisorTest's own identically-named test exactly: a real subprocess crashes instantly twice, then stays up 1500ms (past a 1000ms stability threshold) before crashing again, and the gap after that stable respawn is asserted to reflect a reset (roughly initial) delay rather than the still-escalated one a missing recordSuccess() call would produce. Confirmed this exact reasoning: the fixture, thresholds, and gap-timing assertions are the same ones already proven to distinguish reset-vs-not-reset for WorkerProcessSupervisor.",
+      "gherkinSteps": [
+        "Given a vessel crashes instantly twice, then stays up past its stability threshold before crashing a third time; When the fourth respawn's delay is measured; Then it reflects a reset (roughly initial) backoff, not the still-escalated delay from the second crash.",
+        "Given a vessel keeps crashing faster than its stability threshold every time; When its restart budget is exhausted; Then it is still reported exhausted and respawning stops, unchanged from before this fix."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

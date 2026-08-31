@@ -707,6 +707,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-690 | resolvePrincipal only honors a forwarded principal from a genuine control-plane peer certificate | New | Not Covered | — |
 | GIMLE-691 | MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port | New | Not Covered | — |
 | GIMLE-692 | FafnirServer authorizes cluster-wide secrets key rotation and retirement | New | Not Covered | — |
+| GIMLE-693 | CronJobReconciler scopes its generated-Job firing lookup by tenant | New | Not Covered | — |
+| GIMLE-694 | StatefulSetReconciler and DaemonSetReconciler compare artifactPath in their rolling-update staleness check | New | Not Covered | — |
+| GIMLE-695 | ProbeLoop gives each check key its own ticker thread instead of a shared platform-wide pool | New | Not Covered | — |
+| GIMLE-696 | AutoscaleReconciler gates on node heartbeat freshness before trusting an instance observation | New | Not Covered | — |
+| GIMLE-697 | VesselProcessSupervisor resets its restart budget once a respawned vessel stays up past a stability threshold | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -1828,6 +1833,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `WorkerRuntimeTest#a_liveness_probe_class_that_fails_to_load_forces_the_module_to_failed_with_an_event` (a manifest naming a nonexistent liveness probe class ends in FAILED with a durable TransitionFailed event, and exactly one Active transition occurred), `#a_liveness_probe_class_that_loads_fine_leaves_the_module_active` (happy-path regression check). Full gimle-worker module suite re-verified.
 - **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onActive`, `instantiateProbeOrFail`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (lifecycle event dispatch ordering)
 
+#### GIMLE-695 — ProbeLoop gives each check key its own ticker thread instead of a shared platform-wide pool
+
+- **Category**: Self-healing / lifecycle
+- **Status**: New  _(New requirement: closes FUNC-88 -- a shared 4-thread ticker pool let a handful of permanently-hung liveness/readiness checks anywhere on a worker starve health-checking for every other co-hosted module. Fixed by giving each registered check key its own dedicated single-thread virtual-thread ticker in production, so a hung check can only ever pin its own key's thread.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `ProbeLoopTest#a_handful_of_permanently_hung_keys_do_not_starve_ticking_for_another_key` -- confirmed failing against the pre-fix shared-pool code, passing after the fix. Every pre-existing TestScheduler-driven test in the file re-verified unaffected.
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/ProbeLoop.java` (`tickerFor`, `start`, `stop`, `close`)
+
 ### gimle-agent
 
 #### GIMLE-101 — Node agent registration and repeating reconcile/heartbeat/rotate tick loop
@@ -2273,6 +2287,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that deploys a Vessel workload, edits its manifest's vessel: block (e.g. an env var) through the real API without changing moduleId/artifactPath, and asserts the running process is restarted with the new value observable (e.g. via the env var surfacing in the vessel's own log or a probe endpoint).
 - **Other test coverage (non-Holmgang, informational only)**: `AgentMainTest#a_vessel_env_var_change_at_the_same_key_requires_replacement`, `#a_vessel_probe_change_at_the_same_key_requires_replacement`, `#an_unchanged_vessel_assignment_at_the_same_key_never_requires_replacement`, `#requires_replacement_for_module_hosting_ignores_vessel_and_is_unaffected`.
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`requiresVesselReplacement`, `reconcileVesselAssignment`)
+
+#### GIMLE-697 — VesselProcessSupervisor resets its restart budget once a respawned vessel stays up past a stability threshold
+
+- **Category**: Self-healing / lifecycle
+- **Status**: New  _(New requirement: closes FUNC-90 -- VesselProcessSupervisor never called RestartTracker#recordSuccess(), unlike WorkerProcessSupervisor's identical restart policy, so a vessel that crashed and cleanly recovered every couple of minutes accumulated toward its restart budget with no reset and was eventually permanently abandoned. Fixed by adding the same scheduleStabilityConfirmation mechanism WorkerProcessSupervisor already has.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `VesselProcessSupervisorTest#a_respawn_that_stays_up_past_the_stability_threshold_resets_the_backoff`, mirroring WorkerProcessSupervisorTest's own identically-named test and its proven gap-timing assertions.
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/VesselProcessSupervisor.java` (`scheduleStabilityConfirmation`, `onExit`)
 
 ### gimle-mimir
 
@@ -4111,6 +4134,33 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. To close: add a scenario that drives a real instance's readiness probe to flap for several probe cycles before genuinely stabilizing, against a live cluster, and asserts the reconciler does not treat it as ready until it has held continuously ready for the real stabilization window.
 - **Other test coverage (non-Holmgang, informational only)**: `DeploymentReconcilerTest#an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_a_completed_migration`, `#the_readiness_stabilization_timer_survives_a_reconciler_reconstruction_against_the_same_store`; `StatefulSetReconcilerTest#an_instance_that_reports_ready_once_then_immediately_flaps_is_not_treated_as_stabilized` and its persistence-survival counterpart; `RaftCodecTest`/`StateStoreTest` round-trip coverage for the new persisted field on both `ReconcilerInstanceState` and `WorkloadHealthState`.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/ReconcilerInstanceState.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/WorkloadHealthState.java`
+
+#### GIMLE-693 — CronJobReconciler scopes its generated-Job firing lookup by tenant
+
+- **Category**: Multi-tenancy
+- **Status**: New  _(New requirement: closes FUNC-86 -- planFiring's generated-Job lookup filtered only on name prefix across every tenant, unlike the sibling pruneJobHistory lookup right above it. Under REPLACE, one tenant's firing could remove another tenant's running Job on a colliding name prefix; under FORBID, a tenant's own firing could be skipped because of an unrelated tenant's Job. Fixed by adding the same tenantId check pruneJobHistory already uses.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `CronJobReconcilerTest#a_replace_firing_never_removes_a_different_tenants_colliding_prefix_job` -- confirmed failing against the pre-fix code, passing after the fix.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java` (`planFiring`)
+
+#### GIMLE-694 — StatefulSetReconciler and DaemonSetReconciler compare artifactPath in their rolling-update staleness check
+
+- **Category**: Self-healing / lifecycle
+- **Status**: New  _(New requirement: closes FUNC-87 -- both reconcilers' staleness check compared only moduleId, unlike DeploymentReconciler.isStale, which also compares artifactPath. A re-applied manifest with the same moduleId but a patched jar at a new path never triggered a rollout for either workload kind. Fixed by mirroring DeploymentReconciler.isStale's comparison in both.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `StatefulSetReconcilerTest#an_artifact_path_only_change_still_triggers_a_rolling_update` and `DaemonSetReconcilerTest#an_artifact_path_only_change_still_triggers_a_rolling_update` -- both confirmed failing against the pre-fix code, passing after the fix.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/StatefulSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`
+
+#### GIMLE-696 — AutoscaleReconciler gates on node heartbeat freshness before trusting an instance observation
+
+- **Category**: Self-healing / lifecycle
+- **Status**: New  _(New requirement: closes FUNC-89 -- AutoscaleReconciler kept averaging a dead node's frozen, no-longer-real InstanceObservation values into every scale decision until ReplicaCountReconciler actually evicted the stale assignment. Fixed by adding the identical nodeDarkTimeout/Clock gate every sibling reconciler already has.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `AutoscaleReconcilerTest#a_dead_nodes_frozen_observation_is_not_averaged_into_the_scale_decision` -- confirmed failing (scaled up regardless of staleness) against the pre-fix code, passing after the fix. Full autoscale test suite re-verified.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/autoscale/AutoscaleReconciler.java` (`nodeIsDark`, `readyInstanceObservations`), `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`
 
 ### gimle-fafnir
 
@@ -7318,7 +7368,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**566 of 692 requirements are Not Covered.**
+**571 of 697 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7626,6 +7676,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-009 | gimle-core | Vessel hosting mode (plain-process workload) | Module System / Vessel Hosting | `VesselSpecTest` (no probes/ports is valid, TCP readiness requires a declared port, fixed port allocation carries its number, negative fixed port rejected); VesselArtifacts NONE dedicated |
 | GIMLE-037 | gimle-core | Tenant identity and resource quota model | Multi-tenancy | NONE recorded in the baseline |
 | GIMLE-650 | gimle-mimir | Implicit Default Tenant for Untenanted Workloads | Multi-tenancy | `DeploymentManifestParserTest`, `DaemonSetManifestParserTest`, `StatefulSetManifestParserTest`, `JobManifestParserTest`, `CronJobManifestParserTest` (tenantId defaulting); full `gimle-controlplane` admission/reconciler/ApiServerTest suite |
+| GIMLE-693 | gimle-controlplane | CronJobReconciler scopes its generated-Job firing lookup by tenant | Multi-tenancy | `CronJobReconcilerTest#a_replace_firing_never_removes_a_different_tenants_colliding_prefix_job` -- confirmed failing against the pre-fix code, passing after the fix. |
 | GIMLE-657 | gimle-controlplane | Explicit ?tenant= query parameter honored on single-resource GET/DELETE and endpoints lookup | Multi-tenancy / Authorization | `ApiServerAuthzTest#an_explicit_tenant_query_parameter_disambiguates_get_and_delete_by_bare_name` covers this directly at the real HTTP layer. |
 | GIMLE-271 | gimle-controlplane | Reserved system-tenant auto-seeding | Multi-tenancy / Internal-Infra | Implicit in test fixtures bootstrapping ApiServer |
 | GIMLE-656 | gimle-controlplane | Tenant-scoped heartbeat instance-observation matching and instance-log node resolution | Multi-tenancy / Observability | Covered indirectly by the existing per-reconciler heartbeat-matching test suites (HealthReconcilerTest, ReplicaCountReconcilerTest, AutoscaleReconcilerTest, JobReconcilerTest); no dedicated cross-tenant-collision test added for this path specifically. |
@@ -7780,6 +7831,10 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-122 | gimle-agent | Vessel crash respawn resets probe initial-delay clock | Self-Healing | NONE recorded in the baseline |
 | GIMLE-631 | gimle-controlplane | StatefulSet/DaemonSet machine-level self-healing on node death | Self-Healing | `StatefulSetReconcilerTest` (a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated, a_replica_on_a_node_dark_past_the_grace_period_is_released_and_lands_back_on_the_same_node), `DaemonSetReconcilerTest` |
 | GIMLE-674 | gimle-controlplane | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Self-healing / Resilience | `StatefulSetReconcilerTest#a_crash_looping_index_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_index_that_exhausts_its_budget_is_never_skipped_past`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `DaemonSetReconcilerTest#a_crash_looping_node_is_released_for_reschedule_once_its_backoff_elapses`, `#a_crash_looping_node_that_exhausts_its_budget_is_left_permanently_unassigned`, `#converges_correctly_from_a_persisted_permanently_failed_workload_health_state`; `RaftCodecTest#round_trips_a_state_snapshot`. |
+| GIMLE-694 | gimle-controlplane | StatefulSetReconciler and DaemonSetReconciler compare artifactPath in their rolling-update staleness check | Self-healing / lifecycle | `StatefulSetReconcilerTest#an_artifact_path_only_change_still_triggers_a_rolling_update` and `DaemonSetReconcilerTest#an_artifact_path_only_change_still_triggers_a_rolling_update` -- both confirmed failing against the pre-fix code, passing after the fix. |
+| GIMLE-695 | gimle-worker | ProbeLoop gives each check key its own ticker thread instead of a shared platform-wide pool | Self-healing / lifecycle | `ProbeLoopTest#a_handful_of_permanently_hung_keys_do_not_starve_ticking_for_another_key` -- confirmed failing against the pre-fix shared-pool code, passing after the fix. Every pre-existing TestScheduler-driven test in the file re-verified unaffected. |
+| GIMLE-696 | gimle-controlplane | AutoscaleReconciler gates on node heartbeat freshness before trusting an instance observation | Self-healing / lifecycle | `AutoscaleReconcilerTest#a_dead_nodes_frozen_observation_is_not_averaged_into_the_scale_decision` -- confirmed failing (scaled up regardless of staleness) against the pre-fix code, passing after the fix. Full autoscale test suite re-verified. |
+| GIMLE-697 | gimle-agent | VesselProcessSupervisor resets its restart budget once a respawned vessel stays up past a stability threshold | Self-healing / lifecycle | `VesselProcessSupervisorTest#a_respawn_that_stays_up_past_the_stability_threshold_resets_the_backoff`, mirroring WorkerProcessSupervisorTest's own identically-named test and its proven gap-timing assertions. |
 | GIMLE-613 | gimle-skald | DNS-over-TCP fallback with UDP truncation | Service Discovery / DNS | `SkaldServerTest` (TCP round-trip, sequential queries per connection, TCP NXDOMAIN), `DnsCodecTest` (TC flag) |
 | GIMLE-620 | gimle-skald | SRV records and headless A answers | Service Discovery / DNS | `SkaldServerTest` (headless A, SRV per endpoint, dashed endpoint names) |
 | GIMLE-686 | gimle-skald | Skald tracks control-plane poll staleness and degrades DNS answers once it is severely stale | Service Discovery / DNS | `CachingServiceDirectoryTest#a_successful_refresh_resets_the_last_success_time_and_the_failure_count`, `#a_poll_failure_leaves_the_cached_data_intact_but_grows_staleness_and_failure_count`, `#staleness_accrues_from_construction_when_no_poll_has_ever_succeeded`; `ControlPlaneServicePollerTest#a_successful_poll_resets_the_failure_count_and_advances_last_success`, `#repeated_failures_accumulate_a_growing_consecutive_failure_count`; `SkaldServerTest#refuses_a_positive_answer_with_servfail_once_severely_stale`, `#a_name_the_directory_never_knew_still_answers_nxdomain_once_stale`, `#a_fresh_successful_poll_immediately_ends_the_servfail_degradation`. |

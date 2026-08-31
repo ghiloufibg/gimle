@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 692,
+    "totalRequirements": 697,
     "coveredByAutomatedTest": 126,
-    "notCoveredByAutomatedTest": 566,
-    "releaseReadinessPercent": 18.2
+    "notCoveredByAutomatedTest": 571,
+    "releaseReadinessPercent": 18.1
   },
   "items": [
     {
@@ -7614,6 +7614,61 @@
       "category": "Security / Authorization",
       "feature": "FafnirServer authorizes cluster-wide secrets key rotation and retirement",
       "step": "Given a caller authenticated over mTLS with no SECRET grant; When it calls POST /secrets/rotate-key or POST /secrets/retire-key directly against Fafnir; Then the request is rejected with 403. Given a caller presenting no client certificate, forwarded-principal header, or session cookie at all; When it calls either route; Then the request is rejected with 401. Given a caller holding an unscoped SECRET/WRITE grant; When it calls either route directly against Fafnir, or through gimle-controlplane's own proxy; Then the request succeeds and the decision is recorded in the durable audit trail.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-693",
+      "module": "gimle-controlplane",
+      "category": "Multi-tenancy",
+      "feature": "CronJobReconciler scopes its generated-Job firing lookup by tenant",
+      "step": "Given two tenants each have a CronJob whose generated Job names share the same prefix; When one tenant's CronJob fires under ConcurrencyPolicy REPLACE; Then only that tenant's own prior Job is removed, never the other tenant's colliding-prefix Job.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-694",
+      "module": "gimle-controlplane",
+      "category": "Self-healing / lifecycle",
+      "feature": "StatefulSetReconciler and DaemonSetReconciler compare artifactPath in their rolling-update staleness check",
+      "step": "Given a StatefulSet or DaemonSet is ACTIVE with its current moduleId and artifactPath; When the manifest is re-applied with the same moduleId but a different artifactPath; Then the reconciler triggers a rolling update instead of reporting already-converged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-695",
+      "module": "gimle-worker",
+      "category": "Self-healing / lifecycle",
+      "feature": "ProbeLoop gives each check key its own ticker thread instead of a shared platform-wide pool",
+      "step": "Given a worker has five registered probe keys whose checks never return; When a sixth, healthy key is registered and its interval elapses; Then the healthy key's check still runs and reports a result, unaffected by the five hung keys. Given a worker's ProbeLoop is driven by an injected deterministic test scheduler; When several keys are registered and ticks are driven by advancing virtual time; Then every key still ticks exactly once per elapsed interval, with the same synchronous, exact-count semantics as before this fix.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-696",
+      "module": "gimle-controlplane",
+      "category": "Self-healing / lifecycle",
+      "feature": "AutoscaleReconciler gates on node heartbeat freshness before trusting an instance observation",
+      "step": "Given two ready instances of a deployment are reporting 100% CPU utilization against a 50% target; When their node's heartbeat has gone stale past the node-dark timeout; Then AutoscaleReconciler holds the current effective replica count instead of scaling up on the frozen observation. Given the same deployment's node heartbeat is fresh; When the same 100% utilization is observed; Then AutoscaleReconciler scales up by one replica, unchanged from before this fix.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-697",
+      "module": "gimle-agent",
+      "category": "Self-healing / lifecycle",
+      "feature": "VesselProcessSupervisor resets its restart budget once a respawned vessel stays up past a stability threshold",
+      "step": "Given a vessel crashes instantly twice, then stays up past its stability threshold before crashing a third time; When the fourth respawn's delay is measured; Then it reflects a reset (roughly initial) backoff, not the still-escalated delay from the second crash. Given a vessel keeps crashing faster than its stability threshold every time; When its restart budget is exhausted; Then it is still reported exhausted and respawning stops, unchanged from before this fix.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

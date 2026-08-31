@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 692
+- **Total requirements**: 697
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 566
-- **Release-readiness (automated coverage)**: 18.2%
+- **Not covered by automated test**: 571
+- **Release-readiness (automated coverage)**: 18.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -17,11 +17,11 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-module | 26 | 12 | 14 | 46.2% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 9 | 6 | 3 | 66.7% |
-| gimle-worker | 23 | 2 | 21 | 8.7% |
-| gimle-agent | 48 | 6 | 42 | 12.5% |
+| gimle-worker | 24 | 2 | 22 | 8.3% |
+| gimle-agent | 49 | 6 | 43 | 12.2% |
 | gimle-mimir | 62 | 36 | 26 | 58.1% |
 | gimle-fabric | 38 | 1 | 37 | 2.6% |
-| gimle-controlplane | 90 | 15 | 75 | 16.7% |
+| gimle-controlplane | 93 | 15 | 78 | 16.1% |
 | gimle-fafnir | 30 | 11 | 19 | 36.7% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 22 | 0 | 22 | 0.0% |
@@ -417,6 +417,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-096 | Worker-side trace relay to agent (no direct Muninn shipping) | Given GimleTracing is installed with a RelayingSpanExporter When a span batch is exported Then SpanLineCodec.toNdjson encodes it and sends ControlMessage.TracesSnapshot over the control channel And export() never surfaces a relay failure to the OpenTelemetry SDK (always CompletableResultCode.ofSuccess) | No |
 | [ ] | GIMLE-098 | Worker-wide meter snapshot relay to Muninn (via agent) | Given MUNINN_SHIP_INTERVAL (5s) elapses When muninnMetricsRelayLoop runs Then MeterSnapshotCodec.toNdjson(workerMetrics.registry()) is sent as ControlMessage.MetricsSnapshot, skipped if empty Given a StopModule command completes Then one extra best-effort snapshot is sent immediately, regardless of whether this is the worker's last instance | No |
 
+#### Self-healing / lifecycle
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-695 | ProbeLoop gives each check key its own ticker thread instead of a shared platform-wide pool | Given a worker has five registered probe keys whose checks never return; When a sixth, healthy key is registered and its interval elapses; Then the healthy key's check still runs and reports a result, unaffected by the five hung keys. Given a worker's ProbeLoop is driven by an injected deterministic test scheduler; When several keys are registered and ticks are driven by advancing virtual time; Then every key still ticks exactly once per elapsed interval, with the same synchronous, exact-count semantics as before this fix. | No |
+
 #### Worker Supervision
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -594,6 +600,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-122 | Vessel crash respawn resets probe initial-delay clock | Given a vessel process crashes and VesselProcessSupervisor respawns it When onVesselRespawned fires Then instance.startedAt is reset to Instant.now() and lifecycleState set to STARTING Given the instance was already torn down (undeploy/reassignment) in the crash-to-respawn window Then nothing happens (instance is null, so nothing to reset) | No |
+
+#### Self-healing / lifecycle
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-697 | VesselProcessSupervisor resets its restart budget once a respawned vessel stays up past a stability threshold | Given a vessel crashes instantly twice, then stays up past its stability threshold before crashing a third time; When the fourth respawn's delay is measured; Then it reflects a reset (roughly initial) backoff, not the still-escalated delay from the second crash. Given a vessel keeps crashing faster than its stability threshold every time; When its restart budget is exhausted; Then it is still reported exhausted and respawning stops, unchanged from before this fix. | No |
 
 #### Service Fabric
 
@@ -1049,6 +1061,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-258 | Bootstrap node join via single-use token + CSR | Given an operator issued a bootstrap token; When a new node submits a CSR (purpose=NODE_CLIENT) with that token; Then the CA signs a cert stamped O=gimle:nodes, and the token cannot be reused. | No |
 | [ ] | GIMLE-259 | Operator-approval-gated CSR flow | Given a human submits a CSR (purpose=OPERATOR_CLIENT) with no client certificate; When submitted; Then it sits pending (202) until an existing operator approves it. | No |
 
+#### Multi-tenancy
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-693 | CronJobReconciler scopes its generated-Job firing lookup by tenant | Given two tenants each have a CronJob whose generated Job names share the same prefix; When one tenant's CronJob fires under ConcurrencyPolicy REPLACE; Then only that tenant's own prior Job is removed, never the other tenant's colliding-prefix Job. | No |
+
 #### Multi-tenancy / Authorization
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1224,6 +1242,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-674 | Crash-loop backoff and reschedule for StatefulSet and DaemonSet instances (self-healing parity with Deployment) | Given a StatefulSet index reports FAILED on its assigned node; When its restart backoff elapses; Then its stale assignment is released and re-placed on the same sticky node, and index i+1 is never placed while index i is stuck. Given a DaemonSet node instance reports FAILED; When its restart backoff elapses; Then its stale assignment is released and a fresh one is re-added to the very same node. Given a StatefulSet index or DaemonSet node instance exhausts its restart budget; Then it is left permanently FAILED with a durable TRANSITION_FAILED event, and never retried again. | No |
+
+#### Self-healing / lifecycle
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-694 | StatefulSetReconciler and DaemonSetReconciler compare artifactPath in their rolling-update staleness check | Given a StatefulSet or DaemonSet is ACTIVE with its current moduleId and artifactPath; When the manifest is re-applied with the same moduleId but a different artifactPath; Then the reconciler triggers a rolling update instead of reporting already-converged. | No |
+| [ ] | GIMLE-696 | AutoscaleReconciler gates on node heartbeat freshness before trusting an instance observation | Given two ready instances of a deployment are reporting 100% CPU utilization against a 50% target; When their node's heartbeat has gone stale past the node-dark timeout; Then AutoscaleReconciler holds the current effective replica count instead of scaling up on the frozen observation. Given the same deployment's node heartbeat is fresh; When the same 100% utilization is observed; Then AutoscaleReconciler scales up by one replica, unchanged from before this fix. | No |
 
 #### Storage / Operations
 
