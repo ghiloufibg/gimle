@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 689
+- **Total requirements**: 690
 - **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 563
+- **Not covered by automated test**: 564
 - **Release-readiness (automated coverage)**: 18.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -24,7 +24,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-controlplane | 90 | 15 | 75 | 16.7% |
 | gimle-fafnir | 28 | 11 | 17 | 39.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
-| gimle-muninn | 21 | 0 | 21 | 0.0% |
+| gimle-muninn | 22 | 0 | 22 | 0.0% |
 | gimle-observability | 16 | 1 | 15 | 6.2% |
 | gimle-gateway | 18 | 0 | 18 | 0.0% |
 | gimle-cli | 31 | 0 | 31 | 0.0% |
@@ -1444,6 +1444,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-331 | Age-based retention sweep | Given a day file older than the configured retentionDays When the retention sweep runs Then that file is deleted And a day file within the window is left untouched And sweeping twice, or sweeping a data root that doesn't exist yet, is a safe no-op | No |
 | [ ] | GIMLE-339 | `/status` operational endpoint | Given a running MuninnServer When GET /status is issued Then it returns 200 with uptimeSeconds and transportProtocol And a non-GET method is rejected with 405 | No |
+
+#### Security / Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-691 | MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port | Given a caller holds a real, tenant-scoped LOGS/READ grant for tenant acme; When it requests GET /logs/instances/{deploymentName}/{instanceIndex}/{category}?tenant=acme over mTLS; Then Muninn returns 200. Given a caller holds no LOGS grant at all; When it requests the same acme instance-log read; Then Muninn returns 403, not the previously-shipped 200. Given a caller holds a LOGS/READ grant scoped only to a different tenant; When it requests acme's instance logs; Then Muninn returns 403 -- a grant for one tenant never authorizes reading another's. Given a gimle:nodes certificate identifying node-1; When it requests GET /logs/nodes/node-1/{category}; Then Muninn returns 200 via self-service, with no RoleBinding required. Given that same node-1 certificate; When it requests GET /logs/nodes/node-2/{category}; Then Muninn returns 403 -- self-service is scoped to exactly the node's own identity. Given a caller holds an unscoped LOGS/READ grant; When it requests GET /metrics/{processKind}/{processId} or GET /traces/{processKind}/{processId}; Then Muninn returns 200; given no grant at all, Muninn returns 403 for the same request. Given Muninn is running in its default plaintext mode; When any read request arrives with no client certificate; Then it is served with no identity check, matching every other Gimle process's documented plaintext posture. | No |
 
 #### Tracing
 

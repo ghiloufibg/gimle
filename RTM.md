@@ -704,6 +704,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-687 | JVM DNS resolver cache capped to match Skald's own DNS-answer TTL | New | Not Covered | — |
 | GIMLE-688 | FabricServer bounds in-flight connections instead of spawning an unbounded virtual thread per accept | New | Not Covered | — |
 | GIMLE-689 | FabricServer catches a malformed frame's decode failure instead of letting it crash the connection thread | New | Not Covered | — |
+| GIMLE-691 | MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4804,6 +4805,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `MuninnServerTest#a_fresh_server_defaults_to_plaintext_and_answers_status`, `#a_non_get_status_request_is_rejected`
 - **Source location(s)**: `MuninnServer.java#handleStatus`
 
+#### GIMLE-691 — MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port
+
+- **Category**: Security / Authorization
+- **Status**: New  _(New requirement: closes FUNC-84 -- MuninnServer's four read handlers (handleReadNodeLogs, handleReadInstanceLogs, handleReadMetrics, handleReadTraces) never resolved a caller identity or ran an authorization check at all, despite this project's own CLAUDE.md already (incorrectly) documenting an independent Authorizer.authorize(...) re-check gated on ResourceKind.LOGS as already shipped; any principal holding a cluster leaf certificate, or anyone at all in plaintext mode, could read any tenant's or any node's logs, metrics, and traces directly from Muninn's own port, bypassing gimle-controlplane's RBAC-checked /logs/*, /metrics-history/*, and /traces-history/* proxy entirely. Fixed via a new authorizeRead gate mirroring FafnirServer#authorizeSecrets's own defense-in-depth posture: plaintext mode stays open, TLS mode resolves a Principal (trusted forwarded header, else peer certificate) and re-runs Authorizer.authorize(...) gated on ResourceKind.LOGS/Verb.READ, tenant/target-scoped the same way ApiServer#handleLogs already scopes the equivalent proxy routes.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: New `MuninnServerReadAuthzTest` (9 tests, real mTLS against a real MuninnServer): `#a_caller_whose_own_certificate_holds_the_logs_permission_can_read_instance_logs`, `#a_caller_with_an_unscoped_logs_permission_can_read_metrics` (legitimate cases, confirmed passing pre-fix); `#a_caller_with_no_logs_permission_is_forbidden_reading_instance_logs`, `#a_caller_with_no_logs_permission_is_forbidden_reading_metrics`, `#a_caller_with_no_logs_permission_is_forbidden_reading_traces`, `#a_grant_for_a_different_tenant_does_not_authorize_reading_this_ones_instance_logs`, `#a_node_may_not_read_a_different_nodes_logs` (confirmed failing pre-fix, proving the gap, then passing post-fix); `#a_node_may_read_its_own_node_logs`, `#an_unauthenticated_plaintext_read_is_allowed`. Full gimle-muninn module suite (8 classes, 35 tests) re-verified green, run per-class.
+- **Source location(s)**: `gimle-muninn/src/main/java/com/gimle/muninn/MuninnServer.java` (`authorizeRead`, `resolvePrincipal`, `firstHeader`, `splitHeader`, `instanceTenantHint`, `peerCertificate`, `handleReadNodeLogs`, `handleReadInstanceLogs`, `handleReadMetrics`, `handleReadTraces`)
+
 ### gimle-observability
 
 #### GIMLE-340 — Default OpenTelemetry tracer installation
@@ -7288,7 +7298,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**563 of 689 requirements are Not Covered.**
+**564 of 690 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7736,6 +7746,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-283 | gimle-fafnir | Optimistic-write versioned put with narrow-lease serialization | Secrets Management / Internal-Infra | `SecretStoreTest` (contention scenario per class javadoc) |
 | GIMLE-017 | gimle-core | Session-signing key file load-or-create with owner-only permissions | Security | `SessionKeyFileManagerTest` (generates_on_first_run_reuses_on_later, rejects corrupted/empty key file) |
 | GIMLE-651 | gimle-fafnir | Explicit SecretMap Replace Verb | Security | `SecretMapStoreTest` (replaceAll), `FafnirServerSecretMapTest` (replace route), `ApiServerSecretMapTest`/`ApiServerSecretMapAuthzTest` (proxy + RBAC) |
+| GIMLE-691 | gimle-muninn | MuninnServer independently authorizes every log/metrics/traces read instead of trusting mere reachability on its own port | Security / Authorization | New `MuninnServerReadAuthzTest` (9 tests, real mTLS against a real MuninnServer): `#a_caller_whose_own_certificate_holds_the_logs_permission_can_read_instance_logs`, `#a_caller_with_an_unscoped_logs_permission_can_read_metrics` (legitimate cases, confirmed passing pre-fix); `#a_caller_with_no_logs_permission_is_forbidden_reading_instance_logs`, `#a_caller_with_no_logs_permission_is_forbidden_reading_metrics`, `#a_caller_with_no_logs_permission_is_forbidden_reading_traces`, `#a_grant_for_a_different_tenant_does_not_authorize_reading_this_ones_instance_logs`, `#a_node_may_not_read_a_different_nodes_logs` (confirmed failing pre-fix, proving the gap, then passing post-fix); `#a_node_may_read_its_own_node_logs`, `#an_unauthenticated_plaintext_read_is_allowed`. Full gimle-muninn module suite (8 classes, 35 tests) re-verified green, run per-class. |
 | GIMLE-627 | gimle-agent | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Security / Networking | `BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization) |
 | GIMLE-624 | gimle-controlplane | Certificate revocation denylist | Security / PKI | `ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip) |
 | GIMLE-614 | gimle-controlplane | Self-subject access review endpoint (/authz/can-i) | Security / RBAC | `ApiServerAuthzTest` (can_i_answers_for_the_calling_principal_without_performing_anything) |
