@@ -155,6 +155,19 @@ and a read-only panel on the detail screen when a deployment has one. Unlike `au
 `disruption:` had *never* been on the wire at all before this — `ApiServer.deploymentStatus` gained
 its first `disruption` key here, not merely a later addition to an existing one.
 
+## The shared instance table
+
+Deployment, DaemonSet and StatefulSet detail pages all render their instance list through the same
+paginated table the Instances and Nodes screens use, rather than each hand-rolling its own. That
+matters most exactly where a hand-rolled one stops working: a Deployment autoscaled to hundreds of
+replicas is a page an operator opens *because* something is wrong with it, and one unbounded table
+of every replica is the wrong thing to hand them at that moment. The table shows a page of rows at
+a time with a "Load more" action, its per-column filters hidden on a detail page (the workload
+already scopes the list), and its two per-row links follow whichever workload kind owns the row:
+the name links to that kind's own detail page, and the row action opens the Deployment instance's
+own detail page or, for the other two kinds — which have no per-instance page — that instance's
+logs directly.
+
 ## Instance lifecycle events
 
 "Why did this instance restart" is the question an operator opens the console to answer, and the

@@ -22,6 +22,14 @@ export interface InstancesTableFilters {
   lifecycle?: LifecycleState | "ALL";
 }
 
+/**
+ * Which workload kind owns these rows. Only the two per-row links depend on it: the workload's own
+ * detail page lives under a different path per kind, and only a Deployment instance has an instance
+ * detail page (that screen resolves its row from the deployment listing), so the other two kinds
+ * link straight to the instance's logs instead of to a page that would never resolve.
+ */
+export type WorkloadKind = "deployment" | "daemonset" | "statefulset";
+
 interface Props {
   rows: ModuleInstance[];
   filters: InstancesTableFilters;
@@ -31,6 +39,7 @@ interface Props {
   onLoadMore: () => void;
   lockedNode?: string;
   showFilters?: boolean;
+  workloadKind?: WorkloadKind;
 }
 
 const LIFECYCLES: LifecycleState[] = [
@@ -52,6 +61,7 @@ export function InstancesTable({
   onLoadMore,
   lockedNode,
   showFilters = true,
+  workloadKind = "deployment",
 }: Props) {
   const uniqueNodes = useMemo(() => Array.from(new Set(rows.map((r) => r.nodeId))).sort(), [rows]);
   const uniqueTenants = useMemo(
@@ -152,17 +162,13 @@ export function InstancesTable({
           <tbody>
             {rows.map((r) => (
               <tr
-                key={`${r.deploymentName}#${r.instanceIndex}`}
+                // A DaemonSet has one instance per node all reporting index 0, so the node has to
+                // be part of the key or every one of its rows would collide.
+                key={`${r.deploymentName}#${r.instanceIndex}@${r.nodeId}`}
                 className="border-t border-border hover:bg-muted/30"
               >
                 <td className="px-2 py-1.5 font-mono">
-                  <Link
-                    to="/deployments/$name"
-                    params={{ name: r.deploymentName }}
-                    className="text-primary hover:underline"
-                  >
-                    {r.deploymentName}
-                  </Link>
+                  <WorkloadLink kind={workloadKind} name={r.deploymentName} />
                 </td>
                 <td className="px-2 py-1.5 font-mono">{r.instanceIndex}</td>
                 <td className="px-2 py-1.5 font-mono text-muted-foreground">
@@ -204,14 +210,11 @@ export function InstancesTable({
                 </td>
                 <td className="px-2 py-1.5 font-mono text-right">{fmtBytes(r.memoryBytesUsed)}</td>
                 <td className="px-2 py-1.5">
-                  <Link
-                    to="/instances/$name/$idx"
-                    params={{ name: r.deploymentName, idx: String(r.instanceIndex) }}
-                    className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                  >
-                    <FileText className="h-3 w-3" />
-                    logs
-                  </Link>
+                  <InstanceLogsLink
+                    kind={workloadKind}
+                    name={r.deploymentName}
+                    instanceIndex={r.instanceIndex}
+                  />
                 </td>
               </tr>
             ))}
@@ -235,5 +238,74 @@ export function InstancesTable({
         )}
       </div>
     </div>
+  );
+}
+
+/** The owning workload's own detail page, whichever kind it is. */
+function WorkloadLink({ kind, name }: { kind: WorkloadKind; name: string }) {
+  const className = "text-primary hover:underline";
+  if (kind === "daemonset") {
+    return (
+      <Link to="/daemonsets/$name" params={{ name }} className={className}>
+        {name}
+      </Link>
+    );
+  }
+  if (kind === "statefulset") {
+    return (
+      <Link to="/statefulsets/$name" params={{ name }} className={className}>
+        {name}
+      </Link>
+    );
+  }
+  return (
+    <Link to="/deployments/$name" params={{ name }} className={className}>
+      {name}
+    </Link>
+  );
+}
+
+/**
+ * A Deployment instance has its own detail page (health, resources, lifecycle-event timeline), so
+ * that is where its row points. That screen resolves its row from the deployment listing alone, so
+ * a DaemonSet or StatefulSet instance would never resolve there -- those rows go straight to the
+ * Logs screen, already scoped to that instance, instead of to a dead end.
+ */
+function InstanceLogsLink({
+  kind,
+  name,
+  instanceIndex,
+}: {
+  kind: WorkloadKind;
+  name: string;
+  instanceIndex: number;
+}) {
+  const className = "text-muted-foreground hover:text-foreground inline-flex items-center gap-1";
+  if (kind === "deployment") {
+    return (
+      <Link
+        to="/instances/$name/$idx"
+        params={{ name, idx: String(instanceIndex) }}
+        className={className}
+      >
+        <FileText className="h-3 w-3" />
+        logs
+      </Link>
+    );
+  }
+  return (
+    <Link
+      to="/logs"
+      search={{
+        kind: "instance",
+        deploymentName: name,
+        instanceIndex,
+        category: "APPLICATION" as const,
+      }}
+      className={className}
+    >
+      <FileText className="h-3 w-3" />
+      logs
+    </Link>
   );
 }
