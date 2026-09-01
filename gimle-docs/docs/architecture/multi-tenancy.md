@@ -48,6 +48,19 @@ continuous check (below) still sums plain `replicas` — a transient surge overs
 otherwise flag is expected to self-heal within one reconcile tick as the rollout completes, not
 something worth a standing violation for.
 
+A quota rejection names every dimension it tripped, with its own numbers, rather than reporting a
+bare "past its quota":
+
+```
+workload newcomer would push tenant busy past its resource quota: memory 32Mi exceeds the
+24Mi ceiling by 8Mi (16Mi already assigned + 16Mi for this workload)
+```
+
+Memory, CPU, and instance count are three independent ceilings, so a message naming only one of
+them (or none) leaves an operator guessing which to change. The already-assigned/this-workload
+split is the other half of the remedy: it says whether to shrink the submission or free up an
+existing workload. If more than one dimension is over, all of them are listed, separated by `;`.
+
 ## Names are scoped per tenant, like a Kubernetes namespace
 
 A Deployment/Job/CronJob/DaemonSet/StatefulSet/Service name is unique only within its own

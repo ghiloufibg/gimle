@@ -1,6 +1,7 @@
 package com.gimle.controlplane.schedule;
 
 import com.gimle.core.exception.GimleSchedulingException;
+import com.gimle.core.exception.GimleSchedulingException.NodeFreeCapacity;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
 import java.util.Comparator;
@@ -9,6 +10,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * Bin-packing across registered nodes' latest heartbeat capacity: first-fit-decreasing over free
@@ -149,28 +152,40 @@ public final class Scheduler {
           stickyNodeId.get(),
           candidates);
     }
+    if (candidates.isEmpty()) {
+      throw GimleSchedulingException.noNodesRegistered(deploymentName, instanceIndex);
+    }
+
+    // Tier is the one filter whose failure no capacity change can fix, so it reports itself rather
+    // than falling through to the capacity shortfall below with an empty candidate set.
     List<NodeCandidate> tierEligible = filterByTier(tier, candidates);
+    if (tierEligible.isEmpty()) {
+      throw GimleSchedulingException.noNodeSupportsTier(
+          deploymentName, instanceIndex, tier, supportedTiersByNode(candidates));
+    }
 
     List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
-    if (uncordonedEligible.isEmpty() && !tierEligible.isEmpty()) {
-      throw GimleSchedulingException.nodeCordoned(deploymentName, instanceIndex);
+    if (uncordonedEligible.isEmpty()) {
+      throw GimleSchedulingException.nodeCordoned(
+          deploymentName, instanceIndex, nodeIdsOf(tierEligible));
     }
 
     List<NodeCandidate> affinityEligible =
         filterByAntiAffinity(uncordonedEligible, antiAffinityAcrossNodes);
-    if (antiAffinityAcrossNodes && affinityEligible.isEmpty() && !uncordonedEligible.isEmpty()) {
+    if (antiAffinityAcrossNodes && affinityEligible.isEmpty()) {
       throw GimleSchedulingException.antiAffinityViolated(deploymentName, instanceIndex);
     }
 
     List<NodeCandidate> taintEligible = filterByTaint(affinityEligible, tenantId);
-    if (taintEligible.isEmpty() && !affinityEligible.isEmpty()) {
+    if (taintEligible.isEmpty()) {
       throw GimleSchedulingException.nodeTaintsExcludeTenant(
           deploymentName, instanceIndex, conflictingTaintsByNode(affinityEligible, tenantId));
     }
 
     List<NodeCandidate> labelEligible = filterByLabels(taintEligible, requiredNodeLabels);
-    if (!requiredNodeLabels.isEmpty() && labelEligible.isEmpty() && !taintEligible.isEmpty()) {
-      throw GimleSchedulingException.requiredLabelsUnsatisfied(deploymentName, instanceIndex);
+    if (labelEligible.isEmpty()) {
+      throw GimleSchedulingException.requiredLabelsUnsatisfied(
+          deploymentName, instanceIndex, requiredNodeLabels, labelsByNode(taintEligible));
     }
 
     long requiredMemory = resourceRequest.memoryBytes();
@@ -186,7 +201,12 @@ public final class Scheduler {
         .map(NodeCandidate::nodeId)
         .orElseThrow(
             () ->
-                GimleSchedulingException.noFeasiblePlacement(deploymentName, instanceIndex, tier));
+                GimleSchedulingException.insufficientNodeCapacity(
+                    deploymentName,
+                    instanceIndex,
+                    tier,
+                    resourceRequest,
+                    freeCapacityOf(labelEligible)));
   }
 
   /**
@@ -228,24 +248,71 @@ public final class Scheduler {
       Set<String> requiredNodeLabels,
       String stickyNodeId,
       List<NodeCandidate> candidates) {
-    List<NodeCandidate> stickyOnly =
-        candidates.stream().filter(c -> c.nodeId().equals(stickyNodeId)).toList();
-    List<NodeCandidate> tierEligible = filterByTier(tier, stickyOnly);
-    List<NodeCandidate> uncordonedEligible = filterByCordon(tierEligible);
-    List<NodeCandidate> taintEligible = filterByTaint(uncordonedEligible, tenantId);
-    List<NodeCandidate> labelEligible = filterByLabels(taintEligible, requiredNodeLabels);
+    Optional<NodeCandidate> sticky =
+        candidates.stream().filter(c -> c.nodeId().equals(stickyNodeId)).findFirst();
+    if (sticky.isEmpty()) {
+      throw GimleSchedulingException.stickyNodeUnavailable(
+          deploymentName, instanceIndex, stickyNodeId, "it is not a registered, live node");
+    }
+    NodeCandidate node = sticky.get();
+    Optional<String> ineligible =
+        stickyIneligibilityReason(node, tier, resourceRequest, tenantId, requiredNodeLabels);
+    if (ineligible.isPresent()) {
+      throw GimleSchedulingException.stickyNodeUnavailable(
+          deploymentName, instanceIndex, stickyNodeId, ineligible.get());
+    }
+    return node.nodeId();
+  }
 
-    long requiredMemory = resourceRequest.memoryBytes();
-    long requiredCpu = resourceRequest.cpuMillicores();
-
-    return labelEligible.stream()
-        .filter(c -> c.freeMemoryBytes() >= requiredMemory && c.freeCpuMillicores() >= requiredCpu)
-        .findFirst()
-        .map(NodeCandidate::nodeId)
-        .orElseThrow(
-            () ->
-                GimleSchedulingException.stickyNodeUnavailable(
-                    deploymentName, instanceIndex, stickyNodeId));
+  /**
+   * The one concrete check the sticky node fails, in the same filter order {@link #place} applies.
+   * Only the first is reported: a sticky replica has exactly one node it may ever land on, so the
+   * operator's next action is to fix that node, and the first blocker is the one to fix first.
+   */
+  private static Optional<String> stickyIneligibilityReason(
+      NodeCandidate node,
+      IsolationTier tier,
+      ResourceSpec resourceRequest,
+      Optional<String> tenantId,
+      Set<String> requiredNodeLabels) {
+    if (!node.capabilities().supportedTiers().contains(tier)) {
+      return Optional.of(
+          "it does not support isolation tier "
+              + tier
+              + " (it supports "
+              + new TreeSet<>(node.capabilities().supportedTiers())
+              + ")");
+    }
+    if (node.cordoned()) {
+      return Optional.of("it is cordoned");
+    }
+    if (!node.taints().isEmpty() && tenantId.filter(node.taints()::contains).isEmpty()) {
+      return Optional.of(
+          "it is tainted for tenant(s) " + String.join(", ", new TreeSet<>(node.taints())));
+    }
+    if (!node.labels().containsAll(requiredNodeLabels)) {
+      Set<String> missing = new TreeSet<>(requiredNodeLabels);
+      missing.removeAll(node.labels());
+      return Optional.of("it is missing required node label(s) " + missing);
+    }
+    long shortMemory = resourceRequest.memoryBytes() - node.freeMemoryBytes();
+    long shortCpu = resourceRequest.cpuMillicores() - node.freeCpuMillicores();
+    if (shortMemory > 0 || shortCpu > 0) {
+      return Optional.of(
+          "it has memory="
+              + ResourceSpec.formatMemory(node.freeMemoryBytes())
+              + " cpu="
+              + ResourceSpec.formatCpu(node.freeCpuMillicores())
+              + " free against a request of memory="
+              + resourceRequest.memory()
+              + " cpu="
+              + resourceRequest.cpu()
+              + (shortMemory > 0
+                  ? ", short by " + ResourceSpec.formatMemory(shortMemory) + " memory"
+                  : "")
+              + (shortCpu > 0 ? ", short by " + ResourceSpec.formatCpu(shortCpu) + " cpu" : ""));
+    }
+    return Optional.empty();
   }
 
   private static List<NodeCandidate> filterByTier(
@@ -301,5 +368,32 @@ public final class Scheduler {
       return candidates;
     }
     return candidates.stream().filter(c -> c.labels().containsAll(requiredNodeLabels)).toList();
+  }
+
+  private static Set<String> nodeIdsOf(List<NodeCandidate> candidates) {
+    return candidates.stream().map(NodeCandidate::nodeId).collect(Collectors.toSet());
+  }
+
+  private static Map<String, Set<IsolationTier>> supportedTiersByNode(
+      List<NodeCandidate> candidates) {
+    Map<String, Set<IsolationTier>> byNode = new LinkedHashMap<>();
+    for (NodeCandidate candidate : candidates) {
+      byNode.put(candidate.nodeId(), candidate.capabilities().supportedTiers());
+    }
+    return byNode;
+  }
+
+  private static Map<String, Set<String>> labelsByNode(List<NodeCandidate> candidates) {
+    Map<String, Set<String>> byNode = new LinkedHashMap<>();
+    for (NodeCandidate candidate : candidates) {
+      byNode.put(candidate.nodeId(), candidate.labels());
+    }
+    return byNode;
+  }
+
+  private static List<NodeFreeCapacity> freeCapacityOf(List<NodeCandidate> candidates) {
+    return candidates.stream()
+        .map(c -> new NodeFreeCapacity(c.nodeId(), c.freeMemoryBytes(), c.freeCpuMillicores()))
+        .toList();
   }
 }
