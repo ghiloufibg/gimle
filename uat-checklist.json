@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 749,
+    "totalRequirements": 769,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 622,
-    "releaseReadinessPercent": 17.0
+    "notCoveredByAutomatedTest": 642,
+    "releaseReadinessPercent": 16.5
   },
   "items": [
     {
@@ -8241,6 +8241,226 @@
       "category": "Internal/Infra",
       "feature": "Proxied query parameters are URL-encoded rather than relayed decoded",
       "step": "Given a proxied request whose query value contains a space When the control plane forwards it upstream Then the value arrives intact rather than producing an invalid URI",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-750",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "LimitRange management in the web console",
+      "step": "Given a tenant with no LimitRange When one is created with a minimum request but no maximum Then the maximum renders as unbounded rather than zero And re-editing it does not submit a zero maximum",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-751",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Volumes screen: see and reclaim orphaned StatefulSet volumes",
+      "step": "Given a StatefulSet volume no longer attached or in use When it is destroyed from the console Then the confirmation names the exact set, index and node And a node whose agent did not answer is reported rather than silently omitted",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-752",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Seal-key lifecycle in the web console",
+      "step": "Given an active sealing key When retirement of the currently active key is attempted Then it is refused locally with a rotate-first message And retiring another key requires typing its id after a consequence dialog",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-753",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Instance lifecycle event timeline on the instance detail page",
+      "step": "Given an instance that has restarted When its detail page is opened Then its lifecycle events are listed newest-first And only the ten most recent render until older ones are requested",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-754",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Per-deployment metrics rollup on the Metrics screen",
+      "step": "Given two tenants each running a deployment of the same name When the metrics rollup is rendered Then both rows are shown and both are flagged ambiguous And neither is merged nor attributed to a tenant",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-755",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Secrets master-key retirement from the console",
+      "step": "Given a secrets master key ring When retirement of the active key is attempted Then it is refused locally with a rotate-first message And retiring an older key requires typing its id after a consequence dialog",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-756",
+      "module": "gimle-controlplane",
+      "category": "Authorization",
+      "feature": "Live permission vocabulary endpoint driving the console's Roles picker",
+      "step": "Given a build whose ResourceKind enum gains a value When the console's Roles picker is opened Then the new value is offered without any console change And the picker still renders from its fallback if the endpoint is unreachable",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-757",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Workload detail pages render bounded, paginated instance tables",
+      "step": "Given a DaemonSet with one instance per node When its detail page renders the instance table Then each row has a distinct key despite every instance reporting index 0 And the row action links to a target that resolves for that workload kind",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-758",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "An expired console session is explained once, in plain language",
+      "step": "Given a signed-in operator whose session has expired When any request returns 401 Then no technical toast is shown And the login screen explains that the session expired",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-759",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Console screens keep themselves current",
+      "step": "Given a deployment scaled from another surface When its console screen is open with auto-refresh on Then the change appears without operator action And a poll never clobbers a form the operator is editing",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-760",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "Every mutating verb honours -o json, including the node and volume ones",
+      "step": "Given --output json When a node is cordoned Then stdout is parseable JSON naming the node and the result And an advisory about unreachable nodes goes to stderr rather than into the JSON body",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-761",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "A failed invocation exits with a code naming why it failed",
+      "step": "Given a command targeting a resource that does not exist When it is run Then it exits 3 rather than 1 And an unreachable control plane exits 6",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-762",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "gimle logs honours -o json",
+      "step": "Given a log query with no matching lines When it is run with --output json Then stdout is an empty JSON array And --follow emits one JSON object per line",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-763",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "gimle metrics: the per-deployment rollup from the terminal",
+      "step": "Given two tenants running a deployment of the same name When gimle metrics is run Then both rows are printed and both are flagged ambiguous And the advisory note is absent under --output json",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-764",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "gimle metrics-history and traces-history",
+      "step": "Given shipped metrics history for a worker When gimle metrics-history is run with a limit Then the newest entries are printed And the resume cursor names the last printed entry rather than the whole window",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-765",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "gimle context: pointing the CLI at more than one cluster",
+      "step": "Given a configured current context When a command is run with an explicit --server Then the explicit flag wins And a malformed config file degrades to a warning rather than breaking the command",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-766",
+      "module": "gimle-controlplane",
+      "category": "Observability",
+      "feature": "The audit trail pages with an eviction-safe cursor",
+      "step": "Given an audit trail longer than one page When the next page is requested by cursor Then the following events are returned without skipping or repeating And a cursor whose anchor has been evicted reports the walk as expired rather than guessing",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-767",
+      "module": "gimle-cli",
+      "category": "CLI",
+      "feature": "gimle get --watch observes a resource converging",
+      "step": "Given a deployment being scaled When gimle get deployments --watch is running Then only the changed row is printed on the next tick And a deleted row is reported as deleted rather than silently disappearing",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-768",
+      "module": "gimle-controlplane",
+      "category": "CLI",
+      "feature": "Dry-run preview for a workload submission",
+      "step": "Given a tenant near its memory quota When a manifest that would exceed it is submitted with dry-run Then the verdict reports the admission rejection and its reason And the store is unchanged And a real submission of the same manifest is rejected identically",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-769",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "The Audit screen's since filter sends the timestamp format the API parses",
+      "step": "Given an audit query narrowed by a since timestamp When it is sent from the console Then the control plane accepts it rather than answering 400",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -1,9 +1,9 @@
 # Gimlé Requirements Traceability Matrix (RTM)
 
 - **Baseline requirements document**: `REQUIREMENTS_MATRIX.md`, generated at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640`
-- **Current HEAD scanned**: `4134b92c10afb9075a446f1a5dfaf4ea1681dcd5` (`4134b92`), branch `claude/kubernetes-kinds-gimle-gap-o5499m`
+- **Current HEAD scanned**: `59600ce169af2960e98e02bc99fa417b29903b69` (`59600ce`), branch `claude/kubernetes-kinds-gimle-gap-o5499m`
 - **Rebase acknowledgment**: this branch was rebased onto `origin/master` for this scan. Between the baseline commit and `origin/master`'s current tip there is exactly **one** new commit -- `6bd450f` ("test: add Norn deterministic Raft fault-injection simulation"), which adds three new test-only files to `gimle-mimir` and modifies nothing else (`git diff 919bd40..origin/master --stat` confirms 3 files changed, 807 insertions, 0 deletions, 0 files touched elsewhere). Consequently **every one of the 564 baseline requirements is unchanged (`Active`)** -- none are `Modified` or `Removed` -- and exactly **one new requirement** (`GIMLE-565`) was discovered and added.
-- **Scan date**: 2026-08-23
+- **Scan date**: 2026-09-01
 
 ## Coverage rule (strict, as specified)
 
@@ -390,19 +390,19 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-373 | CronJob management incl. manual trigger | Active | Not Covered | — |
 | GIMLE-374 | DaemonSet resource management | Active | Not Covered | — |
 | GIMLE-375 | StatefulSet resource management | Active | Not Covered | — |
-| GIMLE-376 | Node inventory and cordon/uncordon | Active | Not Covered | — |
+| GIMLE-376 | Node inventory and cordon/uncordon | Modified | Not Covered | — |
 | GIMLE-377 | Instance lifecycle event timeline | Modified | Not Covered | — |
 | GIMLE-378 | Tenant management and quota configuration | Active | Not Covered | — |
 | GIMLE-379 | Tenant plain configuration key/value store | Active | Not Covered | — |
 | GIMLE-380 | Versioned secrets management (Fafnir proxy) | Active | Not Covered | — |
 | GIMLE-381 | Artifact registry client (push/list/get/delete) | Active | Not Covered | — |
 | GIMLE-382 | Log viewing and live tailing | Active | Not Covered | — |
-| GIMLE-383 | Audit trail query | Active | Not Covered | — |
+| GIMLE-383 | Audit trail query | Modified | Not Covered | — |
 | GIMLE-384 | RBAC role management | Active | Not Covered | — |
 | GIMLE-385 | RBAC role binding management | Active | Not Covered | — |
 | GIMLE-386 | Operator account management | Active | Not Covered | — |
 | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | Active | Not Covered | — |
-| GIMLE-388 | Dual table/JSON output formatting | Active | Not Covered | — |
+| GIMLE-388 | Dual table/JSON output formatting | Modified | Not Covered | — |
 | GIMLE-389 | kubectl-shaped global flag parsing, manifest-kind apply dispatch, and mTLS/leader-aware HTTP client | Active | Not Covered | — |
 | GIMLE-390 | Topology validation (`hilmir validate`) | Active | Not Covered | — |
 | GIMLE-391 | Cluster launch planning (`hilmir plan`) | Active | Not Covered | — |
@@ -470,8 +470,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-453 | Config entries management (per-tenant) | Active | Not Covered | — |
 | GIMLE-454 | Secrets management (Fafnir-backed, versioned) | Active | Not Covered | — |
 | GIMLE-455 | Module artifact registry browser (Andvari-backed) | Active | Not Covered | — |
-| GIMLE-456 | RBAC access control (roles, role bindings, accounts) | Active | Not Covered | — |
-| GIMLE-457 | Audit trail viewer with filtering | Active | Not Covered | — |
+| GIMLE-456 | RBAC access control (roles, role bindings, accounts) | Modified | Not Covered | — |
+| GIMLE-457 | Audit trail viewer with filtering | Modified | Not Covered | — |
 | GIMLE-458 | Control-plane status panel | Active | Not Covered | — |
 | GIMLE-459 | Theme toggle (light/dark) | Active | Not Covered | — |
 | GIMLE-460 | Playwright end-to-end smoke suite against a real cluster | Active | Not Covered | — |
@@ -635,7 +635,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-618 | Bifrost off-node service exposure (NodePort analogue) | New | Not Covered | — |
 | GIMLE-619 | Live config and secret propagation to running instances | New | Not Covered | — |
 | GIMLE-620 | SRV records and headless A answers | New | Not Covered | — |
-| GIMLE-621 | Cluster-wide volume operator surface (/volumes API + CLI) | New | Not Covered | — |
+| GIMLE-621 | Cluster-wide volume operator surface (/volumes API + CLI) | Modified | Not Covered | — |
 | GIMLE-622 | Soft volume disk-usage observation in instance heartbeats | New | Not Covered | — |
 | GIMLE-623 | NetworkPolicy interface scoping and egress enforcement | New | Not Covered | — |
 | GIMLE-624 | Certificate revocation denylist | New | Not Covered | — |
@@ -764,6 +764,26 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-747 | Gateway route-table and server fields are guarded under one monitor | New | Not Covered | — |
 | GIMLE-748 | A closed Bifrost service listener never serves one more connection | New | Not Covered | — |
 | GIMLE-749 | Proxied query parameters are URL-encoded rather than relayed decoded | New | Not Covered | — |
+| GIMLE-750 | LimitRange management in the web console | New | Not Covered | — |
+| GIMLE-751 | Volumes screen: see and reclaim orphaned StatefulSet volumes | New | Not Covered | — |
+| GIMLE-752 | Seal-key lifecycle in the web console | New | Not Covered | — |
+| GIMLE-753 | Instance lifecycle event timeline on the instance detail page | New | Not Covered | — |
+| GIMLE-754 | Per-deployment metrics rollup on the Metrics screen | New | Not Covered | — |
+| GIMLE-755 | Secrets master-key retirement from the console | New | Not Covered | — |
+| GIMLE-756 | Live permission vocabulary endpoint driving the console's Roles picker | New | Not Covered | — |
+| GIMLE-757 | Workload detail pages render bounded, paginated instance tables | New | Not Covered | — |
+| GIMLE-758 | An expired console session is explained once, in plain language | New | Not Covered | — |
+| GIMLE-759 | Console screens keep themselves current | New | Not Covered | — |
+| GIMLE-760 | Every mutating verb honours -o json, including the node and volume ones | New | Not Covered | — |
+| GIMLE-761 | A failed invocation exits with a code naming why it failed | New | Not Covered | — |
+| GIMLE-762 | gimle logs honours -o json | New | Not Covered | — |
+| GIMLE-763 | gimle metrics: the per-deployment rollup from the terminal | New | Not Covered | — |
+| GIMLE-764 | gimle metrics-history and traces-history | New | Not Covered | — |
+| GIMLE-765 | gimle context: pointing the CLI at more than one cluster | New | Not Covered | — |
+| GIMLE-766 | The audit trail pages with an eviction-safe cursor | New | Not Covered | — |
+| GIMLE-767 | gimle get --watch observes a resource converging | New | Not Covered | — |
+| GIMLE-768 | Dry-run preview for a workload submission | New | Not Covered | — |
+| GIMLE-769 | The Audit screen's since filter sends the timestamp format the API parses | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4220,7 +4240,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-621 — Cluster-wide volume operator surface (/volumes API + CLI)
 
 - **Category**: Storage / Operations
-- **Status**: New  _(newly added as part of the volume operator-surface work)_
+- **Status**: Modified  _(Modified by the CLI parity work: the `volume` verbs gained -o json structured results for their mutating forms, and the command now takes an err stream so a partial-failure path can report on stderr without polluting a JSON payload on stdout.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a StatefulSet scaled down under Retain, When the operator lists volumes and destroys the orphan through the CLI, Then the data directory is removed from the owning node.
 - **Other test coverage (non-Holmgang, informational only)**: `ApiServerTest` (aggregation, attachment, destroy guard), `AgentLogServerTest` (node-local listing/destroy), `LocalDiskVolumeManagerTest` (inventory, orphan destroy)
@@ -4521,6 +4541,33 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: Covered indirectly by the log-filtering gap note; no .feature exercises the proxy hop's query encoding directly.
 - **Other test coverage (non-Holmgang, informational only)**: ApiServerLogsFallbackTest covers a text filter containing a space surviving the proxy hop to both the live-agent and Muninn-fallback paths.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`forwardedQuery`)
+
+#### GIMLE-756 — Live permission vocabulary endpoint driving the console's Roles picker
+
+- **Category**: Authorization
+- **Status**: New  _(New requirement: Fixed: closes FUNC-40. The console's Roles resource picker was a fixed Select sourced from an 18-value list while com.gimle.core.authz.ResourceKind holds 26 -- missing ALERT_RULE, BACKUP, CONFIGMAP, CUSTOM_RESOURCE, FAULT, KIND_DEFINITION, LIMIT_RANGE and SECRETMAP, so an operator delegating 'read this tenant's ConfigMaps but not its Secrets', or scoping a LimitRange or FAULT grant, could only do it from the CLI. The finding's own card understated this as four missing values against a 21-value enum; the measured delta is eight against 26. Because the list had already drifted twice, the fix addresses the cause: a new read-only GET /authz/vocabulary serves the build's own ResourceKind and Verb enums and the picker reads it, with the static list demoted to an offline fallback and brought up to all 26 so even the fallback is not stale. The endpoint is gated consistently with its neighbour /authz/can-i -- under mTLS a caller must authenticate, but no grant is required and nothing is audited -- because the answer is a compile-time constant identical for every principal, revealing no cluster state and no hint of who may do what, and requiring a grant would break the picker for the very operator being asked to choose from it.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario reads /authz/vocabulary or drives the console's Roles screen. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: ApiServerAuthzTest#authz_vocabulary_serves_every_resource_kind_and_verb_this_build_enforces (full enum round-trip, 405 on a write, 401 unauthenticated); console lib/authz-vocabulary.test.ts (7), repository tests (7), store tests (6).
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAuthzVocabulary`), `gimle-console/src/lib/authz-vocabulary.ts`, `gimle-console/src/repositories/{authzVocabulary,http/authzVocabulary}.ts`, `gimle-console/src/components/rbac/permission-rows.tsx`
+
+#### GIMLE-766 — The audit trail pages with an eviction-safe cursor
+
+- **Category**: Observability
+- **Status**: New  _(New requirement: Fixed: closes FUNC-41. The Audit screen used a flat user-editable limit with no cursor while GET /audit returned events with no paging metadata, so past the limit matching events were unreachable except by narrowing filters, with no signal anything had been cut off. The trail is a ring buffer that moves at both ends, which is precisely what defeats an offset cursor: appends at the newest end shift every offset and cause a page to skip rows, while evictions at the oldest end shift them back and cause rows to repeat. The cursor therefore names an event rather than a position, pairing the event id with a fingerprint of the filter values. The fingerprint is what makes the failure case unambiguous -- without it a missing anchor could mean either eviction or a caller changing filters between pages, which need opposite answers -- so a cursor presented with different filters is rejected outright and a missing anchor can then only mean eviction. Because eviction is strictly oldest-first, an evicted anchor implies everything older is gone too, so the response reports the walk as expired with an empty page rather than guessing. That signal stays distinct from the existing whole-trail truncation fields, and both surfaces render them separately. Cursor resolution and page slicing happen against one store snapshot, so no concurrent append or eviction can land between the lookup and the cut.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario reads GET /audit. Covering the eviction path additionally needs a topology knob for the store's fixed event cap. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: AuditPageTest (8), ApiServerAuditPaginationTest (7) including a real eviction -- the ring is flooded until its cap has genuinely discarded the anchor, then the next page is fetched -- AuditCommandTest (5), plus console route and store tests (13).
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/{AuditCursor,AuditPage}.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleAudit`), `gimle-cli/src/main/java/com/gimle/cli/AuditCommand.java`, `gimle-console/src/{routes/audit.tsx,stores/useAuditStore.ts,repositories/audit.ts}`
+
+#### GIMLE-768 — Dry-run preview for a workload submission
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed: closes FUNC-68. No mutating command had a preview path -- every one committed immediately -- and the only adjacent capability, gimle can-i, is explicitly RBAC-only and never checks quota, LimitRange or placement feasibility. A dry-run parameter on the workload PUT routes now runs RBAC, manifest parsing, artifact resolution, the admission chain and placement feasibility, returns a structured verdict naming each stage's outcome and the status the real request would have answered with, and proposes nothing to the store. The preview shares the real path rather than duplicating it, which is what makes it trustworthy: it calls the very same admission chain instances with the same arguments, and its failure detail is asserted to equal the real rejection response body byte for byte. Placement previously had four copies of candidate construction across the reconcilers; those were unified into one source that the reconcilers and the preview both use, so the preview cannot drift from what the reconciler will actually do. The scheduler's own placement function was verified to hold no store reference and mutate nothing, so it is safe to call from a preview directly. A rejected preview exits with the code the real submission would have used, because a pipeline gate whose exit status differs from the command it guards is useless; an unplaceable replica is the deliberate exception, warning on stderr at a zero exit, since no admission stage refuses a workload for being unschedulable -- the replica waits for room. Preview is refused with a clear message for kinds that have no admission chain or placement, rather than silently accepted.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario exercises the dry-run parameter or the CLI flag. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: ApiServerDryRunTest (8) and DryRunCliTest (6): a predicted quota rejection confirmed identical against a real submission, a LimitRange violation, an infeasible placement whose message names the short dimension and the roomiest node, an RBAC-denied caller receiving no verdict body, and every test comparing a before/after store fingerprint across all five spec collections, assignments, job runs, the audit trail and controller revisions -- with one test proving that fingerprint does change on a real apply, so the assertion is not vacuous.
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/preview/{DryRunVerdict,PreviewCheck,PreviewOutcome,PlacementForecast,WorkloadPlacementPreview}.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/NodeCandidateSource.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-cli/src/main/java/com/gimle/cli/DryRun.java` and the five apply paths
 
 ### gimle-fafnir
 
@@ -5696,7 +5743,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-376 — Node inventory and cordon/uncordon
 
 - **Category**: CLI
-- **Status**: Active
+- **Status**: Modified  _(Modified by the CLI parity work: `node cordon`/`uncordon`/`taint`/`untaint` no longer print a fixed human sentence regardless of -o, emitting a {result,kind,id[,tenantId]} JSON object under -o json; list/assignments rows were extracted into listRows()/assignmentRows() so `get --watch` can re-render them per tick.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Node inventory and cordon/uncordon".
 - **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.get_nodes_lists_a_registered_node`, `get_nodes_as_json_includes_the_node_id_field`
@@ -5759,7 +5806,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-383 — Audit trail query
 
 - **Category**: CLI / Security
-- **Status**: Active
+- **Status**: Modified  _(Modified by the CLI parity work: `audit list` now pages over an eviction-safe cursor -- it gained --cursor and --all, reads nextCursor/cursorExpired/matchedCount off the response, and reports a cursor whose page had already been evicted rather than silently returning a short result.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Audit trail query".
 - **Other test coverage (non-Holmgang, informational only)**: `GimleCliTest.audit_list_with_no_filters_succeeds_and_is_empty_in_plaintext_mode`, `audit_list_accepts_every_filter_flag_without_a_malformed_request`, `audit_command_without_the_list_verb_prints_usage_and_nonzero_exit`
@@ -5804,7 +5851,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-388 — Dual table/JSON output formatting
 
 - **Category**: CLI / Internal-Infra
-- **Status**: Active
+- **Status**: Modified  _(Modified by the CLI parity work: -o json was previously honoured only by read verbs; every mutating verb across deployments, daemonsets, statefulsets, jobs, cronjobs, nodes and volumes now emits a structured result object under -o json instead of a human sentence, via OutputFormat.printResult.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang step definition shells out to the `gimle` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `gimle` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Dual table/JSON output formatting".
 - **Other test coverage (non-Holmgang, informational only)**: Exercised implicitly throughout GimleCliTest via -o json assertions
@@ -5944,6 +5991,69 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises this yet. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
 - **Other test coverage (non-Holmgang, informational only)**: GimleCliTest.get_deployment_as_manifest_then_reapplying_it_round_trips: applies a deployment, exports it via -o manifest, asserts the exported YAML contains kind:/name:/module:/replicas: and excludes moduleId/instances, then reapplies the exported file and asserts success -- the actual round trip the bug report described. GimleCliTest.apply_dash_f_dash_reads_the_manifest_from_stdin: redirects System.in to a manifest and asserts apply -f - succeeds and the resulting deployment is visible via a normal GET.
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/OutputFormat.java` (`Kind.MANIFEST`), `gimle-cli/src/main/java/com/gimle/cli/ManifestExport.java` (new), `gimle-cli/src/main/java/com/gimle/cli/{DeploymentsCommand,JobsCommand,CronJobsCommand,DaemonSetsCommand,StatefulSetsCommand}.java` (`get` -o manifest branch), `gimle-cli/src/main/java/com/gimle/cli/ManifestFiles.java` (stdin memoization, `resetStdinCache`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`handleApply` resets the stdin cache; `-o manifest` accepted by `parseOutputKind`)
+
+#### GIMLE-760 — Every mutating verb honours -o json, including the node and volume ones
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed: closes FUNC-56. gimle events and audit list honoured -o json, as did every sibling mutating command except NodesCommand's cordon/uncordon/taint/untaint and VolumesCommand.destroy, which printed a hardcoded human string regardless of the flag. The fix adopts the existing OutputFormat.printResult helper that 24 of 39 command classes already used, at the five holdout sites, with bodies following the same {result, kind, id} convention. The unreachable-nodes advisory in the volume listing was neither converted nor dropped: it is diagnostic rather than result data, and folding it into the body would force volume list to emit an object wrapper instead of the bare array every other list command emits, so it moved to stderr following the precedent already set for deprecation warnings -- stdout's own table or JSON output stays clean either way.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario invokes gimle-cli. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: CliOutputContractTest: seven cases parsing each JSON body back with Json, two table-mode regressions proving the human sentence is unchanged, and one proving volume list -o json leaves stdout a parsable empty array while the advisory goes to stderr.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/NodesCommand.java`, `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java`
+
+#### GIMLE-761 — A failed invocation exits with a code naming why it failed
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed: closes FUNC-79. ControlPlaneClient.describeError already classified failures by HTTP status -- invalid request, not found, method not allowed, conflict, not-leader -- plus a distinct network-unreachable path, but run's three catch blocks all returned 1 and CliException carried no distinction. A CliExitCode enum now defines 1 generic, 2 invalid input, 3 not found, 4 forbidden, 5 conflict and 6 unreachable or retryable, carried on CliException as a classification rather than a subtype hierarchy so the type stays final and five near-empty subclasses are avoided. describeError became errorFrom, returning the classified exception rather than a message string, and every IOException transport path throws the unreachable classification. 401 and 403 were not in the original switch at all and fell through to a bare unexpected-response message; both are now explicit and both map to forbidden, deliberately sharing a code because both mean the caller may not do this and no remedy depends on telling them apart. Client-side usage and argument errors stay on generic, documented explicitly rather than left implicit.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario invokes gimle-cli. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: CliOutputContractTest: nine cases producing each code from a real server -- invalid input via both a server 400 and a client-side manifest exception, not found, forbidden via a genuine 403, conflict via an admission 409, unreachable, generic usage error and success. Twenty-four existing assertions were updated to the new contract, each verified against the real observed status rather than weakened.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/CliExitCode.java`, `gimle-cli/src/main/java/com/gimle/cli/CliException.java`, `gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClient.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java`
+
+#### GIMLE-762 — gimle logs honours -o json
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed: closes the remaining half of FUNC-81. The finding's other half -- a zero-match query printing nothing and exiting 0 -- had already been closed by the log-filtering work, which prints an explicit no-lines-matched message naming the filter; that behaviour is preserved and still asserted. What remained was that LogsCommand referenced OutputFormat nowhere, so -o json was silently ignored for logs while every other list-shaped command honoured it. A single request now emits one JSON array of the raw structured line objects rather than a re-serialisation of the formatted human string, and --follow emits NDJSON, one object per line, because a never-ending stream has no closing bracket. A zero-match query under JSON prints an empty array, still valid to pipe onward.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario invokes gimle-cli. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: LogsCommandTest: three new cases covering structured fields under -o json, an empty array on zero match, and one object per line under --follow, alongside the pre-existing table-mode zero-match assertions.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/LogsCommand.java`
+
+#### GIMLE-763 — gimle metrics: the per-deployment rollup from the terminal
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed: closes FUNC-13's CLI half. Every row is printed exactly as the server sent it -- nothing merged, which would fabricate a cross-tenant average the server never computed, and nothing dropped. Because GET /metrics keys rows by deployment name alone while the RBAC filter behind it is per-tenant, two tenants running a same-named deployment produce rows a client cannot attribute; each row therefore carries a client-derived ambiguous flag present in both table and JSON output, and under the table format only a trailing note names the affected deployments and states that the rows carry no tenant id. The note is suppressed under -o json so the output stays one parseable document, mirroring the console's own treatment.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario invokes gimle-cli or reads GET /metrics. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: MetricsCommandTest (8) against a real ApiServer, including the same-deployment-name-across-tenants case asserting both rows present, both flagged, neither merged.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/MetricsCommand.java`
+
+#### GIMLE-764 — gimle metrics-history and traces-history
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed: closes FUNC-14. GET /metrics-history/* and GET /traces-history/* were fully wired into the console with zero references anywhere in gimle-cli. One command serves both surfaces through a shared enum matching the proxy's own shape. The process kind is validated locally against the five known kinds and a WORKER id must carry the {nodeId}:{workerId} composite. Only --since is forwarded, being the one parameter the proxy passes on; --limit is applied client-side keeping the newest N of an oldest-first response, the same treatment EventsCommand already gives its own limit and documented as such. Under the table format the resume cursor echoed is the last printed line's own timestamp rather than the envelope's cursor, because the two disagree once --limit truncates and emitting the envelope's value would silently skip records on the next call.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario invokes gimle-cli or reads shipped history. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: HistoryCommandTest (14) against a real ApiServer and a real MuninnServer, covering an unknown process kind, a malformed WORKER id, a non-numeric limit, a never-shipped-for processId reading back empty, and a control plane with no Muninn configured.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/HistoryCommand.java`
+
+#### GIMLE-765 — gimle context: pointing the CLI at more than one cluster
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed: closes FUNC-42. The only ways to select a cluster were the --server flag or the GIMLE_SERVER environment variable, parsed fresh on every invocation, with no config file and no context subcommand anywhere. A context command now manages a config file holding named endpoints, and resolution follows a fixed precedence -- --server, then GIMLE_SERVER, then the current context -- with each rung read only when every earlier one is absent, which is also what keeps a broken config file from costing anything on an explicit invocation. The context verbs themselves run before any server is resolved, since they are what an operator uses before one exists. A missing file is the normal case and is never created until a first write; a malformed one degrades to a warning on stderr plus the ordinary no-server-configured error, while the context verbs report it as a hard error naming the file. The file stores endpoints only and never credentials, is written temp-file-then-atomic-move, and is created owner-only with an owner-only parent directory where POSIX permissions are supported.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario invokes gimle-cli. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: ServerResolverTest (9), ContextCommandTest (19), ContextResolutionCliTest (6) covering no config file, both malformed shapes, and every precedence rung including --server beating a configured context end to end. Surefire pins the config path under target/ so no test can read a developer's real config.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/{CliConfig,CliContext,ServerResolver,ContextCommand}.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java`
+
+#### GIMLE-767 — gimle get --watch observes a resource converging
+
+- **Category**: CLI
+- **Status**: New  _(New requirement: Fixed: closes FUNC-69. --follow existed only for logs; every other read was a point-in-time snapshot, so watching a rollout, scale-up or cordon land meant a manual loop, with no equivalent of the obvious kubectl comparison. Watch is a client-side poll reusing the established follow idiom, since no streaming API exists outside logs. Each tick after the first prints a diff rather than the whole table -- re-printing eighty unchanged rows every interval is unreadable, and the operator cares about the two that moved -- under a header printed once, with an explicit event column. That column earns its place because a deletion is otherwise inexpressible: a poll-derived diff has nowhere else to say a row vanished, and re-printing the survivors cannot convey it. Row identity resolves through an ordered candidate field-set list falling back to whole-row content, so an unrecognised shape still diffs correctly, just as a delete plus an add rather than one modification. Under -o json the output is NDJSON matching the sibling logs --follow decision, wrapped in an envelope because the event kind is derived by the client's own diff and is not a field of the resource, leaving the object byte-for-byte what a non-watch read returns. Watch is refused outright on operator-authored declarative state, which changes only when somebody applies a change, rather than accepted as a poll that never prints a second line.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario invokes gimle-cli. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: ResourceWatchTest (14) against a real in-process cluster: a deployment applied, changed and deleted between ticks; a cordon landing mid-watch; NDJSON envelope shape; a server closed mid-watch giving up with the unreachable exit code; an unreachable first poll failing immediately; a non-watchable noun; a non-positive interval. Mid-watch mutations go over raw HTTP so they cannot pollute the asserted stdout buffer.
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/{ResourceWatch,WatchOptions}.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` and the five workload command classes plus NodesCommand
 
 ### gimle-hilmir
 
@@ -6584,7 +6694,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-456 — RBAC access control (roles, role bindings, accounts)
 
 - **Category**: Web Console / Frontend
-- **Status**: Active
+- **Status**: Modified  _(Modified by the console parity work: the Roles editor's permission picker is no longer driven by a hand-maintained TypeScript copy of ResourceKind/Verb that had drifted from the server's own enums -- it fetches the live vocabulary from GET /authz/vocabulary.)_
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying "RBAC access control (roles, role bindings, accounts)" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.
 - **Other test coverage (non-Holmgang, informational only)**: `src/repositories/http/roles.test.ts`, `roleBindings.test.ts`, `accounts.test.ts`
@@ -6593,7 +6703,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-457 — Audit trail viewer with filtering
 
 - **Category**: Web Console / Frontend
-- **Status**: Active
+- **Status**: Modified  _(Modified by the console parity work: the Audit screen's `since` filter now sends epoch millis, the format ApiServer actually parses (it previously sent an ISO-8601 string, which the server rejected, so the filter never worked), and the viewer consumes the paged cursor response.)_
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying "Audit trail viewer with filtering" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.
 - **Other test coverage (non-Holmgang, informational only)**: `src/stores/useAuditStore.test.ts`
@@ -6742,6 +6852,96 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No .feature drives the console. The Playwright suite in gimle-console/e2e is the natural home; it does not yet cover the Traces screen.
 - **Other test coverage (non-Holmgang, informational only)**: gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more.
 - **Source location(s)**: `gimle-console/src/routes/traces.tsx`, `src/routes/-trace-follow.ts`
+
+#### GIMLE-750 — LimitRange management in the web console
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-15. LimitRange CRUD was fully covered by the CLI's LimitRangeCommand while the console had no LimitRange screen or repository at all -- the only trace anywhere in gimle-console/src was a read-only violation badge on the Deployments list, derived from deployment status rather than the resource itself. A real screen now lists one row per tenant holding a LimitRange, with create/edit and confirm-delete following the Networking screen's own idiom. The path segment is the tenant id rather than a name (verified against handleLimitRange), so the tenant picker is disabled while editing, since the tenant id is the resource identity; the Http repository strips tenantId from the PUT body because the server builds the spec from the path and ignores the body's copy. An unset bound is genuinely absent rather than zero -- absent renders as an em dash and is omitted from the submitted body, while an explicitly typed 0 renders and round-trips as 0, so 'no bound' and 'a bound of 0' can never be confused. Cross-bound ordering is left to the server's own LimitRangeSpec constructor rather than re-implementing quantity parsing in the console.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario exercises LimitRange at all -- Holmgang has no LimitRange step definitions or topology fixture today. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: routes/-limitranges.test.ts (15), stores/useLimitRangesStore.test.ts (9), plus Mock and Http repository tests covering whole-spec replacement dropping a bound and an explicit zero staying distinct from absent.
+- **Source location(s)**: `gimle-console/src/routes/limitranges.tsx`, `gimle-console/src/stores/useLimitRangesStore.ts`, `gimle-console/src/repositories/{limitranges,http/limitranges}.ts`
+
+#### GIMLE-751 — Volumes screen: see and reclaim orphaned StatefulSet volumes
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-16. GET /volumes and DELETE /volumes/* were fully covered by the CLI's VolumesCommand while the console had no volumes repository or route -- the only mention of 'volume' anywhere was a warning sentence inside a StatefulSet delete dialog. The screen lists every volume across every node with its owning set, index, tenant, node, size and host path. State is derived from attached and inUse independently rather than collapsing one into the other, because the store's binding and the agent's node-local view answer different questions and can disagree, giving four honest states (in use / attached / in use, unbound / orphaned) instead of a misleading binary. Destroy is offered only for a volume that is neither attached nor in use, behind the console's existing confirm dialog naming the exact set/index/node and the bytes and host path being erased. A node whose agent did not answer is called out in a warning strip and the empty state says unknown rather than none, since a listing that silently omits one node's volumes is the wrong thing to trust on a reclamation screen. The store re-reads the whole listing after a destroy rather than splicing locally, because the unreachable set may have changed with it.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario reads or reclaims a volume. Covering this needs a topology that leaves a retained volume after a StatefulSet delete and asserts it is listed and destroyable. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: routes/-volumes.test.ts (19), stores/useVolumesStore.test.ts (11) including error surfacing, the unreachableNodes case and a stale-set-cleared case, plus Mock and Http repository tests.
+- **Source location(s)**: `gimle-console/src/routes/volumes.tsx`, `src/routes/-volumes.ts`, `gimle-console/src/stores/useVolumesStore.ts`, `gimle-console/src/repositories/{volumes,http/volumes}.ts`
+
+#### GIMLE-752 — Seal-key lifecycle in the web console
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-17. The seal-key lifecycle (GET /seal/public-key, POST /seal/rotate-key, POST /seal/retire-key) was fully covered by the CLI's SealCommand with zero console presence. The screen shows the active key's id and algorithm and its base64 X.509 SubjectPublicKeyInfo with a copy action, displayed as-is rather than parsed or prettified. Rotation is a single action; retirement is permanently destructive -- any ciphertext still under the retired id becomes unrecoverable -- so it is gated in three layers rather than one click: local pre-checks mirroring every rejection SealingKeyFileManager.retire itself makes (non-numeric, outside the 0-255 byte range, the base key 0 which regenerates rather than staying retired, and the currently active key), a confirm dialog stating the consequence in plain language, and a typed key-id confirmation. After rotation the store re-reads the public key rather than patching the new id onto the previous key's base64, since the rotate response carries only the id. The screen states that Fafnir publishes no listing of ring ids, which is why the id is typed rather than picked.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario exercises the sealing key ring from any surface. Covering this needs a scenario rotating and retiring through the real API and asserting a sealed value under the retired id is unrecoverable. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: routes/-seal.test.ts (8) validation branches and the confirmation gate, stores/useSealStore.test.ts (8) including a refused retire leaving the shown key alone, plus Mock and Http repository tests; the Mock was corrected to refuse the base key and to fail a second retire of the same id, matching Fafnir.
+- **Source location(s)**: `gimle-console/src/routes/seal.tsx`, `src/routes/-seal.ts`, `gimle-console/src/lib/key-retirement.ts`, `gimle-console/src/stores/useSealStore.ts`, `gimle-console/src/repositories/{seal,http/seal}.ts`
+
+#### GIMLE-753 — Instance lifecycle event timeline on the instance detail page
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-18. Instance event history (GET /events?deployment=&instance=) was covered by the CLI's gimle events with no console repository or UI anywhere, including on the instance detail page -- the natural home for a describe-style timeline. A panel now renders the timeline newest-first with each event's kind, message, optional cause summary and time, reusing the existing status-badge vocabulary rather than new colours. TRANSITION_FAILED is deliberately the only kind tinted as bad; UNINSTALLED is muted here, unlike the live-state badge, because in a timeline it is a routine teardown rather than a fault. GET /events has no limit parameter -- the whole timeline returns, newest-first -- so bounding is client-side following EventsCommand's own lead: ten most recent with a show-older toggle, so a crash-looping long-lived instance cannot render an unbounded wall. The store keys by the (tenantId, deploymentName, instanceIndex) triple and discards a response arriving after the operator navigated away.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario reads the instance event timeline through the API. Covering this needs a scenario that kills an instance, waits for the restart, and asserts the event appears. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: routes/-instance-events.test.ts (14), stores/useEventsStore.test.ts (7) including error surfacing, plus Mock and Http repository tests (9 and 6).
+- **Source location(s)**: `gimle-console/src/components/instance-events.tsx`, `gimle-console/src/lib/instance-events.ts`, `gimle-console/src/stores/useEventsStore.ts`, `gimle-console/src/routes/instances.$name.$idx.tsx`
+
+#### GIMLE-754 — Per-deployment metrics rollup on the Metrics screen
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-13's console half. The per-deployment rollup at GET /metrics was unreachable from either surface -- the console's Metrics screen derived its charts entirely from other stores and no metrics repository existed. A rollup panel now renders one row per deployment ordered attention-first (erroring worst-first, then busiest, then deployments reporting nothing ahead of the genuinely idle, then by name so the order is stable between polls). It was added rather than replacing the existing per-instance error panel, because that one is client-derived per instance while this is the server's own per-deployment computation, and instanceCount here means instances that reported a reading rather than instances that were placed -- a distinction a client-side average cannot make. GET /metrics carries no tenantId while the RBAC filter behind it is per-tenant, so two tenants running a same-named deployment produce two rows a client cannot tell apart: such rows are kept, never merged and never dropped, and flagged with an ambiguity badge plus a panel-level banner, rather than implying a precision the data does not have.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario reads GET /metrics. Covering this needs a scenario asserting the rollup's request and error rates against a deployment under real load. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: routes/-metrics-rollup.test.ts (14) covering ranking, ambiguity detection and formatting with an explicit five-test group for the same-name-across-tenants case; 5 store tests; Mock and Http repository tests asserting both same-named rows survive the repository layer.
+- **Source location(s)**: `gimle-console/src/routes/metrics.tsx`, `src/routes/-metrics-rollup.test.ts`, `gimle-console/src/stores/useMetricsRollupStore.ts`, `gimle-console/src/repositories/{metrics,http/metrics}.ts`
+
+#### GIMLE-755 — Secrets master-key retirement from the console
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-21. POST /secrets/retire-key was covered by the CLI's SecretCommand while the console's otherwise-complete Secrets screen wired rotate-key but not retire-key. Rather than mirroring the sealing-key screen's gating, the shared logic was extracted into one module parameterised only by a key noun, and both screens rewired onto it -- so the two destructive key-retirement flows cannot drift apart, and the sealing screen's existing assertions pass unchanged against the shared implementation. Both rings get the identical local pre-flight (non-numeric, out of range, the base key, the active key with a rotate-first message, while an unknown active id deliberately passes through for the server to rule on), the identical consequence dialog and the identical typed-key-id confirmation. The store learns the active key id from a rotation it performed, since Fafnir publishes no listing of the master ring, so the active-key refusal engages once known and stays permissive before then.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario retires a secrets master key. Covering this needs a scenario asserting a value written under a retired key id is unrecoverable afterwards. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: lib/key-retirement.test.ts (9), routes/-secrets.test.ts (4), plus Mock/Http repository and store tests (+8).
+- **Source location(s)**: `gimle-console/src/lib/key-retirement.ts`, `gimle-console/src/routes/{secrets.tsx,-secrets.ts,seal.tsx,-seal.ts}`, `gimle-console/src/repositories/{secrets,http/secrets}.ts`, `gimle-console/src/stores/useSecretsStore.ts`
+
+#### GIMLE-757 — Workload detail pages render bounded, paginated instance tables
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-80. The Deployment, DaemonSet and StatefulSet detail pages each rendered their entire instances array in a hand-rolled table with no limit or virtualization, while the console already had a paginated InstancesTable component used by the Nodes and Instances screens for the identical data shape. All three now render through it, 25 rows at a time. Two real defects surfaced while adopting it rather than after: the component's name column linked to /deployments/{name} and its row action to /instances/{name}/{index}, both dead ends on a DaemonSet page and the latter never resolving for StatefulSets either, so a workloadKind prop now routes the name link per kind and sends non-Deployment rows to the scoped Logs view; and the row key was {name}#{index}, which collided across every node for a DaemonSet whose instances all report index 0, so the key now includes nodeId.)_
+- **Coverage**: Not Covered
+- **Gap note**: Client-side rendering behaviour; no .feature scenario drives the console, and this is likely to remain a documented gap. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: lib/workload-instances.test.ts (11) covering per-kind link routing and the composite row key.
+- **Source location(s)**: `gimle-console/src/components/instances-table.tsx`, `gimle-console/src/lib/workload-instances.ts`, `gimle-console/src/routes/{deployments,daemonsets,statefulsets}.$name.tsx`
+
+#### GIMLE-758 — An expired console session is explained once, in plain language
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-57. A 401 correctly cleared auth state and redirected to /login, but nothing explained why -- no session-expired string existed anywhere in the console and the login screen could not distinguish a fresh visit from a bounced one -- while the triggering action independently fired a raw toast carrying the literal ApiError text 'control plane responded 401: ...'. A 401 now throws a dedicated SessionExpiredError carrying a plain-language message, thrown centrally so any catch site that only reads error.message still shows a sentence rather than the raw status text; the shared error helpers toast nothing at all for a 401 while still toasting everything else. The auth store records that a real signed-in principal was bounced, and the login screen renders a session-expired notice, suppressed when the screen has its own sign-in error so the two never stack. A 403 still surfaces in place as a permission message, since that user is legitimately logged in and merely lacks one permission.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario drives the console's login flow; the Playwright suite is the natural home. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: lib/api-error.test.ts (14), useAuthStore.test.ts (+5), apiClient.test.ts (+2); explicit assertions that a 401 produces zero toasts and that a 403 still surfaces in place.
+- **Source location(s)**: `gimle-console/src/repositories/http/apiClient.ts`, `gimle-console/src/lib/api-error.ts`, `gimle-console/src/stores/useAuthStore.ts`, `gimle-console/src/routes/login.tsx`
+
+#### GIMLE-759 — Console screens keep themselves current
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: closes FUNC-70. Auto-refresh existed only behind the Metrics/Traces go-live toggle; every workload and topology screen fetched once on mount and offered only a manual Refresh, so any reconciler-driven change was invisible until an operator acted. A shared poller now runs on a ten-second interval, on by default, behind a global switch persisted alongside the console's other display preferences. Rather than adding a second notion of live, the existing Metrics/Traces live polls and the Logs follow were rewritten onto the same poller and the global switch made master over them, so no screen carries two independent pollers. The poller skips rather than queues a tick whose predecessor is still in flight, stops on unmount, pauses while the tab is hidden and re-reads once on return, and holds its callbacks in refs so a re-render cannot reset the interval phase. Each store's poll is non-destructive: it never blanks the list, never raises the loading flag, requests at least as many rows as are already displayed so paged-in rows survive, keeps last-good data on failure, and stands aside while a manual load or a dirty form is in flight. Screens showing operator-authored configuration, and the destructive Seal Keys surface, are deliberately not polled.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario drives the console; the Playwright suite is the natural home. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: lib/polling.test.ts (10), form-state.test.ts (5), useDisplayStore.test.ts (5), useDeploymentsStore.test.ts (+7 on poll); explicit tests for an overlapping tick being skipped, a tick settling after stop, and polling stopping on unmount.
+- **Source location(s)**: `gimle-console/src/lib/polling.ts`, `gimle-console/src/hooks/use-auto-refresh.ts`, `gimle-console/src/lib/form-state.ts`, `gimle-console/src/stores/useDisplayStore.ts` and twelve resource stores
+
+#### GIMLE-769 — The Audit screen's since filter sends the timestamp format the API parses
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: Fixed: found while implementing audit pagination, not previously reported. The console sent the since filter as an ISO-8601 string while GET /audit parses epoch milliseconds, so any use of that filter returned 400 -- notable because narrowing the filters manually was the only workaround for the truncation that pagination exists to fix, and it was itself broken. The value is now converted at the repository boundary.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario reads GET /audit. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: The existing Http repository test was updated to assert the epoch-millis conversion.
+- **Source location(s)**: `gimle-console/src/repositories/http/audit.ts`
 
 ### gimle-fafnir-console
 
@@ -7890,7 +8090,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**622 of 749 requirements are Not Covered.**
+**642 of 769 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -7931,6 +8131,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-678 | gimle-mimir | Deleting a Role cascades to every RoleBinding naming it | Authorization | `StateStoreTest#remove_role_bindings_for_role_removes_only_the_bindings_naming_that_role`; `AuthorizerTest#a_role_re_created_under_a_deleted_roles_name_does_not_resurrect_its_old_binding`; `ApiServerAuthzTest#deleting_a_role_over_http_cascades_its_bindings_and_reports_and_audits_the_removal`; `GimleCliTest#deleting_a_role_cascades_to_every_rolebinding_that_named_it`. |
 | GIMLE-709 | gimle-controlplane | A group: RoleBinding subject now authorizes a session-cookie-authenticated (console/CLI-login) principal, not only a certificate-authenticated one | Authorization | ApiServerAuthzTest gained group_role_binding_authorizes_a_session_authenticated_principal, proving end to end: a group-bound RoleBinding grants a session-authenticated account carrying that group, denies one without it, and both revokes and grants access live (no re-login) when the store-side account's groups change mid-session. ApiServerAccountManagementTest gained coverage for groups round-tripping through PUT/GET, the password-hash never leaking, groups preserved when omitted from a reset, replaced when given explicitly, and cleared with an empty array. gimle-console gained accounts.test.ts/http/accounts.test.ts coverage for the same preserve-vs-replace behavior and the groups wire payload. |
 | GIMLE-727 | gimle-core | RBAC permissions accept a wildcard sentinel in the resource, verb and tenant-scope positions | Authorization | PermissionTest (10 new: wildcard in each position, wildcard combined with a named value, token round-trip, malformed/blank/unknown input, wildcard-qualifier rejection, wildcard never reaching a {kind}/status write); WildcardPermissionAuthzTest (new, 11: every ResourceKind covered by one stored grant, the stored role staying a single unexpanded permission, codec round-trip preserving the wildcard, a narrower grant alongside a wildcard grant, hasAnyReadGrant, an unbound principal unaffected); GimleCliTest (3 added). |
+| GIMLE-756 | gimle-controlplane | Live permission vocabulary endpoint driving the console's Roles picker | Authorization | ApiServerAuthzTest#authz_vocabulary_serves_every_resource_kind_and_verb_this_build_enforces (full enum round-trip, 405 on a write, 401 unauthenticated); console lib/authz-vocabulary.test.ts (7), repository tests (7), store tests (6). |
 | GIMLE-256 | gimle-controlplane | Console session login/logout/session cookie flow | Authorization / API Server | `ApiServerAuthzTest#login_session_and_logout_round_trip_with_no_client_certificate_at_all` |
 | GIMLE-251 | gimle-controlplane | WRITE/DELETE decisions durably audited (opt-in READ auditing) | Authorization / Internal-Infra | `ApiServerAuthzTest#configured_read_resource_kinds_are_audited_allowed_and_denied_reads` |
 | GIMLE-257 | gimle-controlplane | Login throttling (address + username keyed) | Authorization / Internal-Infra | Exercised via shared `LoginThrottle` mechanics (`FafnirObservabilityTest`'s equivalent); no isolated ApiServer-level test method found |
@@ -7972,6 +8173,14 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-602 | gimle-cli | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | CLI | `GimleCliTest` against a real `ApiServer` (not mocked): `deployment revisions`, `deployment rollback` with and without `--to-revision`, and the 404 failure path. |
 | GIMLE-605 | gimle-cli | `limitrange` get/set/delete verbs | CLI | `GimleCliTest.set_limitrange_then_get_limitranges_round_trips` against a real `ApiServer` (not mocked). |
 | GIMLE-653 | gimle-cli | CLI Flag Errors Always Show Usage | CLI | `FlagsTest` (unit-level); a real end-user pass against the built `gimle-cli` distribution archive |
+| GIMLE-760 | gimle-cli | Every mutating verb honours -o json, including the node and volume ones | CLI | CliOutputContractTest: seven cases parsing each JSON body back with Json, two table-mode regressions proving the human sentence is unchanged, and one proving volume list -o json leaves stdout a parsable empty array while the advisory goes to stderr. |
+| GIMLE-761 | gimle-cli | A failed invocation exits with a code naming why it failed | CLI | CliOutputContractTest: nine cases producing each code from a real server -- invalid input via both a server 400 and a client-side manifest exception, not found, forbidden via a genuine 403, conflict via an admission 409, unreachable, generic usage error and success. Twenty-four existing assertions were updated to the new contract, each verified against the real observed status rather than weakened. |
+| GIMLE-762 | gimle-cli | gimle logs honours -o json | CLI | LogsCommandTest: three new cases covering structured fields under -o json, an empty array on zero match, and one object per line under --follow, alongside the pre-existing table-mode zero-match assertions. |
+| GIMLE-763 | gimle-cli | gimle metrics: the per-deployment rollup from the terminal | CLI | MetricsCommandTest (8) against a real ApiServer, including the same-deployment-name-across-tenants case asserting both rows present, both flagged, neither merged. |
+| GIMLE-764 | gimle-cli | gimle metrics-history and traces-history | CLI | HistoryCommandTest (14) against a real ApiServer and a real MuninnServer, covering an unknown process kind, a malformed WORKER id, a non-numeric limit, a never-shipped-for processId reading back empty, and a control plane with no Muninn configured. |
+| GIMLE-765 | gimle-cli | gimle context: pointing the CLI at more than one cluster | CLI | ServerResolverTest (9), ContextCommandTest (19), ContextResolutionCliTest (6) covering no config file, both malformed shapes, and every precedence rung including --server beating a configured context end to end. Surefire pins the config path under target/ so no test can read a developer's real config. |
+| GIMLE-767 | gimle-cli | gimle get --watch observes a resource converging | CLI | ResourceWatchTest (14) against a real in-process cluster: a deployment applied, changed and deleted between ticks; a cordon landing mid-watch; NDJSON envelope shape; a server closed mid-watch giving up with the unreachable exit code; an unreachable first poll failing immediately; a non-watchable noun; a non-positive interval. Mid-watch mutations go over raw HTTP so they cannot pollute the asserted stdout buffer. |
+| GIMLE-768 | gimle-controlplane | Dry-run preview for a workload submission | CLI | ApiServerDryRunTest (8) and DryRunCliTest (6): a predicted quota rejection confirmed identical against a real submission, a LimitRange violation, an infeasible placement whose message names the short dimension and the roomiest node, an RBAC-denied caller receiving no verdict body, and every test comparing a before/after store fingerprint across all five spec collections, assignments, job runs, the audit trail and controller revisions -- with one test proving that fingerprint does change on a real apply, so the assertion is not vacuous. |
 | GIMLE-381 | gimle-cli | Artifact registry client (push/list/get/delete) | CLI / Build Tooling | NONE recorded in the baseline |
 | GIMLE-388 | gimle-cli | Dual table/JSON output formatting | CLI / Internal-Infra | Exercised implicitly throughout GimleCliTest via -o json assertions |
 | GIMLE-380 | gimle-cli | Versioned secrets management (Fafnir proxy) | CLI / Security | `GimleCliTest.secret_set_then_get_round_trips_the_plaintext_value`, `secret_list_shows_the_key_without_ever_printing_a_value`, `secret_versions_lists_every_claimed_version_after_two_writes`, `secret_get_with_an_explicit_version_reads_the_historical_value`, `secret_delete_then_get_returns_not_found`, `secret_rotate_key_returns_an_incrementing_active_key_id` |
@@ -8251,6 +8460,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-739 | gimle-observability | Trace sampling is configurable and parent-based | Observability | GimleTracingSamplingTest (new): default ratio records everything, a configured ratio is honoured on every install path, an out-of-range or non-numeric ratio is rejected, and a child span follows its parent's sampling decision rather than re-deciding. |
 | GIMLE-740 | gimle-muninn | Logs, metrics and traces each retain for their own configurable window | Observability | RetentionSweeperTest: each subtree swept on its own cutoff, a signal without an override follows the global window, an unknown subtree follows the global window, and sweeping twice or sweeping a missing data root stays a safe no-op. |
 | GIMLE-745 | gimle-pki | A failing certificate rotation check is durably visible with a failure streak, metrics and remaining validity | Observability | CertificateRotationMonitorTest (8), OwnCertificateRotatorTest (4), CertificateRotationMetricsTest (5), CertificateRotationAuditorTest (5). |
+| GIMLE-766 | gimle-controlplane | The audit trail pages with an eviction-safe cursor | Observability | AuditPageTest (8), ApiServerAuditPaginationTest (7) including a real eviction -- the ring is flooded until its cap has genuinely discarded the anchor, then the next page is fetched -- AuditCommandTest (5), plus console route and store tests (13). |
 | GIMLE-097 | gimle-worker | Per-module CPU/memory/request-rate/error-rate metrics reporting (portable, no cgroup) | Observability / Cgroup Management | NONE recorded in the baseline |
 | GIMLE-129 | gimle-agent | `hs_err_pid*.log` crash-dump listing and fetch | Observability / Cgroup Management | `AgentLogServerTest#crash_dumps_are_listed_from_the_right_worker_directory_only`, `#crash_dumps_list_is_empty_when_the_worker_never_crashed`, `#a_crash_dump_is_fetched_with_its_exact_content_and_a_plain_text_content_type`, `#crash_dump_fetch_rejects_a_filename_that_does_not_match_the_expected_pattern` |
 | GIMLE-083 | gimle-worker | Per-instance MDC log tagging for lifecycle/hook/probe/request-dispatch logging | Observability / Internal-Infra | `BoundedModuleSchedulerTest#mdc_tags_are_visible_inside_a_tagged_submission`, `#empty_mdc_tags_leave_the_submission_untagged`; `InstanceTaggingServiceRegistryTest#registers_untagged_when_no_identity_is_known_for_the_owner`, `#registers_a_tagging_proxy_when_identity_is_known` |
@@ -8491,6 +8701,16 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-593 | gimle-console | SecretMaps screen | Web Console / Frontend | `repositories/secretmaps.test.ts` (Mock repository CRUD, per-key independent versioning), `repositories/http/secretmaps.test.ts` (HTTP repository request shapes, base64 encoding), `stores/useSecretMapsStore.test.ts` (store error surfacing, per-key failure reporting distinct from a repository-level rejection). |
 | GIMLE-596 | gimle-console | SecretMaps screen History panel | Web Console / Frontend | `repositories/secretmaps.test.ts` (Mock repository group-version stamping and rollback), `repositories/http/secretmaps.test.ts` (HTTP request shapes for both new endpoints), `stores/useSecretMapsStore.test.ts` (`select` loading history, `rollback` refreshing both the SecretMap and its history, repository-level rejection surfaced as `store.error`). |
 | GIMLE-741 | gimle-console | A trace can be followed across processes from the console's Traces screen | Web Console / Frontend | gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more. |
+| GIMLE-750 | gimle-console | LimitRange management in the web console | Web Console / Frontend | routes/-limitranges.test.ts (15), stores/useLimitRangesStore.test.ts (9), plus Mock and Http repository tests covering whole-spec replacement dropping a bound and an explicit zero staying distinct from absent. |
+| GIMLE-751 | gimle-console | Volumes screen: see and reclaim orphaned StatefulSet volumes | Web Console / Frontend | routes/-volumes.test.ts (19), stores/useVolumesStore.test.ts (11) including error surfacing, the unreachableNodes case and a stale-set-cleared case, plus Mock and Http repository tests. |
+| GIMLE-752 | gimle-console | Seal-key lifecycle in the web console | Web Console / Frontend | routes/-seal.test.ts (8) validation branches and the confirmation gate, stores/useSealStore.test.ts (8) including a refused retire leaving the shown key alone, plus Mock and Http repository tests; the Mock was corrected to refuse the base key and to fail a second retire of the same id, matching Fafnir. |
+| GIMLE-753 | gimle-console | Instance lifecycle event timeline on the instance detail page | Web Console / Frontend | routes/-instance-events.test.ts (14), stores/useEventsStore.test.ts (7) including error surfacing, plus Mock and Http repository tests (9 and 6). |
+| GIMLE-754 | gimle-console | Per-deployment metrics rollup on the Metrics screen | Web Console / Frontend | routes/-metrics-rollup.test.ts (14) covering ranking, ambiguity detection and formatting with an explicit five-test group for the same-name-across-tenants case; 5 store tests; Mock and Http repository tests asserting both same-named rows survive the repository layer. |
+| GIMLE-755 | gimle-console | Secrets master-key retirement from the console | Web Console / Frontend | lib/key-retirement.test.ts (9), routes/-secrets.test.ts (4), plus Mock/Http repository and store tests (+8). |
+| GIMLE-757 | gimle-console | Workload detail pages render bounded, paginated instance tables | Web Console / Frontend | lib/workload-instances.test.ts (11) covering per-kind link routing and the composite row key. |
+| GIMLE-758 | gimle-console | An expired console session is explained once, in plain language | Web Console / Frontend | lib/api-error.test.ts (14), useAuthStore.test.ts (+5), apiClient.test.ts (+2); explicit assertions that a 401 produces zero toasts and that a 403 still surfaces in place. |
+| GIMLE-759 | gimle-console | Console screens keep themselves current | Web Console / Frontend | lib/polling.test.ts (10), form-state.test.ts (5), useDisplayStore.test.ts (5), useDeploymentsStore.test.ts (+7 on poll); explicit tests for an overlapping tick being skipped, a tick settling after stop, and polling stopping on unmount. |
+| GIMLE-769 | gimle-console | The Audit screen's since filter sends the timestamp format the API parses | Web Console / Frontend | The existing Http repository test was updated to assert the epoch-millis conversion. |
 | GIMLE-475 | gimle-saga-console | Runs list (no authentication) | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "listRuns fetches /api/runs and maps every entry" |
 | GIMLE-476 | gimle-saga-console | Live run detail with streaming test feed | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "followRunEvents streams new finished-test events and skips the already-known count" |
 | GIMLE-477 | gimle-saga-console | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | `src/repositories/http/mapping.test.ts` — "groups attachment events by kind and skips unparseable or unrecognized payloads", "accepts a payload shipped as an array of the shape" |

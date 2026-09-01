@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 749
+- **Total requirements**: 769
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 622
-- **Release-readiness (automated coverage)**: 17.0%
+- **Not covered by automated test**: 642
+- **Release-readiness (automated coverage)**: 16.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,16 +21,16 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 53 | 6 | 47 | 11.3% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 104 | 17 | 87 | 16.3% |
+| gimle-controlplane | 107 | 17 | 90 | 15.9% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
 | gimle-gateway | 20 | 0 | 20 | 0.0% |
-| gimle-cli | 33 | 0 | 33 | 0.0% |
+| gimle-cli | 40 | 0 | 40 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 39 | 0 | 39 | 0.0% |
+| gimle-console | 49 | 0 | 49 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -1080,6 +1080,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-253 | Node-scoped self-service authorization (`gimle:nodes` group) | Given a certificate carrying gimle:nodes and CN=node-42; When calling POST /nodes/node-42/heartbeat; Then it succeeds via the self-service short-circuit; a request against node-99 is rejected. | No |
 | [ ] | GIMLE-254 | Node-tenant-scoped `/endpoints/*` read access | Given node-42 has an active instance for tenant T; When it calls GET /endpoints/{workload-of-T}; Then access is granted; a request for a tenant it has no assignment for is rejected 403. | No |
 | [ ] | GIMLE-709 | A group: RoleBinding subject now authorizes a session-cookie-authenticated (console/CLI-login) principal, not only a certificate-authenticated one | Given a Role bound to `group:qa-team` granting DEPLOYMENT:READ, and an Account with groups=["qa-team"]; When that account logs in via the console and requests GET /deployments; Then the request is authorized. Given the same setup but an Account with no groups; When it requests GET /deployments; Then the request is denied with 403. Given an already-logged-in session for an account currently in `qa-team`; When an operator removes that account's groups via PUT /accounts/{username} with an explicit empty groups array; Then the very next request on that same session is denied, with no re-login required. Given an account with groups=["qa-team"]; When its password is reset via PUT /accounts/{username} with only {password} (no groups field); Then its group membership is unchanged. | No |
+| [ ] | GIMLE-756 | Live permission vocabulary endpoint driving the console's Roles picker | Given a build whose ResourceKind enum gains a value When the console's Roles picker is opened Then the new value is offered without any console change And the picker still renders from its fallback if the endpoint is unreachable | No |
 
 #### Authorization / API Server
 
@@ -1093,6 +1094,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-251 | WRITE/DELETE decisions durably audited (opt-in READ auditing) | Given -Dgimle.controlplane.audit.readResourceKinds=CONFIG,SECRET; When a READ hits /config/* or /secrets/*; Then an AuditEvent is durably appended even for allowed reads. | No |
 | [ ] | GIMLE-257 | Login throttling (address + username keyed) | Given repeated failed logins for the same username from different addresses; When the username-keyed threshold is exceeded; Then further attempts are throttled with 429+Retry-After. | No |
+
+#### CLI
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-768 | Dry-run preview for a workload submission | Given a tenant near its memory quota When a manifest that would exceed it is submitted with dry-run Then the verdict reports the admission rejection and its reason And the store is unchanged And a real submission of the same manifest is rejected identically | No |
 
 #### Config / Authorization
 
@@ -1210,6 +1217,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-711 | A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved | Given an enabled AlertRule on deployment 'checkout-service' with metric=ERROR_RATE_PER_SECOND, comparator=GREATER_THAN, threshold=5.0; When the deployment's averaged observed error rate rises to 8.0 on a reconcile tick; Then exactly one FIRING webhook notification is sent. Given the rule from the previous scenario is already firing; When a later reconcile tick observes the error rate still above threshold; Then no additional notification is sent. Given the rule is firing; When the observed error rate drops back to 1.0; Then exactly one RESOLVED webhook notification is sent, and no further notification is sent while it stays resolved. Given a disabled AlertRule whose metric is currently crossed; When the reconciler evaluates it; Then no notification is ever sent. | No |
+| [ ] | GIMLE-766 | The audit trail pages with an eviction-safe cursor | Given an audit trail longer than one page When the next page is requested by cursor Then the following events are returned without skipping or repeating And a cursor whose anchor has been evicted reports the walk as expired rather than guessing | No |
 
 #### Orchestration / Internal-Infra
 
@@ -1757,6 +1765,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first. | No |
 | [ ] | GIMLE-605 | `limitrange` get/set/delete verbs | Given no LimitRange for tenant "acme" exists, When "gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m", Then PUT /limitranges/acme creates it and "gimle get limitrange acme" returns minRequest {memory: "64Mi", cpu: "50m"}. | No |
 | [ ] | GIMLE-653 | CLI Flag Errors Always Show Usage | Given a command like "secret set default my-secret hunter2" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does. | No |
+| [ ] | GIMLE-760 | Every mutating verb honours -o json, including the node and volume ones | Given --output json When a node is cordoned Then stdout is parseable JSON naming the node and the result And an advisory about unreachable nodes goes to stderr rather than into the JSON body | No |
+| [ ] | GIMLE-761 | A failed invocation exits with a code naming why it failed | Given a command targeting a resource that does not exist When it is run Then it exits 3 rather than 1 And an unreachable control plane exits 6 | No |
+| [ ] | GIMLE-762 | gimle logs honours -o json | Given a log query with no matching lines When it is run with --output json Then stdout is an empty JSON array And --follow emits one JSON object per line | No |
+| [ ] | GIMLE-763 | gimle metrics: the per-deployment rollup from the terminal | Given two tenants running a deployment of the same name When gimle metrics is run Then both rows are printed and both are flagged ambiguous And the advisory note is absent under --output json | No |
+| [ ] | GIMLE-764 | gimle metrics-history and traces-history | Given shipped metrics history for a worker When gimle metrics-history is run with a limit Then the newest entries are printed And the resume cursor names the last printed entry rather than the whole window | No |
+| [ ] | GIMLE-765 | gimle context: pointing the CLI at more than one cluster | Given a configured current context When a command is run with an explicit --server Then the explicit flag wins And a malformed config file degrades to a warning rather than breaking the command | No |
+| [ ] | GIMLE-767 | gimle get --watch observes a resource converging | Given a deployment being scaled When gimle get deployments --watch is running Then only the changed row is printed on the next tick And a deleted row is reported as deleted rather than silently disappearing | No |
 
 #### CLI / Build Tooling
 
@@ -1969,6 +1984,16 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-593 | SecretMaps screen | Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing. | No |
 | [ ] | GIMLE-596 | SecretMaps screen History panel | Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks "Roll back" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked "rollback of v1". | No |
 | [ ] | GIMLE-741 | A trace can be followed across processes from the console's Traces screen | Given a trace whose spans were created in two different worker processes When that trace id is selected on the Traces screen Then spans from both processes are shown grouped by process and nested by parent And processes the view could not reach are named explicitly | No |
+| [ ] | GIMLE-750 | LimitRange management in the web console | Given a tenant with no LimitRange When one is created with a minimum request but no maximum Then the maximum renders as unbounded rather than zero And re-editing it does not submit a zero maximum | No |
+| [ ] | GIMLE-751 | Volumes screen: see and reclaim orphaned StatefulSet volumes | Given a StatefulSet volume no longer attached or in use When it is destroyed from the console Then the confirmation names the exact set, index and node And a node whose agent did not answer is reported rather than silently omitted | No |
+| [ ] | GIMLE-752 | Seal-key lifecycle in the web console | Given an active sealing key When retirement of the currently active key is attempted Then it is refused locally with a rotate-first message And retiring another key requires typing its id after a consequence dialog | No |
+| [ ] | GIMLE-753 | Instance lifecycle event timeline on the instance detail page | Given an instance that has restarted When its detail page is opened Then its lifecycle events are listed newest-first And only the ten most recent render until older ones are requested | No |
+| [ ] | GIMLE-754 | Per-deployment metrics rollup on the Metrics screen | Given two tenants each running a deployment of the same name When the metrics rollup is rendered Then both rows are shown and both are flagged ambiguous And neither is merged nor attributed to a tenant | No |
+| [ ] | GIMLE-755 | Secrets master-key retirement from the console | Given a secrets master key ring When retirement of the active key is attempted Then it is refused locally with a rotate-first message And retiring an older key requires typing its id after a consequence dialog | No |
+| [ ] | GIMLE-757 | Workload detail pages render bounded, paginated instance tables | Given a DaemonSet with one instance per node When its detail page renders the instance table Then each row has a distinct key despite every instance reporting index 0 And the row action links to a target that resolves for that workload kind | No |
+| [ ] | GIMLE-758 | An expired console session is explained once, in plain language | Given a signed-in operator whose session has expired When any request returns 401 Then no technical toast is shown And the login screen explains that the session expired | No |
+| [ ] | GIMLE-759 | Console screens keep themselves current | Given a deployment scaled from another surface When its console screen is open with auto-refresh on Then the change appears without operator action And a poll never clobbers a form the operator is editing | No |
+| [ ] | GIMLE-769 | The Audit screen's since filter sends the timestamp format the API parses | Given an audit query narrowed by a since timestamp When it is sent from the console Then the control plane accepts it rather than answering 400 | No |
 
 #### Web Console / Testing
 
