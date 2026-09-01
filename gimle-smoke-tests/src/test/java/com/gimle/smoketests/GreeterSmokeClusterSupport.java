@@ -1936,8 +1936,9 @@ abstract class GreeterSmokeClusterSupport {
   }
 
   /**
-   * {@code POST /services} -- the same request shape {@code ApiServer#handlePostService} parses
-   * (name/tenantId/deploymentNames/port/targetPort, {@code targetPort} defaulting to {@code port}).
+   * {@code POST /services} -- the same request shape {@code ApiServer#handlePostService} parses. No
+   * {@code targetPort} is sent: the Service resolves to whatever single port each backing instance
+   * reports, rather than pinning one the instance may never listen on.
    */
   void putService(
       String baseUrl, String name, Optional<String> tenantId, Set<String> deploymentNames, int port)

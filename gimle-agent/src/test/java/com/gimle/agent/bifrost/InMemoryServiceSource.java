@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /**
@@ -39,7 +40,8 @@ final class InMemoryServiceSource implements ServiceSource {
       boolean sessionAffinity,
       List<ServiceEndpoint> endpoints) {
     summaries.put(name, new ServiceSummary(name, tenantId, deploymentNames));
-    services.put(name, new ServiceEndpoints(name, port, port, sessionAffinity, endpoints));
+    services.put(
+        name, new ServiceEndpoints(name, port, OptionalInt.of(port), sessionAffinity, endpoints));
   }
 
   synchronized void remove(String name) {

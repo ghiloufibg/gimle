@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.TreeSet;
 
 /**
  * Computes a {@link ServiceSpec}'s current live endpoint set from the same assignment/heartbeat/
@@ -26,34 +28,43 @@ public final class ServiceEndpointResolver {
 
   private ServiceEndpointResolver() {}
 
-  public static List<ServiceEndpoint> resolve(StoreReader store, ServiceSpec spec) {
-    // An ExternalName Service resolves to exactly its declared external host at targetPort --
-    // there are no backing instances to join against, and the host is a name the caller's own
-    // resolver (or the OS) turns into an address, never one of this cluster's node hosts.
+  public static ServiceEndpointResolution resolve(final StoreReader store, final ServiceSpec spec) {
+    // An ExternalName Service resolves to exactly its declared external host -- there are no
+    // backing instances to join against, and the host is a name the caller's own resolver (or the
+    // OS) turns into an address, never one of this cluster's node hosts. With no instance to read
+    // a port off, an undeclared targetPort can only mean the port callers already dial.
     if (spec.isExternalName()) {
-      return List.of(new ServiceEndpoint(spec.externalName().orElseThrow(), spec.targetPort()));
+      final int port = spec.targetPort().orElse(spec.port());
+      return new ServiceEndpointResolution(
+          List.of(new ServiceEndpoint(spec.externalName().orElseThrow(), port)), List.of());
     }
-    List<ServiceEndpoint> endpoints = new ArrayList<>();
-    for (String deploymentName : spec.deploymentNames()) {
-      for (InstanceAssignment assignment :
+    final List<ServiceEndpoint> endpoints = new ArrayList<>();
+    final List<String> exclusions = new ArrayList<>();
+    for (final String deploymentName : spec.deploymentNames()) {
+      for (final InstanceAssignment assignment :
           store.listAssignmentsFor(spec.tenantId(), deploymentName)) {
-        readyObservation(store, assignment)
-            .flatMap(ServiceEndpointResolver::solePort)
+        final Optional<InstanceObservation> observation = readyObservation(store, assignment);
+        if (observation.isEmpty()) {
+          continue;
+        }
+        final OptionalInt port = selectPort(spec, observation.get());
+        if (port.isEmpty()) {
+          exclusions.add(exclusionReason(spec, assignment, observation.get()));
+          continue;
+        }
+        resolveHost(store, assignment.nodeId())
             .ifPresent(
-                port ->
-                    resolveHost(store, assignment.nodeId())
-                        .ifPresent(
-                            host ->
-                                endpoints.add(
-                                    new ServiceEndpoint(
-                                        host, port, Optional.of(assignment.nodeId())))));
+                host ->
+                    endpoints.add(
+                        new ServiceEndpoint(
+                            host, port.getAsInt(), Optional.of(assignment.nodeId()))));
       }
     }
-    return endpoints;
+    return new ServiceEndpointResolution(endpoints, exclusions);
   }
 
   private static Optional<InstanceObservation> readyObservation(
-      StoreReader store, InstanceAssignment assignment) {
+      final StoreReader store, final InstanceAssignment assignment) {
     return store
         .getNodeHeartbeat(assignment.nodeId())
         .map(ObservedHeartbeat::heartbeat)
@@ -71,19 +82,62 @@ public final class ServiceEndpointResolver {
   }
 
   /**
-   * {@link InstanceObservation#ports()} is keyed by the vessel env-var name a port was declared
-   * under (e.g. {@code "HTTP_PORT"}), and {@link ServiceSpec} carries no selector naming which
-   * declared port is "the" service port -- unlike {@code gimle-gateway}'s own {@code
-   * GatewayRoute#portName}, which exists precisely to resolve that same ambiguity for its own
-   * routes. An instance declaring exactly one port is unambiguous; one declaring zero or several
-   * contributes no endpoint this tick rather than guessing which one a Service means.
+   * A declared {@code targetPort} is authoritative: the instance contributes an endpoint on exactly
+   * that port, or contributes nothing at all -- never some other port that happens to be the only
+   * one it reports, which would silently send traffic somewhere the operator never named.
+   *
+   * <p>With no {@code targetPort} declared there is nothing to match against: {@link
+   * InstanceObservation#ports()} is keyed by the name a port was declared under (e.g. {@code
+   * "HTTP_PORT"}) and {@link ServiceSpec} carries no port-name selector -- unlike {@code
+   * gimle-gateway}'s own {@code GatewayRoute#portName}, which exists precisely to resolve that same
+   * ambiguity for its own routes. An instance reporting exactly one port is then unambiguous; one
+   * reporting zero or several contributes no endpoint rather than a guess.
    */
-  private static Optional<Integer> solePort(InstanceObservation observation) {
-    Map<String, Integer> ports = observation.ports();
-    return ports.size() == 1 ? Optional.of(ports.values().iterator().next()) : Optional.empty();
+  private static OptionalInt selectPort(
+      final ServiceSpec spec, final InstanceObservation observation) {
+    final Map<String, Integer> ports = observation.ports();
+    if (spec.targetPort().isPresent()) {
+      final int declared = spec.targetPort().getAsInt();
+      return ports.containsValue(declared) ? OptionalInt.of(declared) : OptionalInt.empty();
+    }
+    return ports.size() == 1
+        ? OptionalInt.of(ports.values().iterator().next())
+        : OptionalInt.empty();
   }
 
-  private static Optional<String> resolveHost(StoreReader store, String nodeId) {
+  private static String exclusionReason(
+      final ServiceSpec spec,
+      final InstanceAssignment assignment,
+      final InstanceObservation observation) {
+    final String instance =
+        assignment.deploymentName()
+            + '/'
+            + assignment.instanceIndex()
+            + " on node "
+            + assignment.nodeId();
+    final String reported = new TreeSet<>(observation.ports().values()).toString();
+    if (spec.targetPort().isPresent()) {
+      return "service "
+          + spec.name()
+          + " declares targetPort "
+          + spec.targetPort().getAsInt()
+          + ", which instance "
+          + instance
+          + " does not report; it reports "
+          + reported;
+    }
+    return "service "
+        + spec.name()
+        + " declares no targetPort, and instance "
+        + instance
+        + " reports "
+        + observation.ports().size()
+        + " ports "
+        + reported
+        + " -- exactly one is needed to pick without guessing";
+  }
+
+  private static Optional<String> resolveHost(final StoreReader store, final String nodeId) {
     return store
         .getNodeRegistration(nodeId)
         .flatMap(NodeRegistration::apiAddress)
@@ -91,8 +145,8 @@ public final class ServiceEndpointResolver {
   }
 
   /** Strips a trailing {@code :port} off a registered {@code host:port} node address. */
-  private static String hostOnly(String hostPort) {
-    int at = hostPort.lastIndexOf(':');
+  private static String hostOnly(final String hostPort) {
+    final int at = hostPort.lastIndexOf(':');
     return at < 0 ? hostPort : hostPort.substring(0, at);
   }
 }

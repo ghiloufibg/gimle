@@ -50,8 +50,8 @@ public final class ModuleFixtures {
 
   /**
    * A hosted (non-Vessel) module that reports its own port at runtime, the mechanism {@code
-   * ServiceEndpointResolver.solePort()} needs to resolve a Service endpoint for an ordinary
-   * fabric-hosted module instead of only ever a Vessel workload's allocated port.
+   * ServiceEndpointResolver} needs to resolve a Service endpoint for an ordinary fabric-hosted
+   * module instead of only ever a Vessel workload's allocated port.
    */
   public static Path portReportingProviderJar(final Path outputDir) {
     return providerVariant(

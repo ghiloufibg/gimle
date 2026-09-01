@@ -32,11 +32,11 @@ import org.junit.jupiter.api.Timeout;
  * call travels: {@code WorkerMain}'s periodic metrics loop sends a real {@code
  * ControlMessage.MetricsReport} carrying {@code ports} over a real socket, {@link
  * AgentMain#readLoop} decodes it and folds it into the matching {@link SupervisedInstance#ports},
- * and {@link AgentMain#observationJson} exposes it in the exact single-entry shape {@code
- * ServiceEndpointResolver#solePort} (in {@code gimle-controlplane}, not reachable from this module)
- * requires to resolve a live endpoint -- this test can't call that method directly, so it
- * re-asserts its documented contract (a {@code ports} map with exactly one entry resolves
- * unambiguously) against the real map this instance produces.
+ * and {@link AgentMain#observationJson} exposes it in the exact shape {@code
+ * ServiceEndpointResolver} (in {@code gimle-controlplane}, not reachable from this module) needs to
+ * resolve a live endpoint -- this test can't call that resolver directly, so it re-asserts its
+ * documented contract (a {@code ports} map with exactly one entry resolves unambiguously when the
+ * Service declares no targetPort) against the real map this instance produces.
  */
 class AgentMetricsReportPortFoldingTest {
 
@@ -90,7 +90,10 @@ class AgentMetricsReportPortFoldingTest {
 
       Map<String, Object> observation = AgentMain.observationJson(instance);
       Map<?, ?> observedPorts = (Map<?, ?>) observation.get("ports");
-      assertEquals(1, observedPorts.size(), "solePort() only resolves an unambiguous single port");
+      assertEquals(
+          1,
+          observedPorts.size(),
+          "a Service with no targetPort only resolves an unambiguous single port");
       assertTrue(observedPorts.containsKey("HTTP_PORT"));
       assertEquals(8080, observedPorts.get("HTTP_PORT"));
     } finally {

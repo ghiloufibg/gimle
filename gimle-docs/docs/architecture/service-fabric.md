@@ -112,8 +112,42 @@ like every other reconciler in this codebase — each tick recomputes a Service'
 from scratch off the current store snapshot rather than diffing against the last tick, so an empty
 store, a mid-rollout store, and a fully-converged store all take the same code path. `ApiServer`
 exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (returning
-`{"name","port","targetPort","sessionAffinity","endpoints":[{"host","port","nodeId"}]}`),
-RBAC-gated via `ResourceKind.SERVICE`.
+`{"name","port","targetPort","sessionAffinity","endpoints":[{"host","port","nodeId"}]}`, with
+`targetPort` present only when the Service declared one), RBAC-gated via `ResourceKind.SERVICE`.
+
+### `targetPort` is optional, and authoritative when present
+
+`port` is what a caller dials the Service on. `targetPort` is what the backing instances must
+actually be listening on, and — unlike Kubernetes — it does **not** default to `port`, because
+instance ports here are reported at runtime (a vessel's allocated port, a hosted module's own
+`ModuleContext#reportPort`) and are routinely ephemeral. Defaulting would quietly empty the
+endpoint list of every ephemeral-port workload. The two cases behave differently on purpose:
+
+- **`targetPort` declared** — it is authoritative. Each backing instance contributes an endpoint on
+  exactly that port, and an instance that does not report that port contributes *nothing*, with the
+  reason logged (`service endpoint excluded: ...`, naming the instance and the ports it does
+  report). A wrong port is worse than a missing endpoint. This is also what makes a multi-port
+  instance usable at all: the declaration picks which port the Service means.
+- **`targetPort` omitted** — there is nothing to match on, so an instance reporting exactly one port
+  contributes it, and an instance reporting zero or several contributes nothing rather than a guess
+  (`ServiceSpec` carries no port-*name* selector, unlike `gimle-gateway`'s own `portName`). The same
+  exclusion line is logged for the ambiguous case.
+
+Because instance ports arrive through heartbeats and change over a workload's life, a `targetPort`
+nothing currently reports is level-triggered state, not a permanent fact — declaring a Service
+before the Deployment behind it exists is routine. So it is never an admission error: `POST
+/services` still returns 200 and attaches an `X-Gimle-Warning` header naming the declared port and
+the ports backing instances do report. `gimle set service` and `gimle apply -f` print each such
+header as a `warning:` line on stderr, leaving stdout's `-o json` output clean for scripts.
+
+### Overlapping Services are announced, not refused
+
+Nothing stops two Services in the same tenant from naming the same Deployment, and nothing should:
+a deliberate shared front door (a stable name beside a versioned one, a migration in progress) is a
+legitimate pattern that looks exactly like a copy-pasted `deploymentNames`. So the overlap is
+surfaced rather than blocked — `POST /services` returns 200 and attaches one `X-Gimle-Warning` per
+overlapping Service, naming it and the deployment names actually shared. There is no force or
+confirm flag; the create always succeeds.
 
 Two `ServiceSpec` shapes exist. The selector shape above fronts in-cluster instances. Declaring
 `externalName` instead (the ExternalName analogue — `gimle set service billing --external-name

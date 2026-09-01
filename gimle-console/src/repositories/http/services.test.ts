@@ -79,6 +79,35 @@ describe("HttpServicesRepository", () => {
     });
   });
 
+  it("save omits targetPort entirely when the spec declares none", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse()]);
+    const repo = new HttpServicesRepository();
+
+    await repo.save({
+      name: "orders-web",
+      deploymentNames: ["orders-service"],
+      port: 8080,
+    });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      name: "orders-web",
+      deploymentNames: ["orders-service"],
+      port: 8080,
+    });
+  });
+
+  it("fetchAll accepts a service the control plane sent no targetPort for", async () => {
+    stubFetchSequence([
+      () => jsonResponse([{ name: "orders-web", deploymentNames: ["d"], port: 8080 }]),
+    ]);
+    const repo = new HttpServicesRepository();
+
+    const [service] = await repo.fetchAll();
+
+    expect(service.targetPort).toBeUndefined();
+  });
+
   it("remove DELETEs /services/{name}", async () => {
     const fetchMock = stubFetchSequence([() => okResponse()]);
     const repo = new HttpServicesRepository();

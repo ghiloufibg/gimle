@@ -432,8 +432,8 @@ class AgentMainTest {
     // module's ModuleContext#reportPort call reaches this instance's ports field via the worker's
     // own MetricsReport, and observationJson must fold it into the heartbeat the exact same way
     // vesselObservationJson already does for a Vessel -- this is what lets
-    // ServiceEndpointResolver#solePort resolve a live endpoint for an ordinary module deployment,
-    // not just a Vessel workload.
+    // ServiceEndpointResolver resolve a live endpoint for an ordinary module deployment, not
+    // just a Vessel workload.
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     AssignedInstance assigned =
         new AssignedInstance(

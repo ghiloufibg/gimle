@@ -245,8 +245,13 @@ function ServicesTab() {
       toast.error("Port must be an integer in [1, 65535]");
       return;
     }
-    const targetPort = form.targetPort.trim() ? Number(form.targetPort) : port;
-    if (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535) {
+    // Left blank means "no target port declared" -- the control plane then routes to whatever
+    // single port each backing instance reports, rather than to `port`.
+    const targetPort = form.targetPort.trim() ? Number(form.targetPort) : undefined;
+    if (
+      targetPort !== undefined &&
+      (!Number.isInteger(targetPort) || targetPort < 1 || targetPort > 65535)
+    ) {
       toast.error("Target port must be an integer in [1, 65535]");
       return;
     }
@@ -255,7 +260,7 @@ function ServicesTab() {
       ...(form.tenantId ? { tenantId: form.tenantId } : {}),
       deploymentNames,
       port,
-      targetPort,
+      ...(targetPort === undefined ? {} : { targetPort }),
     };
     try {
       await save(spec);
@@ -326,7 +331,7 @@ function ServicesTab() {
               className="h-8 w-20 font-mono text-xs"
               value={form.targetPort}
               onChange={(e) => setForm({ ...form, targetPort: e.target.value })}
-              placeholder="= port"
+              placeholder="auto"
               inputMode="numeric"
             />
           </div>
@@ -389,7 +394,7 @@ function ServicesTab() {
                     <td className="px-2 py-1.5 font-mono">{s.tenantId ?? "—"}</td>
                     <td className="px-2 py-1.5 font-mono">{s.deploymentNames.join(", ")}</td>
                     <td className="px-2 py-1.5 font-mono tabular-nums">
-                      {s.port} → {s.targetPort}
+                      {s.port} → {s.targetPort ?? "auto"}
                     </td>
                     <td className="px-2 py-1.5">
                       <div className="flex items-center gap-3">
@@ -401,7 +406,7 @@ function ServicesTab() {
                               tenantId: s.tenantId ?? "",
                               deploymentNames: s.deploymentNames.join(", "),
                               port: String(s.port),
-                              targetPort: String(s.targetPort),
+                              targetPort: s.targetPort === undefined ? "" : String(s.targetPort),
                             });
                           }}
                           className="text-muted-foreground hover:text-foreground"

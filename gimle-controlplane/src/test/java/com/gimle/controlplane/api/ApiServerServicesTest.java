@@ -1,6 +1,7 @@
 package com.gimle.controlplane.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.controlplane.testsupport.InProcessFafnir;
@@ -184,7 +185,9 @@ class ApiServerServicesTest {
     Map<String, Object> spec = Json.asObject(Json.parse(get.body()));
     assertEquals("orders", spec.get("name"));
     assertEquals(8080L, spec.get("port"));
-    assertEquals(8080L, spec.get("targetPort"));
+    assertFalse(
+        spec.containsKey("targetPort"),
+        "a Service that declared no targetPort must not report one back");
     assertEquals(List.of("orders-service"), spec.get("deploymentNames"));
   }
 
@@ -297,8 +300,9 @@ class ApiServerServicesTest {
   }
 
   /**
-   * The contract every other lane depends on: exactly {@code name}/{@code port}/{@code
-   * targetPort}/{@code endpoints}, each endpoint exactly {@code host}/{@code port}.
+   * The contract every other lane depends on: exactly {@code name}/{@code port}/{@code endpoints}
+   * (plus {@code targetPort} only when one was declared), each endpoint exactly {@code host}/{@code
+   * port}/{@code nodeId}.
    */
   @Test
   @Timeout(10)
@@ -310,7 +314,7 @@ class ApiServerServicesTest {
             .POST(
                 HttpRequest.BodyPublishers.ofString(
                     """
-                    {"name": "orders", "deploymentNames": ["orders-service"], "port": 8080, "targetPort": 8080}
+                    {"name": "orders", "deploymentNames": ["orders-service"], "port": 8080}
                     """))
             .build());
     inProcessStore
@@ -356,7 +360,7 @@ class ApiServerServicesTest {
     Map<String, Object> body = Json.asObject(Json.parse(response.body()));
     assertEquals("orders", body.get("name"));
     assertEquals(8080L, body.get("port"));
-    assertEquals(8080L, body.get("targetPort"));
+    assertFalse(body.containsKey("targetPort"));
     List<Object> endpoints = Json.asArray(body.get("endpoints"));
     assertEquals(1, endpoints.size());
     Map<String, Object> endpoint = Json.asObject(endpoints.get(0));
@@ -455,5 +459,207 @@ class ApiServerServicesTest {
     Map<String, Object> spec = Json.asObject(Json.parse(get.body()));
     assertEquals(9090L, spec.get("port"));
     assertEquals(List.of("orders-service-v2"), spec.get("deploymentNames"));
+  }
+
+  private HttpResponse<String> postService(String body) throws Exception {
+    return send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build());
+  }
+
+  /**
+   * Recording a live, ready instance of {@code deploymentName} reporting exactly {@code ports}, the
+   * same assignment/registration/heartbeat trio {@code ServiceEndpointResolver} joins over.
+   */
+  private void recordReadyInstance(String deploymentName, Map<String, Integer> ports) {
+    ModuleId moduleId = new ModuleId("com.acme.orders", Version.parse("1.0.0"));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutAssignment(
+                new InstanceAssignment(
+                    deploymentName, 0, "node-1", moduleId, "/artifacts/orders.jar")));
+    inProcessStore
+        .client()
+        .propose(
+            new StateMutation.PutNodeRegistration(
+                new NodeRegistration(
+                    "node-1", new NodeCapabilities(Set.of()), Optional.of("10.0.0.5:9101"))));
+    inProcessStore
+        .client()
+        .putHeartbeat(
+            new NodeHeartbeat(
+                "node-1",
+                new ResourceUsageSnapshot(0, 0, 0, 0),
+                List.of(
+                    new InstanceObservation(
+                        deploymentName,
+                        0,
+                        moduleId,
+                        "ACTIVE",
+                        true,
+                        true,
+                        0.0,
+                        0,
+                        0L,
+                        0L,
+                        0.0,
+                        ports))));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_second_service_fronting_the_same_deployment_is_created_but_warned_about()
+      throws Exception {
+    assertEquals(200, postService(serviceJson("orders", "orders-service", 8080)).statusCode());
+
+    HttpResponse<String> overlapping =
+        postService(serviceJson("orders-legacy", "orders-service", 8081));
+
+    assertEquals(200, overlapping.statusCode(), "an overlapping Service must still be created");
+    List<String> warnings = overlapping.headers().allValues("X-Gimle-Warning");
+    assertEquals(1, warnings.size(), warnings.toString());
+    assertTrue(warnings.get(0).contains("orders-service"), warnings.get(0));
+    assertTrue(warnings.get(0).contains("orders"), warnings.get(0));
+
+    HttpResponse<String> get =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders-legacy")).GET().build());
+    assertEquals(200, get.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_service_fronting_a_deployment_nothing_else_fronts_earns_no_warning() throws Exception {
+    postService(serviceJson("orders", "orders-service", 8080));
+
+    HttpResponse<String> other = postService(serviceJson("billing", "billing-service", 8081));
+
+    assertEquals(List.of(), other.headers().allValues("X-Gimle-Warning"));
+  }
+
+  @Test
+  @Timeout(10)
+  void re_posting_a_service_under_its_own_name_does_not_warn_about_itself() throws Exception {
+    postService(serviceJson("orders", "orders-service", 8080));
+
+    HttpResponse<String> again = postService(serviceJson("orders", "orders-service", 8080));
+
+    assertEquals(List.of(), again.headers().allValues("X-Gimle-Warning"));
+  }
+
+  @Test
+  @Timeout(10)
+  void two_tenants_each_fronting_a_same_named_deployment_do_not_overlap() throws Exception {
+    postService(
+        """
+        {"name": "web", "tenantId": "tenant-a", "deploymentNames": ["orders-service"], "port": 80}
+        """);
+
+    HttpResponse<String> other =
+        postService(
+            """
+            {"name": "web2", "tenantId": "tenant-b", "deploymentNames": ["orders-service"],
+             "port": 80}
+            """);
+
+    assertEquals(List.of(), other.headers().allValues("X-Gimle-Warning"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_target_port_no_backing_instance_reports_is_admitted_with_a_warning() throws Exception {
+    recordReadyInstance("orders-service", Map.of("HTTP_PORT", 51234));
+
+    HttpResponse<String> post =
+        postService(
+            """
+            {"name": "orders", "deploymentNames": ["orders-service"], "port": 8080,
+             "targetPort": 9090}
+            """);
+
+    assertEquals(200, post.statusCode(), "an unreported targetPort is level-triggered, not a 400");
+    List<String> warnings = post.headers().allValues("X-Gimle-Warning");
+    assertEquals(1, warnings.size(), warnings.toString());
+    assertTrue(warnings.get(0).contains("9090"), warnings.get(0));
+    assertTrue(warnings.get(0).contains("51234"), warnings.get(0));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_target_port_a_backing_instance_does_report_earns_no_warning() throws Exception {
+    recordReadyInstance("orders-service", Map.of("HTTP_PORT", 51234, "ADMIN_PORT", 51235));
+
+    HttpResponse<String> post =
+        postService(
+            """
+            {"name": "orders", "deploymentNames": ["orders-service"], "port": 8080,
+             "targetPort": 51235}
+            """);
+
+    assertEquals(List.of(), post.headers().allValues("X-Gimle-Warning"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_service_declared_before_any_backing_instance_exists_earns_no_target_port_warning()
+      throws Exception {
+    HttpResponse<String> post =
+        postService(
+            """
+            {"name": "orders", "deploymentNames": ["orders-service"], "port": 8080,
+             "targetPort": 9090}
+            """);
+
+    assertEquals(List.of(), post.headers().allValues("X-Gimle-Warning"));
+  }
+
+  /**
+   * The whole point of making {@code targetPort} authoritative: a multi-port instance used to
+   * contribute nothing at all (no single port to pick), and now contributes exactly the declared
+   * one.
+   */
+  @Test
+  @Timeout(10)
+  void a_declared_target_port_picks_that_port_out_of_a_multi_port_instance() throws Exception {
+    recordReadyInstance("orders-service", Map.of("HTTP_PORT", 51234, "ADMIN_PORT", 51235));
+    postService(
+        """
+        {"name": "orders", "deploymentNames": ["orders-service"], "port": 8080,
+         "targetPort": 51235}
+        """);
+
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders/endpoints"))
+                .GET()
+                .build());
+
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertEquals(51235L, body.get("targetPort"));
+    List<Map<String, Object>> endpoints = Json.asObjectList(body.get("endpoints"));
+    assertEquals(1, endpoints.size());
+    assertEquals(51235L, endpoints.get(0).get("port"));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_instance_not_reporting_the_declared_target_port_contributes_no_endpoint()
+      throws Exception {
+    recordReadyInstance("orders-service", Map.of("HTTP_PORT", 51234));
+    postService(
+        """
+        {"name": "orders", "deploymentNames": ["orders-service"], "port": 8080,
+         "targetPort": 9090}
+        """);
+
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders/endpoints"))
+                .GET()
+                .build());
+
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertEquals(List.of(), Json.asObjectList(body.get("endpoints")));
   }
 }

@@ -284,10 +284,19 @@ whose timeline would otherwise be hundreds of lines.
 — a stable name in front of a Deployment's live, ephemeral endpoints, the ClusterIP analogue named
 in the platform's own network-model design. `set service` POSTs to the `/services` collection
 rather than PUTting a per-name path, since a Service names itself in its own request body;
-`--deployment` may repeat (the set of workload names a Service fronts) and `--target-port` defaults
-to `--port` when omitted (the Service listens and forwards on the same port).
+`--deployment` may repeat (the set of workload names a Service fronts). `--target-port` is
+genuinely optional and is *not* defaulted to `--port`: given, it is authoritative and only an
+instance actually reporting that port contributes an endpoint; omitted, the Service resolves to
+whatever single port each backing instance reports (an instance reporting several then contributes
+none, since nothing names which one is meant). Declaring a `--target-port` no backing instance
+currently reports is admitted, not rejected — instance ports are reported at runtime and change —
+and the control plane answers with an `X-Gimle-Warning` header the CLI prints as a `warning:` line
+on stderr. The same advisory-not-refusal treatment covers a Service whose `--deployment` set
+overlaps another Service's in the same tenant: a shared front door is a legitimate pattern, so the
+create succeeds and names the overlapping Service in a warning rather than failing.
 `--external-name <host>` declares the ExternalName shape instead — the Service resolves to that
-external hostname at the target port, with no in-cluster backing (and therefore no `--deployment`);
+external hostname at the target port (or `--port` when none is declared), with no in-cluster
+backing (and therefore no `--deployment`);
 `--session-affinity` asks the Bifrost proxy layer to pin each caller address to one backend by
 consistent hash rather than round-robining. `service endpoints`
 resolves the Service's current live backing-instance set on every call, never a cached value, so it

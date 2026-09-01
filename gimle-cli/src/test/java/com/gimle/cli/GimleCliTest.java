@@ -1568,14 +1568,32 @@ class GimleCliTest {
   }
 
   @Test
-  void set_service_defaults_target_port_to_port_when_omitted() throws Exception {
+  void set_service_omits_target_port_entirely_when_the_flag_is_not_given() throws Exception {
     run("set", "service", "solo-port", "--deployment", "orders-service", "--port", "7000");
 
     outBuffer.reset();
     int getExit = run("-o", "json", "get", "service", "solo-port");
     assertEquals(0, getExit);
     assertTrue(stdout().contains("\"port\":7000"));
-    assertTrue(stdout().contains("\"targetPort\":7000"));
+    assertFalse(
+        stdout().contains("targetPort"),
+        "an omitted --target-port must not be silently defaulted to --port: " + stdout());
+  }
+
+  @Test
+  void set_service_prints_an_overlap_warning_on_stderr_without_failing() throws Exception {
+    run("set", "service", "orders", "--deployment", "orders-service", "--port", "8080");
+
+    outBuffer.reset();
+    errBuffer.reset();
+    int exit =
+        run("set", "service", "orders-legacy", "--deployment", "orders-service", "--port", "8081");
+
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("service/orders-legacy configured"));
+    assertTrue(stderr().contains("warning:"), stderr());
+    assertTrue(stderr().contains("orders-service"), stderr());
+    assertFalse(stdout().contains("warning:"), "warnings belong on stderr only: " + stdout());
   }
 
   @Test

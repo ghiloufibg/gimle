@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * The real {@link ServiceCatalogClient}: reads {@code GET /services} and {@code GET
@@ -87,7 +88,10 @@ public final class HttpServiceCatalogClient implements ServiceCatalogClient {
     Map<String, Object> body = Json.asObject(Json.parse(response.body()));
     String name = String.valueOf(body.get("name"));
     int port = ((Number) body.get("port")).intValue();
-    int targetPort = ((Number) body.get("targetPort")).intValue();
+    OptionalInt targetPort =
+        body.get("targetPort") instanceof Number raw
+            ? OptionalInt.of(raw.intValue())
+            : OptionalInt.empty();
     List<Map<String, Object>> rawEndpoints = Json.asObjectList(body.get("endpoints"));
     List<HostPort> endpoints = new ArrayList<>(rawEndpoints.size());
     for (Map<String, Object> endpoint : rawEndpoints) {

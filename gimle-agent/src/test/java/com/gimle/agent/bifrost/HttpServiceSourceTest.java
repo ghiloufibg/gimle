@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
@@ -102,7 +103,7 @@ class HttpServiceSourceTest {
     ServiceEndpoints endpoints = result.get();
     assertEquals("orders", endpoints.name());
     assertEquals(8080, endpoints.port());
-    assertEquals(8080, endpoints.targetPort());
+    assertEquals(OptionalInt.of(8080), endpoints.targetPort());
     assertEquals(List.of(new ServiceEndpoint("10.0.0.5", 51234)), endpoints.endpoints());
   }
 
