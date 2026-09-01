@@ -20,6 +20,45 @@ Any order, anywhere on the command line:
   the manifest's own top-level `module:` key. Every other command falls through to a table under
   `-o manifest`, the same as an unrecognized `-o` value not being caught earlier would.
 
+`-o json` is honored by **every** verb, not only the read-shaped ones. A read verb emits the
+resource (or the array of them) as the API returned it; a write verb emits a one-line result object
+in place of its human sentence — `{"result":"cordoned","kind":"node","id":"node-a"}` for
+`gimle cordon node-a`, `{"result":"destroyed","kind":"volume","id":"orders/0","nodeId":"node-a"}`
+for `gimle volume destroy orders 0 --node node-a`, and the same `result`/`kind`/`id` shape for
+every other `set`/`delete`/`apply`. `gimle logs` emits the structured log lines themselves rather
+than a re-serialization of its own one-line rendering: one JSON array per request (an empty array
+when nothing matched, so a zero-match query is still valid JSON to pipe onward), and one JSON
+object per line as it arrives under `--follow`, since a stream that never ends has no closing
+bracket to print.
+
+Advisory output — deprecation warnings, the stale-credential notice, the "some nodes were
+unreachable" note on `gimle volume list` — always goes to **stderr**, whatever `-o` says, so stdout
+carries nothing but the result a script is parsing.
+
+## Exit codes
+
+A failed invocation exits with a code naming *why* it failed, so a script can branch without
+parsing the stderr message:
+
+| Code | Meaning | Typical cause |
+| ---- | ------- | ------------- |
+| `0`  | success | — |
+| `1`  | generic / unclassified | a usage or argument mistake (unknown verb, missing flag), a local I/O failure |
+| `2`  | invalid input | the control plane rejected the request as invalid (HTTP `400`), or a manifest failed client-side validation |
+| `3`  | not found | the addressed resource does not exist (HTTP `404`) |
+| `4`  | forbidden | the caller is unauthenticated or lacks the permission (HTTP `401`/`403`) |
+| `5`  | conflict | the request conflicts with the resource's current state (HTTP `409`) |
+| `6`  | unreachable or retryable | the server could not be reached, or answered "not leader, leader unknown" (HTTP `307` with no `Location`) |
+
+`401` and `403` share code `4` deliberately: both mean the caller may not do this, and there is no
+remedy that depends on telling them apart. Client-side usage errors stay on `1` — the CLI reports
+them in prose and does not attempt to categorize them further.
+
+```bash
+gimle get deployment never-created --server 127.0.0.1:8080
+echo $?   # 3
+```
+
 ## Verbs
 
 ```text
@@ -371,8 +410,9 @@ not an equality test: `--level=WARN` keeps `WARN` and `ERROR`, and a line carryi
 message fragment containing `(`, `[` or `.` matches literally — tested against a line's
 human-readable fields only (`message`, `logger`, `stackTrace`, `raw`), not machine identifiers like
 `nodeId` or `thread`. Both work together, both work under `--follow`, and a query matching nothing
-prints what was filtered on rather than exiting silently. An unrecognized level fails locally,
-before any request is sent. The console's Logs screen exposes the identical two filters, backed by
+prints what was filtered on rather than exiting silently (under `-o json` that becomes an empty
+array — still valid JSON to pipe onward). An unrecognized level fails locally, before any request
+is sent. The console's Logs screen exposes the identical two filters, backed by
 the identical `level`/`contains` query parameters.
 
 `audit list` reads the cross-resource audit trail (see
