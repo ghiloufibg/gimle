@@ -178,7 +178,7 @@ gimle artifact delete <moduleId> <version>
 gimle backup create [--to <path>]
 gimle backup restore <path>
 gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
-                  [--since <epochMillis>] [--limit N]
+                  [--since <epochMillis>] [--limit N] [--cursor <token>] [--all]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
                     [--level=LEVEL] [--contains=TEXT]
 gimle get roles [name]
@@ -461,6 +461,23 @@ the identical `level`/`contains` query parameters.
 `WRITE`/`DELETE` authorization decision, allowed and denied, across both the control plane and
 Fafnir. Every filter is optional and independently combinable; omitting all of them lists the most
 recent events cluster-wide.
+
+Without `--limit` the whole matching trail comes back in one response, so a one-shot query never
+has to page. With one, `--limit` is a page size and the command reports how many events matched in
+total plus the cursor for the next page (`note: more events match; continue with --cursor …`);
+`--cursor <token>` resumes from it and `--all` follows it to exhaustion, printing every matching
+event as a single table. A cursor is only valid alongside the exact filters it was issued under —
+the control plane rejects a mismatched one rather than silently answering a different question.
+
+The trail is a fixed-size ring, so the cursor names an event rather than an offset: neither
+decisions recorded while you page nor events evicted from the oldest end can shift the next page.
+If the event a cursor anchored on is itself evicted before you use it, the command says so
+explicitly (`note: the page this cursor pointed at has already been discarded …`) instead of
+returning a plausible-looking wrong page — eviction is strictly oldest-first, so everything older
+than that anchor is gone too. That is distinct from the trail-wide retention note (`note: the audit
+trail has exceeded its retention cap …`), which describes the cluster's whole record regardless of
+what this query asked for. Under `-o json` the command prints only the events array, with no notes,
+so the output stays a single parseable document — use `--all` there to get the complete set.
 
 The `role`/`rolebinding`/`account` verbs manage RBAC — see
 [Authentication and authorization](../architecture/authn-authz.md). `--permission` may repeat (a

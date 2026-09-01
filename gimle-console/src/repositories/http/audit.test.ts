@@ -20,7 +20,13 @@ const EVENT: AuditEvent = {
   occurredAtEpochMilli: 1755000000000,
 };
 
-const STATUS = { retainedCount: 1, evictedTotal: 0, truncated: false };
+const STATUS = {
+  retainedCount: 1,
+  evictedTotal: 0,
+  truncated: false,
+  matchedCount: 1,
+  cursorExpired: false,
+};
 
 describe("HttpAuditRepository.query", () => {
   it("requests plain /audit with no query string when every filter is empty", async () => {
@@ -47,10 +53,50 @@ describe("HttpAuditRepository.query", () => {
       limit: 50,
     });
 
+    // `since` goes on the wire as epoch millis, which is what the control plane parses -- the ISO
+    // instant is only the screen's own datetime-input representation.
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe(
-      "/audit?principal=alice&resource=deployment&tenant=acme&since=2026-08-01T00%3A00%3A00Z&limit=50",
+      "/audit?principal=alice&resource=deployment&tenant=acme&since=1785542400000&limit=50",
     );
+  });
+
+  it("omits an unparseable since rather than sending NaN as a filter", async () => {
+    const fetchMock = stubFetchSequence([() => jsonResponse({ events: [], ...STATUS })]);
+    const repo = new HttpAuditRepository();
+
+    await repo.query({ since: "not a date" });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/audit");
+  });
+
+  it("passes a page cursor through untouched alongside the filters it was issued under", async () => {
+    const fetchMock = stubFetchSequence([() => jsonResponse({ events: [], ...STATUS })]);
+    const repo = new HttpAuditRepository();
+
+    await repo.query({ principal: "alice", limit: 2 }, "djE6YWxpY2U");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/audit?principal=alice&limit=2&cursor=djE6YWxpY2U");
+  });
+
+  it("surfaces this query's own paging state alongside the events", async () => {
+    stubFetchSequence([
+      () =>
+        jsonResponse({
+          events: [EVENT],
+          ...STATUS,
+          matchedCount: 412,
+          nextCursor: "djE6bmV4dA",
+          cursorExpired: false,
+        }),
+    ]);
+    const repo = new HttpAuditRepository();
+
+    const result = await repo.query({ limit: 1 });
+
+    expect(result.matchedCount).toBe(412);
+    expect(result.nextCursor).toBe("djE6bmV4dA");
+    expect(result.cursorExpired).toBe(false);
   });
 
   it("omits tenantId/targetId from the parsed result when the backend omitted them", async () => {

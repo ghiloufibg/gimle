@@ -4062,19 +4062,27 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * {@code GET /audit[?principal=&resource=&tenant=&since=&limit=]} -- the read side of the
-   * cross-resource audit trail {@link #requireAuthorized} writes into (see {@code
-   * OBSERVABILITY_AUDIT_DESIGN.md}'s Part A). Gated on {@link ResourceKind#AUDIT}, the same
-   * "reading the trail is itself an access-controlled action" framing already applied to {@code
-   * ROLE}/{@code ROLE_BINDING}/{@code ACCOUNT} -- every filter is optional and independently
-   * combinable, matching {@link com.gimle.mimir.store.StoreReader#listAuditEvents}'s own shape.
+   * {@code GET /audit[?principal=&resource=&tenant=&since=&limit=&cursor=]} -- the read side of the
+   * cross-resource audit trail {@link #requireAuthorized} writes into. Gated on {@link
+   * ResourceKind#AUDIT}, the same "reading the trail is itself an access-controlled action" framing
+   * already applied to {@code ROLE}/{@code ROLE_BINDING}/{@code ACCOUNT} -- every filter is
+   * optional and independently combinable, matching {@link
+   * com.gimle.mimir.store.StoreReader#listAuditEvents}'s own shape.
    *
-   * <p>The response is an envelope, not a bare array: {@code retainedCount}/{@code evictedTotal}/
-   * {@code oldestRetainedAtEpochMilli}/{@code truncated} describe the trail's own retention state
-   * (see {@link AuditTrailStatus}), independent of whatever this call's own filters/limit narrowed
-   * {@code events} down to -- an operator reviewing the trail during an incident needs to be able
-   * to tell "this is the complete record" from "this cluster crossed the retention cap" without
-   * cross-referencing a log line.
+   * <p>The response is an envelope, not a bare array, and it describes two independent things the
+   * caller must be able to tell apart. {@code retainedCount}/{@code evictedTotal}/{@code
+   * oldestRetainedAtEpochMilli}/{@code truncated} describe the trail's own retention state (see
+   * {@link AuditTrailStatus}) -- "this is the complete record" versus "this cluster crossed the
+   * retention cap". {@code matchedCount}/{@code nextCursor}/{@code cursorExpired} describe this
+   * query instead: how many retained events matched the filters at all (so a caller can say
+   * "showing 100 of 412" rather than only "100 rows"), how to ask for the next page, and whether
+   * the page asked for had already been evicted. Without the first pair an operator cannot tell a
+   * complete trail from a capped one; without the second they cannot tell a complete answer from a
+   * silently truncated one.
+   *
+   * <p>{@code limit} defaults to no limit at all, so an unpaged caller still gets every matching
+   * event in one response; paging is opt-in by setting {@code limit} and following {@code
+   * nextCursor}. See {@link AuditCursor} for why the cursor names an event rather than an offset.
    */
   private void handleAudit(HttpExchange exchange) {
     try {
@@ -4092,17 +4100,33 @@ public final class ApiServer implements AutoCloseable {
       Optional<Long> since = Optional.ofNullable(query.get("since")).map(Long::parseLong);
       int limit =
           Optional.ofNullable(query.get("limit")).map(Integer::parseInt).orElse(Integer.MAX_VALUE);
+      Optional<String> cursor = Optional.ofNullable(query.get("cursor")).filter(c -> !c.isBlank());
 
+      // One list call, one snapshot: the cursor is resolved against exactly the events this page is
+      // cut from, so a concurrent append or eviction can never land between the two.
+      List<AuditEvent> matching = storeClient.listAuditEvents(principal, resource, tenant, since);
+      AuditPage page;
+      try {
+        page =
+            AuditPage.of(
+                matching,
+                cursor,
+                limit,
+                AuditCursor.fingerprintOf(principal, resource, tenant, since));
+      } catch (IllegalArgumentException e) {
+        respondQuietly(exchange, 400, e.getMessage());
+        return;
+      }
       List<Map<String, Object>> events = new ArrayList<>();
-      for (AuditEvent event : storeClient.listAuditEvents(principal, resource, tenant, since)) {
-        if (events.size() >= limit) {
-          break;
-        }
+      for (AuditEvent event : page.events()) {
         events.add(auditEventToJson(event));
       }
       AuditTrailStatus status = storeClient.auditTrailStatus();
       Map<String, Object> body = new LinkedHashMap<>();
       body.put("events", events);
+      body.put("matchedCount", page.matchedCount());
+      page.nextCursor().ifPresent(next -> body.put("nextCursor", next));
+      body.put("cursorExpired", page.cursorExpired());
       body.put("retainedCount", status.retainedCount());
       body.put("evictedTotal", status.evictedTotal());
       status.oldestRetainedAtEpochMilli().ifPresent(t -> body.put("oldestRetainedAtEpochMilli", t));

@@ -393,10 +393,13 @@ there's no ordinary RBAC decision to hang it off of.
 Eviction past the retention cap is itself observable, not silent: `StateStore` logs a throttled
 warning once the cap is first reached (then every 1000th eviction after that) and tracks a running
 total. `GET /audit`'s response is an envelope, not a bare array —
-`{events, retainedCount, evictedTotal, oldestRetainedAtEpochMilli?, truncated}` — describing the
-whole trail's retention state independent of whatever filter/limit a given query applied, so an
-operator reviewing the trail during an incident can tell "this is the complete record" from "this
-cluster crossed the retention cap" without cross-referencing a log line.
+`{events, matchedCount, nextCursor?, cursorExpired, retainedCount, evictedTotal,
+oldestRetainedAtEpochMilli?, truncated}`. The last four describe the whole trail's retention state
+independent of whatever filter/limit a given query applied, so an operator reviewing the trail
+during an incident can tell "this is the complete record" from "this cluster crossed the retention
+cap" without cross-referencing a log line; the first three describe this query instead — how many
+retained events matched the filters at all, how to ask for the next page, and whether the page
+asked for had already been evicted.
 
 `-Dgimle.controlplane.audit.readResourceKinds` (comma-separated `ResourceKind` names, e.g.
 `CONFIG,SECRET`) opts specific resource kinds into READ-decision auditing too, both allowed and
@@ -418,10 +421,23 @@ same bar on the control plane's own general RBAC surface.
 
 Reading the trail is itself access-controlled, the same "who can grant access is itself an
 access-controlled action" framing `ROLE`/`ROLE_BINDING`/`ACCOUNT` already established —
-`ResourceKind.AUDIT`, `Verb.READ`. `GET /audit[?principal=&resource=&tenant=&since=&limit=]` and
-`gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>] [--since <epochMillis>]
-[--limit N]` cover every filter independently and combinably; `gimle audit list` prints a note when
-the response envelope's `truncated` flag is set.
+`ResourceKind.AUDIT`, `Verb.READ`. `GET /audit[?principal=&resource=&tenant=&since=&limit=&cursor=]`
+and `gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>] [--since
+<epochMillis>] [--limit N] [--cursor <token>] [--all]` cover every filter independently and
+combinably; `gimle audit list` prints a note when the response envelope's `truncated` flag is set.
+
+`limit` is a page size and `cursor` continues from a previous response's `nextCursor`; omitting both
+returns every matching event, as it always did. Because the trail is a ring buffer, the cursor
+anchors on an **event's own identity**, never an offset — an offset would shift by one for every
+decision recorded while an operator pages (skipping rows) and shift back for every event evicted
+from the oldest end (repeating them). A cursor additionally pins the filter set it was minted under
+and is refused with `400` if presented with different filters, which is what makes an anchor missing
+from the result unambiguous: with the filters known identical, it can only have been evicted. That
+case answers `cursorExpired: true` with an empty page — eviction is strictly oldest-first, so
+everything older than the anchor went with it and the page really is empty — rather than silently
+returning a plausible-looking wrong page. `cursorExpired` (this walk was overtaken) and `truncated`
+(the whole trail has crossed its cap) are deliberately separate signals; the console and CLI surface
+them separately too.
 
 ## Explicitly out of scope
 
