@@ -9,14 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as VolumesRouteImport } from './routes/volumes'
 import { Route as TracesRouteImport } from './routes/traces'
 import { Route as TopologyRouteImport } from './routes/topology'
 import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as SecretmapsRouteImport } from './routes/secretmaps'
+import { Route as SealRouteImport } from './routes/seal'
 import { Route as NetworkingRouteImport } from './routes/networking'
 import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as LimitrangesRouteImport } from './routes/limitranges'
 import { Route as CustomResourcesRouteImport } from './routes/custom-resources'
 import { Route as ControlplaneRouteImport } from './routes/controlplane'
 import { Route as ConfigmapsRouteImport } from './routes/configmaps'
@@ -45,6 +48,11 @@ import { Route as CronjobsNewRouteImport } from './routes/cronjobs.new'
 import { Route as CronjobsNameRouteImport } from './routes/cronjobs.$name'
 import { Route as InstancesNameIdxRouteImport } from './routes/instances.$name.$idx'
 
+const VolumesRoute = VolumesRouteImport.update({
+  id: '/volumes',
+  path: '/volumes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TracesRoute = TracesRouteImport.update({
   id: '/traces',
   path: '/traces',
@@ -65,6 +73,11 @@ const SecretmapsRoute = SecretmapsRouteImport.update({
   path: '/secretmaps',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SealRoute = SealRouteImport.update({
+  id: '/seal',
+  path: '/seal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NetworkingRoute = NetworkingRouteImport.update({
   id: '/networking',
   path: '/networking',
@@ -83,6 +96,11 @@ const LogsRoute = LogsRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LimitrangesRoute = LimitrangesRouteImport.update({
+  id: '/limitranges',
+  path: '/limitranges',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CustomResourcesRoute = CustomResourcesRouteImport.update({
@@ -230,14 +248,17 @@ export interface FileRoutesByFullPath {
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/custom-resources': typeof CustomResourcesRoute
+  '/limitranges': typeof LimitrangesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
   '/networking': typeof NetworkingRoute
+  '/seal': typeof SealRoute
   '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
+  '/volumes': typeof VolumesRoute
   '/cronjobs/$name': typeof CronjobsNameRoute
   '/cronjobs/new': typeof CronjobsNewRoute
   '/daemonsets/$name': typeof DaemonsetsNameRoute
@@ -267,14 +288,17 @@ export interface FileRoutesByTo {
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/custom-resources': typeof CustomResourcesRoute
+  '/limitranges': typeof LimitrangesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
   '/networking': typeof NetworkingRoute
+  '/seal': typeof SealRoute
   '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
+  '/volumes': typeof VolumesRoute
   '/cronjobs/$name': typeof CronjobsNameRoute
   '/cronjobs/new': typeof CronjobsNewRoute
   '/daemonsets/$name': typeof DaemonsetsNameRoute
@@ -305,14 +329,17 @@ export interface FileRoutesById {
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/custom-resources': typeof CustomResourcesRoute
+  '/limitranges': typeof LimitrangesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/metrics': typeof MetricsRoute
   '/networking': typeof NetworkingRoute
+  '/seal': typeof SealRoute
   '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
+  '/volumes': typeof VolumesRoute
   '/cronjobs/$name': typeof CronjobsNameRoute
   '/cronjobs/new': typeof CronjobsNewRoute
   '/daemonsets/$name': typeof DaemonsetsNameRoute
@@ -344,14 +371,17 @@ export interface FileRouteTypes {
     | '/configmaps'
     | '/controlplane'
     | '/custom-resources'
+    | '/limitranges'
     | '/login'
     | '/logs'
     | '/metrics'
     | '/networking'
+    | '/seal'
     | '/secretmaps'
     | '/secrets'
     | '/topology'
     | '/traces'
+    | '/volumes'
     | '/cronjobs/$name'
     | '/cronjobs/new'
     | '/daemonsets/$name'
@@ -381,14 +411,17 @@ export interface FileRouteTypes {
     | '/configmaps'
     | '/controlplane'
     | '/custom-resources'
+    | '/limitranges'
     | '/login'
     | '/logs'
     | '/metrics'
     | '/networking'
+    | '/seal'
     | '/secretmaps'
     | '/secrets'
     | '/topology'
     | '/traces'
+    | '/volumes'
     | '/cronjobs/$name'
     | '/cronjobs/new'
     | '/daemonsets/$name'
@@ -418,14 +451,17 @@ export interface FileRouteTypes {
     | '/configmaps'
     | '/controlplane'
     | '/custom-resources'
+    | '/limitranges'
     | '/login'
     | '/logs'
     | '/metrics'
     | '/networking'
+    | '/seal'
     | '/secretmaps'
     | '/secrets'
     | '/topology'
     | '/traces'
+    | '/volumes'
     | '/cronjobs/$name'
     | '/cronjobs/new'
     | '/daemonsets/$name'
@@ -456,14 +492,17 @@ export interface RootRouteChildren {
   ConfigmapsRoute: typeof ConfigmapsRoute
   ControlplaneRoute: typeof ControlplaneRoute
   CustomResourcesRoute: typeof CustomResourcesRoute
+  LimitrangesRoute: typeof LimitrangesRoute
   LoginRoute: typeof LoginRoute
   LogsRoute: typeof LogsRoute
   MetricsRoute: typeof MetricsRoute
   NetworkingRoute: typeof NetworkingRoute
+  SealRoute: typeof SealRoute
   SecretmapsRoute: typeof SecretmapsRoute
   SecretsRoute: typeof SecretsRoute
   TopologyRoute: typeof TopologyRoute
   TracesRoute: typeof TracesRoute
+  VolumesRoute: typeof VolumesRoute
   CronjobsNameRoute: typeof CronjobsNameRoute
   CronjobsNewRoute: typeof CronjobsNewRoute
   DaemonsetsNameRoute: typeof DaemonsetsNameRoute
@@ -487,6 +526,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/volumes': {
+      id: '/volumes'
+      path: '/volumes'
+      fullPath: '/volumes'
+      preLoaderRoute: typeof VolumesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/traces': {
       id: '/traces'
       path: '/traces'
@@ -515,6 +561,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SecretmapsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/seal': {
+      id: '/seal'
+      path: '/seal'
+      fullPath: '/seal'
+      preLoaderRoute: typeof SealRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/networking': {
       id: '/networking'
       path: '/networking'
@@ -541,6 +594,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/limitranges': {
+      id: '/limitranges'
+      path: '/limitranges'
+      fullPath: '/limitranges'
+      preLoaderRoute: typeof LimitrangesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/custom-resources': {
@@ -744,14 +804,17 @@ const rootRouteChildren: RootRouteChildren = {
   ConfigmapsRoute: ConfigmapsRoute,
   ControlplaneRoute: ControlplaneRoute,
   CustomResourcesRoute: CustomResourcesRoute,
+  LimitrangesRoute: LimitrangesRoute,
   LoginRoute: LoginRoute,
   LogsRoute: LogsRoute,
   MetricsRoute: MetricsRoute,
   NetworkingRoute: NetworkingRoute,
+  SealRoute: SealRoute,
   SecretmapsRoute: SecretmapsRoute,
   SecretsRoute: SecretsRoute,
   TopologyRoute: TopologyRoute,
   TracesRoute: TracesRoute,
+  VolumesRoute: VolumesRoute,
   CronjobsNameRoute: CronjobsNameRoute,
   CronjobsNewRoute: CronjobsNewRoute,
   DaemonsetsNameRoute: DaemonsetsNameRoute,

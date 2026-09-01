@@ -66,6 +66,13 @@ export default defineConfig(({ command }) => ({
       "/artifacts": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/services": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/networkpolicies": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/limitranges": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/volumes": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/seal": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      "/events": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      // Must stay listed after "/metrics-history" above: Vite matches these prefixes in
+      // insertion order, and "/metrics" would otherwise swallow the history route's own path.
+      "/metrics": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
     },
   },
 }));

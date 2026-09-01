@@ -759,3 +759,158 @@ export interface CustomResourceItem {
   spec: Record<string, unknown>;
   status: Record<string, unknown> | null;
 }
+
+/* ---------------------------------------------------------------------------
+ * LimitRanges -- the per-workload min/max resource bound, keyed by tenant
+ * ------------------------------------------------------------------------ */
+
+/**
+ * One `{memory, cpu}` bound. Both fields are always present together -- the API rejects a bound
+ * carrying only one -- and both are the same human-readable quantity strings a manifest declares
+ * (e.g. "512Mi", "500m"), never parsed into numbers on the wire.
+ */
+export interface ResourceBound {
+  memory: string;
+  cpu: string;
+}
+
+/**
+ * A tenant's LimitRange: the min/max any single workload within it may request or limit. Distinct
+ * from the tenant's own `quota`, which bounds the tenant in aggregate.
+ *
+ * Every bound is independently optional -- the API writes a key only when the stored spec actually
+ * carries that bound, so an absent key means "unbounded", never zero. `tenantId` is the resource's
+ * identity: it comes from the URL path (`/limitranges/{tenantId}`), not the request body, so a
+ * write sends only the four bounds.
+ */
+export interface LimitRange {
+  tenantId: string;
+  minRequest?: ResourceBound;
+  maxRequest?: ResourceBound;
+  minLimit?: ResourceBound;
+  maxLimit?: ResourceBound;
+}
+
+/* ---------------------------------------------------------------------------
+ * Volumes -- StatefulSet persistent storage, aggregated across every node
+ * ------------------------------------------------------------------------ */
+
+/**
+ * One volume directory on one node, as the control plane's `/volumes` aggregation renders it: the
+ * owning agent's own inventory entry (`tenantId`/`statefulSet`/`instanceIndex`/`volumeName`/
+ * `usedBytes`/`path`/`inUse`) plus the two fields only the control plane can add -- `nodeId`, and
+ * `attached`, whether the store's sticky binding still attaches this index to this node.
+ *
+ * `attached === false` is a retained orphan: a volume the default `Retain` reclaim policy left
+ * behind, and the only kind that may be destroyed. `inUse` is the agent's independent, node-local
+ * answer to a related question (does a supervised instance hold it right now), which is why both
+ * travel rather than one being derived from the other.
+ *
+ * `tenantId` is explicitly `null` (not absent) for an untenanted volume -- the agent writes the key
+ * unconditionally, unlike the absent-when-untenanted convention every other resource here uses.
+ */
+export interface Volume {
+  tenantId: string | null;
+  statefulSet: string;
+  instanceIndex: number;
+  volumeName: string;
+  usedBytes: number;
+  path: string;
+  inUse: boolean;
+  nodeId: string;
+  attached: boolean;
+}
+
+/**
+ * `GET /volumes`. A node whose agent is unreachable contributes an `unreachableNodes` entry rather
+ * than failing the whole listing, so one dark node never hides every other node's volumes --
+ * meaning an empty `volumes` alongside a non-empty `unreachableNodes` is "unknown", not "none".
+ * The key is omitted entirely when every node answered.
+ */
+export interface VolumeListing {
+  volumes: Volume[];
+  unreachableNodes?: string[];
+}
+
+/* ---------------------------------------------------------------------------
+ * Sealing keys (Fafnir, proxied) -- the seal-offline asymmetric key lifecycle
+ * ------------------------------------------------------------------------ */
+
+/**
+ * `GET /seal/public-key`. `publicKey` is the base64 of the key's X.509 SubjectPublicKeyInfo DER --
+ * what a caller feeds back to `gimle seal value --public-key` to seal a value entirely offline.
+ * The one proxied route with no authorization at all: a caller who can seal but never read needs
+ * this key before it can seal anything, so gating it would protect nothing.
+ */
+export interface SealingPublicKey {
+  sealingKeyId: number;
+  publicKey: string;
+  algorithm: string;
+}
+
+/** `POST /seal/rotate-key` -- the newly-minted key id now active for sealing. */
+export interface SealingKeyRotation {
+  activeSealingKeyId: number;
+}
+
+/**
+ * `POST /seal/retire-key` -- the key id actually retired, echoed back. Retiring only blocks
+ * unwrapping blobs sealed under that key and not yet committed; an already-applied SecretMap value
+ * was re-encrypted under Fafnir's own symmetric key at commit time and is unaffected.
+ */
+export interface SealingKeyRetirement {
+  retiredKeyId: number;
+}
+
+/* ---------------------------------------------------------------------------
+ * Instance lifecycle events
+ * ------------------------------------------------------------------------ */
+
+/** One value per lifecycle transition an instance's own timeline can record. */
+export type InstanceEventKind =
+  | "INSTALLED"
+  | "RESOLVED"
+  | "STARTING"
+  | "ACTIVE"
+  | "STOPPING"
+  | "UNINSTALLED"
+  | "TRANSITION_FAILED"
+  | "COMPLETED";
+
+/**
+ * One durable entry in a single instance's lifecycle timeline -- distinct from the cross-resource
+ * `AuditEvent` trail. `causeSummary` is present only on a `TRANSITION_FAILED` event and
+ * deliberately holds an exception's class name plus message, never a stack trace.
+ *
+ * `id` is minted once where the transition occurred and travels unchanged through every hop, so it
+ * is a stable identity independent of storage order.
+ */
+export interface InstanceEvent {
+  id: string;
+  deploymentName: string;
+  instanceIndex: number;
+  kind: InstanceEventKind;
+  message: string;
+  causeSummary?: string;
+  occurredAtEpochMilli: number;
+}
+
+/* ---------------------------------------------------------------------------
+ * Deployment metrics rollup
+ * ------------------------------------------------------------------------ */
+
+/**
+ * One row of `GET /metrics`: a deployment's live instances averaged into a single pair of rates.
+ * `instanceCount` counts only instances whose owning node's heartbeat currently carries an
+ * observation for them, so it can sit below the spec's own replica count while placements settle,
+ * and both averages are `0` -- not absent -- when it is zero.
+ *
+ * Deliberately carries no `tenantId`: the rollup is keyed by deployment name alone, so two tenants
+ * each running a deployment of the same name produce two rows indistinguishable by name.
+ */
+export interface DeploymentMetricsRollup {
+  deploymentName: string;
+  instanceCount: number;
+  avgRequestRatePerSecond: number;
+  avgErrorRatePerSecond: number;
+}

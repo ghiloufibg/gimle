@@ -22,6 +22,9 @@ import {
   FileJson,
   KeySquare,
   Puzzle,
+  HardDrive,
+  Gauge,
+  Stamp,
 } from "lucide-react";
 
 import gimleMark from "@/assets/gimle-alt-badge.png";
@@ -51,15 +54,18 @@ const items = [
   { title: "CronJobs", url: "/cronjobs", icon: Clock },
   { title: "DaemonSets", url: "/daemonsets", icon: LayoutGrid },
   { title: "StatefulSets", url: "/statefulsets", icon: Database },
+  { title: "Volumes", url: "/volumes", icon: HardDrive },
   { title: "Instances", url: "/instances", icon: Cpu },
   { title: "Custom Resources", url: "/custom-resources", icon: Puzzle },
   { title: "Nodes", url: "/nodes", icon: Server },
   { title: "Networking", url: "/networking", icon: Waypoints },
   { title: "Tenants", url: "/tenants", icon: Users },
+  { title: "LimitRanges", url: "/limitranges", icon: Gauge },
   { title: "Config", url: "/config", icon: Settings },
   { title: "ConfigMaps", url: "/configmaps", icon: FileJson },
   { title: "Secrets", url: "/secrets", icon: KeyRound },
   { title: "SecretMaps", url: "/secretmaps", icon: KeySquare },
+  { title: "Seal Keys", url: "/seal", icon: Stamp },
   { title: "Artifacts", url: "/artifacts", icon: Package },
   { title: "Access Control", url: "/access-control", icon: ShieldCheck },
   { title: "Audit", url: "/audit", icon: ScrollText },
