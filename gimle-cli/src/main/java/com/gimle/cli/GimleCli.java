@@ -228,7 +228,7 @@ public final class GimleCli {
       case "apply" -> handleApply(rest, client, output, out, err);
       case "kinds" -> new CustomResourceCommand(client, output, out).kinds();
       case "get" -> handleGet(rest, client, output, out);
-      case "set" -> handleSet(rest, client, output, out);
+      case "set" -> handleSet(rest, client, output, out, err);
       case "delete" -> handleDelete(rest, client, output, out);
       case "logs" -> new LogsCommand(client, out).run(rest);
       case "cordon" -> new NodesCommand(client, output, out).cordon(requireOne(rest, "cordon"));
@@ -492,14 +492,18 @@ public final class GimleCli {
   }
 
   private static void handleSet(
-      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+      List<String> args,
+      ControlPlaneClient client,
+      OutputFormat.Kind output,
+      PrintStream out,
+      PrintStream err) {
     if (args.isEmpty()) {
       throw new CliException(usage());
     }
     String noun = args.get(0);
     List<String> rest = args.subList(1, args.size());
     switch (noun) {
-      case "service" -> new ServicesCommand(client, output, out).set(rest);
+      case "service" -> new ServicesCommand(client, output, out).set(rest, err);
       case "networkpolicy" -> new NetworkPolicyCommand(client, output, out).set(rest);
       case "alertrule" -> new AlertRulesCommand(client, output, out).set(rest);
       case "tenant" -> new TenantsCommand(client, output, out).set(rest);

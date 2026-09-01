@@ -1,6 +1,7 @@
 package com.gimle.mimir.manifest;
 
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /**
@@ -16,11 +17,13 @@ import java.util.Set;
  *
  * <p>{@code port} is what a caller dials the Service on; {@code targetPort} is what the backing
  * instances actually listen on -- the same split Kubernetes' own {@code Service}/{@code
- * containerPort} pair makes, kept even though today's only two "instance listens on a real port"
- * cases ({@code VesselEnvValue.PortAllocation} and a module binding a server socket directly) both
- * already know their own port, because a Service consumer (the reconciler, {@code gimle-bifrost})
- * still needs to know which port to forward *to* without re-deriving it from those per-workload
- * shapes each time.
+ * containerPort} pair makes. It is genuinely optional here rather than defaulting to {@code port},
+ * because instance ports are reported at runtime (a vessel's allocated port, a module's own {@code
+ * ModuleContext#reportPort}) and are routinely ephemeral: a declared {@code targetPort} is
+ * authoritative -- endpoint resolution picks exactly that port on each backing instance and
+ * excludes any instance not reporting it -- while an absent one means "whatever single port the
+ * instance reports", the only unambiguous choice when nothing names one. Defaulting it to {@code
+ * port} would quietly turn every ephemeral-port workload into an empty endpoint set.
  *
  * <p>{@code tenantId} is optional, matching every other tenant-scoping field in this package
  * ({@code DeploymentSpec#tenantId()}): a Service with no {@code tenantId} is untenanted, consistent
@@ -32,16 +35,17 @@ import java.util.Set;
  * DNS answers or the fabric's own in-process load balancing.
  *
  * <p>{@code externalName} present makes this the ExternalName analogue: the Service resolves to
- * that external hostname (at {@code targetPort}) instead of selecting in-cluster instances --
- * useful while migrating a dependency into the cluster. The two shapes are exclusive: an
- * ExternalName Service names no deployments, and a selector Service names no external host.
+ * that external hostname (at {@code targetPort}, or {@code port} when none is declared) instead of
+ * selecting in-cluster instances -- useful while migrating a dependency into the cluster. The two
+ * shapes are exclusive: an ExternalName Service names no deployments, and a selector Service names
+ * no external host.
  */
 public record ServiceSpec(
     String name,
     Optional<String> tenantId,
     Set<String> deploymentNames,
     int port,
-    int targetPort,
+    OptionalInt targetPort,
     boolean sessionAffinity,
     Optional<String> externalName) {
 
@@ -54,6 +58,9 @@ public record ServiceSpec(
     }
     if (deploymentNames == null) {
       throw new IllegalArgumentException("deploymentNames must not be null");
+    }
+    if (targetPort == null) {
+      throw new IllegalArgumentException("targetPort must be OptionalInt.empty(), not null");
     }
     if (externalName == null) {
       throw new IllegalArgumentException("externalName must be Optional.empty(), not null");
@@ -76,7 +83,9 @@ public record ServiceSpec(
       }
     }
     requirePort(port, "port");
-    requirePort(targetPort, "targetPort");
+    if (targetPort.isPresent()) {
+      requirePort(targetPort.getAsInt(), "targetPort");
+    }
     deploymentNames = Set.copyOf(deploymentNames);
   }
 
@@ -86,20 +95,21 @@ public record ServiceSpec(
     }
   }
 
-  /** Convenience: a selector Service with no affinity, distinct {@code port}/{@code targetPort}. */
+  /** Convenience: a selector Service with no affinity and an explicitly declared target port. */
   public ServiceSpec(
       String name,
       Optional<String> tenantId,
       Set<String> deploymentNames,
       int port,
       int targetPort) {
-    this(name, tenantId, deploymentNames, port, targetPort, false, Optional.empty());
+    this(
+        name, tenantId, deploymentNames, port, OptionalInt.of(targetPort), false, Optional.empty());
   }
 
-  /** Convenience: a Service whose {@code targetPort} equals its own {@code port}. */
+  /** Convenience: a selector Service declaring no target port at all. */
   public ServiceSpec(
       String name, Optional<String> tenantId, Set<String> deploymentNames, int port) {
-    this(name, tenantId, deploymentNames, port, port);
+    this(name, tenantId, deploymentNames, port, OptionalInt.empty(), false, Optional.empty());
   }
 
   /** Whether this is the ExternalName shape rather than a deployment-selecting one. */

@@ -1,11 +1,13 @@
 package com.gimle.controlplane.reconcile;
 
-import com.gimle.controlplane.service.ServiceEndpoint;
+import com.gimle.controlplane.service.ServiceEndpointResolution;
 import com.gimle.controlplane.service.ServiceEndpointResolver;
 import com.gimle.controlplane.service.ServiceRegistry;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.store.StoreReader;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,22 +30,44 @@ public final class ServiceReconciler {
   private final ServiceRegistry registry;
   private final StoreReader store;
 
-  public ServiceReconciler(ServiceRegistry registry, StoreReader store) {
+  // Log state only, never reconcile state: an instance left out of a Service's endpoints because
+  // no port could be chosen deserves a stated reason at WARN, but this loop runs on a seconds-long
+  // timer and would repeat the same line forever. Remembering what was last said per Service turns
+  // it into one line per change. Endpoints themselves are still recomputed from scratch every tick,
+  // so dropping this map entirely would change nothing an operator can observe except log volume.
+  private final Map<String, List<String>> lastLoggedExclusions = new ConcurrentHashMap<>();
+
+  public ServiceReconciler(final ServiceRegistry registry, final StoreReader store) {
     this.registry = registry;
     this.store = store;
   }
 
   public void reconcileOnce() {
-    for (ServiceSpec spec : registry.list()) {
+    for (final ServiceSpec spec : registry.list()) {
       try {
-        List<ServiceEndpoint> endpoints = ServiceEndpointResolver.resolve(store, spec);
-        registry.putEndpoints(spec.tenantId(), spec.name(), endpoints);
+        final ServiceEndpointResolution resolution = ServiceEndpointResolver.resolve(store, spec);
+        registry.putEndpoints(spec.tenantId(), spec.name(), resolution.endpoints());
+        logChangedExclusions(spec, resolution.exclusions());
       } catch (RuntimeException e) {
         // One Service's failure must never abort the rest of this tick's Services -- the next
         // tick retries this one from the same full snapshot, the same level-triggered posture
         // every other reconciler here already relies on.
         log.warn("reconcile of service {} failed: {}", spec.name(), e.getMessage(), e);
       }
+    }
+  }
+
+  private void logChangedExclusions(final ServiceSpec spec, final List<String> exclusions) {
+    final String key = spec.tenantId().orElse("") + '\0' + spec.name();
+    if (exclusions.isEmpty()) {
+      lastLoggedExclusions.remove(key);
+      return;
+    }
+    if (exclusions.equals(lastLoggedExclusions.put(key, exclusions))) {
+      return;
+    }
+    for (final String exclusion : exclusions) {
+      log.warn("service endpoint excluded: {}", exclusion);
     }
   }
 }

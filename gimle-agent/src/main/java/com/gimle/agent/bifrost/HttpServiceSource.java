@@ -14,6 +14,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /**
@@ -89,7 +90,9 @@ public final class HttpServiceSource implements ServiceSource {
         new ServiceEndpoints(
             (String) body.get("name"),
             ((Number) body.get("port")).intValue(),
-            ((Number) body.get("targetPort")).intValue(),
+            body.get("targetPort") instanceof Number targetPort
+                ? OptionalInt.of(targetPort.intValue())
+                : OptionalInt.empty(),
             Boolean.TRUE.equals(body.get("sessionAffinity")),
             endpoints));
   }

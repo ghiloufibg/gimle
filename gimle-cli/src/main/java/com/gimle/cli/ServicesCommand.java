@@ -40,7 +40,7 @@ public final class ServicesCommand {
     OutputFormat.printObject(output, client.getObject(path), out);
   }
 
-  public void set(List<String> args) {
+  public void set(List<String> args, PrintStream err) {
     String usage =
         "set service requires <name> (--deployment <name> [--deployment <name>...] |"
             + " --external-name <host>) --port <n> [--target-port <n>] [--tenant <id>]"
@@ -62,7 +62,6 @@ public final class ServicesCommand {
     }
     long port = flags.requireLong("--port");
     String targetPortValue = flags.getOrDefault("--target-port", null);
-    long targetPort = targetPortValue == null ? port : parsePort(targetPortValue);
     String tenantId = flags.getOrDefault("--tenant", null);
 
     Map<String, Object> body = new LinkedHashMap<>();
@@ -72,7 +71,12 @@ public final class ServicesCommand {
     }
     body.put("deploymentNames", List.copyOf(new LinkedHashSet<>(deploymentNames)));
     body.put("port", port);
-    body.put("targetPort", targetPort);
+    // Omitted, not defaulted to --port: an absent targetPort means "route to whatever single port
+    // the instance reports", which is what an ephemeral-port workload needs, while a declared one
+    // is matched exactly against the instance's reported ports.
+    if (targetPortValue != null) {
+      body.put("targetPort", parsePort(targetPortValue));
+    }
     if (flags.isSet("--session-affinity")) {
       body.put("sessionAffinity", true);
     }
@@ -80,7 +84,9 @@ public final class ServicesCommand {
       body.put("externalName", externalName);
     }
 
-    client.expectSuccess(client.post("/services", Json.write(body)));
+    ApiResponse response = client.post("/services", Json.write(body));
+    client.expectSuccess(response);
+    ManifestFiles.printWarnings(response, err);
     OutputFormat.printResult(
         output, resultBody("configured", name), "service/" + name + " configured", out);
   }
@@ -110,7 +116,9 @@ public final class ServicesCommand {
     List<?> deploymentNames = root.get("deploymentNames") instanceof List<?> l ? l : List.of();
     body.put("deploymentNames", List.copyOf(new LinkedHashSet<>(deploymentNames)));
     body.put("port", port);
-    body.put("targetPort", root.getOrDefault("targetPort", port));
+    if (root.get("targetPort") != null) {
+      body.put("targetPort", root.get("targetPort"));
+    }
     if (Boolean.TRUE.equals(root.get("sessionAffinity"))) {
       body.put("sessionAffinity", true);
     }

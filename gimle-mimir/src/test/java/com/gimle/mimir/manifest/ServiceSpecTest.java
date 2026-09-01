@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -48,11 +49,11 @@ class ServiceSpecTest {
   }
 
   @Test
-  void the_four_arg_constructor_defaults_target_port_to_port() {
+  void the_four_arg_constructor_declares_no_target_port_at_all() {
     ServiceSpec spec = new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080);
 
     assertEquals(8080, spec.port());
-    assertEquals(8080, spec.targetPort());
+    assertEquals(OptionalInt.empty(), spec.targetPort());
   }
 
   @Test
@@ -61,7 +62,29 @@ class ServiceSpecTest {
         new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080, 9090);
 
     assertEquals(8080, spec.port());
-    assertEquals(9090, spec.targetPort());
+    assertEquals(OptionalInt.of(9090), spec.targetPort());
+  }
+
+  @Test
+  void rejects_a_null_target_port() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new ServiceSpec(
+                "orders",
+                Optional.empty(),
+                Set.of("orders-service"),
+                8080,
+                null,
+                false,
+                Optional.empty()));
+  }
+
+  @Test
+  void rejects_a_declared_target_port_out_of_range() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ServiceSpec("orders", Optional.empty(), Set.of("orders-service"), 8080, 70000));
   }
 
   @Test
@@ -72,7 +95,7 @@ class ServiceSpecTest {
             Optional.empty(),
             Set.of(),
             443,
-            443,
+            OptionalInt.of(443),
             false,
             Optional.of("billing.example.com"));
 
@@ -91,7 +114,7 @@ class ServiceSpecTest {
                 Optional.empty(),
                 Set.of("orders-service"),
                 443,
-                443,
+                OptionalInt.of(443),
                 false,
                 Optional.of("billing.example.com")));
   }
@@ -102,7 +125,13 @@ class ServiceSpecTest {
         IllegalArgumentException.class,
         () ->
             new ServiceSpec(
-                "billing", Optional.empty(), Set.of(), 443, 443, false, Optional.of(" ")));
+                "billing",
+                Optional.empty(),
+                Set.of(),
+                443,
+                OptionalInt.of(443),
+                false,
+                Optional.of(" ")));
   }
 
   @Test

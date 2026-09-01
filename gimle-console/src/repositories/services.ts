@@ -22,7 +22,6 @@ const mockServices: Service[] = [
     tenantId: "acme",
     deploymentNames: ["billing-primary", "billing-canary"],
     port: 9090,
-    targetPort: 9000,
   },
 ];
 

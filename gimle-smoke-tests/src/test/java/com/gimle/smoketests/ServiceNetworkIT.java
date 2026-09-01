@@ -112,15 +112,16 @@ class ServiceNetworkIT extends GreeterSmokeClusterSupport {
     // Step 3, scoped: the Service is real and queryable through the real API -- but its
     // endpoints list structurally can never gain a live entry for a module-backed Deployment
     // (see this class's own javadoc), so this asserts the real API contract (200, correct
-    // name/port/targetPort) and that the empty endpoints list is stable, not a genuine "not
-    // ready yet" transient this suite would otherwise wait out with Await.until.
+    // name/port, and no targetPort echoed back since none was declared) and that the empty
+    // endpoints list is stable, not a genuine "not ready yet" transient this suite would
+    // otherwise wait out with Await.until.
     Await.until(
         () -> serviceIsRegistered(baseUrl, SERVICE_NAME),
         Duration.ofSeconds(30),
         "the Service should be registered and answer GET /services/" + SERVICE_NAME + "/endpoints");
     Map<String, Object> endpointsBody = fetchServiceEndpoints(baseUrl, SERVICE_NAME);
     assertEquals(servicePort, ((Number) endpointsBody.get("port")).intValue());
-    assertEquals(servicePort, ((Number) endpointsBody.get("targetPort")).intValue());
+    assertFalse(endpointsBody.containsKey("targetPort"));
     assertConditionHoldsThroughout(
         () -> Json.asArray(fetchServiceEndpoints(baseUrl, SERVICE_NAME).get("endpoints")).isEmpty(),
         Duration.ofSeconds(3),

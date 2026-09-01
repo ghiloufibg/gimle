@@ -34,6 +34,7 @@ import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
 import com.gimle.controlplane.reconcile.CronJobReconciler;
+import com.gimle.controlplane.service.ServiceAdvisories;
 import com.gimle.controlplane.service.ServiceEndpoint;
 import com.gimle.controlplane.service.ServiceEndpointResolver;
 import com.gimle.controlplane.service.ServiceRegistry;
@@ -1678,7 +1679,10 @@ public final class ApiServer implements AutoCloseable {
       }
     }
     int port = ((Number) body.get("port")).intValue();
-    int targetPort = body.get("targetPort") instanceof Number n ? n.intValue() : port;
+    OptionalInt targetPort =
+        body.get("targetPort") instanceof Number n
+            ? OptionalInt.of(n.intValue())
+            : OptionalInt.empty();
     boolean sessionAffinity = Boolean.TRUE.equals(body.get("sessionAffinity"));
     Optional<String> externalName =
         body.get("externalName") instanceof String s ? Optional.of(s) : Optional.empty();
@@ -1692,7 +1696,15 @@ public final class ApiServer implements AutoCloseable {
       ServiceSpec spec =
           new ServiceSpec(
               name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName);
+      // Computed against the Service set as it stands *before* this one lands, so a re-submit
+      // never reads as overlapping itself, and attached before respond() writes the headers out.
+      List<String> advisories =
+          ServiceAdvisories.forSubmission(spec, serviceRegistry.list(), storeClient);
       serviceRegistry.put(spec);
+      for (String advisory : advisories) {
+        log.warn("service {}: {}", name, advisory);
+        exchange.getResponseHeaders().add("X-Gimle-Warning", advisory);
+      }
       respond(exchange, 200, "ok");
     }
   }
@@ -1808,10 +1820,11 @@ public final class ApiServer implements AutoCloseable {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("name", spec.name());
     map.put("port", spec.port());
-    map.put("targetPort", spec.targetPort());
+    spec.targetPort().ifPresent(targetPort -> map.put("targetPort", targetPort));
     map.put("sessionAffinity", spec.sessionAffinity());
     List<Map<String, Object>> endpoints = new ArrayList<>();
-    for (ServiceEndpoint endpoint : ServiceEndpointResolver.resolve(storeClient, spec)) {
+    for (ServiceEndpoint endpoint :
+        ServiceEndpointResolver.resolve(storeClient, spec).endpoints()) {
       Map<String, Object> entry = new LinkedHashMap<>();
       entry.put("host", endpoint.host());
       entry.put("port", endpoint.port());
@@ -1828,7 +1841,7 @@ public final class ApiServer implements AutoCloseable {
     spec.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
     map.put("deploymentNames", List.copyOf(spec.deploymentNames()));
     map.put("port", spec.port());
-    map.put("targetPort", spec.targetPort());
+    spec.targetPort().ifPresent(targetPort -> map.put("targetPort", targetPort));
     map.put("sessionAffinity", spec.sessionAffinity());
     spec.externalName().ifPresent(externalName -> map.put("externalName", externalName));
     return map;

@@ -171,7 +171,9 @@ public final class DomainCodec {
       out.writeUTF(deploymentName);
     }
     out.writeInt(spec.port());
-    out.writeInt(spec.targetPort());
+    // 0 encodes "no targetPort declared" -- a real port is always in [1, 65535], so the sentinel
+    // is unambiguous and keeps this field a plain int on the wire.
+    out.writeInt(spec.targetPort().orElse(0));
     out.writeBoolean(spec.sessionAffinity());
     writeOptionalString(out, spec.externalName());
   }
@@ -185,7 +187,9 @@ public final class DomainCodec {
       deploymentNames.add(in.readUTF());
     }
     int port = in.readInt();
-    int targetPort = in.readInt();
+    int rawTargetPort = in.readInt();
+    OptionalInt targetPort =
+        rawTargetPort == 0 ? OptionalInt.empty() : OptionalInt.of(rawTargetPort);
     boolean sessionAffinity = in.readBoolean();
     Optional<String> externalName = readOptionalString(in);
     return new ServiceSpec(

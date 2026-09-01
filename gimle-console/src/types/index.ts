@@ -273,14 +273,19 @@ export interface Service {
   tenantId?: string;
   deploymentNames: string[];
   port: number;
-  targetPort: number;
+  /**
+   * Absent when the Service declares no target port, in which case each backing instance's own
+   * single reported port stands in. A declared one is matched exactly: an instance not reporting
+   * it contributes no endpoint.
+   */
+  targetPort?: number;
 }
 
 /** `GET /services/{name}/endpoints` -- live, reconciler-independent, never cached alongside `Service`. */
 export interface ServiceEndpoints {
   name: string;
   port: number;
-  targetPort: number;
+  targetPort?: number;
   endpoints: { host: string; port: number }[];
 }
 

@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 
 final class ControlPlaneServicePollerTest {
@@ -187,7 +188,7 @@ final class ControlPlaneServicePollerTest {
         int targetPort,
         List<HostPort> endpoints) {
       listingsByName.put(name, new ServiceListing(name, tenantId));
-      byName.put(name, new ServiceEndpoints(name, port, targetPort, endpoints));
+      byName.put(name, new ServiceEndpoints(name, port, OptionalInt.of(targetPort), endpoints));
     }
 
     /** A Service present in the catalog listing whose per-service endpoint fetch answers 404. */
