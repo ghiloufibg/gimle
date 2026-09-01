@@ -622,9 +622,7 @@ public final class FafnirServer implements AutoCloseable {
       return;
     }
     List<Map<String, Object>> versions =
-        secretStore.versions(tenantId, key).stream()
-            .map(FafnirServer::versionInfoToJson)
-            .toList();
+        secretStore.versions(tenantId, key).stream().map(FafnirServer::versionInfoToJson).toList();
     respondJson(exchange, 200, Map.of("versions", versions));
   }
 
@@ -692,8 +690,7 @@ public final class FafnirServer implements AutoCloseable {
         true,
         AuditOutcome.APPLIED,
         OptionalInt.of(version));
-    respondJson(
-        exchange, 200, Map.of("version", version, "type", write.type().wireName()));
+    respondJson(exchange, 200, Map.of("version", version, "type", write.type().wireName()));
   }
 
   /**
@@ -1233,11 +1230,7 @@ public final class FafnirServer implements AutoCloseable {
     boolean allowed =
         !principal.groups().contains(BuiltinRoles.GROUP_NODES)
             && authorizer.authorize(
-                principal,
-                ResourceKind.SECRET,
-                Verb.READ,
-                Optional.of(tenantId),
-                Optional.empty());
+                principal, ResourceKind.SECRET, Verb.READ, Optional.of(tenantId), Optional.empty());
     recordAudit(
         ResourceKind.SECRET,
         principal,

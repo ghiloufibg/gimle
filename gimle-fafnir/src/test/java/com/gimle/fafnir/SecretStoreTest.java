@@ -243,14 +243,12 @@ class SecretStoreTest {
 
   @Test
   void a_key_containing_the_reserved_at_separator_is_rejected() {
-    assertThrows(
-        IllegalArgumentException.class, () -> put("acme", "weird@key", bytes("v")));
+    assertThrows(IllegalArgumentException.class, () -> put("acme", "weird@key", bytes("v")));
   }
 
   @Test
   void a_key_containing_a_slash_is_rejected() {
-    assertThrows(
-        IllegalArgumentException.class, () -> put("acme", "weird/key", bytes("v")));
+    assertThrows(IllegalArgumentException.class, () -> put("acme", "weird/key", bytes("v")));
   }
 
   @Test
@@ -313,7 +311,10 @@ class SecretStoreTest {
   @Test
   void a_versions_declared_type_round_trips_through_the_stored_metadata() {
     secrets.put(
-        "acme", "tls-cert", bytes(CERTIFICATE_PEM), new SecretWrite("alice", SecretType.PEM_CERTIFICATE));
+        "acme",
+        "tls-cert",
+        bytes(CERTIFICATE_PEM),
+        new SecretWrite("alice", SecretType.PEM_CERTIFICATE));
 
     SecretVersionInfo info = secrets.versionInfo("acme", "tls-cert", 1).orElseThrow();
 
@@ -330,7 +331,8 @@ class SecretStoreTest {
 
     List<SecretVersionInfo> versions = secrets.versions("acme", "db-password");
 
-    assertEquals(List.of("alice", "bob"), versions.stream().map(SecretVersionInfo::author).toList());
+    assertEquals(
+        List.of("alice", "bob"), versions.stream().map(SecretVersionInfo::author).toList());
   }
 
   @Test
@@ -363,8 +365,9 @@ class SecretStoreTest {
   void a_declared_pem_private_key_type_accepts_the_pkcs1_label_openssl_emits() {
     String pkcs1 = "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgIBAAJB\n-----END RSA PRIVATE KEY-----\n";
 
-    int version = secrets.put(
-        "acme", "tls-key", bytes(pkcs1), new SecretWrite("alice", SecretType.PEM_PRIVATE_KEY));
+    int version =
+        secrets.put(
+            "acme", "tls-key", bytes(pkcs1), new SecretWrite("alice", SecretType.PEM_PRIVATE_KEY));
 
     assertEquals(1, version);
     assertEquals(
@@ -376,15 +379,15 @@ class SecretStoreTest {
     int version = put("acme", "anything", bytes("-----BEGIN CERTIFICATE----- truncated"));
 
     assertEquals(1, version);
-    assertEquals(SecretType.OPAQUE, secrets.versionInfo("acme", "anything", 1).orElseThrow().type());
+    assertEquals(
+        SecretType.OPAQUE, secrets.versionInfo("acme", "anything", 1).orElseThrow().type());
   }
 
   @Test
   void a_value_larger_than_the_per_secret_cap_is_refused_before_anything_is_stored() {
     byte[] oversized = new byte[SecretStore.MAX_VALUE_BYTES + 1];
 
-    assertThrows(
-        GimleSecretsException.class, () -> put("acme", "too-big", oversized));
+    assertThrows(GimleSecretsException.class, () -> put("acme", "too-big", oversized));
     assertFalse(secrets.exists("acme", "too-big"));
   }
 
@@ -400,8 +403,7 @@ class SecretStoreTest {
     secrets.put("acme", "db-password", bytes("hunter2"), SecretWrite.opaqueBy("alice"));
     secrets.put("acme", "api-key", bytes("abc123"), SecretWrite.opaqueBy("bob"));
 
-    Map<String, SecretValue> fetched =
-        secrets.getMany("acme", List.of("db-password", "api-key"));
+    Map<String, SecretValue> fetched = secrets.getMany("acme", List.of("db-password", "api-key"));
 
     assertEquals(Set.of("db-password", "api-key"), fetched.keySet());
     assertEquals("hunter2", new String(fetched.get("db-password").value(), StandardCharsets.UTF_8));

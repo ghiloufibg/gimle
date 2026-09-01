@@ -307,7 +307,25 @@ class FafnirServerSealTest {
                 new ConfigEntry(
                     "acme",
                     "plain-secret@meta",
-                    Json.write(Map.of("latestVersion", 1, "highestVersion", 1, "deleted", false))
+                    Json.write(
+                            Map.of(
+                                "latestVersion",
+                                1,
+                                "highestVersion",
+                                1,
+                                "deleted",
+                                false,
+                                "versions",
+                                List.of(
+                                    Map.of(
+                                        "version",
+                                        1,
+                                        "author",
+                                        "test",
+                                        "writtenAtEpochMilli",
+                                        0,
+                                        "type",
+                                        SecretType.OPAQUE.name()))))
                         .getBytes(StandardCharsets.UTF_8),
                     false)));
 

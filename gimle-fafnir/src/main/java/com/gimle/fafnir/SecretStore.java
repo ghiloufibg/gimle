@@ -195,8 +195,9 @@ public final class SecretStore {
               .filter(v -> v.version() == meta.latestVersion())
               .findFirst()
               .orElseThrow(
-                  () -> GimleSecretsException.versionNotRecoverable(
-                      tenantId, key, meta.latestVersion()));
+                  () ->
+                      GimleSecretsException.versionNotRecoverable(
+                          tenantId, key, meta.latestVersion()));
       result.put(key, new SecretValue(crypto.decrypt(valueEntry.value()), info));
     }
     return result;
@@ -413,8 +414,7 @@ public final class SecretStore {
       throw new IllegalArgumentException("value must not be null");
     }
     if (plaintext.length > MAX_VALUE_BYTES) {
-      throw GimleSecretsException.valueTooLarge(
-          tenantId, key, plaintext.length, MAX_VALUE_BYTES);
+      throw GimleSecretsException.valueTooLarge(tenantId, key, plaintext.length, MAX_VALUE_BYTES);
     }
     type.validate(tenantId, key, plaintext);
   }
@@ -444,12 +444,12 @@ public final class SecretStore {
    * current pointer instead would silently overwrite an existing newer version's data after a
    * rewind.
    *
-   * <p>{@code versions} is the append-only record of how each {@code key@N} came to exist -- author,
-   * write timestamp, declared type -- and lives here, on the one mutable pointer entry, rather than
-   * beside each immutable {@code key@N} value entry: it is read on every listing, so keeping it here
-   * answers "who wrote version 3, and when" from the single entry the read path already fetches
-   * instead of one extra round trip per version. Nothing in it is secret material, which is why it
-   * can sit on the unencrypted pointer entry at all.
+   * <p>{@code versions} is the append-only record of how each {@code key@N} came to exist --
+   * author, write timestamp, declared type -- and lives here, on the one mutable pointer entry,
+   * rather than beside each immutable {@code key@N} value entry: it is read on every listing, so
+   * keeping it here answers "who wrote version 3, and when" from the single entry the read path
+   * already fetches instead of one extra round trip per version. Nothing in it is secret material,
+   * which is why it can sit on the unencrypted pointer entry at all.
    */
   private record Meta(
       int latestVersion, int highestVersion, boolean deleted, List<SecretVersionInfo> versions) {
@@ -460,7 +460,9 @@ public final class SecretStore {
       versions = List.copyOf(versions);
     }
 
-    /** The pointer after a {@link #put} claimed {@code info}'s version -- appended, never edited. */
+    /**
+     * The pointer after a {@link #put} claimed {@code info}'s version -- appended, never edited.
+     */
     Meta withNewVersion(SecretVersionInfo info) {
       List<SecretVersionInfo> appended = new ArrayList<>(versions);
       appended.add(info);

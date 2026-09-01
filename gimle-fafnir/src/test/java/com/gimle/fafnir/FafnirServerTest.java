@@ -358,8 +358,7 @@ class FafnirServerTest {
     assertEquals(Set.of("db-password", "api-key"), secrets.keySet());
     Map<String, Object> dbPassword = Json.asObject(secrets.get("db-password"));
     assertEquals(
-        "hunter2",
-        new String(decode((String) dbPassword.get("value")), StandardCharsets.UTF_8));
+        "hunter2", new String(decode((String) dbPassword.get("value")), StandardCharsets.UTF_8));
     assertEquals(1L, dbPassword.get("version"));
     assertEquals("opaque", dbPassword.get("type"));
   }

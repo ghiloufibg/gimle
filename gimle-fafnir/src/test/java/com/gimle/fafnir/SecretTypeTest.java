@@ -29,7 +29,8 @@ class SecretTypeTest {
   @Test
   void an_unknown_type_is_rejected_with_the_valid_names_in_the_message() {
     IllegalArgumentException thrown =
-        assertThrows(IllegalArgumentException.class, () -> SecretType.fromWire("kubernetes.io/tls"));
+        assertThrows(
+            IllegalArgumentException.class, () -> SecretType.fromWire("kubernetes.io/tls"));
 
     assertTrue(thrown.getMessage().contains("pem-certificate"));
   }
