@@ -85,6 +85,7 @@ import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tenant.TenantIsolationPosture;
 import com.gimle.core.throttle.LoginThrottle;
+import com.gimle.core.throttle.RequestRateLimiter;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
@@ -305,6 +306,25 @@ public final class ApiServer implements AutoCloseable {
   // Throttles /auth/login by username and by remote address independently -- see the
   // class's own javadoc for why in-memory/per-replica is the right call here, not a StateMutation.
   private final LoginThrottle loginThrottle = new LoginThrottle();
+  // Rate-limits POST /bootstrap/csr, the one route here that must answer a caller holding no
+  // credential at all, and the most expensive one per request (a PKCS#10 parse and signature
+  // verify, then an RSA signing for an auto-approved join) -- so it is the cheapest endpoint to
+  // turn into a CPU-exhaustion lever and the only one where an unauthenticated flood is possible.
+  // Two independent buckets: one keyed by remote address, so one source can't spend the whole
+  // cluster's budget, and one shared across every caller, so a distributed source can't either.
+  // Both are sized for a real fleet bring-up -- every node of a cluster joining at once, each
+  // submitting exactly one CSR, all of them arriving from a single address when the fleet sits
+  // behind one NAT or on one development machine -- because a joining agent treats a rejected
+  // submission as fatal and does not retry. Raise gimle.controlplane.csr.burstPerAddress for a
+  // fleet larger than one burst behind a single address.
+  private final RequestRateLimiter csrAddressRateLimiter =
+      new RequestRateLimiter(
+          Integer.getInteger(CSR_BURST_PER_ADDRESS_PROPERTY, 200),
+          Duration.ofMillis(Long.getLong(CSR_REFILL_MILLIS_PER_ADDRESS_PROPERTY, 1_000L)));
+  private final RequestRateLimiter csrClusterRateLimiter =
+      new RequestRateLimiter(
+          Integer.getInteger(CSR_CLUSTER_BURST_PROPERTY, 1_000),
+          Duration.ofMillis(Long.getLong(CSR_CLUSTER_REFILL_MILLIS_PROPERTY, 50L)));
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
   private final Instant startedAt = Instant.now();
   // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
@@ -6793,7 +6813,8 @@ public final class ApiServer implements AutoCloseable {
    * {@code 429}, same generic body as an ordinary failed login -- must not let a caller distinguish
    * "you're throttled" from "wrong credentials" by body content, only by status code and the
    * standard {@code Retry-After} header (seconds), which reveals no more than "come back later"
-   * either way.
+   * either way. Shared with the rate-limited CSR submission route, which needs the identical "come
+   * back after" answer and has the same reason to say nothing more.
    */
   private static void respondThrottled(HttpExchange exchange, Instant nextAllowedAttempt)
       throws IOException {
@@ -7908,6 +7929,13 @@ public final class ApiServer implements AutoCloseable {
   // ---- /bootstrap/csr, /bootstrap/csr/{id}[/approve], /bootstrap/tokens ----
 
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
+  // How many submissions one address may spend at once, and how fast it earns another.
+  static final String CSR_BURST_PER_ADDRESS_PROPERTY = "gimle.controlplane.csr.burstPerAddress";
+  static final String CSR_REFILL_MILLIS_PER_ADDRESS_PROPERTY =
+      "gimle.controlplane.csr.refillMillisPerAddress";
+  // The same pair for every caller together, so many addresses can't add up to an unbounded rate.
+  static final String CSR_CLUSTER_BURST_PROPERTY = "gimle.controlplane.csr.burst";
+  static final String CSR_CLUSTER_REFILL_MILLIS_PROPERTY = "gimle.controlplane.csr.refillMillis";
 
   /**
    * No blanket {@link #requireAuthorized} call here, deliberately: this is the one endpoint that by
@@ -7924,6 +7952,14 @@ public final class ApiServer implements AutoCloseable {
     try {
       if (!"POST".equals(exchange.getRequestMethod())) {
         respond(exchange, 405, "method not allowed");
+        return;
+      }
+      // Charged before the body is even read, so a refused caller costs this process a socket
+      // read and nothing more -- rate limiting that only kicked in after parsing the CSR would
+      // have already paid the price it exists to avoid.
+      Optional<Instant> retryAt = csrRateLimited(exchange);
+      if (retryAt.isPresent()) {
+        respondThrottled(exchange, retryAt.get());
         return;
       }
       CsrSubmission submission =
@@ -7954,6 +7990,20 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * Empty while a CSR submission may be served; otherwise the instant the caller may try again.
+   * Every submission is charged, authenticated rotation included: a certificate holder is not the
+   * threat this bounds, but exempting one would mean deciding that before the body is read, and the
+   * limits are set far above any rate a real node's own join or rotation traffic reaches.
+   */
+  private Optional<Instant> csrRateLimited(HttpExchange exchange) {
+    Optional<Instant> addressRetryAt = csrAddressRateLimiter.acquire(remoteAddressKey(exchange));
+    if (addressRetryAt.isPresent()) {
+      return addressRetryAt;
+    }
+    return csrClusterRateLimiter.acquire("cluster");
   }
 
   /**

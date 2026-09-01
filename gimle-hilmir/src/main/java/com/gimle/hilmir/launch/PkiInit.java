@@ -91,6 +91,10 @@ public final class PkiInit {
     runOneShot(command, runtime.dataRoot().resolve("pki-init.log"));
     out.println(
         "wrote cluster TLS material for " + hostnames.size() + " hostname(s) to " + materialDir);
+    out.println(
+        "bootstrap console password (username 'admin') written to "
+            + bootstrapPasswordFile(materialDir)
+            + "; read it, then delete that file");
   }
 
   /**
@@ -112,10 +116,19 @@ public final class PkiInit {
                 "-cp",
                 runtime.classpath(),
                 "com.gimle.pki.PkiBootstrapMain",
+                // This subprocess's output is captured into pki-init.log, so the one-time bootstrap
+                // password must go to its own owner-only file rather than being printed into a log
+                // file that outlives the command.
+                "--password-file",
+                bootstrapPasswordFile(materialDir).toString(),
                 materialDir.toString(),
                 caCommonName));
     command.addAll(hostnames);
     return command;
+  }
+
+  static Path bootstrapPasswordFile(final Path materialDir) {
+    return materialDir.resolve("bootstrap-password.txt");
   }
 
   private static List<String> distinctHostnames(final Topology topology) {

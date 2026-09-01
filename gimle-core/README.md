@@ -21,7 +21,7 @@ frame helper). What lives here is either a pure value type, an exception, or inf
 | `com.gimle.core.config` | `ConfigEntry` — the store-level shape backing both plain config and (layered on top, in `gimle-fafnir`) encrypted secrets. |
 | `com.gimle.core.logging` | The platform's logging setup (see below). |
 | `com.gimle.core.vessel` | `VesselSpec` and friends — the descriptor shape for a Vessel (a non-JVM/opaque process workload), including probe specs (`VesselProbeSpec`, sealed: `Tcp`/`Http`) and env-value resolution (`VesselEnvValue`, sealed). |
-| `com.gimle.core.session`, `com.gimle.core.throttle` | Console session token issuance/verification and login-attempt throttling, shared by every process that serves its own `/auth/*`. |
+| `com.gimle.core.session`, `com.gimle.core.throttle` | Console session token issuance/verification, login-attempt backoff (`LoginThrottle`), and request-rate limiting (`RequestRateLimiter`, a token bucket for endpoints whose *successful* requests are the expensive ones) -- shared by every process that serves its own `/auth/*` or an unauthenticated route. |
 | `com.gimle.core.banner`, `com.gimle.core.web`, `com.gimle.core.codec`, `com.gimle.core.hash`, `com.gimle.core.io`, `com.gimle.core.saga` | Startup banner rendering, bundled-SPA static serving (`BundledSpa`/`SpaStaticHandler`), the fabric wire codec's shared frame helper (`Frames`), `Sha256`, a digest-bounded `InputStream`, and the Saga event/codec types folded into Holmgang's unified run report. |
 
 ## No checked exceptions

@@ -142,6 +142,12 @@ and tears the whole cluster back down. Unlike every other goal here, it isn't se
 reactor module — it needs nine modules' runtime classpaths and supervises six long-running
 processes together, so it runs only from the root aggregator project.
 
+In TLS mode the one-time bootstrap console password this goal's own `tls-init` step mints is
+written to `bootstrap-password.txt` beside the rest of the TLS material, never printed — this goal
+inherits Maven's own stdout, so printing it would put the cluster's first administrator credential
+into the build log of any non-interactive run. The closing summary names the file; read it, then
+delete it.
+
 `gimle.bootstrap.baseDir` (Raft state, secret key files, Muninn's day files, TLS material) survives
 between runs by design — stopping and restarting this goal resumes the same cluster rather than
 starting from scratch. `-Dgimle.bootstrap.clean=true` wipes it first for a guaranteed-fresh
@@ -307,6 +313,7 @@ goal targets.
 | `gimle.tlsInit.outputDir` | `./gimle-tls` | Where the generated `.crt`/`.key` files are written. |
 | `gimle.tlsInit.caCommonName` | `gimle-cluster-ca` | The cluster CA's own Subject CN. |
 | `gimle.tlsInit.hostname` | `localhost` | SAN on the control plane's leaf certificate — clients must reach the control plane by this hostname, not a bare IP literal (no `iPAddress` SAN support yet). |
+| `gimle.tlsInit.passwordFile` | *(unset)* | Where to write the one-time bootstrap admin password. Unset, the password is printed — but only when the build's own output is a terminal. A non-interactive run (CI, redirected output) must set this, or the goal fails rather than writing the plaintext password into a build log. See [Bootstrap (day 0)](../architecture/authn-authz.md#bootstrap-day-0). |
 
 ```bash
 mvn gimle:tls-init -Dgimle.tlsInit.outputDir=./gimle-tls -Dgimle.tlsInit.hostname=localhost

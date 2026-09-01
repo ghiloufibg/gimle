@@ -17,9 +17,13 @@ encoder — not the internal `sun.security.x509` route.
   brand-new cluster needs to start in TLS mode: the self-signed cluster CA plus distinct leaf
   certificates for the control plane, Fafnir, Muninn, Andvari, and the first human operator (a node
   agent gets nothing here — it obtains its own certificate later, live, via the CSR bootstrap flow).
-  Also writes a `bootstrap-account.yaml` with a freshly generated admin password, hashed via
-  `PasswordHashes` and printed exactly once, since `ApiServer` reads this file only while its store
-  has zero accounts and Raft-proposes it as a real `Account`.
+  Also writes a `bootstrap-account.yaml` holding only a freshly generated admin password's
+  `PasswordHashes` hash, since `ApiServer` reads this file only while its store has zero accounts
+  and Raft-proposes it as a real `Account`. The plaintext password itself is delivered exactly once
+  and never into anything that keeps it: printed only when standard output is genuinely a terminal,
+  otherwise written to the owner-only file named by `--password-file <path>`. A non-interactive run
+  that names no file is refused before generating anything, rather than printing the cluster's first
+  administrator credential into whatever log captured that output.
 - **`CertificateAuthority`** — a loaded or freshly generated CA (certificate + private key).
   `signCertificateRequest` is the single signing code path shared by initial bootstrap, a node
   joining, a newly approved operator, and rotation; those cases differ only in who's allowed to call

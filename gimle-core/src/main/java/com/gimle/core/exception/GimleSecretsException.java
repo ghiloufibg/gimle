@@ -29,6 +29,15 @@ public class GimleSecretsException extends RuntimeException {
             + actualLength);
   }
 
+  /**
+   * A one-time cluster bootstrap password was generated with nowhere safe to deliver it: the
+   * process's standard output is not a terminal, so printing it would write the plaintext into
+   * whatever log or file that output was redirected to, and no destination file was named either.
+   */
+  public static GimleSecretsException undeliverableBootstrapPassword(String message) {
+    return new GimleSecretsException(message);
+  }
+
   public static GimleSecretsException fafnirUnavailable(String message) {
     return new GimleSecretsException(message);
   }
