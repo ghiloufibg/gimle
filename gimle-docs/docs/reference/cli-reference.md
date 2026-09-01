@@ -32,7 +32,8 @@ every other `set`/`delete`/`apply`. `gimle logs` emits the structured log lines 
 than a re-serialization of its own one-line rendering: one JSON array per request (an empty array
 when nothing matched, so a zero-match query is still valid JSON to pipe onward), and one JSON
 object per line as it arrives under `--follow`, since a stream that never ends has no closing
-bracket to print.
+bracket to print. [`get ... --watch`](#watching-a-resource-converge) follows the identical rule for
+the identical reason: one array for a single read, NDJSON while watching.
 
 Advisory output — deprecation warnings, the stale-credential notice, the "some nodes were
 unreachable" note on `gimle volume list` — always goes to **stderr**, whatever `-o` says, so stdout
@@ -70,6 +71,8 @@ gimle get jobs [name] [--tenant <id>]
 gimle get cronjobs [name] [--tenant <id>]
 gimle get daemonsets [name] [--tenant <id>]
 gimle get statefulsets [name] [--tenant <id>]
+gimle get <deployments|jobs|cronjobs|daemonsets|statefulsets|nodes|node-assignments> [name]
+                     [--watch|-w] [--watch-interval=SECS] [--watch-ticks=N]
 gimle apply -f <manifest.yaml>|-   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
                                     ArtifactSet, KindDefinition, Service, NetworkPolicy, Tenant,
                                     LimitRange, Role, RoleBinding, Account, or any defined custom
@@ -484,6 +487,76 @@ as JSON under `-o json`). Verb and resource are matched case-insensitively, `-` 
 `_` (`network-policy` works), and a plural `s` is tolerated so the nouns the other verbs use spell
 valid questions here too.
 
+## Watching a resource converge
+
+`--watch` (`-w`) is the `kubectl get … --watch` analogue: instead of one point-in-time snapshot, the
+command keeps reading and reports what changed, so a rollout, a scale-up or a cordon draining a node
+can be observed as it lands rather than by re-running the same command in a shell loop.
+
+It is offered on the reads whose value is in watching them converge:
+
+```text
+gimle get deployments|jobs|cronjobs|daemonsets|statefulsets [name] --watch
+gimle get nodes --watch
+gimle get node-assignments <nodeId> --watch
+```
+
+Every other `get` resource — `tenants`, `limitranges`, `roles`, `rolebindings`, `accounts`,
+`config`, `services`, `networkpolicies`, `alertrules`, and every custom kind — deliberately has no
+watch form: those are operator-authored declarative state with no controller converging them, so
+they change when somebody applies a change and not otherwise. Asking for `--watch` on one of them is
+rejected outright rather than silently accepted as a poll that would never print a second line.
+
+**It is a client-side poll, not a subscription.** The control plane exposes no watch/streaming API
+outside `/logs`, so the CLI simply re-issues the same read the one-shot form would, on an interval —
+which is exactly why the interval is a documented, overridable knob rather than a hidden constant:
+
+| Flag | Default | Meaning |
+| ---- | ------- | ------- |
+| `--watch`, `-w` | off | watch instead of reading once |
+| `--watch-interval=SECS` | `2` | seconds between polls; fractional values allowed, `0` or negative rejected (a busy loop against the control plane is not a faster watch) |
+| `--watch-ticks=N` | unbounded | print `N` snapshots and exit normally, instead of watching until interrupted |
+
+**What each tick prints.** Not the whole table again — a terminal refilling with an identical table
+every couple of seconds is unreadable, and the interesting thing is the two rows that moved, not the
+eighty that did not. The first tick prints the full snapshot; every later tick prints only the rows
+that changed, one line each, under the header printed **once**. Every line carries a leading `EVENT`
+column so the three cases stay distinguishable:
+
+```text
+EVENT     name              module                          artifactPath  tenantId  replicas  health
+ADDED     greeter-provider  com.gimle.example.greeter@1.0.0  -             acme      2/2       HEALTHY
+ADDED     greeter-consumer  com.gimle.example.consumer@1.0.0 -             -         1/1       HEALTHY
+MODIFIED  greeter-provider  com.gimle.example.greeter@1.0.0  -             acme      2/4       UNPLACED(2)
+MODIFIED  greeter-provider  com.gimle.example.greeter@1.0.0  -             acme      4/4       HEALTHY
+DELETED   greeter-consumer  com.gimle.example.consumer@1.0.0 -             -         1/1       HEALTHY
+```
+
+`DELETED` is why the event column exists at all: a poll-derived diff has nowhere else to say that a
+row vanished, which a bare re-print of the surviving rows could not express.
+
+**`-o json` emits NDJSON.** A stream that never ends has no closing bracket, so `--watch` prints one
+JSON object per line — the same convention `gimle logs --follow` already uses against its own
+one-array-per-request non-follow form. Each line is an envelope, because the event kind is derived
+by the CLI's own diff and is not a field of the resource:
+
+```json
+{"event":"MODIFIED","object":{"spec":{"name":"greeter-provider", "...":"..."}}}
+```
+
+The `object` is exactly the shape the non-watch `-o json` read returns, so `jq` filters written
+against `gimle get deployments -o json` work unchanged against `.object`.
+
+**Termination.** Ctrl-C ends a watch cleanly, with no stack trace and no partially written line;
+`--watch-ticks=N` is the bounded form for a script that wants N snapshots and a normal exit instead.
+
+**When the server goes away.** A failed *first* poll fails the command outright, exactly as the
+one-shot form would — there is nothing to watch yet. A failure *later* is reported on stderr and
+retried with an exponential backoff (capped at 30s), so a control plane bouncing mid-rollout does
+not end the watch; after five consecutive failed polls the watch gives up with the underlying
+failure's own [exit code](#exit-codes). It never spins silently, and never hangs against a server
+that is not coming back.
+
 ## Contexts: talking to more than one cluster
 
 `gimle context` names the control planes this CLI talks to, so moving between dev/staging/prod is
@@ -601,6 +674,14 @@ gimle apply -f gimle-examples/greeter-provider/deployment.yaml --server 127.0.0.
 # List every deployment, or look up one by name
 gimle get deployments --server 127.0.0.1:8080
 gimle get deployments greeter-provider-deployment --server 127.0.0.1:8080
+
+# Watch a rollout land instead of re-running the same command in a shell loop: the first tick
+# prints the whole table, later ticks print only the rows that changed, under an EVENT column
+gimle get deployments --watch --server 127.0.0.1:8080
+gimle get deployment orders-service-deployment -w --watch-interval=5 --server 127.0.0.1:8080
+
+# Bounded, and NDJSON for a script: ten snapshots, one {"event":...,"object":{...}} per change
+gimle get nodes --watch --watch-ticks=10 -o json --server 127.0.0.1:8080 | jq -r '.object.nodeId'
 
 # A bad rollout's history and a way back -- revisions lists newest-first, rollback with no
 # --to-revision restores the one immediately before the current one; statefulset/daemonset accept

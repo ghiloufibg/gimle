@@ -30,17 +30,31 @@ public final class CronJobsCommand {
 
   public void get(List<String> args) {
     if (args.isEmpty()) {
-      OutputFormat.printList(output, client.getList("/cronjobs"), out);
+      OutputFormat.printList(output, rows(args), out);
       return;
     }
-    String name = args.get(0);
-    String path = TenantQuery.appendTo("/cronjobs/" + name, args.subList(1, args.size()));
-    Map<String, Object> cronJob = client.getObject(path);
+    Map<String, Object> cronJob = client.getObject(pathFor(args));
     if (output == OutputFormat.Kind.MANIFEST) {
       out.print(ManifestExport.cronJob(cronJob));
       return;
     }
     OutputFormat.printObject(output, cronJob, out);
+  }
+
+  /**
+   * One snapshot's worth of rows, rendered exactly as {@link #get} would render them -- what {@code
+   * --watch} re-fetches each tick and diffs against the previous one. A named CronJob yields a
+   * single-row list rather than the object {@link #get} prints for it, since a watch diffs lists.
+   */
+  public List<Map<String, Object>> rows(List<String> args) {
+    if (args.isEmpty()) {
+      return client.getList("/cronjobs");
+    }
+    return List.of(client.getObject(pathFor(args)));
+  }
+
+  private static String pathFor(List<String> args) {
+    return TenantQuery.appendTo("/cronjobs/" + args.get(0), args.subList(1, args.size()));
   }
 
   public void apply(List<String> args, PrintStream err) {

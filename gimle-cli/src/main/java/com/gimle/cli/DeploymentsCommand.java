@@ -30,23 +30,36 @@ public final class DeploymentsCommand {
 
   public void get(List<String> args) {
     if (args.isEmpty()) {
-      List<Map<String, Object>> deployments = client.getList("/deployments");
-      // Humanization is table-only -- see NodesCommand#list's identical reasoning: -o json keeps
-      // the raw spec/instances/quota shape at full fidelity for scripting.
-      List<Map<String, Object>> rows =
-          output == OutputFormat.Kind.TABLE ? humanizeAll(deployments) : deployments;
-      OutputFormat.printList(output, rows, out);
+      OutputFormat.printList(output, rows(args), out);
       return;
     }
-    String name = args.get(0);
-    String path = TenantQuery.appendTo("/deployments/" + name, args.subList(1, args.size()));
-    Map<String, Object> deployment = client.getObject(path);
+    Map<String, Object> deployment = client.getObject(pathFor(args));
     if (output == OutputFormat.Kind.MANIFEST) {
       out.print(ManifestExport.deployment(deployment));
       return;
     }
     OutputFormat.printObject(
         output, output == OutputFormat.Kind.TABLE ? humanize(deployment) : deployment, out);
+  }
+
+  /**
+   * One snapshot's worth of rows, rendered exactly as {@link #get} would render them -- what {@code
+   * --watch} re-fetches each tick and diffs against the previous one. A named deployment yields a
+   * single-row list rather than the object {@link #get} prints for it, since a watch diffs lists.
+   */
+  public List<Map<String, Object>> rows(List<String> args) {
+    if (args.isEmpty()) {
+      List<Map<String, Object>> deployments = client.getList("/deployments");
+      // Humanization is table-only -- see NodesCommand#list's identical reasoning: -o json keeps
+      // the raw spec/instances/quota shape at full fidelity for scripting.
+      return output == OutputFormat.Kind.TABLE ? humanizeAll(deployments) : deployments;
+    }
+    Map<String, Object> deployment = client.getObject(pathFor(args));
+    return List.of(output == OutputFormat.Kind.TABLE ? humanize(deployment) : deployment);
+  }
+
+  private static String pathFor(List<String> args) {
+    return TenantQuery.appendTo("/deployments/" + args.get(0), args.subList(1, args.size()));
   }
 
   public void apply(List<String> args, PrintStream err) {
