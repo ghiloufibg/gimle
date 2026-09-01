@@ -61,8 +61,12 @@ public final class CronJobsCommand {
     Path file = ManifestFiles.requireFileFlag(args);
     byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
     String name = ManifestFiles.extractName(file, manifestBytes);
-    ApiResponse response =
-        client.put("/cronjobs/" + name, new String(manifestBytes, StandardCharsets.UTF_8));
+    String body = new String(manifestBytes, StandardCharsets.UTF_8);
+    if (DryRun.requested(args)) {
+      DryRun.preview(client, "/cronjobs/" + name, body, output, out, err);
+      return;
+    }
+    ApiResponse response = client.put("/cronjobs/" + name, body);
     client.expectSuccess(response);
     ManifestFiles.printWarnings(response, err);
     OutputFormat.printResult(

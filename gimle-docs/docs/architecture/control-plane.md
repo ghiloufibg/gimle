@@ -91,6 +91,72 @@ relay a `GET /endpoints/{name}` call on its behalf (the worker-agent control cha
 `RelayControlPlaneRead`/`RelayControlPlaneResult` pair — see [Node topology](./node-topology.md#relaying-a-hosted-modules-control-plane-reads))
 without that agent's own certificate needing an ordinary `RoleBinding` granted to it.
 
+## Admission, and previewing it
+
+Every workload PUT runs an ordered `AdmissionChain` before anything is proposed to the store:
+tenant quota, LimitRange, ConfigMap and SecretMap reference resolution, and policy-config checks,
+each an `AdmissionPlugin` that returns either the (possibly rewritten) spec or a rejection reason
+that becomes the API response body. The chain short-circuits on the first rejection.
+
+The chain is a **pure function of a `StoreReader`**: it takes a reader, never a mutation sink, and
+no plugin writes anything. That is what makes a real preview possible rather than a second,
+parallel validator that could drift from it.
+
+`?dryRun=true` on any of `PUT /deployments/{name}`, `/jobs/{name}`, `/cronjobs/{name}`,
+`/daemonsets/{name}`, `/statefulsets/{name}` runs the identical sequence the real write runs —
+the same authorization check, the same manifest kind/name validation, the same artifact
+resolution, the same chain instances — and then answers `200` with a structured verdict instead of
+proposing anything:
+
+```json
+{
+  "dryRun": true, "kind": "Deployment", "name": "orders", "tenantId": "acme",
+  "admitted": false, "wouldRespondStatus": 409,
+  "checks": [
+    {"name": "rbac",      "outcome": "PASSED",  "detail": "…"},
+    {"name": "manifest",  "outcome": "PASSED",  "detail": "kind and name match the addressed route"},
+    {"name": "artifact",  "outcome": "PASSED",  "detail": "resolved, sha256 …"},
+    {"name": "admission", "outcome": "FAILED",  "detail": "workload orders would push tenant acme past its resource quota: …"},
+    {"name": "placement", "outcome": "SKIPPED", "detail": "not evaluated: the submission would be rejected at the 'admission' stage"}
+  ]
+}
+```
+
+A rejected verdict always lists all five stages, the ones after the failure marked `SKIPPED`, so a
+caller parsing it sees one shape whatever went wrong rather than a list that silently ends early.
+
+`wouldRespondStatus` is the status the identical non-dry-run request would have answered with, so a
+client maps a predicted rejection onto the real outcome rather than inventing a second
+classification that could diverge from the first. The response status itself is always `200`: the
+*preview* succeeded, whatever it found. An unauthorized caller is the one exception — authorization
+is checked before any preview work happens, so a denied caller gets the ordinary `403` and no
+verdict body at all, and the preview never becomes a way to interrogate a tenant's quota or
+placement state without a write grant for it. A dry-run records no audit event, since nothing was
+written; a *denied* one is audited exactly as any other denial is.
+
+### Forecasting placement
+
+Placement is the one stage a PUT never performs — a reconciler does, on its next tick — so the
+preview runs it explicitly, through `WorkloadPlacementPreview`: the real `Scheduler`, over the real
+`NodeCandidate` list that `NodeCandidateSource` builds from the current store snapshot (the same
+one every reconciler places against, including its node-darkness cutoff). `Scheduler.place` reads
+nothing and writes nothing — it is a pure function of its arguments that reports a rejection by
+throwing — so calling it here is safe and reaches the decision the reconciler will reach, message
+and all. Only the indices a submission would *newly* need placed are forecast; an index already
+assigned to a live node is not re-placed by any reconciler, so forecasting it would invent work
+that will not happen.
+
+The forecast is **advisory, never a rejection**. No admission stage refuses a workload for being
+unschedulable, because schedulability is a property of the cluster at this instant, not of the
+manifest — a replica with nowhere to go today lands on its own once a node frees up. So an
+unplaceable forecast leaves `admitted` true and shows up as a `placement` check that failed,
+carrying the scheduler's own message (which names the resource dimension, the shortfall, and the
+roomiest candidate node — see [Why a placement failed](#why-a-placement-failed)). It is the
+forecast of the `unplacedCount` that would otherwise only be visible after committing.
+
+A `CronJob` is previewed like any other kind but has no placement of its own to forecast: it is a
+schedule that materializes an ordinary `Job` on each firing, and that `Job` is what gets placed.
+
 ## Persistence and restart recovery
 
 The persistence architecture is etcd's, hand-rolled in Java: **the Raft log is the durable source

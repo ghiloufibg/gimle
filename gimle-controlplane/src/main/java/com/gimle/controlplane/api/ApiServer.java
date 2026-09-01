@@ -7,6 +7,7 @@ import com.gimle.controlplane.admission.LimitRangePlugin;
 import com.gimle.controlplane.admission.PolicyConfigPlugin;
 import com.gimle.controlplane.admission.SecretMapRefsPlugin;
 import com.gimle.controlplane.admission.TenantQuotaPlugin;
+import com.gimle.controlplane.admission.WorkloadResourceProfile;
 import com.gimle.controlplane.alert.AlertRuleRegistry;
 import com.gimle.controlplane.andvari.AndvariClient;
 import com.gimle.controlplane.andvari.ArtifactResolver;
@@ -35,7 +36,13 @@ import com.gimle.controlplane.networkpolicy.NetworkPolicyWriteResult;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
+import com.gimle.controlplane.preview.DryRunVerdict;
+import com.gimle.controlplane.preview.PlacementForecast;
+import com.gimle.controlplane.preview.PreviewCheck;
+import com.gimle.controlplane.preview.PreviewOutcome;
+import com.gimle.controlplane.preview.WorkloadPlacementPreview;
 import com.gimle.controlplane.reconcile.CronJobReconciler;
+import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.controlplane.service.ServiceAdvisories;
 import com.gimle.controlplane.service.ServiceEndpoint;
 import com.gimle.controlplane.service.ServiceEndpointResolver;
@@ -271,6 +278,13 @@ public final class ApiServer implements AutoCloseable {
   // above (see handlePutDeployment) -- quota/limit-range still rejects first, matching this
   // chain's own pre-generalization plugin order exactly.
   private final AdmissionChain<DeploymentSpec> deploymentAdmissionChain;
+
+  /**
+   * The dry-run path's placement forecaster. Reads the store and runs the real {@link Scheduler};
+   * proposes nothing, which is what lets a PUT answer "where would this land?" without landing it.
+   */
+  private final WorkloadPlacementPreview placementPreview;
+
   // Signs/verifies console session cookies -- deliberately a separate key from anything Fafnir
   // manages, for key separation between two unrelated crypto purposes (see SessionTokens' own
   // javadoc). Never rotated -- a session token's own short TTL already bounds its exposure window,
@@ -468,6 +482,8 @@ public final class ApiServer implements AutoCloseable {
         new AdmissionChain<>(
             List.of(
                 new PolicyConfigPlugin(), new ConfigMapRefsPlugin(), new SecretMapRefsPlugin()));
+    this.placementPreview =
+        new WorkloadPlacementPreview(storeClient, new Scheduler(), Clock.systemUTC());
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
     this.certificateRotator =
@@ -853,6 +869,7 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind.DEPLOYMENT,
         "missing deployment name",
         "deployment",
+        DeploymentSpec.class,
         this::resolveDeploymentNameOrHandleSubRoute,
         name -> findTenantByName(storeClient.listDeployments(), name),
         this::handlePutDeployment,
@@ -1004,6 +1021,7 @@ public final class ApiServer implements AutoCloseable {
       ResourceKind kind,
       String missingNameMessage,
       String requestNoun,
+      Class<? extends WorkloadSpec> manifestType,
       ResourceNameResolver nameResolver,
       TenantLookup existingTenant,
       PutResourceAction put,
@@ -1032,7 +1050,13 @@ public final class ApiServer implements AutoCloseable {
           Optional<Principal> auditPrincipal =
               requireAuthorizedForWrite(exchange, kind, submittedTenant);
           if (auditPrincipal.isPresent()) {
-            if (rejectIfReservedSystemTenant(exchange, submittedTenant)) {
+            if (isDryRun(exchange)) {
+              // No audit event: a dry-run proposes nothing, so there is no write for the audit
+              // trail to record. A *denied* dry-run is still audited, by requireAuthorizedForWrite
+              // above -- that denial is a real authorization decision about a real caller,
+              // indistinguishable from and just as worth recording as any other.
+              previewWorkload(exchange, kind, requestNoun, manifestType, name, submitted);
+            } else if (rejectIfReservedSystemTenant(exchange, submittedTenant)) {
               // rejectIfReservedSystemTenant has already written the 403 itself by this point --
               // see recordAuditEventBestEffort's own javadoc for why a failure recording this
               // event must never be allowed to disturb a response already on the wire.
@@ -1417,6 +1441,242 @@ public final class ApiServer implements AutoCloseable {
         yield Optional.empty();
       }
       case AdmissionDecision.Allow<WorkloadSpec> allow -> Optional.of((T) allow.spec());
+    };
+  }
+
+  /**
+   * {@code ?dryRun=true} on a workload PUT: run everything a real submission runs -- authorization
+   * (already done by the time this is reached), manifest kind/name validation, artifact resolution,
+   * and the admission chain -- then report what would have happened instead of doing it. Nothing
+   * here proposes a mutation.
+   *
+   * <p>Every stage runs the identical code the real PUT does, not a validation-only copy of it:
+   * {@link AdmissionChain#admit} takes a {@link com.gimle.mimir.store.StoreReader} and is already
+   * side-effect-free, which is what makes an honest preview possible at all. The one thing that
+   * would otherwise differ is placement, which no PUT performs -- a reconciler does, later -- so
+   * {@link WorkloadPlacementPreview} runs the real {@link Scheduler} against the real candidate
+   * list to forecast it here.
+   *
+   * <p>The response is always {@code 200}: the preview itself succeeded. Whether the previewed
+   * submission would have succeeded is {@code admitted} in the body, alongside {@code
+   * wouldRespondStatus}, the status the real request would have answered with.
+   */
+  private void previewWorkload(
+      HttpExchange exchange,
+      ResourceKind kind,
+      String requestNoun,
+      Class<? extends WorkloadSpec> manifestType,
+      String name,
+      WorkloadSpec submitted)
+      throws IOException {
+    String manifestKind = manifestKindLabel(manifestType);
+    List<PreviewCheck> checks = new ArrayList<>();
+    if (isReservedSystemTenant(submitted.tenantId()) && !isOperatorCaller(exchange)) {
+      checks.add(
+          PreviewCheck.failed(
+              "rbac", "gimle-system is reserved for gimle:operators-group callers only"));
+      respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 403, checks);
+      return;
+    }
+    checks.add(
+        PreviewCheck.passed(
+            "rbac",
+            "the calling identity may "
+                + Verb.WRITE
+                + " "
+                + kind
+                + " in tenant "
+                + submitted.tenantId().orElse("(none)")));
+
+    if (!manifestType.isInstance(submitted)) {
+      checks.add(
+          PreviewCheck.failed(
+              "manifest",
+              "manifest kind does not match /"
+                  + requestNoun
+                  + "s route (expected kind: "
+                  + manifestKind
+                  + ")"));
+      respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 400, checks);
+      return;
+    }
+    if (!submitted.name().equals(name)) {
+      checks.add(
+          PreviewCheck.failed(
+              "manifest",
+              "manifest name '" + submitted.name() + "' does not match URL path '" + name + "'"));
+      respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 400, checks);
+      return;
+    }
+    checks.add(PreviewCheck.passed("manifest", "kind and name match the addressed route"));
+
+    // A CronJob has no artifact of its own to resolve -- each firing materializes an ordinary Job,
+    // which resolves its own -- so the real PUT skips this stage for it too.
+    Optional<WorkloadResourceProfile.Profile> profile =
+        WorkloadResourceProfile.of(submitted, storeClient);
+    AdmissionArtifact artifact;
+    if (profile.isEmpty()) {
+      artifact = new AdmissionArtifact(Optional.empty(), Optional.empty(), Optional.empty());
+      checks.add(
+          PreviewCheck.skipped(
+              "artifact", "a " + manifestKind + " resolves no artifact of its own"));
+    } else {
+      artifact =
+          admissionArtifact(
+              profile.get().artifactPath(),
+              profile.get().moduleId(),
+              profile.get().vessel(),
+              submitted.tenantId());
+      if (artifact.rejection().isPresent()) {
+        checks.add(PreviewCheck.failed("artifact", artifact.rejection().get()));
+        respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 400, checks);
+        return;
+      }
+      checks.add(
+          PreviewCheck.passed(
+              "artifact",
+              artifact
+                  .sha256()
+                  .map(sha -> "resolved, sha256 " + sha)
+                  .orElse("admitted with no recorded digest (artifact not readable right now)")));
+    }
+
+    WorkloadSpec spec = withArtifactSha256(submitted, artifact.sha256());
+    WorkloadSpec admittedSpec;
+    switch (workloadAdmissionChain.admit(
+        kind, Verb.WRITE, spec, storeClient, artifact.artifact())) {
+      case AdmissionDecision.Reject<WorkloadSpec> reject -> {
+        checks.add(PreviewCheck.failed("admission", reject.reason()));
+        respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 409, checks);
+        return;
+      }
+      case AdmissionDecision.Allow<WorkloadSpec> allow -> admittedSpec = allow.spec();
+    }
+    if (admittedSpec instanceof DeploymentSpec deploymentSpec) {
+      switch (deploymentAdmissionChain.admit(
+          kind, Verb.WRITE, deploymentSpec, storeClient, artifact.artifact())) {
+        case AdmissionDecision.Reject<DeploymentSpec> reject -> {
+          checks.add(PreviewCheck.failed("admission", reject.reason()));
+          respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 409, checks);
+          return;
+        }
+        case AdmissionDecision.Allow<DeploymentSpec> allow -> admittedSpec = allow.spec();
+      }
+    }
+    checks.add(PreviewCheck.passed("admission", "quota, limit range and references all satisfied"));
+
+    Optional<PlacementForecast> forecast = Optional.empty();
+    if (artifact.artifact().isEmpty()) {
+      checks.add(
+          PreviewCheck.skipped(
+              "placement",
+              profile.isEmpty()
+                  ? "a " + manifestKind + " is never placed itself; each firing's Job is"
+                  : "the artifact could not be read, so its isolation tier and resource request"
+                      + " are unknown"));
+    } else {
+      forecast = placementPreview.forecast(admittedSpec, artifact.artifact().get().descriptor());
+      checks.add(describePlacement(forecast));
+    }
+    respondPreview(
+        exchange,
+        DryRunVerdict.admitted(manifestKind, name, submitted.tenantId(), checks, forecast));
+  }
+
+  /**
+   * An unplaceable replica is reported as a {@code FAILED} placement check but never changes the
+   * verdict's own {@code admitted}: no submission is ever refused for being unschedulable right
+   * now, so saying otherwise would make the preview disagree with the request it predicts.
+   */
+  private static PreviewCheck describePlacement(Optional<PlacementForecast> forecast) {
+    if (forecast.isEmpty()) {
+      return PreviewCheck.skipped("placement", "this workload kind places nothing of its own");
+    }
+    PlacementForecast placement = forecast.get();
+    if (placement.replicasEvaluated() == 0) {
+      return PreviewCheck.passed("placement", "no replica needs a new placement");
+    }
+    if (placement.fullyPlaceable()) {
+      return PreviewCheck.passed(
+          "placement",
+          "all " + placement.replicasEvaluated() + " replica(s) needing placement would be placed");
+    }
+    List<String> reasons = new ArrayList<>();
+    for (PlacementForecast.Failure failure : placement.failures()) {
+      reasons.add("instance " + failure.instanceIndex() + ": " + failure.reason());
+    }
+    return PreviewCheck.failed(
+        "placement",
+        placement.failures().size()
+            + " of "
+            + placement.replicasEvaluated()
+            + " replica(s) would remain unplaced -- "
+            + String.join("; ", reasons));
+  }
+
+  private void respondPreview(HttpExchange exchange, DryRunVerdict verdict) throws IOException {
+    respondJson(exchange, 200, verdict.toJson());
+  }
+
+  /**
+   * Every stage a preview knows about, in the order a real submission runs them. A rejected verdict
+   * lists all of them regardless of how early it stopped, the stages after the failure marked
+   * {@link com.gimle.controlplane.preview.PreviewOutcome#SKIPPED} -- so a caller reading the
+   * verdict gets the same shape whatever went wrong, rather than a list that silently ends at the
+   * failure.
+   */
+  private static final List<String> PREVIEW_STAGES =
+      List.of("rbac", "manifest", "artifact", "admission", "placement");
+
+  private void respondRejectedPreview(
+      HttpExchange exchange,
+      String manifestKind,
+      String name,
+      Optional<String> tenantId,
+      int wouldRespondStatus,
+      List<PreviewCheck> checks)
+      throws IOException {
+    String failedStage =
+        checks.stream()
+            .filter(check -> check.outcome() == PreviewOutcome.FAILED)
+            .map(PreviewCheck::name)
+            .findFirst()
+            .orElse("an earlier");
+    List<PreviewCheck> complete = new ArrayList<>(checks);
+    for (String stage : PREVIEW_STAGES) {
+      if (complete.stream().noneMatch(check -> check.name().equals(stage))) {
+        complete.add(
+            PreviewCheck.skipped(
+                stage,
+                "not evaluated: the submission would be rejected at the '"
+                    + failedStage
+                    + "' stage"));
+      }
+    }
+    respondPreview(
+        exchange,
+        DryRunVerdict.rejected(manifestKind, name, tenantId, wouldRespondStatus, complete));
+  }
+
+  private static boolean isDryRun(HttpExchange exchange) {
+    return "true".equalsIgnoreCase(parseQuery(exchange).get("dryRun"));
+  }
+
+  /** {@code DeploymentSpec.class} to {@code "Deployment"} -- the manifest's own {@code kind:}. */
+  private static String manifestKindLabel(Class<? extends WorkloadSpec> manifestType) {
+    String simpleName = manifestType.getSimpleName();
+    return simpleName.substring(0, simpleName.length() - "Spec".length());
+  }
+
+  /** Kind-dispatching sibling of the four concrete {@code withArtifactSha256} overloads. */
+  private static WorkloadSpec withArtifactSha256(WorkloadSpec spec, Optional<String> sha256) {
+    return switch (spec) {
+      case DeploymentSpec s -> withArtifactSha256(s, sha256);
+      case JobSpec s -> withArtifactSha256(s, sha256);
+      case DaemonSetSpec s -> withArtifactSha256(s, sha256);
+      case StatefulSetSpec s -> withArtifactSha256(s, sha256);
+      // A CronJob's own spec has no artifact field; its jobTemplate's is resolved per firing.
+      case CronJobSpec s -> s;
     };
   }
 
@@ -2472,6 +2732,7 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind.JOB,
         "missing job name",
         "job",
+        JobSpec.class,
         ex -> Optional.of(pathSegmentAfter(ex, "/jobs/")),
         name -> findTenantByName(storeClient.listJobSpecs(), name),
         this::handlePutJob,
@@ -2638,6 +2899,7 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind.JOB,
         "missing cronjob name",
         "cronjob",
+        CronJobSpec.class,
         this::resolveCronJobNameOrHandleSubRoute,
         name -> findTenantByName(storeClient.listCronJobSpecs(), name),
         this::handlePutCronJob,
@@ -2814,6 +3076,7 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind.DAEMONSET,
         "missing daemonset name",
         "daemonset",
+        DaemonSetSpec.class,
         this::resolveDaemonSetNameOrHandleSubRoute,
         name -> findTenantByName(storeClient.listDaemonSetSpecs(), name),
         this::handlePutDaemonSet,
@@ -3055,6 +3318,7 @@ public final class ApiServer implements AutoCloseable {
         ResourceKind.STATEFULSET,
         "missing statefulset name",
         "statefulset",
+        StatefulSetSpec.class,
         this::resolveStatefulSetNameOrHandleSubRoute,
         name -> findTenantByName(storeClient.listStatefulSetSpecs(), name),
         this::handlePutStatefulSet,

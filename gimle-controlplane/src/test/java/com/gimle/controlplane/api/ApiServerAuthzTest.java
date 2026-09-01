@@ -1622,6 +1622,102 @@ class ApiServerAuthzTest {
         .build(tempDir, uniqueName + ".jar");
   }
 
+  /**
+   * A dry-run answers the caller's own permission question first, before it will preview anything:
+   * a caller who may not write here is told so, with no verdict body at all -- the preview never
+   * becomes a way to interrogate a tenant's quota or placement state without a write grant for it.
+   * The authorized half is exercised in {@code ApiServerDryRunTest}.
+   */
+  @Test
+  void a_dry_run_is_denied_to_a_caller_who_may_not_write_that_tenants_deployments()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
+    store.putTenant(new Tenant("other", new ResourceQuota(1_000_000_000L, 4000, 10)));
+    store.putAccount(new Account("acme-writer", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "acme-deployment-writer",
+            java.util.Set.of(Permission.scoped(ResourceKind.DEPLOYMENT, Verb.WRITE, "acme"))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("acme-writer"), "acme-deployment-writer"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "acme-writer", "pw");
+      Path jar = buildFixtureJar("com.gimle.fixture.authz.dryrun");
+
+      HttpResponse<String> denied =
+          dryRunDeployment(
+              client,
+              baseUrl,
+              cookie,
+              "other-dep",
+              "com.gimle.fixture.authz.dryrun",
+              jar,
+              Optional.of("other"));
+      assertEquals(403, denied.statusCode());
+      assertFalse(denied.body().contains("admitted"));
+
+      HttpResponse<String> allowed =
+          dryRunDeployment(
+              client,
+              baseUrl,
+              cookie,
+              "acme-dep",
+              "com.gimle.fixture.authz.dryrun",
+              jar,
+              Optional.of("acme"));
+      assertEquals(200, allowed.statusCode());
+      assertTrue(allowed.body().contains("\"admitted\":true"), allowed.body());
+
+      // Neither call wrote anything: the denial never got that far, and the allowed one is a
+      // preview.
+      assertTrue(store.listDeployments().isEmpty());
+    }
+  }
+
+  private static HttpResponse<String> dryRunDeployment(
+      HttpClient client,
+      String baseUrl,
+      String cookie,
+      String name,
+      String moduleName,
+      Path jar,
+      Optional<String> tenantId)
+      throws IOException, InterruptedException {
+    String tenantLine = tenantId.map(id -> "tenantId: " + id + "\n").orElse("");
+    String yaml =
+        """
+        kind: Deployment
+        name: %s
+        module:
+          name: %s
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        %s"""
+            .formatted(name, moduleName, jar.toAbsolutePath(), tenantLine);
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/" + name + "?dryRun=true"))
+            .header("Cookie", cookie)
+            .PUT(HttpRequest.BodyPublishers.ofString(yaml, StandardCharsets.UTF_8))
+            .build();
+    return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
   private static int putDeployment(
       HttpClient client,
       String baseUrl,

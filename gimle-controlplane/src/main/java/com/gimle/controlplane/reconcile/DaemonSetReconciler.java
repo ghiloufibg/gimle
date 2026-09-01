@@ -2,6 +2,7 @@ package com.gimle.controlplane.reconcile;
 
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.schedule.NodeCandidate;
+import com.gimle.controlplane.schedule.NodeCandidateSource;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
@@ -9,7 +10,6 @@ import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
-import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
@@ -97,6 +97,7 @@ public final class DaemonSetReconciler {
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
   private final WorkloadCrashLoopBackoff crashLoopBackoff;
+  private final NodeCandidateSource candidateSource;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public DaemonSetReconciler(StateStore store, Scheduler scheduler) {
@@ -146,6 +147,7 @@ public final class DaemonSetReconciler {
     this.placementGracePeriod = placementGracePeriod;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
+    this.candidateSource = new NodeCandidateSource(store, nodeDarkTimeout, clock);
     this.crashLoopBackoff = new WorkloadCrashLoopBackoff(store);
   }
 
@@ -220,7 +222,7 @@ public final class DaemonSetReconciler {
                 spec.tenantId(),
                 spec.placement().requiredNodeLabels().orElse(Set.of()),
                 spec.tolerateAllTaints(),
-                buildCandidates(spec.name()))
+                buildCandidates())
             .stream()
             .map(NodeCandidate::nodeId)
             .collect(Collectors.toSet());
@@ -466,32 +468,12 @@ public final class DaemonSetReconciler {
   }
 
   /**
-   * Mirrors {@link DeploymentReconciler#buildCandidates} exactly. {@code alreadyRunsThisDeployment}
-   * is always {@code false} on every candidate here -- meaningless for a DaemonSet, since {@code
-   * antiAffinityAcrossNodes} is always {@code false} too (see {@link DaemonSetSpec}'s own javadoc),
-   * so nothing ever reads it.
+   * Every candidate's {@code alreadyRunsThisDeployment} flag is {@code false} here -- meaningless
+   * for a DaemonSet, since {@code antiAffinityAcrossNodes} is always {@code false} too (see {@link
+   * DaemonSetSpec}'s own javadoc), so nothing ever reads it.
    */
-  private List<NodeCandidate> buildCandidates(String daemonSetName) {
-    Instant now = clock.instant();
-    List<NodeCandidate> candidates = new ArrayList<>();
-    for (NodeRegistration registration : store.listNodeRegistrations()) {
-      Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(registration.nodeId());
-      if (heartbeat.isEmpty()) {
-        continue; // no capacity report yet; not a placement candidate until it heartbeats
-      }
-      if (hasGoneDark(heartbeat.get(), now)) {
-        continue; // see DeploymentReconciler.buildCandidates's own identical comment
-      }
-      candidates.add(
-          new NodeCandidate(
-              registration.nodeId(),
-              registration.capabilities(),
-              heartbeat.get().heartbeat().capacity(),
-              false,
-              store.getNodeTaints(registration.nodeId()),
-              store.isNodeCordoned(registration.nodeId())));
-    }
-    return candidates;
+  private List<NodeCandidate> buildCandidates() {
+    return candidateSource.candidates(Set.of());
   }
 
   private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {

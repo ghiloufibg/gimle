@@ -58,6 +58,10 @@ parsing the stderr message:
 remedy that depends on telling them apart. Client-side usage errors stay on `1` — the CLI reports
 them in prose and does not attempt to categorize them further.
 
+A rejection *predicted* by [`apply --dry-run`](#previewing-a-submission-apply---dry-run) exits with
+the same code the real submission would have — see that section for why, and for the one case
+(unplaceable replicas) that deliberately stays at `0`.
+
 ```bash
 gimle get deployment never-created --server 127.0.0.1:8080
 echo $?   # 3
@@ -73,7 +77,8 @@ gimle get daemonsets [name] [--tenant <id>]
 gimle get statefulsets [name] [--tenant <id>]
 gimle get <deployments|jobs|cronjobs|daemonsets|statefulsets|nodes|node-assignments> [name]
                      [--watch|-w] [--watch-interval=SECS] [--watch-ticks=N]
-gimle apply -f <manifest.yaml>|-   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
+gimle apply -f <manifest.yaml>|- [--dry-run]
+                                   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
                                     ArtifactSet, KindDefinition, Service, NetworkPolicy, Tenant,
                                     LimitRange, Role, RoleBinding, Account, or any defined custom
                                     kind, read from the manifest itself; -f - reads the manifest
@@ -503,6 +508,59 @@ would be authorized for that action, without performing it, and prints `yes`/`no
 as JSON under `-o json`). Verb and resource are matched case-insensitively, `-` is accepted for
 `_` (`network-policy` works), and a plural `s` is tolerated so the nouns the other verbs use spell
 valid questions here too.
+
+## Previewing a submission: `apply --dry-run`
+
+`can-i` answers only the authorization question. `apply --dry-run` answers the rest of it: the
+control plane runs everything a real submission runs -- authorization, manifest kind/name
+validation, artifact resolution, the admission chain (tenant quota, LimitRange, ConfigMap and
+SecretMap references, policy config) -- plus a placement forecast, then writes nothing and returns
+the verdict.
+
+Because it is the *same* admission chain and the *same* scheduler the real path uses, not a
+validation-only copy of them, the reason a dry-run gives is verbatim the reason the real request
+would have given. A preview that could disagree with the request it predicts would be worse than
+no preview at all.
+
+```bash
+gimle apply -f deployment.yaml --dry-run --server 127.0.0.1:8080
+```
+
+```text
+dry run: Deployment/orders (tenant acme)
+PASSED	rbac	the calling identity may WRITE DEPLOYMENT in tenant acme
+PASSED	manifest	kind and name match the addressed route
+PASSED	artifact	resolved, sha256 3f7c…
+FAILED	admission	workload orders would push tenant acme past its resource quota: …
+SKIPPED	placement	not evaluated: the submission would be rejected at the 'admission' stage
+verdict: would be rejected (the real request would answer 409)
+```
+
+`-o json` emits the same verdict as a structured object -- `admitted`, `wouldRespondStatus`, the
+per-stage `checks` array, and, when placement was evaluated, a `placement` object naming the node
+each replica would land on and the scheduler's own message for any that would not.
+
+**Exit code.** A dry-run that predicts a rejection exits with the code the real `apply` would have
+exited with -- `5` for an admission rejection, `2` for a manifest or artifact problem, `4` for the
+reserved-tenant veto -- so `gimle apply --dry-run` drops into a pipeline as a gate whose exit
+status means exactly what the unguarded `gimle apply` after it would mean.
+
+**Placement is advisory.** No submission is ever *rejected* for being unschedulable: an unplaceable
+replica simply waits for room, which is what `unplacedCount` reports on the deployment afterwards.
+So a forecast of unplaceable replicas prints as a `warning:` line on stderr and leaves the exit
+code at `0` -- the manifest really would be accepted.
+
+```bash
+gimle apply -f deployment.yaml --dry-run --server 127.0.0.1:8080
+# warning: instance 0 would remain unplaced: deployment orders instance 0 cannot be placed: it
+# requests memory=64Mi cpu=100m, and none of the 2 candidate node(s) with TIER_1 support has room
+# -- memory is short by 48Mi (the most any candidate has free is 16Mi, on node-b); …
+```
+
+`--dry-run` is supported for the five placeable workload kinds -- `Deployment`, `Job`, `CronJob`,
+`DaemonSet`, `StatefulSet` -- which are exactly the kinds the admission chain and the scheduler
+reason about. On any other kind it is **refused**, not silently ignored: a flag that quietly does
+nothing is how an operator ends up believing a manifest was previewed when it never was.
 
 ## Watching a resource converge
 
