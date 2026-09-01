@@ -68,6 +68,13 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-fafnir</artifactId>
     </dependency>
+    <!-- HistoryCommandTest reads metrics/traces history back through the control plane's own
+         proxy, which only has anything to proxy to when a real Muninn is running behind it. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-muninn</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!-- ArtifactSetCommandTest needs a real, in-process AndvariServer behind ApiServer's own
          /artifacts/* proxy to exercise a genuine multi-jar apply against the real registry, not a
          mock. -->
@@ -86,4 +93,21 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <!-- Keeps every test in this module off the developer's own ~/.gimle/config: a real
+                 one on the machine running the build would otherwise silently supply a server to
+                 tests asserting that none is configured. Nothing creates this path. -->
+            <gimle.cli.configFile>${project.build.directory}/no-such-gimle-config</gimle.cli.configFile>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 </project>
