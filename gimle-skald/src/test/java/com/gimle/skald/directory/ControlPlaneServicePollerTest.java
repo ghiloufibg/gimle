@@ -30,10 +30,11 @@ final class ControlPlaneServicePollerTest {
       int resolved = poller.poll();
 
       assertEquals(2, resolved);
-      assertEquals(List.of(new HostPort("10.0.0.5", 8080)), directory.resolveAll("orders"));
+      assertEquals(
+          List.of(new HostPort("10.0.0.5", 8080)), directory.resolveAll("orders").orElseThrow());
       assertEquals(
           List.of(new HostPort("10.0.0.6", 9090), new HostPort("10.0.0.7", 9090)),
-          directory.resolveAll("payments.acme"));
+          directory.resolveAll("payments.acme").orElseThrow());
     } finally {
       poller.close();
     }
@@ -58,24 +59,49 @@ final class ControlPlaneServicePollerTest {
     try {
       poller.poll();
 
-      assertTrue(directory.resolveAll("web-ui").isEmpty());
+      assertEquals(Optional.empty(), directory.resolveAll("web-ui"));
       assertEquals(
-          List.of(new HostPort("10.0.0.9", 8090)), directory.resolveAll("web-ui.orders-platform"));
+          List.of(new HostPort("10.0.0.9", 8090)),
+          directory.resolveAll("web-ui.orders-platform").orElseThrow());
     } finally {
       poller.close();
     }
   }
 
   @Test
-  void a_service_with_no_endpoints_is_left_out_of_the_cache() {
+  void a_service_with_no_endpoints_stays_in_the_cache_as_a_known_empty_name() {
+    // Dropping it here is what used to make a Service mid-rollout (or scaled to zero) answer
+    // NXDOMAIN, indistinguishable from a name that was never declared at all.
     FakeServiceCatalogClient client = new FakeServiceCatalogClient();
     client.put("orders", Optional.empty(), 8080, 8080, List.of());
     CachingServiceDirectory directory = new CachingServiceDirectory();
     ControlPlaneServicePoller poller =
         new ControlPlaneServicePoller(client, directory, Duration.ofHours(1));
     try {
-      poller.poll();
-      assertTrue(directory.resolveAll("orders").isEmpty());
+      int resolved = poller.poll();
+
+      assertEquals(1, resolved);
+      assertEquals(Optional.of(List.of()), directory.resolveAll("orders"));
+    } finally {
+      poller.close();
+    }
+  }
+
+  @Test
+  void a_service_that_vanished_between_the_listing_and_the_fetch_is_left_out_of_the_cache() {
+    // An absent Optional from fetchEndpoints is the control plane's own 404: by the time the
+    // per-service call ran that Service really was gone, so it must not linger as a known name.
+    FakeServiceCatalogClient client = new FakeServiceCatalogClient();
+    client.put("orders", Optional.empty(), 8080, 8080, List.of(new HostPort("10.0.0.5", 8080)));
+    client.listOnly("ghost", Optional.empty());
+    CachingServiceDirectory directory = new CachingServiceDirectory();
+    ControlPlaneServicePoller poller =
+        new ControlPlaneServicePoller(client, directory, Duration.ofHours(1));
+    try {
+      int resolved = poller.poll();
+
+      assertEquals(1, resolved);
+      assertEquals(Optional.empty(), directory.resolveAll("ghost"));
     } finally {
       poller.close();
     }
@@ -117,7 +143,8 @@ final class ControlPlaneServicePollerTest {
 
       assertEquals(0, resolved);
       assertEquals(
-          List.of(new HostPort("10.0.0.5", 8080)), directory.resolveAll("orders")); // still there
+          List.of(new HostPort("10.0.0.5", 8080)),
+          directory.resolveAll("orders").orElseThrow()); // still there
     } finally {
       poller.close();
     }
@@ -161,6 +188,11 @@ final class ControlPlaneServicePollerTest {
         List<HostPort> endpoints) {
       listingsByName.put(name, new ServiceListing(name, tenantId));
       byName.put(name, new ServiceEndpoints(name, port, targetPort, endpoints));
+    }
+
+    /** A Service present in the catalog listing whose per-service endpoint fetch answers 404. */
+    void listOnly(String name, Optional<String> tenantId) {
+      listingsByName.put(name, new ServiceListing(name, tenantId));
     }
 
     void alwaysFailListing() {
