@@ -1,6 +1,8 @@
 package com.gimle.fafnir;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tenant.ResourceQuota;
@@ -34,6 +36,9 @@ import org.junit.jupiter.api.parallel.Resources;
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 @ResourceLock("gimle-fafnir-server-http")
 class FafnirServerTest {
+
+  private static final String CERTIFICATE_PEM =
+      "-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIJAKl\n-----END CERTIFICATE-----\n";
 
   @TempDir Path tempDir;
 
@@ -246,7 +251,7 @@ class FafnirServerTest {
 
   @Test
   @Timeout(10)
-  void versions_lists_every_claimed_version_number() throws Exception {
+  void versions_lists_every_claimed_version_with_its_author_timestamp_and_type() throws Exception {
     putSecret("acme", "db-password", "v1");
     putSecret("acme", "db-password", "v2");
 
@@ -258,8 +263,120 @@ class FafnirServerTest {
             HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
     assertEquals(200, response.statusCode());
+    List<Map<String, Object>> versions =
+        Json.asObjectList(Json.asObject(Json.parse(response.body())).get("versions"));
+    assertEquals(List.of(1L, 2L), versions.stream().map(v -> v.get("version")).toList());
+    // Plaintext mode has no client identity, so every write is attributed to the same synthetic
+    // principal every other unauthenticated audit entry already uses.
+    assertEquals("anonymous", versions.get(0).get("author"));
+    assertEquals("opaque", versions.get(0).get("type"));
+    assertTrue(((Number) versions.get(0).get("writtenAtEpochMilli")).longValue() > 0);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_get_reports_the_type_and_author_of_the_version_it_returned() throws Exception {
+    putTypedSecret("acme", "tls-cert", CERTIFICATE_PEM, "pem-certificate");
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/tls-cert")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertEquals("pem-certificate", body.get("type"));
+    assertEquals("anonymous", body.get("author"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_declared_type_whose_value_is_malformed_is_rejected_with_400_and_never_stored()
+      throws Exception {
+    HttpResponse<String> write =
+        putTypedSecret("acme", "tls-cert", "-----BEGIN CERTIFICATE-----", "pem-certificate");
+
+    assertEquals(400, write.statusCode());
+    HttpResponse<String> read =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/tls-cert")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    assertEquals(404, read.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void an_unknown_declared_type_is_rejected_with_400() throws Exception {
     assertEquals(
-        List.of(1L, 2L), Json.asArray(Json.asObject(Json.parse(response.body())).get("versions")));
+        400, putTypedSecret("acme", "tls-cert", "anything", "kubernetes.io/tls").statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_request_body_past_the_cap_is_rejected_with_413_rather_than_buffered_whole()
+      throws Exception {
+    // Chunked (no Content-Length) on purpose: the cap has to hold on the streamed bytes, not on a
+    // header a caller controls.
+    String oversized = "x".repeat(6 * 1024 * 1024);
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme/db-password"))
+                .PUT(HttpRequest.BodyPublishers.ofString(oversized))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(413, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_value_past_the_per_secret_cap_is_rejected_with_400() throws Exception {
+    HttpResponse<String> response =
+        putSecret("acme", "db-password", "x".repeat(SecretStore.MAX_VALUE_BYTES + 1));
+
+    assertEquals(400, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void the_names_query_parameter_returns_values_for_exactly_the_keys_it_named() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+    putSecret("acme", "api-key", "abc123");
+    putSecret("acme", "unrelated", "nope");
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme?names=db-password,api-key"))
+                .GET()
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    Map<String, Object> secrets =
+        Json.asObject(Json.asObject(Json.parse(response.body())).get("secrets"));
+    assertEquals(Set.of("db-password", "api-key"), secrets.keySet());
+    Map<String, Object> dbPassword = Json.asObject(secrets.get("db-password"));
+    assertEquals(
+        "hunter2",
+        new String(decode((String) dbPassword.get("value")), StandardCharsets.UTF_8));
+    assertEquals(1L, dbPassword.get("version"));
+    assertEquals("opaque", dbPassword.get("type"));
+  }
+
+  @Test
+  @Timeout(10)
+  void the_plain_list_still_returns_metadata_only_when_no_names_are_given() throws Exception {
+    putSecret("acme", "db-password", "hunter2");
+
+    HttpResponse<String> response =
+        client.send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/acme")).GET().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertTrue(body.containsKey("secrets"));
+    assertFalse(Json.asObjectList(body.get("secrets")).get(0).containsKey("value"));
   }
 
   @Test
@@ -489,6 +606,22 @@ class FafnirServerTest {
             .PUT(
                 HttpRequest.BodyPublishers.ofString(
                     Json.write(Map.of("value", encode(value.getBytes(StandardCharsets.UTF_8))))))
+            .build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private HttpResponse<String> putTypedSecret(
+      String tenantId, String key, String value, String type) throws Exception {
+    return client.send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/secrets/" + tenantId + "/" + key))
+            .PUT(
+                HttpRequest.BodyPublishers.ofString(
+                    Json.write(
+                        Map.of(
+                            "value",
+                            encode(value.getBytes(StandardCharsets.UTF_8)),
+                            "type",
+                            type))))
             .build(),
         HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
   }

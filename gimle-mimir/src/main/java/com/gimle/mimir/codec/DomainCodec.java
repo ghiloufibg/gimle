@@ -1310,6 +1310,7 @@ public final class DomainCodec {
     out.writeBoolean(event.allowed());
     out.writeUTF(event.outcome().name());
     out.writeLong(event.occurredAtEpochMilli());
+    writeOptionalInt(out, event.version());
   }
 
   public static AuditEvent readAuditEvent(DataInputStream in) throws IOException {
@@ -1327,6 +1328,7 @@ public final class DomainCodec {
     boolean allowed = in.readBoolean();
     AuditOutcome outcome = AuditOutcome.valueOf(in.readUTF());
     long occurredAtEpochMilli = in.readLong();
+    OptionalInt version = readOptionalInt(in);
     return new AuditEvent(
         id,
         principal,
@@ -1337,7 +1339,8 @@ public final class DomainCodec {
         targetId,
         allowed,
         outcome,
-        occurredAtEpochMilli);
+        occurredAtEpochMilli,
+        version);
   }
 
   public static void writeAuditTrailStatus(DataOutputStream out, AuditTrailStatus status)

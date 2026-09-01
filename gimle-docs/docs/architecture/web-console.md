@@ -48,7 +48,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Traces | Per-process trace-span history, below. |
 | Tenants | Tenant list and quota management — see [Multi-tenancy](./multi-tenancy.md). |
 | Config | Tenant-scoped, plain (non-secret) config entries — see [Multi-tenancy](./multi-tenancy.md#tenant-scoped-config). |
-| Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker, soft/hard delete, master-key rotation. See [Multi-tenancy](./multi-tenancy.md#secrets). |
+| Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker showing each version's author and write time, a declared-type selector on write (`opaque`/`pem-certificate`/`pem-private-key`), soft/hard delete, master-key rotation. See [Multi-tenancy](./multi-tenancy.md#secrets). |
 | Artifacts | Module jars pushed to the [Andvari](./node-topology.md#andvari) artifact registry — push/list/copy-checksum/delete against the real `/artifacts/*` proxy, the UI equivalent of `gimle artifact push/list/get/delete`. |
 | Access Control | `Role`/`RoleBinding`/`Account` management (tabs, below) — the UI equivalent of `gimle get/set/delete role/rolebinding/accounts`. |
 | Audit | Filterable audit trail (principal, resource kind, verb, tenant, allow/deny), below. |

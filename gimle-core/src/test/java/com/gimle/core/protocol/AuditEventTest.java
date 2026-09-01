@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -61,6 +62,47 @@ class AuditEventTest {
     assertEquals(Set.of(), event.groups());
     assertEquals(Optional.empty(), event.tenantId());
     assertEquals(Optional.empty(), event.targetId());
+  }
+
+  @Test
+  void a_versioned_write_carries_the_version_it_produced() {
+    AuditEvent event =
+        new AuditEvent(
+            "evt-4",
+            "alice",
+            Set.of(),
+            "SECRET",
+            "WRITE",
+            Optional.of("asgard"),
+            Optional.of("db-password"),
+            true,
+            AuditOutcome.APPLIED,
+            4_000L,
+            OptionalInt.of(3));
+    assertEquals(OptionalInt.of(3), event.version());
+  }
+
+  @Test
+  void an_event_for_an_unversioned_resource_kind_carries_no_version() {
+    assertEquals(OptionalInt.empty(), fullEvent().version());
+  }
+
+  @Test
+  void a_null_version_coalesces_to_empty_rather_than_null() {
+    AuditEvent event =
+        new AuditEvent(
+            "evt-5",
+            "alice",
+            Set.of(),
+            "SECRET",
+            "READ",
+            Optional.empty(),
+            Optional.empty(),
+            true,
+            AuditOutcome.APPLIED,
+            5_000L,
+            null);
+    assertEquals(OptionalInt.empty(), event.version());
   }
 
   @Test

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { SecretMetadata, SecretValue } from "@/types";
+import type { SecretMetadata, SecretType, SecretValue, SecretVersion } from "@/types";
 import { secretsRepo } from "@/repositories";
 
 const PAGE = 50;
@@ -13,7 +13,7 @@ interface State {
   error: string | null;
   // Fetched on demand, not present in the list response -- keyed by secret key.
   revealed: Record<string, SecretValue>;
-  versions: Record<string, number[]>;
+  versions: Record<string, SecretVersion[]>;
   setTenant(id: string | null): void;
   loadFirstPage(): Promise<void>;
   loadMore(): Promise<void>;
@@ -21,7 +21,7 @@ interface State {
   reveal(key: string, version?: number): Promise<void>;
   hide(key: string): void;
   loadVersions(key: string): Promise<void>;
-  upsert(key: string, value: string): Promise<void>;
+  upsert(key: string, value: string, type?: SecretType): Promise<void>;
   remove(key: string, destroy: boolean): Promise<void>;
   rotateKey(): Promise<number>;
 }
@@ -107,10 +107,10 @@ export const useSecretsStore = create<State>((set, get) => ({
       set({ error: (e as Error).message });
     }
   },
-  async upsert(key, value) {
+  async upsert(key, value, type) {
     const { tenantId } = get();
     if (!tenantId) return;
-    const saved = await secretsRepo.upsert(tenantId, key, value);
+    const saved = await secretsRepo.upsert(tenantId, key, value, type);
     const list = get().items;
     const i = list.findIndex((s) => s.key === key);
     set({ items: i >= 0 ? list.map((s, ix) => (ix === i ? saved : s)) : [...list, saved] });

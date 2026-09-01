@@ -165,6 +165,36 @@ public class GimleSecretsException extends RuntimeException {
   }
 
   /**
+   * A secret write declared a type ({@code com.gimle.fafnir.SecretType}) whose shape the plaintext
+   * doesn't have -- a truncated PEM, a wrong encoding. Rejected at the write that caused it rather
+   * than accepted, encrypted, replicated, and left to fail much later at module launch, where
+   * nothing points back at the {@code secret set} call responsible.
+   */
+  public static GimleSecretsException malformedSecretValue(
+      String tenantId, String key, String type, String problem) {
+    return new GimleSecretsException(
+        "secret " + tenantId + "/" + key + " is not a valid " + type + ": " + problem);
+  }
+
+  /**
+   * A secret's plaintext exceeded the per-value ceiling. Refused outright rather than encrypted and
+   * replicated through Raft consensus like any small entry -- every store replica would hold it in
+   * memory and write it into every snapshot.
+   */
+  public static GimleSecretsException valueTooLarge(
+      String tenantId, String key, int actualBytes, int maxBytes) {
+    return new GimleSecretsException(
+        "secret "
+            + tenantId
+            + "/"
+            + key
+            + " is "
+            + actualBytes
+            + " bytes, exceeding the maximum of "
+            + maxBytes);
+  }
+
+  /**
    * A write against {@code tenantId} was attempted, but no {@link com.gimle.core.tenant.Tenant}
    * with that id was ever registered -- unlike a read, which correctly answers empty/404 for a
    * bogus tenant, a write has no such natural "not found" outcome, so it must be rejected outright

@@ -16,6 +16,25 @@ import {
 import { StatusBadge } from "@/components/status";
 import { Eye, EyeOff, RefreshCw, Skull, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { SECRET_TYPES, type SecretType, type SecretVersion } from "@/types";
+
+/** The version picker's own tooltip: everything the row can't fit, on hover. */
+function describeVersion(version: SecretVersion): string {
+  return `v${version.version} · ${version.type} · written by ${version.author} at ${new Date(
+    version.writtenAtEpochMilli,
+  ).toLocaleString()}`;
+}
+
+/**
+ * When the version list has been loaded for a row, the current version's own write timestamp and
+ * author; before then, a placeholder -- the list response carries metadata only, and fetching every
+ * row's version history up front would be one request per row for information most rows never show.
+ */
+function lastWritten(versions: SecretVersion[] | undefined, latestVersion: number): string {
+  const current = versions?.find((v) => v.version === latestVersion);
+  if (!current) return "—";
+  return `${new Date(current.writtenAtEpochMilli).toLocaleString()} · ${current.author}`;
+}
 
 export const Route = createFileRoute("/secrets")({
   head: () => ({
@@ -47,7 +66,11 @@ function SecretsPage() {
     remove,
     rotateKey,
   } = useSecretsStore();
-  const [newEntry, setNewEntry] = useState({ key: "", value: "" });
+  const [newEntry, setNewEntry] = useState<{ key: string; value: string; type: SecretType }>({
+    key: "",
+    value: "",
+    type: "opaque",
+  });
   const [pickedVersion, setPickedVersion] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -100,8 +123,8 @@ function SecretsPage() {
     e.preventDefault();
     if (!tenantId || !newEntry.key) return;
     try {
-      await upsert(newEntry.key, newEntry.value);
-      setNewEntry({ key: "", value: "" });
+      await upsert(newEntry.key, newEntry.value, newEntry.type);
+      setNewEntry({ key: "", value: "", type: "opaque" });
       toast.success("Saved");
     } catch (e) {
       toast.error((e as Error).message);
@@ -187,6 +210,26 @@ function SecretsPage() {
                 onChange={(e) => setNewEntry({ ...newEntry, value: e.target.value })}
               />
             </div>
+            <div className="grid gap-1">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Type
+              </Label>
+              <Select
+                value={newEntry.type}
+                onValueChange={(v) => setNewEntry({ ...newEntry, type: v as SecretType })}
+              >
+                <SelectTrigger className="h-8 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SECRET_TYPES.map((t) => (
+                    <SelectItem key={t} value={t} className="font-mono text-xs">
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Button type="submit" size="sm">
               Add / New version
             </Button>
@@ -199,6 +242,7 @@ function SecretsPage() {
                   <th className="px-2 py-1.5 font-medium">Key</th>
                   <th className="px-2 py-1.5 font-medium">Value</th>
                   <th className="px-2 py-1.5 font-medium">Version</th>
+                  <th className="px-2 py-1.5 font-medium">Last written</th>
                   <th className="px-2 py-1.5 font-medium">Status</th>
                   <th className="px-2 py-1.5 font-medium w-20"></th>
                 </tr>
@@ -238,13 +282,31 @@ function SecretsPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {(versionList ?? [s.latestVersion]).map((v) => (
-                              <SelectItem key={v} value={String(v)} className="text-[11px]">
-                                v{v}
-                              </SelectItem>
-                            ))}
+                            {versionList
+                              ? versionList.map((v) => (
+                                  <SelectItem
+                                    key={v.version}
+                                    value={String(v.version)}
+                                    className="text-[11px]"
+                                    title={describeVersion(v)}
+                                  >
+                                    v{v.version} · {v.author}
+                                  </SelectItem>
+                                ))
+                              : [
+                                  <SelectItem
+                                    key={s.latestVersion}
+                                    value={String(s.latestVersion)}
+                                    className="text-[11px]"
+                                  >
+                                    v{s.latestVersion}
+                                  </SelectItem>,
+                                ]}
                           </SelectContent>
                         </Select>
+                      </td>
+                      <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">
+                        {lastWritten(versionList, s.latestVersion)}
                       </td>
                       <td className="px-2 py-1.5">
                         {s.deleted ? (
@@ -278,7 +340,7 @@ function SecretsPage() {
                 })}
                 {items.length === 0 && !loading && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
                       No secrets.
                     </td>
                   </tr>

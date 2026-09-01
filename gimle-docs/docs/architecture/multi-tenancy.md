@@ -247,3 +247,44 @@ the node agent's own direct fetch path, in that order (source: `diagrams/secrets
   entirely inside Fafnir as a synthetic key-naming convention (`key@N` for each immutable version,
   `key@meta` for the mutable current-version pointer) layered over the same underlying config-entry
   store `/config/*` uses — no separate store schema for it.
+- **Version provenance** — each version records who wrote it, when, and what type it was declared
+  as, on that same `key@meta` pointer entry (nothing there is secret material, which is why it can
+  sit on the unencrypted pointer). `gimle secret versions` prints all three, and `gimle secret get`
+  repeats them for the version it returned, so "who wrote version 3 of this key, and when" is
+  answered from the version listing itself rather than by correlating a bare version number against
+  the cluster-wide audit trail by timestamp. The audit trail carries the version too: a secret
+  write's `AuditEvent` records the version number it produced, which was previously missing
+  entirely.
+- **Types** — a write may declare what shape its value has: `opaque` (the default — stored
+  unexamined, exactly as before), `pem-certificate`, or `pem-private-key`. A declared type is
+  validated structurally at write time, so a truncated or wrongly-encoded PEM is refused by the
+  `gimle secret set` call that caused it instead of being encrypted, replicated, and only failing
+  later at module launch, far from its cause. The type set is deliberately tiny — opaque plus the
+  shapes the platform itself mounts as files — rather than a taxonomy of value kinds nothing here
+  interprets. The declared type is stored per version and travels with the value on read and on
+  export.
+- **Bulk export/import** — `gimle secret export <tenantId> --out <file>` fetches every live secret
+  the tenant owns in one authorized, audited call (`GET /secrets/{tenantId}?names=a,b,c`), and
+  `gimle secret import <tenantId> --in <file>` writes them back one key at a time through the
+  ordinary single-key write path, so each import is separately authorized, separately audited, and
+  lands as a new version at the destination. This exists for migrating a tenant to a
+  freshly-bootstrapped cluster, whose master key cannot open the source cluster's ciphertext.
+
+  The export file therefore holds **plaintext secret material** (base64-encoded, not encrypted) —
+  unavoidable given its purpose, so the command constrains it instead: it writes only to a file,
+  never stdout, so values never land in terminal scrollback or a shell pipeline; it creates that
+  file with owner-only permissions wherever the filesystem supports POSIX ones; and it refuses an
+  existing path rather than silently replacing one. Deleting the file after import remains the
+  operator's job — treat it exactly like the master key file. The bulk route runs Fafnir's own
+  independent `Authorizer.authorize(...)` check like every other read, and deliberately does **not**
+  extend the node self-service path: a `gimle:nodes` certificate that may read its assigned tenant's
+  secrets one key at a time is refused the whole-tenant read outright, since that is an operator
+  migration tool, not something a node ever needs.
+- **Payload ceilings** — a secret's plaintext is capped at 512 KiB and a single stored config/secret
+  row at 1 MiB (`ConfigEntry.MAX_VALUE_BYTES`, the same limit Kubernetes places on a
+  Secret/ConfigMap). The plaintext cap sits at half the storage cap so a value accepted at write
+  time always fits once encrypted. Request bodies are capped at 4 MiB in both `ApiServer` and
+  `FafnirServer`, enforced on the bytes as they stream rather than by trusting `Content-Length`, and
+  an oversized write is refused with `413` rather than read into memory first. Without these, a
+  multi-megabyte blob was silently accepted, encrypted, and replicated through Raft consensus
+  exactly like a small entry — held in every store replica's memory and written into every snapshot.
