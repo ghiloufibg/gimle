@@ -31,8 +31,16 @@ export class MockSealRepository implements SealRepository {
     if (keyId < 0 || keyId > 255) {
       throw new Error("'keyId' must be between 0 and 255");
     }
+    if (keyId === 0) {
+      throw new Error("cannot retire the base sealing key");
+    }
     if (keyId === this.activeKeyId) {
       throw new Error(`cannot retire the active sealing key ${keyId}`);
+    }
+    // Retirement destroys the key, so a second attempt at the same id is an unknown id, not a
+    // no-op -- the same answer Fafnir gives once the key files are gone.
+    if (this.retired.has(keyId)) {
+      throw new Error(`no sealing key with id ${keyId}`);
     }
     this.retired.add(keyId);
     return delay({ retiredKeyId: keyId });

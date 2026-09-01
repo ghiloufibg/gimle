@@ -55,4 +55,38 @@ describe("HttpSealRepository", () => {
 
     await expect(repo.retireKey(9)).rejects.toThrow("no sealing key with id 9");
   });
+
+  it("surfaces the server's own refusal to retire the active key", async () => {
+    stubFetchSequence([
+      () => new Response("cannot retire the active sealing key 4", { status: 400 }),
+    ]);
+    const repo = new HttpSealRepository();
+
+    await expect(repo.retireKey(4)).rejects.toThrow("cannot retire the active sealing key 4");
+  });
+
+  it("surfaces an unauthorized rotation rather than reporting a rotation that never happened", async () => {
+    stubFetchSequence([() => new Response("forbidden", { status: 403 })]);
+    const repo = new HttpSealRepository();
+
+    await expect(repo.rotateKey()).rejects.toThrow("403");
+  });
+
+  it("reads the public key back through a Raft leader redirect", async () => {
+    // /seal/public-key is a plain proxied GET, so it rides the same not-leader retry every other
+    // read does -- a 307 must resolve to the leader's answer, not surface as a failure.
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse(
+          { error: "not-leader", leaderRaftId: "cp-2", leaderApiAddress: "10.0.0.2:8080" },
+          307,
+        ),
+      () => jsonResponse({ sealingKeyId: 7, publicKey: "MIIBIjAN", algorithm: "RSA-OAEP-SHA256" }),
+    ]);
+    const repo = new HttpSealRepository();
+
+    expect((await repo.fetchPublicKey()).sealingKeyId).toBe(7);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://10.0.0.2:8080/seal/public-key");
+  });
 });
