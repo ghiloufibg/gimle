@@ -3,11 +3,48 @@ package com.gimle.core.module;
 /**
  * Kubernetes-shaped resource quantity parsing: binary/decimal memory suffixes (Ki/Mi/Gi/Ti,
  * K/M/G/T) into bytes, and CPU either as fractional cores ("0.5") or millicores ("250m") into
- * milli-cores. Package-private: {@link ResourceSpec} is the public surface.
+ * milli-cores, plus the inverse rendering used by diagnostics that only ever hold a computed number
+ * (free capacity, a shortfall, a quota overage) rather than a manifest's own text. Package-private:
+ * {@link ResourceSpec} is the public surface.
  */
 final class ResourceQuantity {
 
+  private static final long KIB = 1024L;
+  private static final long MIB = 1024L * 1024;
+  private static final long GIB = 1024L * 1024 * 1024;
+  private static final long TIB = 1024L * 1024 * 1024 * 1024;
+
   private ResourceQuantity() {}
+
+  /**
+   * Renders {@code bytes} back into the largest binary suffix that divides it exactly, falling back
+   * to a bare byte count -- so the text always round-trips through {@link #parseMemory} and a
+   * diagnostic reads in the same units an operator writes in a manifest.
+   */
+  static String formatMemory(long bytes) {
+    if (bytes == 0) {
+      return "0";
+    }
+    String sign = bytes < 0 ? "-" : "";
+    long magnitude = Math.abs(bytes);
+    if (magnitude % TIB == 0) {
+      return sign + (magnitude / TIB) + "Ti";
+    }
+    if (magnitude % GIB == 0) {
+      return sign + (magnitude / GIB) + "Gi";
+    }
+    if (magnitude % MIB == 0) {
+      return sign + (magnitude / MIB) + "Mi";
+    }
+    if (magnitude % KIB == 0) {
+      return sign + (magnitude / KIB) + "Ki";
+    }
+    return sign + magnitude;
+  }
+
+  static String formatCpu(long millicores) {
+    return millicores + "m";
+  }
 
   static long parseMemory(String text) {
     String trimmed = text.strip();

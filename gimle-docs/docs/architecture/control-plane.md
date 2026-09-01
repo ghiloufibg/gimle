@@ -194,6 +194,32 @@ taint is a single per-node property read directly from the store, so it doesn't 
 tenants or workload kinds share the cluster, and it never evicts an instance already running there
 — only keeps a non-tolerating tenant's new placements off it.
 
+### Why a placement failed
+
+Each filter stage raises its own distinct failure naming the specific thing that blocked the
+replica, because the remedies do not overlap — "add capacity", "add a node supporting this tier"
+and "remove a taint/cordon/label constraint" are three different actions:
+
+```
+deployment orders instance 3 cannot be placed: it requests memory=100Mi cpu=100m, and none of
+the 2 candidate node(s) with TIER_1 support has room -- memory is short by 90Mi (the most any
+candidate has free is 10Mi, on node-a); free capacity per candidate node: node-a memory=10Mi
+cpu=1000m; node-b memory=8Mi cpu=1000m
+```
+
+A capacity failure names the dimension that actually fell short, the shortfall, and every
+candidate's free capacity (capped at five nodes, with the remainder counted). Both dimensions can
+individually fit somewhere and still leave a replica unplaceable when no *single* node has both
+free at once; that is reported as itself rather than as a shortfall on either one. An unsupported
+tier lists what each registered node does support and says outright that adding capacity cannot
+help; a cordon, taint, or required-label exclusion names the blocking nodes and the constraint. A
+message never claims a cause the scheduler did not observe — a taint-blocked placement onto an
+empty node is never reported as a capacity shortfall.
+
+Sticky (`StatefulSet`) placement has only one node it may ever land on, so its failure names the
+one property of that node to fix: not registered, cordoned, missing tier support, tainted, missing
+a required label, or short by a stated amount on a stated dimension.
+
 The scheduler's own anti-affinity is node-granularity only — it keeps two replicas of one module
 off the *same node*, not necessarily the same worker JVM. Whether two *different* modules placed
 on the same node end up sharing one worker JVM (Tier 1 density) is an agent-local decision the

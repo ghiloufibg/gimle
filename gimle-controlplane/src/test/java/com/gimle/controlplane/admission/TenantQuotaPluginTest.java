@@ -97,7 +97,97 @@ class TenantQuotaPluginTest {
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
 
     assertEquals(
-        "workload over-quota would push tenant tight past its resource quota",
+        "workload over-quota would push tenant tight past its resource quota: memory 16Mi exceeds"
+            + " the 1 ceiling by 16777215 (0 already assigned + 16Mi for this workload); cpu 10m"
+            + " exceeds the 1m ceiling by 9m (0m already assigned + 10m for this workload)",
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
+  }
+
+  /**
+   * A rejection naming only "past its quota" leaves an operator guessing which of three independent
+   * dimensions tripped. Each of the next three tests exceeds exactly one, and asserts the message
+   * names that one, its numbers, and the overage -- and stays silent about the two that fit.
+   */
+  @Test
+  void a_memory_only_overage_names_memory_its_ceiling_and_the_overage() {
+    StateStore store = store();
+    // The fixture requests 16Mi/10m per instance; only the memory ceiling is below that.
+    store.putTenant(new Tenant("mem-tight", new ResourceQuota(8L * 1024 * 1024, 4000, 10)));
+    Path jar = buildFixtureJar("com.gimle.fixture.admission.memonly");
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    DeploymentSpec spec = deployment("mem-hog", jar, Optional.of("mem-tight"));
+
+    AdmissionDecision<WorkloadSpec> decision =
+        plugin.review(
+            new AdmissionRequest<>(
+                ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
+
+    assertEquals(
+        "workload mem-hog would push tenant mem-tight past its resource quota: memory 16Mi exceeds"
+            + " the 8Mi ceiling by 8Mi (0 already assigned + 16Mi for this workload)",
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
+  }
+
+  @Test
+  void a_cpu_only_overage_names_cpu_its_ceiling_and_the_overage() {
+    StateStore store = store();
+    store.putTenant(new Tenant("cpu-tight", new ResourceQuota(1_000_000_000L, 4, 10)));
+    Path jar = buildFixtureJar("com.gimle.fixture.admission.cpuonly");
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    DeploymentSpec spec = deployment("cpu-hog", jar, Optional.of("cpu-tight"));
+
+    AdmissionDecision<WorkloadSpec> decision =
+        plugin.review(
+            new AdmissionRequest<>(
+                ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
+
+    assertEquals(
+        "workload cpu-hog would push tenant cpu-tight past its resource quota: cpu 10m exceeds the"
+            + " 4m ceiling by 6m (0m already assigned + 10m for this workload)",
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
+  }
+
+  @Test
+  void an_instance_count_only_overage_names_the_instance_ceiling_and_the_overage() {
+    StateStore store = store();
+    store.putTenant(new Tenant("no-instances", new ResourceQuota(1_000_000_000L, 4000, 0)));
+    Path jar = buildFixtureJar("com.gimle.fixture.admission.instances");
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    DeploymentSpec spec = deployment("one-too-many", jar, Optional.of("no-instances"));
+
+    AdmissionDecision<WorkloadSpec> decision =
+        plugin.review(
+            new AdmissionRequest<>(
+                ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
+
+    assertEquals(
+        "workload one-too-many would push tenant no-instances past its resource quota: instances 1"
+            + " exceeds the 0 ceiling by 1 (0 already assigned + 1 for this workload)",
+        assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
+  }
+
+  /**
+   * The split between what the tenant already has assigned and what this submission would add is
+   * the actionable half of the message: it tells an operator whether to shrink this workload or
+   * free up an existing one.
+   */
+  @Test
+  void the_overage_separates_already_assigned_usage_from_this_submissions_own_addition() {
+    StateStore store = store();
+    store.putTenant(new Tenant("busy", new ResourceQuota(24L * 1024 * 1024, 4000, 10)));
+    Path jar = buildFixtureJar("com.gimle.fixture.admission.busy");
+    ModuleArtifact artifact = ModuleArtifactReader.read(jar);
+    store.putDeployment(deployment("already-running", jar, Optional.of("busy")));
+    DeploymentSpec spec = deployment("newcomer", jar, Optional.of("busy"));
+
+    AdmissionDecision<WorkloadSpec> decision =
+        plugin.review(
+            new AdmissionRequest<>(
+                ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
+
+    assertEquals(
+        "workload newcomer would push tenant busy past its resource quota: memory 32Mi exceeds the"
+            + " 24Mi ceiling by 8Mi (16Mi already assigned + 16Mi for this workload)",
         assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 
@@ -137,7 +227,10 @@ class TenantQuotaPluginTest {
                 ResourceKind.DEPLOYMENT, Verb.WRITE, spec, store, Optional.of(artifact)));
 
     assertEquals(
-        "workload surging would push tenant surge-tight past its resource quota",
+        "workload surging would push tenant surge-tight past its resource quota: memory 32Mi"
+            + " exceeds the 16Mi ceiling by 16Mi (0 already assigned + 32Mi for this workload); cpu"
+            + " 20m exceeds the 10m ceiling by 10m (0m already assigned + 20m for this workload);"
+            + " instances 2 exceeds the 1 ceiling by 1 (0 already assigned + 2 for this workload)",
         assertInstanceOf(AdmissionDecision.Reject.class, decision).reason());
   }
 

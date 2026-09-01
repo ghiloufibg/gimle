@@ -4,6 +4,7 @@ import com.gimle.controlplane.admission.WorkloadResourceProfile;
 import com.gimle.controlplane.admission.WorkloadResourceProfile.Profile;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
@@ -47,6 +48,70 @@ public final class TenantUsage {
       return memoryBytes > quota.maxMemoryBytes()
           || cpuMillicores > quota.maxCpuMillicores()
           || instances > quota.maxInstances();
+    }
+  }
+
+  /**
+   * Every dimension by which {@code total} exceeds {@code quota}, each named with its own numbers:
+   * the ceiling, the overage, and how the total splits between what the tenant already has assigned
+   * ({@code existing}) and what the submission under review would add. A rejection that only says
+   * "past its quota" leaves an operator guessing which of three independent dimensions tripped and
+   * by how much they'd have to shrink the workload; naming all three makes the remedy computable
+   * from the message alone. Never called unless {@link Usage#exceeds} is already true, so an empty
+   * result would mean the two disagree -- {@code exceeds}' own three conditions, restated.
+   */
+  public static String describeOverage(Usage existing, Usage total, ResourceQuota quota) {
+    StringBuilder detail = new StringBuilder();
+    if (total.memoryBytes() > quota.maxMemoryBytes()) {
+      detail
+          .append("memory ")
+          .append(ResourceSpec.formatMemory(total.memoryBytes()))
+          .append(" exceeds the ")
+          .append(ResourceSpec.formatMemory(quota.maxMemoryBytes()))
+          .append(" ceiling by ")
+          .append(ResourceSpec.formatMemory(total.memoryBytes() - quota.maxMemoryBytes()))
+          .append(" (")
+          .append(ResourceSpec.formatMemory(existing.memoryBytes()))
+          .append(" already assigned + ")
+          .append(ResourceSpec.formatMemory(total.memoryBytes() - existing.memoryBytes()))
+          .append(" for this workload)");
+    }
+    if (total.cpuMillicores() > quota.maxCpuMillicores()) {
+      appendSeparator(detail);
+      detail
+          .append("cpu ")
+          .append(ResourceSpec.formatCpu(total.cpuMillicores()))
+          .append(" exceeds the ")
+          .append(ResourceSpec.formatCpu(quota.maxCpuMillicores()))
+          .append(" ceiling by ")
+          .append(ResourceSpec.formatCpu(total.cpuMillicores() - quota.maxCpuMillicores()))
+          .append(" (")
+          .append(ResourceSpec.formatCpu(existing.cpuMillicores()))
+          .append(" already assigned + ")
+          .append(ResourceSpec.formatCpu(total.cpuMillicores() - existing.cpuMillicores()))
+          .append(" for this workload)");
+    }
+    if (total.instances() > quota.maxInstances()) {
+      appendSeparator(detail);
+      detail
+          .append("instances ")
+          .append(total.instances())
+          .append(" exceeds the ")
+          .append(quota.maxInstances())
+          .append(" ceiling by ")
+          .append(total.instances() - quota.maxInstances())
+          .append(" (")
+          .append(existing.instances())
+          .append(" already assigned + ")
+          .append(total.instances() - existing.instances())
+          .append(" for this workload)");
+    }
+    return detail.toString();
+  }
+
+  private static void appendSeparator(StringBuilder detail) {
+    if (!detail.isEmpty()) {
+      detail.append("; ");
     }
   }
 

@@ -22,4 +22,19 @@ public record ResourceSpec(String memory, String cpu) {
   public long cpuMillicores() {
     return ResourceQuantity.parseCpu(cpu);
   }
+
+  /**
+   * The inverse of {@link #memoryBytes()}, for a diagnostic holding a computed byte count that no
+   * manifest ever wrote as text -- a node's free capacity, a placement shortfall, a quota overage.
+   * Renders in the largest binary suffix that divides the value exactly, so the number reads back
+   * in the same units an operator writes in a manifest.
+   */
+  public static String formatMemory(long bytes) {
+    return ResourceQuantity.formatMemory(bytes);
+  }
+
+  /** The inverse of {@link #cpuMillicores()}, for the same computed-number diagnostics. */
+  public static String formatCpu(long millicores) {
+    return ResourceQuantity.formatCpu(millicores);
+  }
 }

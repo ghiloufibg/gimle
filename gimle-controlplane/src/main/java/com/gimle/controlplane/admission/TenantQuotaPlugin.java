@@ -79,7 +79,8 @@ public final class TenantQuotaPlugin implements AdmissionPlugin<WorkloadSpec> {
               + spec.name()
               + " would push tenant "
               + tenantId
-              + " past its resource quota");
+              + " past its resource quota: "
+              + TenantUsage.describeOverage(existing, withThisSubmission, tenant.get().quota()));
     }
     return AdmissionDecision.allow(spec);
   }
