@@ -102,8 +102,9 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   // never a half-constructed one (GatewayDispatcher's own fields are all final).
   private volatile GatewayDispatcher dispatcher;
 
-  // Both accessed only from onStart and from reloadRoutesIfChanged, which is itself synchronized
-  // (see that method's own javadoc) -- ordinary fields, not volatile, are enough.
+  // Both accessed only from onStart and from reloadRoutesIfChanged, each of which holds this
+  // instance's own monitor for the whole of its access -- ordinary fields, not volatile, are
+  // enough, and every read of either one sees the last write under that same monitor.
   private String appliedRoutesConfig;
   private Set<String> registeredPaths = Set.of();
 
@@ -124,8 +125,12 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   @Override
   public void onInstall(ModuleContext ctx) {}
 
+  // Synchronized against reloadRoutesIfChanged: the reload scheduler this method starts can tick
+  // before the method returns, and both touch appliedRoutesConfig/registeredPaths. Holding the
+  // monitor across the bind keeps the first tick waiting for a fully-applied route table rather
+  // than reconciling contexts against a half-populated one.
   @Override
-  public void onStart(ModuleContext ctx) {
+  public synchronized void onStart(ModuleContext ctx) {
     int port = requiredIntConfig(ctx, "gateway.port");
     String routesConfig = requiredConfig(ctx, "gateway.routes");
     List<GatewayRoute> routes = GatewayRouteConfig.parse(routesConfig);
@@ -309,12 +314,15 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
    * port {@code 0} (an ephemeral port), the same reason {@code ApiServer}/{@code
    * FafnirServer}/{@code MuninnServer}/{@code AndvariServer} each expose an equivalent accessor.
    */
-  int port() {
+  synchronized int port() {
     return server.getAddress().getPort();
   }
 
+  // Synchronized for the same reason onStart is: a reload tick may still be in flight, and it
+  // reads the very server this method stops. Taking the monitor lets that tick finish against a
+  // live server rather than reconciling contexts on one being torn down underneath it.
   @Override
-  public void onStop(ModuleContext ctx) {
+  public synchronized void onStop(ModuleContext ctx) {
     ready.set(false);
     if (routeReloadScheduler != null) {
       routeReloadScheduler.shutdownNow();
