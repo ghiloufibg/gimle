@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.gimle.core.exception.GimleClusterException;
 import com.gimle.core.tenant.NetworkPolicyRule;
+import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,9 +22,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * {@link HttpNetworkPolicySource} against a stub HTTP server serving the control plane's documented
- * {@code GET /networkpolicies} contract -- {@code ApiServer#networkPolicyToJson}'s shape, an
- * always-present (possibly empty) {@code deploymentNames} array.
+ * {@link HttpNetworkPolicySource} against a stub HTTP server serving both halves of the control
+ * plane's documented contract: {@code GET /networkpolicies} ({@code
+ * ApiServer#networkPolicyToJson}'s shape, an always-present possibly-empty {@code deploymentNames}
+ * array) and {@code GET /networkpostures} ({@code {"tenantId","isolationPosture"}} per tenant).
+ * Both are stubbed on every server this class starts, because one poll fetches both.
  */
 class HttpNetworkPolicySourceTest {
 
@@ -36,23 +39,34 @@ class HttpNetworkPolicySourceTest {
     }
   }
 
-  private URI startStub(int status, String body) throws IOException {
+  private URI startStub(int status, String policiesBody) throws IOException {
+    return startStub(status, policiesBody, "[]");
+  }
+
+  private URI startStub(int status, String policiesBody, String posturesBody) throws IOException {
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-    server.createContext(
-        "/networkpolicies",
-        exchange -> {
-          try (InputStream in = exchange.getRequestBody()) {
-            in.readAllBytes();
-          }
-          byte[] response = body.getBytes(StandardCharsets.UTF_8);
-          exchange.sendResponseHeaders(status, response.length);
-          exchange.getResponseBody().write(response);
-          exchange.close();
-        });
+    server.createContext("/networkpolicies", respondWith(status, policiesBody));
+    // A poll fetches the declared postures alongside the policies, so a stub that only answered
+    // /networkpolicies would fail every scenario here on the second request rather than on
+    // whatever the scenario is actually about. Always 200: the non-200 scenario below drives its
+    // failure through /networkpolicies, which is fetched first.
+    server.createContext("/networkpostures", respondWith(200, posturesBody));
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
     server.start();
     controlPlaneStub = server;
     return URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+  }
+
+  private static HttpHandler respondWith(int status, String body) {
+    return exchange -> {
+      try (InputStream in = exchange.getRequestBody()) {
+        in.readAllBytes();
+      }
+      byte[] response = body.getBytes(StandardCharsets.UTF_8);
+      exchange.sendResponseHeaders(status, response.length);
+      exchange.getResponseBody().write(response);
+      exchange.close();
+    };
   }
 
   @Test
@@ -95,6 +109,23 @@ class HttpNetworkPolicySourceTest {
     assertEquals("acme", rule.tenantId());
     assertEquals(Optional.of(Set.of("orders")), rule.deploymentNames());
     assertEquals(Optional.of(Set.of("partner")), rule.allowedCallerTenantIds());
+  }
+
+  @Test
+  @Timeout(15)
+  void only_tenants_declaring_deny_by_default_are_reported_as_closed() throws Exception {
+    URI baseUrl =
+        startStub(
+            200,
+            "[]",
+            """
+            [{"tenantId":"acme","isolationPosture":"DENY_BY_DEFAULT"},
+             {"tenantId":"globex","isolationPosture":"OPEN"}]
+            """);
+    HttpNetworkPolicySource source =
+        new HttpNetworkPolicySource(HttpClient.newHttpClient(), baseUrl);
+
+    assertEquals(Set.of("acme"), source.fetchPolicies().denyByDefaultTenantIds());
   }
 
   @Test
