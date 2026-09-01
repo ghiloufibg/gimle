@@ -41,7 +41,9 @@ already rides. The control plane exposes a `GET /metrics` per-deployment rollup 
 rate, average error rate, instance count) built from that same observation data, and the console's
 own Instances/Metrics screens surface both figures per instance and per deployment (an error-rate
 column on the Instances table, a total-error-rate stat tile and a ranked "instances with errors"
-panel on the Metrics screen). `WorkerMetrics`' own request-latency `Timer` is built with
+panel on the Metrics screen derived per instance, plus a "per-deployment rollup" panel reading
+`GET /metrics` itself — see [Web console](./web-console.md#per-deployment-metrics-rollup),
+including the endpoint's own tenant-keying limitation). `WorkerMetrics`' own request-latency `Timer` is built with
 `publishPercentiles(0.5, 0.95, 0.99)` too, for parity with the three process-tier registries below.
 
 The same registry also carries the fabric's own circuit-breaker state, which used to be invisible
