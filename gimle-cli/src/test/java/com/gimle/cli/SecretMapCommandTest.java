@@ -28,6 +28,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * FUNC-02 regression coverage, end to end through {@link GimleCli#run}: {@code SecretMapCommand}'s
@@ -37,7 +40,12 @@ import org.junit.jupiter.api.io.TempDir;
  * {@code SealCommand}'s own offline-sealing workflow) never saw a batch that failed every single
  * key. Same in-process store/Fafnir/{@link ApiServer} wiring {@code DeploymentsCommandTest} already
  * establishes.
+ *
+ * <p>Every server started here reads {@code gimle.transport.protocol} (and the TLS paths that go
+ * with it) from JVM-global system properties, so this class must not run alongside a class that
+ * mutates them -- read access is enough, since nothing here writes any.
  */
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class SecretMapCommandTest {
 
   @TempDir(cleanup = CleanupMode.NEVER)

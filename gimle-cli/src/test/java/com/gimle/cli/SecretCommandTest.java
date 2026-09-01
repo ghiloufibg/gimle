@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.api.ApiServer;
 import com.gimle.controlplane.fafnir.FafnirClient;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.FafnirCrypto;
 import com.gimle.fafnir.FafnirServer;
 import com.gimle.mimir.raft.RaftLog;
@@ -33,16 +34,33 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * {@code gimle secret}'s typed writes, its version listing, and the bulk export/import pair, driven
  * end to end through {@link GimleCli#run} against a real store + Fafnir + {@link ApiServer} -- the
  * same in-process wiring {@code SecretMapCommandTest} establishes.
+ *
+ * <p>Every server started here reads {@code gimle.transport.protocol} (and the TLS paths that go
+ * with it) from JVM-global system properties, so this class must not run alongside a class that
+ * mutates them -- read access is enough, since nothing here writes any.
  */
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class SecretCommandTest {
 
   private static final String CERTIFICATE_PEM =
       "-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIJAKl\n-----END CERTIFICATE-----\n";
+
+  /**
+   * The destination of every export/import round trip below. This server is plaintext, and
+   * plaintext transport resolves no caller identity, so {@link ApiServer} deliberately refuses to
+   * create a second real tenant there -- the seeded default tenant is the one other tenant a
+   * plaintext deployment genuinely has, and moving secrets into it exercises the same cross-tenant
+   * path a second operator-created tenant would.
+   */
+  private static final String DESTINATION_TENANT = Tenant.DEFAULT_TENANT_ID;
 
   @TempDir(cleanup = CleanupMode.NEVER)
   Path tempDir;
@@ -165,7 +183,6 @@ class SecretCommandTest {
   void export_writes_every_live_secret_and_import_restores_them_into_another_tenant()
       throws Exception {
     createTenant("acme");
-    createTenant("acme-copy");
     assertEquals(0, setSecret("acme", "db-password", "hunter2"), errBuffer::toString);
     assertEquals(0, setSecret("acme", "api-key", "abc123"), errBuffer::toString);
     Path exportFile = tempDir.resolve("acme-secrets.json");
@@ -186,7 +203,7 @@ class SecretCommandTest {
         run(
             "secret",
             "import",
-            "acme-copy",
+            DESTINATION_TENANT,
             "--in",
             exportFile.toString(),
             "--server",
@@ -194,7 +211,8 @@ class SecretCommandTest {
         errBuffer::toString);
     outBuffer.reset();
     assertEquals(
-        0, run("secret", "get", "acme-copy", "db-password", "--server", serverAddress),
+        0,
+        run("secret", "get", DESTINATION_TENANT, "db-password", "--server", serverAddress),
         errBuffer::toString);
     assertTrue(outBuffer.toString(StandardCharsets.UTF_8).contains("hunter2"));
   }
@@ -202,7 +220,6 @@ class SecretCommandTest {
   @Test
   void an_exported_secrets_declared_type_survives_the_round_trip() throws Exception {
     createTenant("acme");
-    createTenant("acme-copy");
     Path pem = Files.writeString(tempDir.resolve("tls.pem"), CERTIFICATE_PEM);
     assertEquals(
         0,
@@ -229,7 +246,7 @@ class SecretCommandTest {
         run(
             "secret",
             "import",
-            "acme-copy",
+            DESTINATION_TENANT,
             "--in",
             exportFile.toString(),
             "--server",
@@ -237,7 +254,8 @@ class SecretCommandTest {
         errBuffer::toString);
 
     outBuffer.reset();
-    assertEquals(0, run("secret", "versions", "acme-copy", "tls-cert", "--server", serverAddress));
+    assertEquals(
+        0, run("secret", "versions", DESTINATION_TENANT, "tls-cert", "--server", serverAddress));
     assertTrue(outBuffer.toString(StandardCharsets.UTF_8).contains("pem-certificate"));
   }
 
@@ -281,8 +299,7 @@ class SecretCommandTest {
 
     if (exportFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
       assertEquals(
-          PosixFilePermissions.fromString("rw-------"),
-          Files.getPosixFilePermissions(exportFile));
+          PosixFilePermissions.fromString("rw-------"), Files.getPosixFilePermissions(exportFile));
     }
     assertNotEquals(
         0,
