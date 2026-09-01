@@ -5,6 +5,7 @@ import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.logging.LogFileReader.LogPage;
+import com.gimle.core.logging.LogFilter;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
@@ -393,7 +394,7 @@ public final class MuninnServer implements AutoCloseable {
           if (!authorizeRead(ex, Optional.empty(), Optional.of(parts[0]))) {
             return;
           }
-          read(ex, "logs/nodes/" + parts[0] + "/" + parts[1]);
+          read(ex, "logs/nodes/" + parts[0] + "/" + parts[1], LogFilter.fromQuery(parseQuery(ex)));
         });
   }
 
@@ -423,7 +424,8 @@ public final class MuninnServer implements AutoCloseable {
                   + "#"
                   + ref.instanceIndex()
                   + "/"
-                  + ref.category());
+                  + ref.category(),
+              LogFilter.fromQuery(parseQuery(ex)));
         });
   }
 
@@ -446,7 +448,7 @@ public final class MuninnServer implements AutoCloseable {
           if (!authorizeRead(ex, Optional.empty(), Optional.empty())) {
             return;
           }
-          read(ex, "metrics/" + parts[0] + "/" + parts[1]);
+          read(ex, "metrics/" + parts[0] + "/" + parts[1], LogFilter.NONE);
         });
   }
 
@@ -469,7 +471,7 @@ public final class MuninnServer implements AutoCloseable {
           if (!authorizeRead(ex, Optional.empty(), Optional.empty())) {
             return;
           }
-          read(ex, "traces/" + parts[0] + "/" + parts[1]);
+          read(ex, "traces/" + parts[0] + "/" + parts[1], LogFilter.NONE);
         });
   }
 
@@ -480,8 +482,14 @@ public final class MuninnServer implements AutoCloseable {
    * rejected: Muninn only ever serves shipped history, never a live tail (there is nothing to poll
    * that could still be growing from Muninn's own point of view between polls in a way a client
    * couldn't already get by re-issuing {@code since}).
+   *
+   * <p>{@code filter} is the same level/contains content filter the live per-node log surface
+   * applies, so an operator reading a gone node's shipped history here gets the identical result.
+   * Metrics and traces pass {@link LogFilter#NONE}: neither carries a log level or a human-readable
+   * message for a filter to mean anything against.
    */
-  private void read(HttpExchange exchange, String subtreePath) throws IOException {
+  private void read(HttpExchange exchange, String subtreePath, LogFilter filter)
+      throws IOException {
     Map<String, String> query = parseQuery(exchange);
     if ("true".equals(query.get("follow"))) {
       respond(exchange, 400, "follow=true is not supported -- Muninn only serves shipped history");
@@ -490,13 +498,13 @@ public final class MuninnServer implements AutoCloseable {
     int limit = parseLimit(query.get("limit"));
     String since = query.get("since");
     if (since != null) {
-      List<Map<String, Object>> lines = dayFileStore.readAfter(subtreePath, since, limit);
+      List<Map<String, Object>> lines = dayFileStore.readAfter(subtreePath, since, limit, filter);
       String newerCursor =
           lines.isEmpty() ? since : String.valueOf(lines.get(lines.size() - 1).get("timestamp"));
       respondPage(exchange, new LogPage(lines, null, newerCursor));
       return;
     }
-    respondPage(exchange, dayFileStore.readOlder(subtreePath, query.get("cursor"), limit));
+    respondPage(exchange, dayFileStore.readOlder(subtreePath, query.get("cursor"), limit, filter));
   }
 
   /**

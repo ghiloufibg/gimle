@@ -52,6 +52,7 @@ import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
 import com.gimle.core.logging.LogFileReader;
+import com.gimle.core.logging.LogFilter;
 import com.gimle.core.module.ArtifactKind;
 import com.gimle.core.module.ArtifactReference;
 import com.gimle.core.module.IsolationTier;
@@ -7339,10 +7340,12 @@ public final class ApiServer implements AutoCloseable {
    * translated from this surface's own query-parameter convention (matching {@code
    * AgentLogServer.handleNodeLogs}'s {@code category} default of {@code PLATFORM}). {@code
    * follow}/{@code category} are stripped from the forwarded query; everything else ({@code
-   * cursor}/{@code since}/{@code limit}) passes through unchanged -- {@code follow=true} reaching
-   * this fallback is silently dropped rather than erroring (Muninn only ever serves shipped
-   * history, never a live tail), so a client that was following a now-gone node still gets a
-   * non-follow page back instead of a hard failure.
+   * cursor}/{@code since}/{@code limit}, plus the {@code level}/{@code contains} content filter)
+   * passes through unchanged, so a filtered read of a gone node's shipped history returns exactly
+   * what the same filtered read of its live agent would have -- {@code follow=true} reaching this
+   * fallback is silently dropped rather than erroring (Muninn only ever serves shipped history,
+   * never a live tail), so a client that was following a now-gone node still gets a non-follow page
+   * back instead of a hard failure.
    */
   private static String muninnNodeLogsPath(String nodeId, HttpExchange exchange) {
     Map<String, String> query = parseQuery(exchange);
@@ -7364,6 +7367,11 @@ public final class ApiServer implements AutoCloseable {
         + forwardedQuery(query);
   }
 
+  /**
+   * Values are re-encoded on the way out: {@link #parseQuery} hands back already-decoded text, and
+   * a content filter's own search text is arbitrary operator input -- a space or {@code &} in it
+   * would otherwise splice into, or outright invalidate, the URI built for the downstream hop.
+   */
   private static String forwardedQuery(Map<String, String> query) {
     StringBuilder qs = new StringBuilder();
     for (Map.Entry<String, String> entry : query.entrySet()) {
@@ -7371,9 +7379,9 @@ public final class ApiServer implements AutoCloseable {
         continue;
       }
       qs.append(qs.isEmpty() ? '?' : '&')
-          .append(entry.getKey())
+          .append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
           .append('=')
-          .append(entry.getValue());
+          .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
     }
     return qs.toString();
   }
@@ -7519,11 +7527,14 @@ public final class ApiServer implements AutoCloseable {
     String cursor = query.get("cursor");
     int limit = parseLimit(query.get("limit"));
     int maxFiles = LogFileReader.configuredMaxFiles();
+    // Same level/contains filtering the agent's own log surface applies, applied here at the
+    // reader for the one log stream this process serves itself rather than proxies.
+    LogFilter filter = LogFilter.fromQuery(query);
     if (follow) {
       exchange.getResponseHeaders().add("Content-Type", "application/x-ndjson; charset=utf-8");
       exchange.sendResponseHeaders(200, 0);
       try (OutputStream out = exchange.getResponseBody()) {
-        LogFileReader.streamFollow(file, maxFiles, cursor, Duration.ofMillis(500), out);
+        LogFileReader.streamFollow(file, maxFiles, cursor, Duration.ofMillis(500), out, filter);
       } catch (IOException e) {
         log.debug("controlplane log follow session ended: {}", e.getMessage());
       }
@@ -7535,12 +7546,12 @@ public final class ApiServer implements AutoCloseable {
     String since = query.get("since");
     LogFileReader.LogPage page;
     if (since != null) {
-      List<Map<String, Object>> lines = LogFileReader.readAfter(file, maxFiles, since);
+      List<Map<String, Object>> lines = LogFileReader.readAfter(file, maxFiles, since, filter);
       String newerCursor =
           lines.isEmpty() ? since : String.valueOf(lines.get(lines.size() - 1).get("timestamp"));
       page = new LogFileReader.LogPage(lines, null, newerCursor);
     } else {
-      page = LogFileReader.readOlder(file, maxFiles, cursor, limit);
+      page = LogFileReader.readOlder(file, maxFiles, cursor, limit, filter);
     }
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("lines", page.lines());

@@ -1,6 +1,7 @@
 package com.gimle.observability;
 
 import com.gimle.core.logging.LogFileReader;
+import com.gimle.core.logging.LogFilter;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -221,7 +222,7 @@ public final class MuninnShipper implements AutoCloseable {
       String queryCursor =
           logCursor == null ? null : Instant.parse(logCursor).minusNanos(1).toString();
       List<Map<String, Object>> candidates =
-          LogFileReader.readAfter(activeFile, maxFiles, queryCursor);
+          LogFileReader.readAfter(activeFile, maxFiles, queryCursor, LogFilter.NONE);
       List<Map<String, Object>> lines = dropAlreadyShipped(candidates);
       if (lines.isEmpty()) {
         return;

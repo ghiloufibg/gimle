@@ -3,10 +3,12 @@ package com.gimle.muninn;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.LogFileReader.LogPage;
+import com.gimle.core.logging.LogFilter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,7 +55,8 @@ class MuninnDayFileStoreTest {
     store.appendLines("logs/nodes/n1/PLATFORM", List.of(line("2026-08-10T10:00:00Z", "first")));
     store.appendLines("logs/nodes/n1/PLATFORM", List.of(line("2026-08-10T09:00:00Z", "earlier")));
 
-    List<Map<String, Object>> all = store.readAfter("logs/nodes/n1/PLATFORM", null, 1000);
+    List<Map<String, Object>> all =
+        store.readAfter("logs/nodes/n1/PLATFORM", null, 1000, LogFilter.NONE);
     assertEquals(2, all.size());
     // Final read is oldest-first regardless of append order, thanks to the post-load sort.
     assertEquals("earlier", all.get(0).get("message"));
@@ -86,12 +89,13 @@ class MuninnDayFileStoreTest {
 
     MuninnDayFileStore reopened = new MuninnDayFileStore(tempDir);
 
-    List<Map<String, Object>> after = reopened.readAfter("logs/nodes/n1/PLATFORM", null, 1000);
+    List<Map<String, Object>> after =
+        reopened.readAfter("logs/nodes/n1/PLATFORM", null, 1000, LogFilter.NONE);
     assertEquals(3, after.size());
     assertEquals("one", after.get(0).get("message"));
     assertEquals("three", after.get(2).get("message"));
 
-    LogPage page = reopened.readOlder("logs/nodes/n1/PLATFORM", null, 2);
+    LogPage page = reopened.readOlder("logs/nodes/n1/PLATFORM", null, 2, LogFilter.NONE);
     assertEquals(2, page.lines().size());
     assertEquals("two", page.lines().get(0).get("message"));
     assertEquals("three", page.lines().get(1).get("message"));
@@ -129,8 +133,8 @@ class MuninnDayFileStoreTest {
                 });
     try {
       for (int i = 0; i < 300; i++) {
-        assertDoesNotThrow(() -> store.readAfter(subtree, null, 1000));
-        assertDoesNotThrow(() -> store.readOlder(subtree, null, 1000));
+        assertDoesNotThrow(() -> store.readAfter(subtree, null, 1000, LogFilter.NONE));
+        assertDoesNotThrow(() -> store.readOlder(subtree, null, 1000, LogFilter.NONE));
       }
     } finally {
       stop.set(true);
@@ -141,8 +145,13 @@ class MuninnDayFileStoreTest {
   @Test
   void reading_a_subtree_that_was_never_written_returns_empty_rather_than_erroring()
       throws Exception {
-    assertTrue(store.readAfter("logs/nodes/never-seen/PLATFORM", null, 1000).isEmpty());
-    assertTrue(store.readOlder("logs/nodes/never-seen/PLATFORM", null, 10).lines().isEmpty());
+    assertTrue(
+        store.readAfter("logs/nodes/never-seen/PLATFORM", null, 1000, LogFilter.NONE).isEmpty());
+    assertTrue(
+        store
+            .readOlder("logs/nodes/never-seen/PLATFORM", null, 10, LogFilter.NONE)
+            .lines()
+            .isEmpty());
   }
 
   // A processId is a host:port string for every process kind except AGENT --
@@ -160,7 +169,7 @@ class MuninnDayFileStoreTest {
         "metrics/CONTROLPLANE/127.0.0.1:8080", List.of(line("2026-08-10T10:00:00Z", "sample")));
 
     List<Map<String, Object>> lines =
-        store.readAfter("metrics/CONTROLPLANE/127.0.0.1:8080", null, 1000);
+        store.readAfter("metrics/CONTROLPLANE/127.0.0.1:8080", null, 1000, LogFilter.NONE);
     assertEquals(1, lines.size());
     assertEquals("sample", lines.get(0).get("message"));
 
@@ -169,5 +178,70 @@ class MuninnDayFileStoreTest {
     // "happened not to throw" -- the sanitized directory must exist, the literal-colon one must
     // not.
     assertTrue(Files.isDirectory(tempDir.resolve("metrics/CONTROLPLANE/127.0.0.1_8080")));
+  }
+
+  private static Map<String, Object> leveledLine(String timestamp, String level, String message) {
+    Map<String, Object> line = new LinkedHashMap<>();
+    line.put("timestamp", timestamp);
+    line.put("level", level);
+    line.put("message", message);
+    return line;
+  }
+
+  private void appendMixedLevels() throws Exception {
+    store.appendLines(
+        "logs/nodes/n1/PLATFORM",
+        List.of(
+            leveledLine("2026-08-10T10:00:00Z", "DEBUG", "cache warmed"),
+            leveledLine("2026-08-10T10:00:01Z", "INFO", "registered"),
+            leveledLine("2026-08-10T10:00:02Z", "WARN", "heartbeat delayed by 4s"),
+            leveledLine("2026-08-10T10:00:03Z", "ERROR", "downstream call timed out")));
+  }
+
+  private static List<String> messagesOf(List<Map<String, Object>> lines) {
+    return lines.stream().map(l -> String.valueOf(l.get("message"))).toList();
+  }
+
+  @Test
+  void read_older_applies_a_level_threshold_as_warn_and_above() throws Exception {
+    appendMixedLevels();
+
+    LogPage page = store.readOlder("logs/nodes/n1/PLATFORM", null, 100, LogFilter.of("WARN", null));
+
+    assertEquals(
+        List.of("heartbeat delayed by 4s", "downstream call timed out"), messagesOf(page.lines()));
+  }
+
+  @Test
+  void read_after_applies_a_text_filter_alongside_its_cursor() throws Exception {
+    appendMixedLevels();
+
+    List<Map<String, Object>> lines =
+        store.readAfter(
+            "logs/nodes/n1/PLATFORM", "2026-08-10T10:00:01Z", 100, LogFilter.of(null, "TIMED out"));
+
+    assertEquals(List.of("downstream call timed out"), messagesOf(lines));
+  }
+
+  @Test
+  void the_read_after_cap_counts_matching_lines_not_lines_scanned() throws Exception {
+    appendMixedLevels();
+
+    // A cap of 1 applied before filtering would return the DEBUG line and stop, yielding nothing.
+    List<Map<String, Object>> lines =
+        store.readAfter("logs/nodes/n1/PLATFORM", null, 1, LogFilter.of("ERROR", null));
+
+    assertEquals(List.of("downstream call timed out"), messagesOf(lines));
+  }
+
+  @Test
+  void a_filter_matching_nothing_yields_an_empty_page_rather_than_an_error() throws Exception {
+    appendMixedLevels();
+
+    LogPage page =
+        store.readOlder("logs/nodes/n1/PLATFORM", null, 100, LogFilter.of("ERROR", "not present"));
+
+    assertTrue(page.lines().isEmpty());
+    assertNull(page.olderCursor());
   }
 }
