@@ -31,4 +31,25 @@ describe("MockLimitRangesRepository", () => {
     await repo.remove("tmp");
     await expect(repo.fetchOne("tmp")).rejects.toThrow();
   });
+
+  it("save replaces the whole spec, so a bound dropped from the form goes away", async () => {
+    await repo.save({
+      tenantId: "tmp2",
+      minRequest: { memory: "64Mi", cpu: "50m" },
+      maxLimit: { memory: "1Gi", cpu: "1000m" },
+    });
+    await repo.save({ tenantId: "tmp2", maxLimit: { memory: "1Gi", cpu: "1000m" } });
+
+    expect((await repo.fetchOne("tmp2")).minRequest).toBeUndefined();
+    await repo.remove("tmp2");
+  });
+
+  it("save keeps an explicit zero bound distinct from an absent one", async () => {
+    await repo.save({ tenantId: "tmp3", minRequest: { memory: "0", cpu: "0" } });
+
+    const range = await repo.fetchOne("tmp3");
+    expect(range.minRequest).toEqual({ memory: "0", cpu: "0" });
+    expect(range.maxRequest).toBeUndefined();
+    await repo.remove("tmp3");
+  });
 });

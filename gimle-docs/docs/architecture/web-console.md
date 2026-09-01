@@ -25,8 +25,8 @@ the three dedicated services rather than either client talking to them directly 
 
 ## Screens
 
-Twenty-one screens, each backed by a real `Http*Repository` hitting the control plane's own API — the
-same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth. Nineteen
+Twenty-two screens, each backed by a real `Http*Repository` hitting the control plane's own API — the
+same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth. Twenty
 live under the sidebar's "Cluster" group, `Logs` is reached contextually from an
 instance/deployment rather than its own top-level nav entry, and `Control plane` sits in its own
 "System" nav group, separate from the rest:
@@ -47,6 +47,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Metrics | Cluster-wide derived signals (lifecycle mix, placement coverage, node capacity, backpressure, tenant quota pressure) plus a per-process metrics-history time series, below. |
 | Traces | Per-process trace-span history, below. |
 | Tenants | Tenant list and quota management — see [Multi-tenancy](./multi-tenancy.md). |
+| LimitRanges | Per-tenant [LimitRange](./multi-tenancy.md#limitrange) management — list every tenant that has one, create/edit its four optional `minRequest`/`maxRequest`/`minLimit`/`maxLimit` bounds, delete it. The UI equivalent of `gimle get/set/delete limitrange`. Each bound is a memory + cpu pair, and a bound left blank is written as absent (unbounded) rather than as zero — the same absent-means-unbounded rule the API itself uses. |
 | Config | Tenant-scoped, plain (non-secret) config entries — see [Multi-tenancy](./multi-tenancy.md#tenant-scoped-config). |
 | Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker showing each version's author and write time, a declared-type selector on write (`opaque`/`pem-certificate`/`pem-private-key`), soft/hard delete, master-key rotation. See [Multi-tenancy](./multi-tenancy.md#secrets). |
 | Artifacts | Module jars pushed to the [Andvari](./node-topology.md#andvari) artifact registry — push/list/copy-checksum/delete against the real `/artifacts/*` proxy, the UI equivalent of `gimle artifact push/list/get/delete`. |
