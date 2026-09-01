@@ -37,6 +37,35 @@ describe("HttpMetricsRepository", () => {
     expect(await repo.fetchRollup()).toEqual([]);
   });
 
+  it("keeps both rows when two tenants run a deployment of the same name", async () => {
+    // The endpoint keys each row by deployment name alone, so a caller with read access to two
+    // tenants gets two rows it cannot attribute. The repository must not collapse or reorder them
+    // -- the ambiguity is real and belongs in front of the operator, not hidden here.
+    stubFetchSequence([
+      () =>
+        jsonResponse([
+          {
+            deploymentName: "api",
+            instanceCount: 2,
+            avgRequestRatePerSecond: 10,
+            avgErrorRatePerSecond: 0,
+          },
+          {
+            deploymentName: "api",
+            instanceCount: 1,
+            avgRequestRatePerSecond: 3,
+            avgErrorRatePerSecond: 1.5,
+          },
+        ]),
+    ]);
+    const repo = new HttpMetricsRepository();
+
+    const rows = await repo.fetchRollup();
+
+    expect(rows.map((r) => r.deploymentName)).toEqual(["api", "api"]);
+    expect(rows.map((r) => r.instanceCount)).toEqual([2, 1]);
+  });
+
   it("surfaces a denied read rather than swallowing it into an empty rollup", async () => {
     stubFetchSequence([() => new Response("forbidden", { status: 403 })]);
     const repo = new HttpMetricsRepository();

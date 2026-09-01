@@ -16,4 +16,24 @@ describe("MockMetricsRepository", () => {
     expect(idle?.avgRequestRatePerSecond).toBe(0);
     expect(idle?.avgErrorRatePerSecond).toBe(0);
   });
+
+  it("hands out a fresh copy per call so a caller cannot mutate the fixture", async () => {
+    const first = await repo.fetchRollup();
+    first[0].avgRequestRatePerSecond = 999;
+
+    const second = await repo.fetchRollup();
+    expect(second[0].avgRequestRatePerSecond).toBe(42.5);
+  });
+
+  it("carries no tenant on any row, matching the endpoint it stands in for", async () => {
+    const rows = await repo.fetchRollup();
+    for (const row of rows) {
+      expect(Object.keys(row).sort()).toEqual([
+        "avgErrorRatePerSecond",
+        "avgRequestRatePerSecond",
+        "deploymentName",
+        "instanceCount",
+      ]);
+    }
+  });
 });

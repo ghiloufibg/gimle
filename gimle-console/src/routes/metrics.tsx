@@ -21,9 +21,10 @@ import { ProcessPicker, defaultProcessTarget } from "@/components/process-picker
 import { Bullet } from "@/components/usage-bullet";
 import { fmtBytes, fmtMillicores, isStale } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useMetricsRollupStore } from "@/stores/useMetricsRollupStore";
 import { useOverviewStore } from "@/stores/useOverviewStore";
 import { useTenantsStore } from "@/stores/useTenantsStore";
-import type { LifecycleState, ProcessTarget } from "@/types";
+import type { DeploymentMetricsRollup, LifecycleState, ProcessTarget } from "@/types";
 
 // Exported for other routes to build a deep link into a specific process' history (e.g. an
 // instance detail page linking to its own worker's metrics) without hand-assembling search
@@ -78,6 +79,70 @@ const LIFECYCLE_COLOR: Record<LifecycleState, string> = {
   UNINSTALLED: "var(--status-bad)",
 };
 
+/**
+ * A `GET /metrics` row plus the one thing the endpoint cannot tell a client on its own: whether
+ * the row's deployment name is unique across the tenants the caller may read. The response is
+ * keyed by deployment name alone, so two tenants each running a deployment of that name produce
+ * two rows nothing in the payload can tell apart -- neither can this console, and it says so
+ * rather than picking one.
+ */
+export interface RollupRow extends DeploymentMetricsRollup {
+  ambiguous: boolean;
+  /** No instance contributed a reading, so the averages are an absence of data, not a real zero. */
+  silent: boolean;
+}
+
+/** Deployment names carried by more than one row of the same response. */
+export function ambiguousDeploymentNames(rows: readonly DeploymentMetricsRollup[]): Set<string> {
+  const seen = new Set<string>();
+  const repeated = new Set<string>();
+  for (const row of rows) {
+    if (seen.has(row.deploymentName)) repeated.add(row.deploymentName);
+    seen.add(row.deploymentName);
+  }
+  return repeated;
+}
+
+/**
+ * Attention-first ordering: erroring deployments, then the busiest, then -- among the quiet ones
+ * -- those reporting nothing at all ahead of those genuinely idle, and finally by name so the
+ * order is stable between polls.
+ */
+export function rankRollupRows(rows: readonly DeploymentMetricsRollup[]): RollupRow[] {
+  const ambiguous = ambiguousDeploymentNames(rows);
+  return rows
+    .map((row) => ({
+      ...row,
+      ambiguous: ambiguous.has(row.deploymentName),
+      silent: row.instanceCount === 0,
+    }))
+    .sort((a, b) => {
+      if (a.avgErrorRatePerSecond !== b.avgErrorRatePerSecond) {
+        return b.avgErrorRatePerSecond - a.avgErrorRatePerSecond;
+      }
+      if (a.avgRequestRatePerSecond !== b.avgRequestRatePerSecond) {
+        return b.avgRequestRatePerSecond - a.avgRequestRatePerSecond;
+      }
+      if (a.silent !== b.silent) return a.silent ? -1 : 1;
+      return a.deploymentName.localeCompare(b.deploymentName);
+    });
+}
+
+export function fmtRatePerSecond(value: number, fractionDigits = 1): string {
+  return `${value.toFixed(fractionDigits)}/s`;
+}
+
+/**
+ * The banner shown above the rollup when the response carries indistinguishable rows, naming the
+ * deployments affected. `null` when every row is unambiguous, which is the common single-tenant
+ * and distinct-names case.
+ */
+export function rollupAmbiguityWarning(rows: readonly DeploymentMetricsRollup[]): string | null {
+  const repeated = [...ambiguousDeploymentNames(rows)].sort();
+  if (repeated.length === 0) return null;
+  return `${repeated.join(", ")}: rows carry no tenant, so same-named deployments in different tenants cannot be told apart here`;
+}
+
 /** Horizontal used-vs-allowance bullet row. */
 function Metrics() {
   const s = useOverviewStore();
@@ -97,11 +162,13 @@ function Metrics() {
   }
   const tenants = useTenantsStore((t) => t.items);
   const loadTenants = useTenantsStore((t) => t.loadFirstPage);
+  const rollup = useMetricsRollupStore();
 
   useEffect(() => {
     if (!s.loaded) s.load();
     if (!s.allLoaded) s.loadAll();
     if (tenants.length === 0) loadTenants();
+    if (!rollup.loaded) rollup.load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -217,6 +284,10 @@ function Metrics() {
   );
   const busiestMax = busiest[0]?.i.observation.cpuMillicoresUsed ?? 1;
 
+  const rollupRows = useMemo(() => rankRollupRows(rollup.rows), [rollup.rows]);
+  const rollupWarning = useMemo(() => rollupAmbiguityWarning(rollup.rows), [rollup.rows]);
+  const rollupPeakRequestRate = Math.max(1, ...rollupRows.map((r) => r.avgRequestRatePerSecond));
+
   return (
     <PageContainer>
       <PageHeader
@@ -228,6 +299,7 @@ function Metrics() {
             onClick={() => {
               s.load();
               s.loadAll();
+              rollup.load();
             }}
             className="rounded-sm border border-primary/20 bg-primary/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-primary transition-colors hover:bg-primary/20"
           >
@@ -549,6 +621,87 @@ function Metrics() {
               </li>
             )}
           </ul>
+        </Panel>
+
+        <Panel
+          title="Per-deployment rollup"
+          aside={
+            <span className="hud-label text-muted-foreground">
+              {rollup.loading ? "syncing…" : `${rollupRows.length} deployments`}
+            </span>
+          }
+          className="xl:col-span-2"
+        >
+          <div className="p-3">
+            <p className="mb-2 font-mono text-[10px] text-muted-foreground">
+              averages the control plane computes itself over the instances that actually reported a
+              reading — attention-first: erroring, then busiest, then silent
+            </p>
+            {rollup.error && (
+              <p className="mb-2 font-mono text-[10px] text-status-bad">
+                rollup unavailable — {rollup.error}
+              </p>
+            )}
+            {rollupWarning && (
+              <p className="mb-2 font-mono text-[10px] text-status-warn">
+                ambiguous rows — {rollupWarning}
+              </p>
+            )}
+            <ul className="space-y-1">
+              {rollupRows.map((r, idx) => (
+                <li key={`${r.deploymentName}-${idx}`} className="flex items-center gap-2">
+                  <span className="flex w-56 shrink-0 items-center gap-1.5 truncate">
+                    <span className="truncate font-mono text-[10px] text-signal">
+                      {r.deploymentName}
+                    </span>
+                    {r.ambiguous && (
+                      <span
+                        title="Two or more deployments share this name across tenants; GET /metrics carries no tenant, so this row cannot be attributed to one of them."
+                        className="shrink-0 rounded-[1px] bg-status-warn/20 px-1 font-mono text-[9px] uppercase tracking-widest text-status-warn"
+                      >
+                        ambiguous
+                      </span>
+                    )}
+                  </span>
+                  <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <span
+                      className={cn(
+                        "block h-full",
+                        r.avgErrorRatePerSecond > 0 ? "bg-status-bad" : "bg-primary",
+                      )}
+                      style={{
+                        width: `${Math.round((r.avgRequestRatePerSecond / rollupPeakRequestRate) * 100)}%`,
+                      }}
+                    />
+                  </span>
+                  <span className="w-20 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground">
+                    {fmtRatePerSecond(r.avgRequestRatePerSecond)}
+                  </span>
+                  <span
+                    className={cn(
+                      "w-20 shrink-0 text-right font-mono text-[10px] tabular-nums",
+                      r.avgErrorRatePerSecond > 0 ? "text-status-bad" : "text-muted-foreground",
+                    )}
+                  >
+                    {fmtRatePerSecond(r.avgErrorRatePerSecond, 2)}
+                  </span>
+                  <span
+                    className={cn(
+                      "w-24 shrink-0 text-right font-mono text-[10px] uppercase tracking-widest",
+                      r.silent ? "text-status-warn" : "text-muted-foreground",
+                    )}
+                  >
+                    {r.silent ? "no readings" : `${r.instanceCount} reporting`}
+                  </span>
+                </li>
+              ))}
+              {rollupRows.length === 0 && !rollup.loading && (
+                <li className="font-mono text-[10px] text-muted-foreground">
+                  no deployment rollup available
+                </li>
+              )}
+            </ul>
+          </div>
         </Panel>
 
         <Panel

@@ -44,7 +44,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Nodes | Registered node agents and their reported capacity, plus cordon/uncordon and per-tenant taint/untaint controls on the detail page — the UI equivalent of `gimle get nodes` and `gimle cordon/uncordon/taint/untaint`. Cordoning/tainting only ever affects future scheduling; neither evicts an already-running instance. |
 | Networking | Two tabs: [Services](./service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment) (the ClusterIP analogue — create/inspect/delete, plus each row's live backing endpoints) and NetworkPolicies (which other tenants may call a tenant's own Services) — the UI equivalent of `gimle get/set/delete service` and `gimle get/set/delete networkpolicy`. |
 | Topology | A real-time graph of the cluster's actual placement (which instances landed on which nodes/workers). |
-| Metrics | Cluster-wide derived signals (lifecycle mix, placement coverage, node capacity, backpressure, tenant quota pressure) plus a per-process metrics-history time series, below. |
+| Metrics | Cluster-wide derived signals (lifecycle mix, placement coverage, node capacity, backpressure, tenant quota pressure), the control plane's own per-deployment request/error-rate rollup (`GET /metrics`, below), and a per-process metrics-history time series, below. |
 | Traces | Per-process trace-span history, below. |
 | Tenants | Tenant list and quota management — see [Multi-tenancy](./multi-tenancy.md). |
 | Config | Tenant-scoped, plain (non-secret) config entries — see [Multi-tenancy](./multi-tenancy.md#tenant-scoped-config). |
@@ -54,6 +54,27 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Audit | Filterable audit trail (principal, resource kind, verb, tenant, allow/deny), below. |
 | Logs | Live log tailing, level/text filtering, and crash-dump listing, below. |
 | Control plane | Scheduler, quota enforcer, and heartbeat-worker status at a glance, plus a link into the control plane's own log. In its own sidebar group since it reports on the control plane process itself rather than on a workload. |
+
+## Per-deployment metrics rollup
+
+`GET /metrics` is the control plane's own aggregation of the per-instance request/error rates that
+arrive on the heartbeat path (see [Observability](./observability.md)): one row per deployment the
+caller may read, carrying the average request rate, the average error rate, and how many instances
+actually contributed a reading. The Metrics screen renders it as a "per-deployment rollup" panel,
+ordered attention-first — erroring deployments, then the busiest, then those reporting nothing at
+all ahead of the genuinely idle.
+
+It sits deliberately beside, not instead of, the same screen's per-instance "instances with errors"
+panel: that one is derived client-side from the deployment list and names individual instances,
+while this one is the server's own average and is the only place `instanceCount` — instances that
+reported, as opposed to instances that were placed — is visible at all.
+
+**Known limitation, surfaced rather than hidden:** a rollup row is keyed by deployment name alone,
+but the RBAC filter behind the endpoint is per-tenant. A caller who may read two tenants that each
+run a deployment of the same name therefore receives two rows nothing in the payload can tell
+apart. The console neither merges nor drops them: both rows are shown and both are flagged
+`ambiguous`, with a banner naming the affected deployments. Attributing a row to one tenant needs a
+`tenantId` on the wire, which the endpoint does not carry today.
 
 ## Metrics history, traces, and audit trail
 
