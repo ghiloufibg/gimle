@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * The CLI's entry point and global-flag/verb dispatch: a {@code kubectl}-shaped client for familiar
@@ -23,6 +24,8 @@ import java.util.Map;
  *   gimle get cronjobs [name]
  *   gimle get daemonsets [name]
  *   gimle get statefulsets [name]
+ *   gimle get &lt;deployments|jobs|cronjobs|daemonsets|statefulsets|nodes|node-assignments&gt; [name]
+ *                       [--watch|-w] [--watch-interval=SECS] [--watch-ticks=N]
  *   gimle apply -f &lt;manifest.yaml&gt;|-  (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
  *                                      ArtifactSet, KindDefinition, Service, NetworkPolicy, Tenant,
  *                                      LimitRange, Role, RoleBinding, Account, or any defined
@@ -148,6 +151,11 @@ import java.util.Map;
  * table|json|manifest} (default {@code table}, kubectl's own flag; {@code manifest} is honored only
  * by {@code get <workload-kind> <name>} -- see {@link ManifestExport}).
  *
+ * <p>{@code get} additionally accepts {@code --watch}/{@code -w} for the workload kinds, {@code
+ * nodes} and {@code node-assignments} (see {@link #handleWatch} and {@link ResourceWatch}): a
+ * client-side poll on a {@code --watch-interval=} (default two seconds), printing only the rows
+ * that changed since the previous tick.
+ *
  * <p>The control plane an invocation talks to comes from {@code --server}, else the {@code
  * GIMLE_SERVER} environment variable, else the current context in the CLI's own config file -- in
  * that order, always (see {@link ServerResolver} and {@link ContextCommand}).
@@ -261,7 +269,7 @@ public final class GimleCli {
     switch (verb) {
       case "apply" -> handleApply(rest, client, output, out, err);
       case "kinds" -> new CustomResourceCommand(client, output, out).kinds();
-      case "get" -> handleGet(rest, client, output, out);
+      case "get" -> handleGet(rest, client, output, out, err);
       case "set" -> handleSet(rest, client, output, out, err);
       case "delete" -> handleDelete(rest, client, output, out);
       case "logs" -> new LogsCommand(client, output, out).run(rest);
@@ -480,13 +488,77 @@ public final class GimleCli {
     }
   }
 
+  /**
+   * The resources {@code --watch} is offered for: the workload kinds, the nodes they land on, and
+   * one node's own instance assignments. These are the reads whose value is in watching them
+   * converge -- a rollout replacing instances, a scale-up placing them, a cordon draining them off
+   * a node.
+   *
+   * <p>Everything else {@code get} answers ({@code tenants}, {@code limitranges}, {@code roles},
+   * {@code rolebindings}, {@code accounts}, {@code config}, {@code services}, {@code
+   * networkpolicies}, {@code alertrules}, and every custom kind) is operator-authored declarative
+   * state with no controller converging it: it changes when somebody applies a change and not
+   * otherwise, so polling it would only spend the control plane's request budget re-reading what
+   * the operator already knows.
+   */
+  private static final String WATCHABLE_NOUNS =
+      "deployments, jobs, cronjobs, daemonsets, statefulsets, nodes, node-assignments";
+
+  /**
+   * {@code get <resource> --watch}: a client-side poll, since the control plane exposes no
+   * watch/streaming API outside {@code /logs}. Each tick re-fetches exactly the rows the one-shot
+   * form would print; {@link ResourceWatch} owns the diffing, per-tick output and failure handling.
+   */
+  private static void handleWatch(
+      String noun,
+      List<String> args,
+      WatchOptions watch,
+      ControlPlaneClient client,
+      OutputFormat.Kind output,
+      PrintStream out,
+      PrintStream err) {
+    if (output == OutputFormat.Kind.MANIFEST) {
+      throw CliException.invalidInput(
+          "-o manifest exports one resource's manifest once; it has no --watch form");
+    }
+    Supplier<List<Map<String, Object>>> snapshot =
+        switch (noun) {
+          case "deployment", "deployments" ->
+              () -> new DeploymentsCommand(client, output, out).rows(args);
+          case "job", "jobs" -> () -> new JobsCommand(client, output, out).rows(args);
+          case "cronjob", "cronjobs" -> () -> new CronJobsCommand(client, output, out).rows(args);
+          case "daemonset", "daemonsets" ->
+              () -> new DaemonSetsCommand(client, output, out).rows(args);
+          case "statefulset", "statefulsets" ->
+              () -> new StatefulSetsCommand(client, output, out).rows(args);
+          case "node", "nodes" -> () -> new NodesCommand(client, output, out).listRows();
+          case "node-assignments" -> {
+            String nodeId = requireOne(args, "node-assignments");
+            yield () -> new NodesCommand(client, output, out).assignmentRows(nodeId);
+          }
+          default ->
+              throw new CliException(
+                  "--watch is not available for '" + noun + "' (try: " + WATCHABLE_NOUNS + ")");
+        };
+    new ResourceWatch(watch, output, out, err).run(snapshot);
+  }
+
   private static void handleGet(
-      List<String> args, ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+      List<String> args,
+      ControlPlaneClient client,
+      OutputFormat.Kind output,
+      PrintStream out,
+      PrintStream err) {
     if (args.isEmpty()) {
       throw new CliException(usage());
     }
     String noun = args.get(0);
-    List<String> rest = args.subList(1, args.size());
+    WatchOptions watch = WatchOptions.parse(args.subList(1, args.size()));
+    List<String> rest = watch.remainingArgs();
+    if (watch.enabled()) {
+      handleWatch(noun, rest, watch, client, output, out, err);
+      return;
+    }
     switch (noun) {
       case "deployment", "deployments" -> new DeploymentsCommand(client, output, out).get(rest);
       case "job", "jobs" -> new JobsCommand(client, output, out).get(rest);
@@ -669,6 +741,18 @@ public final class GimleCli {
     };
   }
 
+  /** Appended to the {@code get} form of every noun {@link #WATCHABLE_NOUNS} lists. */
+  private static final String WATCH_FLAGS_USAGE =
+      """
+
+             [--watch|-w] [--watch-interval=SECS] [--watch-ticks=N]
+
+      --watch re-reads on an interval (default 2s) and prints only the rows that changed,
+        under a leading EVENT column (ADDED|MODIFIED|DELETED); Ctrl-C to stop, or bound it
+        with --watch-ticks=N
+      -o json emits NDJSON under --watch: one {"event":...,"object":{...}} per line,
+        since an endless stream has no closing bracket""";
+
   private static final String GET_USAGE =
       """
       usage: gimle get <resource> [args]
@@ -690,23 +774,33 @@ public final class GimleCli {
         roles [name]
         rolebindings [id]
         accounts [username]
-        <custom-kind|plural|shortName> [name] [--tenant <id>]   (any kind defined via 'gimle kinds')""";
+        <custom-kind|plural|shortName> [name] [--tenant <id>]   (any kind defined via 'gimle kinds')
+
+      watch flags (deployments, jobs, cronjobs, daemonsets, statefulsets, nodes,
+                   node-assignments only):
+        --watch, -w             re-read on an interval and print only what changed, under a
+                                leading EVENT column (ADDED|MODIFIED|DELETED); Ctrl-C to stop
+        --watch-interval=SECS   seconds between polls (default 2)
+        --watch-ticks=N         print N snapshots and exit, instead of watching until interrupted
+        -o json                 emits NDJSON under --watch -- one {"event":...,"object":{...}}
+                                per line, since an endless stream has no closing bracket""";
 
   private static final Map<String, String> GET_NOUN_USAGE =
       Map.ofEntries(
-          Map.entry("deployment", "usage: gimle get deployments [name]"),
-          Map.entry("deployments", "usage: gimle get deployments [name]"),
-          Map.entry("job", "usage: gimle get jobs [name]"),
-          Map.entry("jobs", "usage: gimle get jobs [name]"),
-          Map.entry("cronjob", "usage: gimle get cronjobs [name]"),
-          Map.entry("cronjobs", "usage: gimle get cronjobs [name]"),
-          Map.entry("daemonset", "usage: gimle get daemonsets [name]"),
-          Map.entry("daemonsets", "usage: gimle get daemonsets [name]"),
-          Map.entry("statefulset", "usage: gimle get statefulsets [name]"),
-          Map.entry("statefulsets", "usage: gimle get statefulsets [name]"),
-          Map.entry("node", "usage: gimle get nodes"),
-          Map.entry("nodes", "usage: gimle get nodes"),
-          Map.entry("node-assignments", "usage: gimle get node-assignments <nodeId>"),
+          Map.entry("deployment", "usage: gimle get deployments [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("deployments", "usage: gimle get deployments [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("job", "usage: gimle get jobs [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("jobs", "usage: gimle get jobs [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("cronjob", "usage: gimle get cronjobs [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("cronjobs", "usage: gimle get cronjobs [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("daemonset", "usage: gimle get daemonsets [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("daemonsets", "usage: gimle get daemonsets [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("statefulset", "usage: gimle get statefulsets [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("statefulsets", "usage: gimle get statefulsets [name]" + WATCH_FLAGS_USAGE),
+          Map.entry("node", "usage: gimle get nodes" + WATCH_FLAGS_USAGE),
+          Map.entry("nodes", "usage: gimle get nodes" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "node-assignments", "usage: gimle get node-assignments <nodeId>" + WATCH_FLAGS_USAGE),
           Map.entry("service", "usage: gimle get services [name]"),
           Map.entry("services", "usage: gimle get services [name]"),
           Map.entry("networkpolicy", "usage: gimle get networkpolicies [name]"),
@@ -938,6 +1032,11 @@ public final class GimleCli {
 
         exit codes: 0 ok | 1 unclassified (incl. usage errors) | 2 invalid input | 3 not found
                     | 4 forbidden | 5 conflict | 6 unreachable or retryable
+
+        watch flags, on get deployments|jobs|cronjobs|daemonsets|statefulsets|nodes|node-assignments:
+          [--watch|-w] [--watch-interval=SECS] [--watch-ticks=N]
+          re-reads on an interval (default 2s) and prints only the rows that changed, under a
+          leading EVENT column (ADDED|MODIFIED|DELETED); -o json emits NDJSON, one object per line
 
         verbs:
           get deployments [name]

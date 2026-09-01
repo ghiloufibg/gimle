@@ -1995,7 +1995,11 @@ class GimleCliTest {
   void get_deployments_help_prints_just_that_one_form() {
     int exit = run("get", "deployments", "-h");
     assertEquals(0, exit, stderr());
-    assertEquals("usage: gimle get deployments [name]", stdout().trim());
+    assertTrue(stdout().startsWith("usage: gimle get deployments [name]"), stdout());
+    // Deployments are watchable, so this one form's own help carries the watch flags too -- and
+    // still none of the other resources' forms.
+    assertTrue(stdout().contains("[--watch|-w]"), stdout());
+    assertFalse(stdout().contains("gimle get jobs"), stdout());
   }
 
   @Test

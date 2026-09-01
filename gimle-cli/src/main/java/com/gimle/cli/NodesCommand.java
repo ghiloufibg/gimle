@@ -33,19 +33,32 @@ public final class NodesCommand {
   }
 
   public void list() {
+    OutputFormat.printList(output, listRows(), out);
+  }
+
+  /**
+   * One snapshot's worth of node rows, rendered exactly as {@link #list} renders them -- what
+   * {@code --watch} re-fetches each tick and diffs against the previous one.
+   *
+   * <p>Humanization is table-only: -o json keeps the raw capabilities/capacity fields at full
+   * fidelity (exact byte/millicore counts) for scripting, since only the table renderer has nowhere
+   * else to put a nested object but one unreadable JSON-blob cell. The one exception is {@code
+   * status}: the table's own heartbeat-freshness computation has no server-side counterpart at all,
+   * so a JSON consumer would otherwise have no way to reproduce it -- it's added to the raw shape
+   * rather than left table-only like everything else here.
+   */
+  public List<Map<String, Object>> listRows() {
     List<Map<String, Object>> nodes = client.getList("/nodes");
-    // Humanization is table-only: -o json keeps the raw capabilities/capacity fields at full
-    // fidelity (exact byte/millicore counts) for scripting, since only the table renderer has
-    // nowhere else to put a nested object but one unreadable JSON-blob cell. The one exception is
-    // "status": the table's own heartbeat-freshness computation has no server-side counterpart at
-    // all, so a JSON consumer would otherwise have no way to reproduce it -- it's added to the raw
-    // shape rather than left table-only like everything else here.
-    OutputFormat.printList(
-        output, output == OutputFormat.Kind.TABLE ? humanize(nodes) : withStatus(nodes), out);
+    return output == OutputFormat.Kind.TABLE ? humanize(nodes) : withStatus(nodes);
   }
 
   public void assignments(String nodeId) {
-    OutputFormat.printList(output, client.getList("/nodes/" + nodeId + "/assignments"), out);
+    OutputFormat.printList(output, assignmentRows(nodeId), out);
+  }
+
+  /** {@link #assignments}' own rows, for the same per-tick re-fetch {@link #listRows} serves. */
+  public List<Map<String, Object>> assignmentRows(String nodeId) {
+    return client.getList("/nodes/" + nodeId + "/assignments");
   }
 
   public void cordon(String nodeId) {
