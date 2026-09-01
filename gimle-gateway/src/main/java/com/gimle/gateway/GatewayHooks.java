@@ -1,6 +1,7 @@
 package com.gimle.gateway;
 
 import com.gimle.core.io.SizeLimitedInputStream;
+import com.gimle.core.tls.HostCertificate;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
@@ -44,10 +45,10 @@ import org.slf4j.LoggerFactory;
  * connection is decrypted here, and the gateway speaks to the rest of the cluster the same way it
  * always has.
  *
- * <p>Configuration keys, both required (there is no fixed default port -- see this module's own
- * README/deployment.yaml comment: an operator picks a non-colliding port across co-located
- * DaemonSet instances the same way {@code greeter-load-generator}'s own hardcoded port already
- * accepts that gap, just config-driven here instead of hardcoded):
+ * <p>Configuration keys, the first two required (there is no fixed default port -- see this
+ * module's own README/deployment.yaml comment: an operator picks a non-colliding port across
+ * co-located DaemonSet instances the same way {@code greeter-load-generator}'s own hardcoded port
+ * already accepts that gap, just config-driven here instead of hardcoded):
  *
  * <ul>
  *   <li>{@code gateway.port} -- the TCP port this instance's {@code HttpServer}/{@code HttpsServer}
@@ -59,13 +60,19 @@ import org.slf4j.LoggerFactory;
  *       as this instance runs, not just once at {@code onStart} -- see {@link
  *       #reloadRoutesIfChanged} for why a route table baked in once at startup was a real gap for a
  *       {@code DaemonSet}-deployed, independently-restarting fleet of gateway instances.
+ *   <li>{@code gateway.tlsCertificates} -- optional; per-hostname certificate bindings in {@link
+ *       GatewayTlsConfig}'s own format, used only when TLS is on. Read once, at {@code onStart},
+ *       for the same reason {@code gateway.port} is: swapping what an already-established listener
+ *       presents is a rebind, not a table swap.
  * </ul>
  *
- * <p>TLS itself is not a {@code ctx.config(...)} key: it is the same cluster-wide {@code
- * gimle.transport.protocol=tls} system property (plus {@code gimle.tls.certFile}/{@code
+ * <p>Whether TLS is on at all is not a {@code ctx.config(...)} key: it is the same cluster-wide
+ * {@code gimle.transport.protocol=tls} system property (plus {@code gimle.tls.certFile}/{@code
  * keyFile}/{@code caFile}) every other TLS-capable listener in this codebase reads via {@link
- * TransportProtocol#fromConfig()}/{@link TlsSettings#fromConfig()}. The agent supervising this
- * instance's worker JVM forwards its own already-resolved {@code gimle.transport.protocol}/{@code
+ * TransportProtocol#fromConfig()}/{@link TlsSettings#fromConfig()}. Only the extra per-virtual-host
+ * certificates are a config key, because which hostnames one gateway fronts is that gateway's own
+ * routing concern rather than a cluster-wide setting. The agent supervising this instance's worker
+ * JVM forwards its own already-resolved {@code gimle.transport.protocol}/{@code
  * gimle.tls.certFile}/{@code keyFile}/{@code caFile} onto every worker it spawns (see {@code
  * AgentMain.stableWorkerFlags()}), so a gateway instance picks this up the same way {@code
  * gimle-fabric}'s own in-worker listener already does, with no new switch needed.
@@ -122,12 +129,14 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
     int port = requiredIntConfig(ctx, "gateway.port");
     String routesConfig = requiredConfig(ctx, "gateway.routes");
     List<GatewayRoute> routes = GatewayRouteConfig.parse(routesConfig);
+    List<HostCertificate> hostCertificates =
+        ctx.config("gateway.tlsCertificates").map(GatewayTlsConfig::parse).orElse(List.of());
     dispatcher = new GatewayDispatcher(ctx, routes);
     appliedRoutesConfig = routesConfig;
     registeredPaths = distinctPaths(routes);
 
     try {
-      server = createHttpServer(port);
+      server = createHttpServer(port, hostCertificates);
       // One context per distinct path, not one per route: a host-constrained route and a
       // host-unconstrained (or differently-host-constrained) sibling can now share the same path,
       // and HttpServer#createContext rejects a second context registered at a path already bound.
@@ -145,10 +154,12 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
       server.start();
       ready.set(true);
       log.info(
-          "gimle-gateway listening on 0.0.0.0:{} ({}) with {} route(s)",
+          "gimle-gateway listening on 0.0.0.0:{} ({}) with {} route(s) and {} per-host"
+              + " certificate(s)",
           port,
           TransportProtocol.fromConfig(),
-          routes.size());
+          routes.size(),
+          hostCertificates.size());
       startRouteReload(ctx);
     } catch (IOException e) {
       throw new UncheckedIOException("gimle-gateway failed to bind port " + port, e);
@@ -253,12 +264,28 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
    * needClientAuth}, since a north-south caller reaching this gateway from outside the cluster has
    * no cluster-issued client certificate to present, and {@link HttpsConfigurator}/{@link
    * HttpsParameters} negotiate once per *connection* anyway, before any request path is read.
+   *
+   * <p>{@code hostCertificates} (empty unless {@code gateway.tlsCertificates} declares any) makes
+   * that certificate a per-connection choice driven by the client's SNI extension rather than a
+   * single one fixed at startup, which is what lets this gateway's own host-constrained routing
+   * actually be reachable: a client verifies the presented certificate against the hostname *it*
+   * dialed, so with one certificate every routed hostname outside that certificate's SAN fails TLS
+   * before its route is ever consulted. No {@code SNIMatcher} is installed alongside it -- a
+   * matcher refuses an unrecognized name outright, which would take the host-unconstrained fallback
+   * routes down with it; an unmatched name gets the default certificate instead.
    */
-  private static HttpServer createHttpServer(int port) throws IOException {
+  private static HttpServer createHttpServer(int port, List<HostCertificate> hostCertificates)
+      throws IOException {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+      if (!hostCertificates.isEmpty()) {
+        log.warn(
+            "gimle-gateway is listening in plaintext, so its {} configured per-host TLS"
+                + " certificate(s) are unused -- set gimle.transport.protocol=tls to terminate TLS",
+            hostCertificates.size());
+      }
       return HttpServer.create(new InetSocketAddress(port), 0);
     }
-    SSLContext sslContext = SslContexts.forMutualTls(TlsSettings.fromConfig());
+    SSLContext sslContext = SslContexts.forMutualTls(TlsSettings.fromConfig(), hostCertificates);
     HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress(port), 0);
     httpsServer.setHttpsConfigurator(
         new HttpsConfigurator(sslContext) {

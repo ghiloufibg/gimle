@@ -114,9 +114,34 @@ cluster-issued client certificate to present, unlike the East-West `needClientAu
 control plane and other internal servers use. This is TLS **termination**, not a TLS relay: an
 external caller's connection is decrypted here, and the gateway speaks to the rest of the cluster
 the same way it always has (plain HTTP to a resolved fabric/vessel/service target via
-`VesselProxyClient`). TLS is not a `ctx.config(...)` key — it's the same cluster-wide system
-property every other TLS-capable listener in this codebase reads, forwarded onto this module's
-worker JVM by the supervising agent the same way any operator `-D` flag is.
+`VesselProxyClient`). Whether TLS is on is not a `ctx.config(...)` key — it's the same cluster-wide
+system property every other TLS-capable listener in this codebase reads, forwarded onto this
+module's worker JVM by the supervising agent the same way any operator `-D` flag is.
+
+### Per-virtual-host certificates (SNI)
+
+One cluster-wide certificate is not enough for a gateway that routes by `Host`: a client verifies
+the presented certificate against the hostname *it* dialled, so with a single certificate every
+routed hostname outside that certificate's SAN fails TLS before its otherwise-functional route is
+ever consulted. The optional `gateway.tlsCertificates` config key binds hostnames to their own key
+pairs, one per line (`GatewayTlsConfig`):
+
+```text
+<hostname> <certFile> <keyFile>
+```
+
+At handshake time a custom `X509ExtendedKeyManager` (`SniKeyManager` in `gimle-core`) reads the
+hostname from the client's SNI extension and presents that hostname's certificate. A client that
+sends no SNI at all, and one naming a hostname with no binding here, both get the cluster-wide
+`gimle.tls.certFile`/`keyFile` certificate — so a gateway that configures nothing behaves exactly
+as a single-certificate listener always did. Selection deliberately never *rejects* a connection
+(no `SNIMatcher` is installed): an unrecognized hostname is still served by a host-unconstrained
+route, and failing its handshake closed would take that fallback routing down with it.
+
+Bindings carry no `caFile` of their own — trust is cluster-wide and already carried by
+`gimle.tls.caFile`; what varies per virtual host is only the identity the gateway presents. The key
+is read once at `onStart`, like `gateway.port` and unlike `gateway.routes`: swapping what an
+already-established listener presents is a rebind, not a table swap.
 
 Each inbound request runs on its own virtual thread (`Executors.newVirtualThreadPerTaskExecutor()`)
 — a request blocks synchronously on a real fabric round trip, possibly cross-machine, so a

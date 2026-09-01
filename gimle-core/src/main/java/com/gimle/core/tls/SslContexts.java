@@ -14,7 +14,11 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
@@ -31,6 +35,10 @@ import javax.net.ssl.TrustManagerFactory;
  * peer RPC, fabric cross-machine) still owns the decision to set {@code needClientAuth}/ {@code
  * wantClientAuth} on its own server socket or {@code HttpsConfigurator}, since that's a
  * per-transport server-side setting, not something an {@code SSLContext} itself carries.
+ *
+ * <p>{@link #forMutualTls(TlsSettings, java.util.List)} additionally serves a listener fronting
+ * several virtual hosts on one port, choosing among per-hostname certificates from the client's SNI
+ * extension instead of committing to one certificate at startup.
  */
 public final class SslContexts {
 
@@ -47,6 +55,57 @@ public final class SslContexts {
 
   public static SSLContext forMutualTls(TlsSettings settings) {
     return build(TLS_PROTOCOL, settings);
+  }
+
+  /**
+   * {@link #forMutualTls(TlsSettings)} for a listener terminating TLS for several virtual hosts on
+   * one port: {@code settings} still supplies the trust anchor and the certificate presented by
+   * default, and each {@link HostCertificate} additionally binds one hostname to its own
+   * certificate, selected per connection from the client's SNI extension (see {@link
+   * SniKeyManager}). An empty list is exactly the single-certificate case and is answered by {@link
+   * #forMutualTls(TlsSettings)} itself, so a caller never needs to branch on it.
+   *
+   * <p>Every host certificate must chain to the same cluster CA {@code settings} names -- there is
+   * one trust anchor per cluster, and what varies per virtual host is only the identity presented.
+   */
+  public static SSLContext forMutualTls(TlsSettings settings, List<HostCertificate> perHost) {
+    if (perHost.isEmpty()) {
+      return forMutualTls(settings);
+    }
+    try {
+      X509Certificate caCertificate = loadCertificate(settings.caFile());
+      SniKeyManager.KeyEntry defaultEntry =
+          loadKeyEntry(settings.certFile(), settings.keyFile(), caCertificate);
+      Map<String, SniKeyManager.KeyEntry> byHostname = new LinkedHashMap<>();
+      for (HostCertificate hostCertificate : perHost) {
+        byHostname.put(
+            hostCertificate.hostname(),
+            loadKeyEntry(hostCertificate.certFile(), hostCertificate.keyFile(), caCertificate));
+      }
+
+      KeyStore trustStore = KeyStore.getInstance(KEY_STORE_TYPE);
+      trustStore.load(null, null);
+      trustStore.setCertificateEntry("cluster-ca", caCertificate);
+      TrustManagerFactory trustManagerFactory =
+          TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+      trustManagerFactory.init(trustStore);
+
+      SSLContext context = SSLContext.getInstance(TLS_PROTOCOL);
+      context.init(
+          new KeyManager[] {new SniKeyManager(defaultEntry, byHostname)},
+          trustManagerFactory.getTrustManagers(),
+          null);
+      return context;
+    } catch (GeneralSecurityException | IOException e) {
+      throw GimleTlsException.invalidMaterial(
+          settings.certFile(), settings.keyFile(), settings.caFile(), e);
+    }
+  }
+
+  private static SniKeyManager.KeyEntry loadKeyEntry(
+      Path certFile, Path keyFile, X509Certificate caCertificate) throws IOException {
+    return new SniKeyManager.KeyEntry(
+        loadPrivateKey(keyFile), new X509Certificate[] {loadCertificate(certFile), caCertificate});
   }
 
   /**
