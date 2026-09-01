@@ -18,6 +18,7 @@ import {
 import { fmtBytes, fmtMillicores } from "@/lib/format";
 import { FileText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 
 export const Route = createFileRoute("/jobs/$name")({
   head: ({ params }) => ({
@@ -68,7 +69,7 @@ function JobDetail() {
       toast.success(`Deleted ${name}`);
       navigate({ to: "/jobs" });
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
       setDeleting(false);
     }
   }

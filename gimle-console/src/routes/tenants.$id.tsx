@@ -19,6 +19,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 import { Trash2 } from "lucide-react";
 
 export const Route = createFileRoute("/tenants/$id")({
@@ -86,7 +87,7 @@ function TenantDetail() {
       });
       toast.success("Quota updated");
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     } finally {
       setSaving(false);
     }
@@ -98,7 +99,7 @@ function TenantDetail() {
       toast.success(`Deleted tenant ${id}`);
       navigate({ to: "/tenants" });
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     }
   }
 

@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 import type { JobSpecInput } from "@/types";
 
 export const Route = createFileRoute("/jobs/new")({
@@ -92,7 +93,7 @@ function NewJob() {
       toast.success(`Created ${form.name}`);
       navigate({ to: "/jobs/$name", params: { name: form.name } });
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
       setSaving(false);
     }
   }

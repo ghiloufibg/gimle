@@ -19,6 +19,7 @@ import { useSealStore } from "@/stores/useSealStore";
 import { cn } from "@/lib/utils";
 import { Copy, KeyRound, RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 
 const DESCRIPTION =
   "Fafnir's asymmetric sealing key: fetch the public key, rotate it, retire an old one.";
@@ -136,7 +137,7 @@ function SealPage() {
       const newId = await rotate();
       toast.success(`Sealing key rotated — key ${newId} is now active`);
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     }
   }
 
@@ -152,7 +153,7 @@ function SealPage() {
       setRetireInput("");
       toast.success(`Sealing key ${retired} retired — its private key is gone`);
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     }
   }
 

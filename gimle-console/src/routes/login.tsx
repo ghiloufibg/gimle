@@ -29,6 +29,7 @@ function LoginPage() {
   const status = useAuthStore((s) => s.status);
   const principal = useAuthStore((s) => s.principal);
   const error = useAuthStore((s) => s.error);
+  const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const login = useAuthStore((s) => s.login);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -79,6 +80,24 @@ function LoginPage() {
             <h1 className="hud-label text-primary">Operator sign-in</h1>
             <span className="hud-label text-muted-foreground">secure</span>
           </div>
+
+          {/* The whole explanation for a mid-session bounce lands here, on the screen the operator
+              was sent to -- nothing toasts it on the way out (see notifyApiError). It stands down
+              as soon as there is a sign-in error of its own to show, so the two never stack. */}
+          {sessionExpired && !error && (
+            <p
+              role="status"
+              className="border-b border-primary/10 bg-primary/5 px-4 py-2.5 text-xs text-muted-foreground"
+            >
+              <span className="font-mono uppercase tracking-widest text-primary">
+                Session expired
+              </span>
+              <span className="mt-1 block">
+                You were signed out because your session timed out. Sign in again to pick up where
+                you left off — nothing you had already saved was lost.
+              </span>
+            </p>
+          )}
 
           <form onSubmit={onSubmit} className="p-4 space-y-4">
             <div className="space-y-1.5">

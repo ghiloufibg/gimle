@@ -9,6 +9,7 @@ import { fmtBytes, fmtRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Copy, Package, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 
 const DESCRIPTION = "Module jars pushed to the Andvari artifact registry.";
 
@@ -80,7 +81,7 @@ function ArtifactsPage() {
       await remove(moduleId, version);
       toast.success(`Deleted ${moduleId}:${version}`);
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     }
   }
 

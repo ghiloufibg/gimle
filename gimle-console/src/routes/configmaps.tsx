@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 
 export const Route = createFileRoute("/configmaps")({
   head: () => ({
@@ -112,7 +113,7 @@ function ConfigMapsPage() {
       await remove(name);
       toast.success("Deleted");
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     }
   }
 

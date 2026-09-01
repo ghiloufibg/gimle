@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 import { Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
 import { PageContainer, PageHeader } from "@/components/page-shell";
@@ -145,7 +146,7 @@ function RolesTab() {
       toast.success(`Role ${name.trim()} saved`);
       reset();
     } catch (err) {
-      toast.error((err as Error).message);
+      notifyApiError(err);
     }
   }
 
@@ -225,7 +226,7 @@ function RolesTab() {
                           await remove(r.name);
                           toast.success("Role deleted");
                         } catch (err) {
-                          toast.error((err as Error).message);
+                          notifyApiError(err);
                         }
                       }}
                     />
@@ -307,7 +308,7 @@ function RoleBindingsTab() {
       toast.success(`Binding ${bindingId} saved`);
       reset();
     } catch (err) {
-      toast.error((err as Error).message);
+      notifyApiError(err);
     }
   }
 
@@ -398,7 +399,7 @@ function RoleBindingsTab() {
                           await remove(b.id);
                           toast.success("Binding deleted");
                         } catch (err) {
-                          toast.error((err as Error).message);
+                          notifyApiError(err);
                         }
                       }}
                     />
@@ -470,7 +471,7 @@ function AccountsTab() {
       toast.success(`Password set for ${user}`);
       reset();
     } catch (err) {
-      toast.error((err as Error).message);
+      notifyApiError(err);
     }
   }
 
@@ -582,7 +583,7 @@ function AccountsTab() {
                           await remove(a.username);
                           toast.success("Account deleted");
                         } catch (err) {
-                          toast.error((err as Error).message);
+                          notifyApiError(err);
                         }
                       }}
                     />

@@ -22,6 +22,24 @@ export class ApiError extends Error {
   }
 }
 
+/** What an expired (or absent) session reads as to an operator. Deliberately a whole sentence in
+ * plain language rather than a status line: this is the string that reaches any screen which does
+ * nothing with a failure but show its message. */
+export const SESSION_EXPIRED_MESSAGE = "Your session has expired. Sign in again to continue.";
+
+/**
+ * The 401 every request can fail with once a session lapses. It keeps ApiError's status and body
+ * (so the `instanceof ApiError && status === 401` checks elsewhere still hold) but replaces the
+ * technical message: a lapsed session is not a control-plane malfunction to report verbatim, it is
+ * a thing that happens to every operator eventually and has exactly one remedy.
+ */
+export class SessionExpiredError extends ApiError {
+  constructor(body: string) {
+    super(401, body);
+    this.message = SESSION_EXPIRED_MESSAGE;
+  }
+}
+
 interface NotLeaderBody {
   error?: string;
   leaderRaftId?: string | null;
@@ -38,6 +56,11 @@ async function send(init: RequestInit & { method: string }, path: string): Promi
     // catch-and-set-error pattern, since the caller is legitimately logged in, just lacks that
     // permission.
     unauthorizedHandler?.();
+    // Thrown here rather than left to each wrapper below so the whole app has one 401 error type:
+    // notifyApiError() suppresses its toast (the sign-in screen carries the explanation instead),
+    // and a call site that knows nothing but how to show `error.message` still shows a sentence an
+    // operator can act on rather than a status line.
+    throw new SessionExpiredError(await res.text());
   }
   if (res.status !== 307) return res;
 
