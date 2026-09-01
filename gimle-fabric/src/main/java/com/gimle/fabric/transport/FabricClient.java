@@ -47,6 +47,12 @@ import javax.net.SocketFactory;
  * com.gimle.fabric.registry.FabricServiceRegistry}'s circuit breaker already keys off of, so a hung
  * peer trips the breaker exactly like a refused connection or a truncated response, closing what
  * was previously a real gap: nothing here bounded how long a caller could hang.
+ *
+ * <p>A failure raised while the connection was still being established surfaces as {@link
+ * FabricConnectException} rather than a bare {@link IOException}, so a caller can tell "the request
+ * provably never reached the target" from "the request was written and the outcome is unknown" --
+ * the distinction that decides whether retrying is safe for a non-idempotent method. Everything
+ * after connect, the overall-deadline timeout included, stays a plain {@link IOException}.
  */
 public final class FabricClient {
 
@@ -95,7 +101,11 @@ public final class FabricClient {
         timeout,
         () -> {
           try (channel) {
-            channel.connect(endpoint);
+            try {
+              channel.connect(endpoint);
+            } catch (IOException e) {
+              throw new FabricConnectException("fabric connect to " + endpoint + " failed", e);
+            }
             return callOverStreams(
                 endpoint,
                 Channels.newInputStream(channel),
@@ -114,7 +124,11 @@ public final class FabricClient {
         timeout,
         () -> {
           try (socket) {
-            socket.connect(endpoint);
+            try {
+              socket.connect(endpoint);
+            } catch (IOException e) {
+              throw new FabricConnectException("fabric connect to " + endpoint + " failed", e);
+            }
             return callOverStreams(
                 endpoint, socket.getInputStream(), socket.getOutputStream(), request);
           }

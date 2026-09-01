@@ -1,6 +1,7 @@
 package com.gimle.fabric.transport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -148,5 +149,82 @@ class FabricClientTest {
         "a refused connection should fail immediately, not wait out the timeout; took "
             + elapsedMillis
             + "ms");
+  }
+
+  /**
+   * The distinction a caller's retry decision hangs on: a refused connection is proof nothing ran,
+   * so it can be retried against another endpoint whatever the invoked method does.
+   */
+  @Test
+  @Timeout(10)
+  void a_refused_connection_is_reported_as_a_connect_failure() throws Exception {
+    InetSocketAddress address;
+    try (ServerSocket probe = new ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))) {
+      address = new InetSocketAddress("127.0.0.1", probe.getLocalPort());
+    }
+
+    assertThrows(
+        FabricConnectException.class,
+        () -> FabricClient.call(address, invokeGreet("world"), Duration.ofSeconds(5)));
+  }
+
+  /**
+   * The other side of that distinction, and the reason the overall deadline is deliberately not
+   * classified as a connect failure: one timeout bounds connect, write, and read together, so a
+   * request that timed out may well have been written and executed.
+   */
+  @Test
+  @Timeout(10)
+  void a_peer_that_accepts_and_then_wedges_is_not_reported_as_a_connect_failure() throws Exception {
+    wedgedServer = ServerSocketChannel.open();
+    wedgedServer.bind(new InetSocketAddress("127.0.0.1", 0));
+    InetSocketAddress address = (InetSocketAddress) wedgedServer.getLocalAddress();
+
+    acceptThread = Executors.newVirtualThreadPerTaskExecutor();
+    acceptThread.submit(
+        () -> {
+          try {
+            wedgedServer.accept();
+          } catch (IOException ignored) {
+            // test teardown closing the server channel unblocks this; nothing to report
+          }
+        });
+
+    IOException thrown =
+        assertThrows(
+            IOException.class,
+            () -> FabricClient.call(address, invokeGreet("world"), Duration.ofMillis(300)));
+    assertFalse(
+        thrown instanceof FabricConnectException,
+        "the connection was established, so the request may have been sent: " + thrown);
+  }
+
+  /**
+   * A peer that accepts and then hangs up without answering: the request was written, so this too
+   * must stay a plain transport failure rather than a connect failure.
+   */
+  @Test
+  @Timeout(10)
+  void a_peer_that_closes_without_responding_is_not_reported_as_a_connect_failure()
+      throws Exception {
+    wedgedServer = ServerSocketChannel.open();
+    wedgedServer.bind(new InetSocketAddress("127.0.0.1", 0));
+    InetSocketAddress address = (InetSocketAddress) wedgedServer.getLocalAddress();
+
+    acceptThread = Executors.newVirtualThreadPerTaskExecutor();
+    acceptThread.submit(
+        () -> {
+          try {
+            wedgedServer.accept().close();
+          } catch (IOException ignored) {
+            // test teardown closing the server channel unblocks this; nothing to report
+          }
+        });
+
+    IOException thrown =
+        assertThrows(
+            IOException.class,
+            () -> FabricClient.call(address, invokeGreet("world"), Duration.ofSeconds(5)));
+    assertFalse(thrown instanceof FabricConnectException, "the connection was established");
   }
 }

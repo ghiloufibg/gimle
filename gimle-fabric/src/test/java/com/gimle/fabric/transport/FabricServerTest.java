@@ -34,6 +34,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,13 @@ import org.junit.jupiter.api.Timeout;
  * thread per task), just self-contained.
  */
 class FabricServerTest {
+
+  /**
+   * A fresh id per request: the listener suppresses a duplicate correlation id as a retry of the
+   * request that first carried it, so reusing one id across distinct calls would collapse them into
+   * a single execution. A real caller mints one per logical call for exactly the same reason.
+   */
+  private static final AtomicLong CORRELATION_IDS = new AtomicLong();
 
   private static final ModuleId OWNER =
       new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
@@ -91,7 +99,7 @@ class FabricServerTest {
 
   private FabricFrame.InvokeRequest invokeGreet(String arg) {
     return new FabricFrame.InvokeRequest(
-        1L,
+        CORRELATION_IDS.incrementAndGet(),
         TRACE,
         Greeter.class.getName(),
         "greet",
@@ -101,7 +109,7 @@ class FabricServerTest {
 
   private FabricFrame.InvokeRequest invokeGreet(String arg, Optional<String> callerTenantId) {
     return new FabricFrame.InvokeRequest(
-        1L,
+        CORRELATION_IDS.incrementAndGet(),
         TRACE,
         Greeter.class.getName(),
         "greet",
@@ -133,7 +141,7 @@ class FabricServerTest {
     TraceContext traceWithBaggage = new TraceContext(1L, 2L, 3L, (byte) 1, "", "userId=alice");
     FabricFrame.InvokeRequest request =
         new FabricFrame.InvokeRequest(
-            1L,
+            CORRELATION_IDS.incrementAndGet(),
             traceWithBaggage,
             Greeter.class.getName(),
             "greet",

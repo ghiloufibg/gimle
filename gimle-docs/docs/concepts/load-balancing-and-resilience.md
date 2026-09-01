@@ -85,3 +85,41 @@ cluster-wide problem, not one bad replica), the breaker's exclusion is overridde
 candidate is re-admitted — refusing to route to *anyone* would be a worse outcome than routing to a
 degraded majority. That panic-mode floor is what stops "protect against one bad replica" from
 turning into "take the whole service down" during a real widespread incident.
+
+## Seeing it happen
+
+A breaker that works perfectly is indistinguishable, from the outside, from an endpoint that was
+never a candidate: traffic simply stops going there. So every per-endpoint transition is both logged
+(`WARN` on open, `INFO` on half-open and close, naming the interface and the `nodeId/workerId`
+endpoint) and published as Micrometer meters in the worker's own registry — a
+`gimle.fabric.circuitbreaker.state` gauge (`0` CLOSED, `1` HALF_OPEN, `2` OPEN) plus a
+`gimle.fabric.circuitbreaker.transitions` counter tagged by the state entered. Those ride the
+existing worker → agent → [Muninn](../architecture/observability.md) shipping path, so "is a breaker
+the reason traffic isn't reaching instance X?" is a query, not a guess.
+
+## Retrying without duplicating
+
+Circuit breaking decides *where not to send* a call. Retrying decides whether a failed call gets a
+second chance at all, and the fabric splits that question in two by how far the request got:
+
+- **The connection was never established** (`FabricConnectException`). The target provably never saw
+  the request, so nothing can be duplicated by trying again — the call fails over to a *different*
+  endpoint through the same selection path, whatever the invoked method does. Retrying against the
+  endpoint that just refused would only re-learn what it already told the caller.
+- **The request was written and the outcome is unknown** (any other `IOException`, the overall
+  deadline included — one timeout bounds connect, write and read together, so which phase it
+  interrupted isn't knowable). The target may have executed it and the answer been lost. Only a
+  method whose author annotated it `@Idempotent` (`com.gimle.module.lifecycle`) is retried here;
+  anything else surfaces the failure, because silently re-running a mutation is worse than reporting
+  an uncertain one.
+
+Attempts are bounded (three endpoints, so worst-case latency is a small multiple of the per-attempt
+timeout rather than proportional to how many stale endpoints the catalog happens to hold), and every
+attempt of one logical call carries the *same* `correlationId`. That last part is what makes the
+second case safe in practice rather than merely declared: `FabricServer` keeps a bounded,
+time-windowed table of correlation ids it has already answered, so a retry of a request the target
+did in fact execute gets that first answer replayed — error answers included, since a target that
+threw has already run — instead of executing a second time. A duplicate arriving while the original
+is still in flight waits for it rather than racing it. The window is finite, which is exactly why
+`@Idempotent` remains a declaration by the method's author: a retry arriving after it expires really
+does execute again.

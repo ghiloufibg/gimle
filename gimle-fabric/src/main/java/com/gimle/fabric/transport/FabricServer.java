@@ -65,6 +65,11 @@ import org.slf4j.LoggerFactory;
  * request-handling loop once reduced to an {@link InputStream}/{@link OutputStream} pair, since
  * they differ only in which socket accepted the connection, never in how frames are decoded or
  * dispatched. One virtual thread per accepted connection.
+ *
+ * <p>Every inbound request passes through an {@link InvocationDeduplicator} keyed by its own {@code
+ * correlationId} before reaching {@link #dispatch}, so a caller retrying a request whose answer it
+ * lost gets that request's original answer back rather than executing the target method a second
+ * time.
  */
 public final class FabricServer implements AutoCloseable {
 
@@ -97,6 +102,10 @@ public final class FabricServer implements AutoCloseable {
   // can now be parked in connectionLimiter.acquire() with nothing left to accept, and a closed
   // listener alone (unlike a closed accept() call) does nothing to unblock it.
   private final Map<Closeable, Thread> acceptThreads = new ConcurrentHashMap<>();
+  // Shared across every listener and every connection this instance serves: a retry arrives on a
+  // brand-new connection (FabricClient opens one per attempt), so per-connection state could never
+  // recognize it as a duplicate of anything.
+  private final InvocationDeduplicator deduplicator = new InvocationDeduplicator();
   private volatile List<NetworkPolicyRule> networkPolicies = List.of();
   private volatile boolean closed;
 
@@ -554,7 +563,8 @@ public final class FabricServer implements AutoCloseable {
     FabricFrame frame;
     while ((frame = FabricCodec.read(in)) != null) {
       if (frame instanceof FabricFrame.InvokeRequest request) {
-        FabricCodec.write(out, dispatch(request));
+        FabricCodec.write(
+            out, deduplicator.dispatchOnce(request.correlationId(), () -> dispatch(request)));
       } else {
         log.warn("fabric server received an unexpected frame type: {}", frame);
       }
