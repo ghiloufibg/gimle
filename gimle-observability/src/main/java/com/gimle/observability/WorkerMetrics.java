@@ -1,6 +1,7 @@
 package com.gimle.observability;
 
 import com.gimle.core.module.ModuleId;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -22,11 +23,16 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class WorkerMetrics {
 
+  private static final String CIRCUIT_BREAKER_STATE = "gimle.fabric.circuitbreaker.state";
+  private static final String CIRCUIT_BREAKER_TRANSITIONS =
+      "gimle.fabric.circuitbreaker.transitions";
+
   private final MeterRegistry registry;
   private final TaggedRequestMetrics metrics;
   private final TaggedRequestMetrics clientMetrics;
   private final Map<ModuleId, AtomicLong> threadCounts = new ConcurrentHashMap<>();
   private final Map<ModuleId, AtomicLong> metaspaceBytes = new ConcurrentHashMap<>();
+  private final Map<Tags, AtomicLong> circuitBreakerStates = new ConcurrentHashMap<>();
 
   public WorkerMetrics() {
     this(new SimpleMeterRegistry());
@@ -100,6 +106,75 @@ public final class WorkerMetrics {
 
   private static Tags clientTagsFor(String interfaceName) {
     return Tags.of("interface", interfaceName);
+  }
+
+  /**
+   * Publishes the current state of one fabric circuit breaker as a {@code
+   * gimle.fabric.circuitbreaker.state} gauge tagged by the callee interface and the endpoint (a
+   * {@code nodeId/workerId} pair) it guards. {@code stateLevel} is the caller's own numeric
+   * encoding of that state -- this class deliberately doesn't depend on {@code gimle-fabric}, so
+   * the encoding stays with the enum it encodes rather than being duplicated here.
+   *
+   * <p>An endpoint with no gauge yet reads the same as a closed one, which is exactly right: "no
+   * breaker has ever tripped for this endpoint" and "its breaker is closed" mean the same thing to
+   * an operator asking whether a breaker is why traffic isn't reaching an instance.
+   */
+  public void recordCircuitBreakerState(String interfaceName, String endpoint, long stateLevel) {
+    Tags tags = breakerTagsFor(interfaceName, endpoint);
+    circuitBreakerStates
+        .computeIfAbsent(
+            tags,
+            key -> registry.gauge(CIRCUIT_BREAKER_STATE, key, new AtomicLong(), AtomicLong::get))
+        .set(stateLevel);
+  }
+
+  /**
+   * {@link #recordCircuitBreakerState} plus a {@code gimle.fabric.circuitbreaker.transitions}
+   * counter increment tagged by the state entered -- the gauge answers "what is this breaker doing
+   * now", the counter answers "how often has it been flapping", and a breaker that opens and closes
+   * repeatedly between two metric snapshots is only visible in the second.
+   */
+  public void recordCircuitBreakerTransition(
+      String interfaceName, String endpoint, String stateName, long stateLevel) {
+    recordCircuitBreakerState(interfaceName, endpoint, stateLevel);
+    Counter.builder(CIRCUIT_BREAKER_TRANSITIONS)
+        .tags(breakerTagsFor(interfaceName, endpoint).and("state", stateName))
+        .register(registry)
+        .increment();
+  }
+
+  /** The last state published for this endpoint's breaker, {@code 0} if none ever was. */
+  public double circuitBreakerState(String interfaceName, String endpoint) {
+    AtomicLong holder = circuitBreakerStates.get(breakerTagsFor(interfaceName, endpoint));
+    return holder == null ? 0.0 : holder.get();
+  }
+
+  /** Same "cumulative total, zero if never recorded" contract {@link #requestCount} documents. */
+  public double circuitBreakerTransitionCount(
+      String interfaceName, String endpoint, String stateName) {
+    Counter counter =
+        registry
+            .find(CIRCUIT_BREAKER_TRANSITIONS)
+            .tags(breakerTagsFor(interfaceName, endpoint).and("state", stateName))
+            .counter();
+    return counter == null ? 0.0 : counter.count();
+  }
+
+  /**
+   * Drops both breaker meters for one endpoint -- called when the registry stops tracking that
+   * endpoint's breaker at all, so a long-lived worker watching endpoints churn (worker respawns
+   * minting fresh ports) doesn't accumulate one permanent meter pair per address it ever dialed.
+   */
+  public void evictCircuitBreaker(String interfaceName, String endpoint) {
+    Tags tags = breakerTagsFor(interfaceName, endpoint);
+    if (circuitBreakerStates.remove(tags) != null) {
+      registry.find(CIRCUIT_BREAKER_STATE).tags(tags).gauges().forEach(registry::remove);
+    }
+    registry.find(CIRCUIT_BREAKER_TRANSITIONS).tags(tags).counters().forEach(registry::remove);
+  }
+
+  private static Tags breakerTagsFor(String interfaceName, String endpoint) {
+    return Tags.of("interface", interfaceName, "endpoint", endpoint);
   }
 
   public void recordThreadCount(ModuleId id, long count) {

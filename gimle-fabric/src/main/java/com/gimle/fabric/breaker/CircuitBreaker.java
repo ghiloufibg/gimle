@@ -31,12 +31,30 @@ public final class CircuitBreaker {
     HALF_OPEN
   }
 
+  /**
+   * Notified once per actual state change, and never for a call that leaves the state where it was.
+   * Invoked outside this breaker's own lock, so an implementation is free to log or touch a meter
+   * without serializing every other caller behind it; it must not call back into the breaker that
+   * notified it.
+   *
+   * <p>This exists because a breaker opening is otherwise completely invisible: the endpoint simply
+   * stops being selected, with nothing an operator can read to tell that apart from the endpoint
+   * never having been in the catalog or its instance never having become ready.
+   */
+  @FunctionalInterface
+  public interface TransitionListener {
+    void onTransition(State from, State to);
+  }
+
+  public static final TransitionListener NO_LISTENER = (from, to) -> {};
+
   private static final int MAX_BACKOFF_SHIFT = 4; // caps effective cooldown at 16x the base
 
   private final int windowSize;
   private final double errorRateThreshold;
   private final Duration cooldown;
   private final Clock clock;
+  private final TransitionListener listener;
   private final boolean[] window;
 
   private int index;
@@ -57,6 +75,21 @@ public final class CircuitBreaker {
    * Clock#systemUTC()} default above.
    */
   public CircuitBreaker(int windowSize, double errorRateThreshold, Duration cooldown, Clock clock) {
+    this(windowSize, errorRateThreshold, cooldown, clock, NO_LISTENER);
+  }
+
+  /**
+   * {@code listener} observes every state change this breaker makes -- see {@link
+   * TransitionListener}. The registry that owns a breaker uses it to attach the endpoint identity
+   * this class deliberately knows nothing about, so a transition can be logged and metered against
+   * the endpoint it actually concerns.
+   */
+  public CircuitBreaker(
+      int windowSize,
+      double errorRateThreshold,
+      Duration cooldown,
+      Clock clock,
+      TransitionListener listener) {
     if (windowSize <= 0) {
       throw new IllegalArgumentException("windowSize must be positive: " + windowSize);
     }
@@ -68,6 +101,7 @@ public final class CircuitBreaker {
     this.errorRateThreshold = errorRateThreshold;
     this.cooldown = cooldown;
     this.clock = clock;
+    this.listener = listener;
     this.window = new boolean[windowSize];
   }
 
@@ -78,19 +112,29 @@ public final class CircuitBreaker {
    * strand those breakers in "trial in flight" forever, since nothing would ever call {@link
    * #recordSuccess()}/{@link #recordFailure()} on them to release it.
    */
-  public synchronized boolean allowRequest() {
-    transitionIfCooldownElapsed();
-    return switch (state) {
-      case CLOSED -> true;
-      case OPEN -> false;
-      case HALF_OPEN -> {
-        if (halfOpenTrialInFlight) {
-          yield false;
-        }
-        halfOpenTrialInFlight = true;
-        yield true;
-      }
-    };
+  public boolean allowRequest() {
+    final State before;
+    final State after;
+    final boolean allowed;
+    synchronized (this) {
+      before = state;
+      transitionIfCooldownElapsed();
+      allowed =
+          switch (state) {
+            case CLOSED -> true;
+            case OPEN -> false;
+            case HALF_OPEN -> {
+              if (halfOpenTrialInFlight) {
+                yield false;
+              }
+              halfOpenTrialInFlight = true;
+              yield true;
+            }
+          };
+      after = state;
+    }
+    notifyTransition(before, after);
+    return allowed;
   }
 
   /**
@@ -99,9 +143,16 @@ public final class CircuitBreaker {
    * its cooldown still reads as excluded here (the transition to {@code HALF_OPEN} still happens,
    * since it's purely time-based, but no trial slot is claimed by merely checking).
    */
-  public synchronized boolean isExcluded() {
-    transitionIfCooldownElapsed();
-    return state == State.OPEN;
+  public boolean isExcluded() {
+    final State before;
+    final State after;
+    synchronized (this) {
+      before = state;
+      transitionIfCooldownElapsed();
+      after = state;
+    }
+    notifyTransition(before, after);
+    return after == State.OPEN;
   }
 
   private void transitionIfCooldownElapsed() {
@@ -120,32 +171,52 @@ public final class CircuitBreaker {
     return cooldown.multipliedBy(1L << shift);
   }
 
-  public synchronized void recordSuccess() {
-    record(true);
-    // OPEN is included, not just HALF_OPEN: the only way a call reaches an OPEN breaker at all is
-    // FabricServiceRegistry's panic-mode bypass (allowRequest()'s own gate never admits one), so a
-    // success recorded here is exactly the recovery evidence a HALF_OPEN trial would have produced
-    // had cooldown already elapsed -- treating it any differently would keep the breaker OPEN, and
-    // therefore still excluded from candidacy, until the unrelated, purely time-based cooldown
-    // finally catches up.
-    if (state == State.HALF_OPEN || state == State.OPEN) {
-      close();
+  public void recordSuccess() {
+    final State before;
+    final State after;
+    synchronized (this) {
+      before = state;
+      record(true);
+      // OPEN is included, not just HALF_OPEN: the only way a call reaches an OPEN breaker at all is
+      // FabricServiceRegistry's panic-mode bypass (allowRequest()'s own gate never admits one), so
+      // a success recorded here is exactly the recovery evidence a HALF_OPEN trial would have
+      // produced had cooldown already elapsed -- treating it any differently would keep the breaker
+      // OPEN, and therefore still excluded from candidacy, until the unrelated, purely time-based
+      // cooldown finally catches up.
+      if (state == State.HALF_OPEN || state == State.OPEN) {
+        close();
+      }
+      after = state;
     }
+    notifyTransition(before, after);
   }
 
-  public synchronized void recordFailure() {
-    record(false);
-    if (state == State.HALF_OPEN) {
-      open();
-      return;
+  public void recordFailure() {
+    final State before;
+    final State after;
+    synchronized (this) {
+      before = state;
+      record(false);
+      if (state == State.HALF_OPEN) {
+        open();
+      } else if (state == State.CLOSED
+          && count >= windowSize
+          && errorRate() >= errorRateThreshold) {
+        open();
+      }
+      after = state;
     }
-    if (state == State.CLOSED && count >= windowSize && errorRate() >= errorRateThreshold) {
-      open();
-    }
+    notifyTransition(before, after);
   }
 
   public synchronized State state() {
     return state;
+  }
+
+  private void notifyTransition(State from, State to) {
+    if (from != to) {
+      listener.onTransition(from, to);
+    }
   }
 
   private void record(boolean success) {

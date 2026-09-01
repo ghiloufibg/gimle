@@ -44,6 +44,19 @@ column on the Instances table, a total-error-rate stat tile and a ranked "instan
 panel on the Metrics screen). `WorkerMetrics`' own request-latency `Timer` is built with
 `publishPercentiles(0.5, 0.95, 0.99)` too, for parity with the three process-tier registries below.
 
+The same registry also carries the fabric's own circuit-breaker state, which used to be invisible
+outside `CircuitBreaker`'s internals: `gimle.fabric.circuitbreaker.state` is a gauge per
+(callee interface, `nodeId/workerId` endpoint) holding `0` for CLOSED, `1` for HALF_OPEN and `2` for
+OPEN — ordered by severity, so a max over endpoints answers "is anything ejected right now" — and
+`gimle.fabric.circuitbreaker.transitions` counts every transition, additionally tagged by the state
+entered, so a breaker that opens and closes repeatedly between two snapshots still shows up. Both
+ride the existing `MeterSnapshotCodec` → agent → Muninn shipping path, which makes them queryable
+through `GET /metrics-history/*` with no new control-plane wire fields. Every transition is logged
+too, by `FabricServiceRegistry` — `WARN` on open, `INFO` on half-open and close — naming the
+interface and the endpoint. Before this, an endpoint whose breaker had tripped simply stopped being
+selected, and an operator asking "why is traffic not reaching instance X" had no way to tell that
+apart from the catalog never having learned about X or the instance never having become ready.
+
 `WorkerMetrics#evict(ModuleId)` removes a module's entire meter set (request/error counters, the
 latency timer, and the thread-count/metaspace gauges) once that `ModuleId` is uninstalled — never
 on a mere stop, since a stopped-but-installed module can restart and resume its counters. Without

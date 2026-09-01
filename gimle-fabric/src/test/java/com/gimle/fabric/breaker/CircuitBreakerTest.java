@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.time.TestClock;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -238,6 +240,89 @@ class CircuitBreakerTest {
         breaker.allowRequest(),
         "the successful close reset the backoff; the base cooldown applies again, not a"
             + " continuation of the earlier doubling");
+  }
+
+  /**
+   * The whole reason a listener exists: an endpoint whose breaker opens simply stops being
+   * selected, and without a transition callback there is nothing anywhere for an operator to read
+   * that distinguishes that from the endpoint never having been a candidate at all.
+   */
+  @Test
+  void every_state_change_is_reported_to_the_transition_listener(TestClock clock) {
+    List<String> transitions = new ArrayList<>();
+    CircuitBreaker breaker =
+        new CircuitBreaker(
+            2, 0.5, COOLDOWN, clock, (from, to) -> transitions.add(from + "->" + to));
+
+    breaker.recordFailure();
+    breaker.recordFailure();
+    clock.advance(COOLDOWN);
+    assertTrue(breaker.allowRequest());
+    breaker.recordSuccess();
+
+    assertEquals(
+        List.of("CLOSED->OPEN", "OPEN->HALF_OPEN", "HALF_OPEN->CLOSED"),
+        transitions,
+        "the full open/half-open/close cycle should be reported, in order");
+  }
+
+  @Test
+  void a_call_that_leaves_the_state_unchanged_reports_nothing(TestClock clock) {
+    List<String> transitions = new ArrayList<>();
+    CircuitBreaker breaker =
+        new CircuitBreaker(
+            4, 0.5, COOLDOWN, clock, (from, to) -> transitions.add(from + "->" + to));
+
+    // Well short of filling the window, so nothing opens -- and repeatedly asking a closed breaker
+    // whether it excludes anything must not manufacture transitions either.
+    breaker.recordFailure();
+    breaker.recordSuccess();
+    for (int i = 0; i < 5; i++) {
+      assertFalse(breaker.isExcluded());
+      assertTrue(breaker.allowRequest());
+    }
+
+    assertTrue(transitions.isEmpty(), "no state changed, so nothing should have been reported");
+  }
+
+  /**
+   * {@link CircuitBreaker#isExcluded()} performs the purely time-based OPEN-to-HALF_OPEN move as a
+   * side effect, so a candidate-filtering pass that never places a call is still the thing that
+   * observes recovery beginning -- and must report it, or the transition is invisible whenever
+   * filtering happens to run before any real attempt does.
+   */
+  @Test
+  void a_cooldown_expiry_observed_only_by_a_candidacy_check_is_still_reported(TestClock clock) {
+    List<String> transitions = new ArrayList<>();
+    CircuitBreaker breaker =
+        new CircuitBreaker(
+            2, 0.5, COOLDOWN, clock, (from, to) -> transitions.add(from + "->" + to));
+
+    breaker.recordFailure();
+    breaker.recordFailure();
+    clock.advance(COOLDOWN);
+    assertFalse(breaker.isExcluded());
+
+    assertEquals(List.of("CLOSED->OPEN", "OPEN->HALF_OPEN"), transitions);
+  }
+
+  @Test
+  void a_half_open_trial_that_fails_reports_the_reopen(TestClock clock) {
+    List<String> transitions = new ArrayList<>();
+    CircuitBreaker breaker =
+        new CircuitBreaker(
+            2, 0.5, COOLDOWN, clock, (from, to) -> transitions.add(from + "->" + to));
+
+    breaker.recordFailure();
+    breaker.recordFailure();
+    clock.advance(COOLDOWN);
+    assertTrue(breaker.allowRequest());
+    breaker.recordFailure();
+
+    assertEquals(
+        List.of("CLOSED->OPEN", "OPEN->HALF_OPEN", "HALF_OPEN->OPEN"),
+        transitions,
+        "a failed trial re-opens, and that re-open is a real transition an operator needs to see");
   }
 
   @Test
