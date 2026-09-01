@@ -17,6 +17,7 @@ import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -34,6 +35,10 @@ import org.junit.jupiter.api.io.TempDir;
  * maxReplicas]}. It's further extended with three additional, independently-optional signals
  * (request rate, error rate, queue depth) -- whichever configured signal proposes the highest ideal
  * replica count wins, matching Kubernetes' own multi-metric HPA behavior.
+ *
+ * <p>On top of that per-tick adjustment sit the two stabilization windows, which bound how often
+ * the direction may reverse rather than how far one tick may move: the tests below drive them off
+ * an injected clock against the deployment's own durably-recorded last scale event.
  */
 class AutoscaleReconcilerTest {
 
@@ -47,6 +52,68 @@ class AutoscaleReconcilerTest {
     return TestModuleBuilder.module("module " + uniqueName + " {\n}\n")
         .withDescriptor(TestModuleBuilder.minimalDescriptor(uniqueName, "1.0.0"))
         .build(tempDir, uniqueName + ".jar");
+  }
+
+  /**
+   * A CPU-only policy with both stabilization windows disabled, so a test about the per-tick
+   * adjustment itself can tick repeatedly without {@link
+   * AutoscalePolicy#DEFAULT_SCALE_DOWN_COOLDOWN} suppressing the second move. The cooldown behavior
+   * itself has its own tests below, driven off an injected clock.
+   */
+  private static AutoscalePolicy uncooledCpuPolicy(
+      int minReplicas, int maxReplicas, int targetCpuUtilizationPercent) {
+    return new AutoscalePolicy(
+        minReplicas,
+        maxReplicas,
+        targetCpuUtilizationPercent,
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        OptionalInt.empty(),
+        AutoscalePolicy.CombinationMode.WORST_SIGNAL,
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        Duration.ZERO,
+        Duration.ZERO);
+  }
+
+  /** The same CPU-only shape with explicit stabilization windows in both directions. */
+  private static AutoscalePolicy cooledCpuPolicy(
+      int minReplicas,
+      int maxReplicas,
+      int targetCpuUtilizationPercent,
+      Duration scaleUpCooldown,
+      Duration scaleDownCooldown) {
+    return new AutoscalePolicy(
+        minReplicas,
+        maxReplicas,
+        targetCpuUtilizationPercent,
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        OptionalInt.empty(),
+        AutoscalePolicy.CombinationMode.WORST_SIGNAL,
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        OptionalDouble.empty(),
+        scaleUpCooldown,
+        scaleDownCooldown);
+  }
+
+  /**
+   * Both this reconciler and the store read the same injected clock, so a heartbeat re-posted after
+   * every advance stays fresh exactly the way a real agent's own heartbeats do -- without that, a
+   * test advancing past a five-minute window would trip the node-dark gate instead of the cooldown
+   * it means to exercise.
+   */
+  private static AutoscaleReconciler reconcilerOn(StateStore store, Clock clock) {
+    return new AutoscaleReconciler(
+        store,
+        mutation -> mutation.applyTo(store),
+        ArtifactResolver.localOnly(),
+        Duration.ofSeconds(15),
+        clock);
   }
 
   private static DeploymentSpec deployment(
@@ -191,7 +258,7 @@ class AutoscaleReconcilerTest {
   void scales_down_by_one_replica_per_tick_under_sustained_low_utilization() {
     StateStore store = new StateStore();
     Path jar = buildFixtureJar();
-    AutoscalePolicy policy = new AutoscalePolicy(1, 5, 50);
+    AutoscalePolicy policy = uncooledCpuPolicy(1, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
     store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
@@ -210,7 +277,7 @@ class AutoscaleReconcilerTest {
   void never_goes_below_min_replicas() {
     StateStore store = new StateStore();
     Path jar = buildFixtureJar();
-    AutoscalePolicy policy = new AutoscalePolicy(2, 5, 50);
+    AutoscalePolicy policy = uncooledCpuPolicy(2, 5, 50);
     DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
     store.putDeployment(spec);
     store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
@@ -533,5 +600,242 @@ class AutoscaleReconcilerTest {
     }
 
     assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+  }
+
+  @Test
+  void a_first_ever_scale_decision_is_never_held_back_by_a_stabilization_window() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy =
+        cooledCpuPolicy(1, 5, 50, Duration.ofMinutes(30), Duration.ofMinutes(30));
+    DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
+    store.putDeployment(spec);
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L); // 10% util vs a 50% target
+
+    reconcilerOn(store, clock).reconcileOnce();
+
+    assertEquals(
+        4,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "nothing has ever scaled this deployment, so there is no window to wait out");
+  }
+
+  @Test
+  void scale_down_is_suppressed_until_the_stabilization_window_has_elapsed() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
+    DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
+    store.putDeployment(spec);
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
+    AutoscaleReconciler reconciler = reconcilerOn(store, clock);
+
+    reconciler.reconcileOnce();
+    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+
+    clock.advance(Duration.ofMinutes(4));
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L); // still heart-beating
+    reconciler.reconcileOnce();
+    assertEquals(
+        4,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "4 minutes into a 5-minute window, the same low utilization must not scale down again");
+
+    clock.advance(Duration.ofMinutes(1).plusSeconds(1));
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
+    reconciler.reconcileOnce();
+    assertEquals(
+        3,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "once the window has elapsed the sustained signal is acted on again");
+  }
+
+  @Test
+  void a_metric_oscillating_around_its_target_cannot_reverse_within_the_scale_down_window() {
+    // The flapping defect itself: without a window, high utilization scales up, the very next
+    // tick's low utilization scales straight back down, and the pair repeats forever.
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L); // 100% util
+    AutoscaleReconciler reconciler = reconcilerOn(store, clock);
+
+    reconciler.reconcileOnce();
+    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+
+    // The signal flips below target and stays there for four consecutive ticks, a minute apart.
+    for (int tick = 0; tick < 4; tick++) {
+      clock.advance(Duration.ofMinutes(1));
+      twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L); // 10% util
+      reconciler.reconcileOnce();
+      assertEquals(
+          3,
+          store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+          "the scale-up must not be reversed while its own stabilization window is still open");
+    }
+
+    clock.advance(Duration.ofMinutes(1).plusSeconds(1));
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
+    reconciler.reconcileOnce();
+    assertEquals(
+        2,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "a signal that stays down past the window is a real change, not a flap");
+  }
+
+  @Test
+  void scale_up_honors_its_own_window_independently_of_the_scale_down_one() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy =
+        cooledCpuPolicy(1, 5, 50, Duration.ofMinutes(2), Duration.ofMinutes(30));
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
+    AutoscaleReconciler reconciler = reconcilerOn(store, clock);
+
+    reconciler.reconcileOnce();
+    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+
+    clock.advance(Duration.ofMinutes(1));
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
+    reconciler.reconcileOnce();
+    assertEquals(
+        3,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "sustained overload still waits out a configured scale-up window");
+
+    clock.advance(Duration.ofMinutes(1).plusSeconds(1));
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
+    reconciler.reconcileOnce();
+    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+  }
+
+  @Test
+  void the_window_is_measured_from_store_state_not_from_the_reconciler_that_scaled() {
+    // A control-plane restart or a failover onto another replica hands the next tick to a brand-new
+    // reconciler object with no memory of anything -- the window has to survive that, which it can
+    // only do by living in the store.
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
+    DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
+    store.putDeployment(spec);
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
+
+    reconcilerOn(store, clock).reconcileOnce();
+    assertEquals(4, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+
+    clock.advance(Duration.ofMinutes(1));
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
+    reconcilerOn(store, clock).reconcileOnce(); // a different reconciler instance entirely
+
+    assertEquals(
+        4,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "a fresh reconciler must still see the window the previous one opened");
+  }
+
+  @Test
+  void an_out_of_range_persisted_count_is_clamped_even_while_the_window_suppresses_the_step() {
+    // Arbitrary starting state: an operator lowered maxReplicas moments after the last scale event,
+    // so the stored count is out of range and the window has not elapsed. The bounds correction is
+    // not a signal-driven decision and must not wait for that window.
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
+    DeploymentSpec spec = deployment("orders-service", 2, jar, policy);
+    store.putDeployment(spec);
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", 9);
+    store.putDeploymentLastScale(Optional.empty(), "orders-service", clock.instant());
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L); // 10% util: wants down
+
+    reconcilerOn(store, clock).reconcileOnce();
+
+    assertEquals(
+        5,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "the count must be clamped into the policy's own bounds regardless of the window, but not"
+            + " stepped past them by the suppressed signal");
+  }
+
+  @Test
+  void converges_from_an_arbitrary_last_scale_stamp_left_in_the_future_by_a_skewed_replica() {
+    // Nothing guarantees the replica that stamped lastScale had a clock in step with this one, so
+    // the stamp can read ahead of now. That must suppress (conservatively), never scale or throw.
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    AutoscalePolicy policy = cooledCpuPolicy(1, 5, 50, Duration.ZERO, Duration.ofMinutes(5));
+    DeploymentSpec spec = deployment("orders-service", 5, jar, policy);
+    store.putDeployment(spec);
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", 5);
+    store.putDeploymentLastScale(
+        Optional.empty(), "orders-service", clock.instant().plus(Duration.ofHours(1)));
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
+    AutoscaleReconciler reconciler = reconcilerOn(store, clock);
+
+    reconciler.reconcileOnce();
+    assertEquals(5, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+
+    clock.advance(Duration.ofHours(1).plusMinutes(6));
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 1L);
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        4,
+        store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow(),
+        "once real time passes the skewed stamp plus the window, scaling resumes normally");
+  }
+
+  @Test
+  void a_scale_event_records_its_own_timestamp_alongside_the_new_replica_count() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    DeploymentSpec spec = deployment("orders-service", 2, jar, uncooledCpuPolicy(1, 5, 50));
+    store.putDeployment(spec);
+    twoReadyInstancesAt(store, "orders-service", spec.moduleId(), 10L);
+    AutoscaleReconciler reconciler = reconcilerOn(store, clock);
+
+    assertEquals(
+        Optional.empty(),
+        store.getDeploymentLastScale(Optional.empty(), "orders-service"),
+        "nothing is stamped before the first actual scale event");
+
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        Optional.of(clock.instant()),
+        store.getDeploymentLastScale(Optional.empty(), "orders-service"));
+  }
+
+  @Test
+  void a_held_count_never_stamps_a_scale_event_that_did_not_happen() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    DeploymentSpec spec = deployment("orders-service", 3, jar, uncooledCpuPolicy(1, 5, 50));
+    store.putDeployment(spec);
+    // No assignments and no heartbeats: the "no signal yet, hold the current count" branch.
+
+    reconcilerOn(store, clock).reconcileOnce();
+
+    assertEquals(3, store.getEffectiveReplicas(Optional.empty(), "orders-service").orElseThrow());
+    assertEquals(
+        Optional.empty(),
+        store.getDeploymentLastScale(Optional.empty(), "orders-service"),
+        "seeding the effective count is not a scale event and must not open a window");
   }
 }

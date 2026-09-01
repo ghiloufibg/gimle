@@ -49,6 +49,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -308,6 +310,19 @@ class RaftCodecTest {
   }
 
   @Test
+  void round_trips_a_deployment_last_scale_stamp() {
+    LogEntry original =
+        logEntry(
+            1L,
+            new StateMutation.PutDeploymentLastScale(
+                Optional.of("tenant-1"), "greeter", Instant.ofEpochMilli(1_700_000_000_000L)));
+
+    LogEntry decoded = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(original));
+
+    assertEquals(original, decoded);
+  }
+
+  @Test
   void round_trips_a_weighted_autoscale_policy_with_every_weight_present() {
     // Same historical-bug shape as deploymentSpec()'s own comment above: a WEIGHTED-mode policy
     // with every weight populated makes it impossible for DomainCodec to silently drop
@@ -333,7 +348,11 @@ class RaftCodecTest {
                     OptionalDouble.of(1.0),
                     OptionalDouble.of(3.0),
                     OptionalDouble.of(2.0),
-                    OptionalDouble.of(1.5))),
+                    OptionalDouble.of(1.5),
+                    // Non-default in both directions, for the same reason as every other field
+                    // here: a default value round-trips even from a codec that never writes it.
+                    Duration.ofSeconds(30),
+                    Duration.ofMinutes(15))),
             Optional.empty(),
             Optional.empty());
     LogEntry original = logEntry(1L, new StateMutation.PutDeployment(spec, 0));
@@ -463,7 +482,8 @@ class RaftCodecTest {
                     AlertRuleSpec.Metric.ERROR_RATE_PER_SECOND,
                     AlertRuleSpec.Comparator.GREATER_THAN,
                     5.0,
-                    "https://hooks.example.com/greeter-alerts")));
+                    "https://hooks.example.com/greeter-alerts")),
+            Map.of("greeter", Instant.ofEpochMilli(2_000L)));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);

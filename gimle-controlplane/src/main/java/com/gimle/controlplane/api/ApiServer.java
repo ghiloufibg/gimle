@@ -2518,6 +2518,7 @@ public final class ApiServer implements AutoCloseable {
     spec.tenantId().ifPresent(tenantId -> specMap.put("tenantId", tenantId));
     specMap.put("successfulJobsHistoryLimit", spec.successfulJobsHistoryLimit());
     specMap.put("failedJobsHistoryLimit", spec.failedJobsHistoryLimit());
+    specMap.put("suspend", spec.suspend());
 
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
@@ -3040,6 +3041,12 @@ public final class ApiServer implements AutoCloseable {
     status.put("instances", instances);
     status.put("unplacedCount", spec.replicas() - instances.size());
     status.put("quotaViolating", storeClient.isQuotaViolating(spec.tenantId(), spec.name()));
+    // Present only once the autoscaler has actually moved this deployment -- what its own
+    // stabilization windows are measured against, so an operator can see why a scale decision is
+    // currently being held back.
+    storeClient
+        .getDeploymentLastScale(spec.tenantId(), spec.name())
+        .ifPresent(t -> status.put("lastScaleTime", t.toString()));
     Optional<String> limitRangeViolationReason =
         storeClient.limitRangeViolationReason(spec.tenantId(), spec.name());
     status.put("limitRangeViolating", limitRangeViolationReason.isPresent());
@@ -3069,6 +3076,8 @@ public final class ApiServer implements AutoCloseable {
     policy.requestRateWeight().ifPresent(v -> map.put("requestRateWeight", v));
     policy.errorRateWeight().ifPresent(v -> map.put("errorRateWeight", v));
     policy.queueDepthWeight().ifPresent(v -> map.put("queueDepthWeight", v));
+    map.put("scaleUpCooldownSeconds", policy.scaleUpCooldown().toSeconds());
+    map.put("scaleDownCooldownSeconds", policy.scaleDownCooldown().toSeconds());
     return map;
   }
 

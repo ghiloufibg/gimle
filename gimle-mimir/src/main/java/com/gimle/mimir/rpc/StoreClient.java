@@ -552,6 +552,14 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
+  public Optional<Instant> getDeploymentLastScale(
+      Optional<String> tenantId, String deploymentName) {
+    StoreRpc.InstantResult r =
+        (StoreRpc.InstantResult)
+            sendRead(new StoreRpc.GetDeploymentLastScale(tenantId, deploymentName));
+    return r.present() ? Optional.of(Instant.ofEpochMilli(r.epochMilli())) : Optional.empty();
+  }
+
   public Set<Integer> getRollingIndices(Optional<String> tenantId, String deploymentName) {
     return Set.copyOf(
         ((StoreRpc.IntSetResult)

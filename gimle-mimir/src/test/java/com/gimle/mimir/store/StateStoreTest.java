@@ -30,6 +30,7 @@ import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -1135,5 +1136,48 @@ class StateStoreTest {
     assertEquals(
         List.of(revision),
         target.listControllerRevisions("Deployment", Optional.empty(), "orders-service"));
+  }
+
+  @Test
+  void a_deployments_last_scale_stamp_is_tenant_scoped_and_survives_a_snapshot_restore() {
+    StateStore store = new StateStore();
+    Instant untenanted = Instant.parse("2026-03-01T10:00:00Z");
+    Instant tenanted = Instant.parse("2026-03-01T11:00:00Z");
+    store.putDeploymentLastScale(Optional.empty(), "orders-service", untenanted);
+    store.putDeploymentLastScale(Optional.of("tenant-a"), "orders-service", tenanted);
+
+    assertEquals(
+        Optional.of(untenanted), store.getDeploymentLastScale(Optional.empty(), "orders-service"));
+    assertEquals(
+        Optional.of(tenanted),
+        store.getDeploymentLastScale(Optional.of("tenant-a"), "orders-service"));
+    assertEquals(
+        Optional.empty(),
+        store.getDeploymentLastScale(Optional.empty(), "never-scaled"),
+        "an unscaled deployment has no stamp at all, which is what makes its first scale free");
+
+    StateStore target = new StateStore();
+    target.restoreFromSnapshot(store.snapshot());
+
+    assertEquals(
+        Optional.of(tenanted),
+        target.getDeploymentLastScale(Optional.of("tenant-a"), "orders-service"),
+        "a replica catching up from a snapshot must inherit the open stabilization window");
+  }
+
+  @Test
+  void removing_a_deployment_clears_its_last_scale_stamp() {
+    StateStore store = new StateStore();
+    store.putDeployment(sampleDeployment("orders-service", 2));
+    store.putEffectiveReplicas(Optional.empty(), "orders-service", 4);
+    store.putDeploymentLastScale(
+        Optional.empty(), "orders-service", Instant.parse("2026-03-01T10:00:00Z"));
+
+    store.removeDeployment(Optional.empty(), "orders-service");
+
+    assertEquals(
+        Optional.empty(),
+        store.getDeploymentLastScale(Optional.empty(), "orders-service"),
+        "a deployment recreated under the same name must not inherit the old one's window");
   }
 }

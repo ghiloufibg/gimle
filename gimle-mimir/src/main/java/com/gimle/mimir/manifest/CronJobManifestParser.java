@@ -44,7 +44,8 @@ public final class CronJobManifestParser {
           "concurrencyPolicy",
           "tenantId",
           "successfulJobsHistoryLimit",
-          "failedJobsHistoryLimit");
+          "failedJobsHistoryLimit",
+          "suspend");
 
   private CronJobManifestParser() {}
 
@@ -83,6 +84,7 @@ public final class CronJobManifestParser {
             root, "successfulJobsHistoryLimit", DEFAULT_SUCCESSFUL_JOBS_HISTORY_LIMIT);
     int failedJobsHistoryLimit =
         parseHistoryLimit(root, "failedJobsHistoryLimit", DEFAULT_FAILED_JOBS_HISTORY_LIMIT);
+    boolean suspend = ManifestFields.booleanField(root, "suspend", false);
 
     try {
       return new CronJobSpec(
@@ -93,7 +95,8 @@ public final class CronJobManifestParser {
           concurrencyPolicy,
           tenantId,
           successfulJobsHistoryLimit,
-          failedJobsHistoryLimit);
+          failedJobsHistoryLimit,
+          suspend);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException(
           "invalid cronjob manifest for " + name + ": " + e.getMessage(), e);

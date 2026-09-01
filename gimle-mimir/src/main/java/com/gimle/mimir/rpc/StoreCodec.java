@@ -218,6 +218,7 @@ public final class StoreCodec {
   private static final byte TAG_LIST_ALERT_RULES = -115;
   private static final byte TAG_ALERT_RULE_RESULT = -114;
   private static final byte TAG_ALERT_RULE_LIST_RESULT = -113;
+  private static final byte TAG_GET_DEPLOYMENT_LAST_SCALE = -112;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -453,6 +454,11 @@ public final class StoreCodec {
         case StoreRpc.GetNodeRegistration v -> {
           out.writeByte(TAG_GET_NODE_REGISTRATION);
           out.writeUTF(v.nodeId());
+        }
+        case StoreRpc.GetDeploymentLastScale v -> {
+          out.writeByte(TAG_GET_DEPLOYMENT_LAST_SCALE);
+          DomainCodec.writeOptionalString(out, v.tenantId());
+          out.writeUTF(v.deploymentName());
         }
         case StoreRpc.GetEffectiveReplicas v -> {
           out.writeByte(TAG_GET_EFFECTIVE_REPLICAS);
@@ -1079,6 +1085,8 @@ public final class StoreCodec {
         case TAG_GET_NODE_REGISTRATION -> new StoreRpc.GetNodeRegistration(in.readUTF());
         case TAG_GET_EFFECTIVE_REPLICAS ->
             new StoreRpc.GetEffectiveReplicas(DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_GET_DEPLOYMENT_LAST_SCALE ->
+            new StoreRpc.GetDeploymentLastScale(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_ROLLING_INDICES ->
             new StoreRpc.ListRollingIndices(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_SURGE_INDICES ->

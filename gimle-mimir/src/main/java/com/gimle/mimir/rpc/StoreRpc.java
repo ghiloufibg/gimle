@@ -120,6 +120,7 @@ public sealed interface StoreRpc {
           GetAccount,
           GetNodeRegistration,
           GetEffectiveReplicas,
+          GetDeploymentLastScale,
           ListRollingIndices,
           ListSurgeIndices,
           GetNodeHeartbeat,
@@ -400,6 +401,10 @@ public sealed interface StoreRpc {
   record GetNodeRegistration(String nodeId) implements Request {}
 
   record GetEffectiveReplicas(Optional<String> tenantId, String deploymentName)
+      implements Request {}
+
+  /** Empty means "never scaled" -- see {@code StateStore#deploymentLastScale}'s own comment. */
+  record GetDeploymentLastScale(Optional<String> tenantId, String deploymentName)
       implements Request {}
 
   record ListRollingIndices(Optional<String> tenantId, String deploymentName) implements Request {}

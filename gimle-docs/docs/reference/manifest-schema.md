@@ -234,6 +234,8 @@ autoscale:
   requestRateWeight: 3.0
   errorRateWeight: 2.0
   queueDepthWeight: 1.5
+  scaleUpCooldownSeconds: 0     # optional -- defaults to 0 (react to a spike immediately)
+  scaleDownCooldownSeconds: 900 # optional -- defaults to 300 (5 minutes)
 ```
 
 | Field | Required | Meaning |
@@ -245,6 +247,8 @@ autoscale:
 | `targetQueueDepth` | no | Per-instance queue depth target. |
 | `mode` | no | `worst-signal` (default, omit to get this) or `weighted` — see below. |
 | `cpuWeight` / `requestRateWeight` / `errorRateWeight` / `queueDepthWeight` | no | Only consulted when `mode: weighted`; each defaults to `1.0` when its own signal is configured but its weight is not. Must be positive if present, same as the target fields. |
+| `scaleUpCooldownSeconds` | no | Stabilization window before another scale-*up* may happen. Defaults to `0` — a genuine load spike is answered on the next tick. `0` disables the window; a negative value is rejected. |
+| `scaleDownCooldownSeconds` | no | Stabilization window before another scale-*down* may happen. Defaults to `300` (5 minutes), so shedding capacity waits for the load to stay down. Same `0`/negative rules as above. |
 
 Each configured signal (CPU always, the other three only when present) proposes its own
 observed/target ratio from the same averaged, ready-instance observations. `mode:` picks how those
@@ -256,6 +260,14 @@ Reconcilers](../architecture/control-plane.md#reconcilers) for the full mechanic
   and the highest one wins.
 - `weighted` — every configured signal's ratio is weighted and averaged into one blended ratio
   first, then converted to a replica count exactly once.
+
+Both cooldowns are measured against the deployment's own last recorded scale event, which the
+control plane persists in the state store alongside the effective replica count — so a control-plane
+restart or a failover onto another replica does not reopen a window that has not elapsed. A
+deployment that has never been scaled has no window to wait out, and clamping an out-of-range stored
+replica count back into `[minReplicas, maxReplicas]` (typically right after an operator edits those
+bounds) is a correction rather than a scaling decision and is never suppressed. The `GET
+/deployments/{name}` response carries the stamp as `lastScaleTime` once one exists.
 
 Flat keys (`cpuWeight`, not a nested per-signal block) were chosen deliberately to keep this
 schema's diff against the pre-weighting shape minimal and stay consistent with the flat style the
@@ -439,6 +451,7 @@ concurrencyPolicy: Forbid       # optional -- Allow (default), Forbid, or Replac
 tenantId: acme                   # optional -- applied to every Job this CronJob generates
 successfulJobsHistoryLimit: 3   # optional -- defaults to 3, matching Kubernetes CronJob
 failedJobsHistoryLimit: 1       # optional -- defaults to 1, matching Kubernetes CronJob
+suspend: false                   # optional -- defaults to false; true pauses the schedule
 ```
 
 | Field | Required | Meaning |
@@ -457,15 +470,25 @@ failedJobsHistoryLimit: 1       # optional -- defaults to 1, matching Kubernetes
 | `tenantId` | no | Applied to every Job this CronJob generates — omit for untenanted firings. |
 | `successfulJobsHistoryLimit` | no | How many `SUCCEEDED` generated Jobs to keep, oldest-first pruned on every reconcile tick. Defaults to `3`, matching Kubernetes CronJob's own default. `0` keeps none. Independent of `concurrencyPolicy`, which only ever governs non-terminal jobs. |
 | `failedJobsHistoryLimit` | no | Same as `successfulJobsHistoryLimit`, for `FAILED` generated Jobs. Defaults to `1`, matching Kubernetes CronJob's own default. |
+| `suspend` | no | `true` pauses the schedule: no firing is materialized while it is set. Defaults to `false`. Matches Kubernetes CronJob's own field name and default. |
 
 A cronjob's `lastScheduleTime` is read-only, computed state — never part of the manifest you submit.
 `gimle get cronjobs <name>` (or the console's CronJobs screen) is how you read it back, alongside
 every Job it has generated (visible on the Jobs screen, by the shared name prefix).
 
+**Pausing a schedule**: `suspend: true` stops a CronJob firing without deleting it — the CronJob
+stays listed, keeps every Job it has already generated (history pruning still runs), and keeps its
+own `lastScheduleTime` advancing past each instant that comes due while it is paused. That last part
+is what makes unsuspending resume at the *next* due instant rather than back-firing every schedule
+missed during the pause. Apply the same manifest with `suspend: false` (or the key removed) to
+resume. Without this field the only way to stop a misbehaving or temporarily unwanted schedule is to
+delete and recreate the CronJob, which loses that firing history.
+
 **Manual firing, independent of the schedule**: `gimle cronjob trigger <name>` fires immediately,
 still subject to `concurrencyPolicy`, without touching `lastScheduleTime` or otherwise affecting the
 next scheduled firing — the same relationship `kubectl create job --from=cronjob/x` has to its own
-CronJob controller.
+CronJob controller. It fires a suspended CronJob too: `suspend` pauses the schedule, and an operator
+asking for one run right now is not that schedule.
 
 **What this does not provide, plainly stated**: no per-cluster/per-tenant timezone configuration
 (UTC only), no `parallelism`/`completions` on the generated Job (inherited from `kind: Job`'s own

@@ -22,6 +22,13 @@ import java.util.Optional;
  * independent of {@code concurrencyPolicy}, which only ever governs non-terminal jobs. Matches
  * Kubernetes CronJob's own field names and defaults (3 succeeded / 1 failed) exactly: without this,
  * every firing leaves a completed {@link JobSpec} in the store forever.
+ *
+ * <p>{@code suspend} (default {@code false}) pauses the schedule without deleting anything: {@code
+ * CronJobReconciler} materializes no {@link JobSpec} at all while it is set, but the CronJob stays
+ * visible, keeps every Job it has already generated, and keeps its own last-schedule bookkeeping
+ * advancing -- so unsuspending resumes from the next due instant instead of back-firing the
+ * schedules that came due while it was paused. Without it, the only way to stop a misbehaving or
+ * temporarily unwanted schedule is to delete and recreate the CronJob, which loses that history.
  */
 public record CronJobSpec(
     String name,
@@ -31,7 +38,8 @@ public record CronJobSpec(
     ConcurrencyPolicy concurrencyPolicy,
     Optional<String> tenantId,
     int successfulJobsHistoryLimit,
-    int failedJobsHistoryLimit)
+    int failedJobsHistoryLimit,
+    boolean suspend)
     implements WorkloadSpec {
 
   public CronJobSpec {

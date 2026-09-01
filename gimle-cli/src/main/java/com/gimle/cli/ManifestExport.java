@@ -94,6 +94,10 @@ final class ManifestExport {
         optionalNumberLine(sb, "  ", "errorRateWeight", autoscale.get("errorRateWeight"));
         optionalNumberLine(sb, "  ", "queueDepthWeight", autoscale.get("queueDepthWeight"));
       }
+      optionalNumberLine(
+          sb, "  ", "scaleUpCooldownSeconds", autoscale.get("scaleUpCooldownSeconds"));
+      optionalNumberLine(
+          sb, "  ", "scaleDownCooldownSeconds", autoscale.get("scaleDownCooldownSeconds"));
     }
     if (spec.get("disruption") instanceof Map<?, ?> disruption) {
       sb.append("disruption:\n");
@@ -130,6 +134,9 @@ final class ManifestExport {
     optionalNumberLine(sb, "  ", "activeDeadlineSeconds", jobTemplate.get("activeDeadlineSeconds"));
     optionalNumberLine(sb, "", "startingDeadlineSeconds", spec.get("startingDeadlineSeconds"));
     sb.append("concurrencyPolicy: ").append(spec.get("concurrencyPolicy")).append('\n');
+    if (Boolean.TRUE.equals(spec.get("suspend"))) {
+      sb.append("suspend: true\n");
+    }
     tenantIdLine(sb, spec.get("tenantId"));
     return sb.toString();
   }

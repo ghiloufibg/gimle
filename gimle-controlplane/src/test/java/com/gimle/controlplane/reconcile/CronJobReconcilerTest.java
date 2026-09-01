@@ -79,7 +79,8 @@ class CronJobReconcilerTest {
         policy,
         Optional.empty(),
         successfulJobsHistoryLimit,
-        failedJobsHistoryLimit);
+        failedJobsHistoryLimit,
+        /* suspend= */ false);
   }
 
   private static List<JobSpec> generatedJobsFor(StateStore store, String cronJobName) {
@@ -180,7 +181,8 @@ class CronJobReconcilerTest {
             ConcurrencyPolicy.ALLOW,
             Optional.empty(),
             DEFAULT_SUCCESSFUL_LIMIT,
-            DEFAULT_FAILED_LIMIT);
+            DEFAULT_FAILED_LIMIT,
+            /* suspend= */ false);
     store.putCronJobSpec(spec);
     CronJobReconciler reconciler =
         new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
@@ -566,7 +568,8 @@ class CronJobReconcilerTest {
         ConcurrencyPolicy.ALLOW,
         Optional.of(tenantId),
         DEFAULT_SUCCESSFUL_LIMIT,
-        DEFAULT_FAILED_LIMIT);
+        DEFAULT_FAILED_LIMIT,
+        /* suspend= */ false);
   }
 
   /**
@@ -592,7 +595,8 @@ class CronJobReconcilerTest {
             ConcurrencyPolicy.ALLOW,
             Optional.of("tenant-a"),
             DEFAULT_SUCCESSFUL_LIMIT,
-            DEFAULT_FAILED_LIMIT);
+            DEFAULT_FAILED_LIMIT,
+            /* suspend= */ false);
     // Never fires on its own schedule -- isolated from tenant A's own firing tick below, fired
     // instead via triggerNow so it lands strictly after tenant A already has a non-terminal Job.
     CronJobSpec tenantBSpec =
@@ -604,7 +608,8 @@ class CronJobReconcilerTest {
             ConcurrencyPolicy.REPLACE,
             Optional.of("tenant-b"),
             DEFAULT_SUCCESSFUL_LIMIT,
-            DEFAULT_FAILED_LIMIT);
+            DEFAULT_FAILED_LIMIT,
+            /* suspend= */ false);
     store.putCronJobSpec(tenantASpec);
     store.putCronJobSpec(tenantBSpec);
     CronJobReconciler reconciler =
@@ -651,6 +656,150 @@ class CronJobReconcilerTest {
     Optional<String> second = reconciler.triggerNow(Optional.empty(), "nightly-cleanup");
 
     assertTrue(second.isEmpty());
+    assertEquals(1, generatedJobsFor(store, "nightly-cleanup").size());
+  }
+
+  /** {@link #cronJob} with {@code suspend} set -- everything else identical. */
+  private CronJobSpec suspendedCronJob(String name, Path jar, String schedule) {
+    return new CronJobSpec(
+        name,
+        schedule,
+        jobTemplateFor(jar),
+        Optional.empty(),
+        ConcurrencyPolicy.ALLOW,
+        Optional.empty(),
+        DEFAULT_SUCCESSFUL_LIMIT,
+        DEFAULT_FAILED_LIMIT,
+        /* suspend= */ true);
+  }
+
+  @Test
+  void a_suspended_cronjob_fires_nothing_no_matter_how_many_schedules_come_due() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putCronJobSpec(suspendedCronJob("nightly-cleanup", jar, "* * * * *"));
+    CronJobReconciler reconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+
+    for (int tick = 0; tick < 10; tick++) {
+      reconciler.reconcileOnce();
+      clock.advance(Duration.ofMinutes(1));
+    }
+
+    assertTrue(
+        generatedJobsFor(store, "nightly-cleanup").isEmpty(),
+        "no tick of a suspended CronJob may materialize a Job");
+    assertTrue(
+        store.getCronJobSpec(Optional.empty(), "nightly-cleanup").isPresent(),
+        "suspending pauses the schedule; it never removes the CronJob");
+  }
+
+  @Test
+  void a_cronjob_suspended_from_an_arbitrary_mid_schedule_state_still_never_fires() {
+    // Level-triggered: the reconciler sees only what the store holds now, never how it got there.
+    // Here it starts mid-schedule (a last-schedule time already recorded well in the past, an
+    // already-generated Job from before the pause) rather than from a first tick.
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.ALLOW));
+    CronJobReconciler reconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+    reconciler.reconcileOnce();
+    clock.advance(Duration.ofMinutes(1));
+    reconciler.reconcileOnce();
+    List<JobSpec> beforeSuspension = generatedJobsFor(store, "nightly-cleanup");
+    assertEquals(1, beforeSuspension.size());
+
+    store.putCronJobSpec(suspendedCronJob("nightly-cleanup", jar, "* * * * *"));
+    for (int tick = 0; tick < 5; tick++) {
+      clock.advance(Duration.ofMinutes(1));
+      reconciler.reconcileOnce();
+    }
+
+    assertEquals(
+        beforeSuspension,
+        generatedJobsFor(store, "nightly-cleanup"),
+        "the Jobs generated before the pause are kept, and no new one is added");
+  }
+
+  @Test
+  void unsuspending_resumes_at_the_next_due_instant_without_back_firing_the_missed_ones() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putCronJobSpec(suspendedCronJob("nightly-cleanup", jar, "* * * * *"));
+    CronJobReconciler reconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+    reconciler.reconcileOnce(); // baseline
+
+    // An hour's worth of due-but-suspended schedules, each one accounted for as it passes.
+    for (int tick = 0; tick < 60; tick++) {
+      clock.advance(Duration.ofMinutes(1));
+      reconciler.reconcileOnce();
+    }
+    assertTrue(generatedJobsFor(store, "nightly-cleanup").isEmpty());
+    assertEquals(
+        Instant.parse("2026-01-01T01:00:00Z"),
+        store.getCronJobLastSchedule(Optional.empty(), "nightly-cleanup").orElseThrow(),
+        "a suspended CronJob's schedule keeps advancing so the backlog can never build up");
+
+    store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.ALLOW));
+    reconciler.reconcileOnce();
+    assertTrue(
+        generatedJobsFor(store, "nightly-cleanup").isEmpty(),
+        "unsuspending on a tick with nothing newly due fires nothing at all");
+
+    clock.advance(Duration.ofMinutes(1));
+    reconciler.reconcileOnce();
+
+    List<JobSpec> generated = generatedJobsFor(store, "nightly-cleanup");
+    assertEquals(1, generated.size(), "exactly the next due firing, not one per missed schedule");
+    assertEquals("nightly-cleanup-" + clock.instant().getEpochSecond(), generated.get(0).name());
+  }
+
+  @Test
+  void a_suspended_cronjob_still_prunes_its_own_terminal_job_history() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putCronJobSpec(cronJob("nightly-cleanup", jar, "* * * * *", ConcurrencyPolicy.ALLOW));
+    CronJobReconciler reconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+    reconciler.reconcileOnce();
+    for (int firing = 0; firing < 5; firing++) {
+      clock.advance(Duration.ofMinutes(1));
+      reconciler.reconcileOnce();
+      JobSpec job = mostRecentlyFired(generatedJobsFor(store, "nightly-cleanup"));
+      store.putJobPhase(job.tenantId(), job.name(), JobPhase.SUCCEEDED);
+    }
+
+    store.putCronJobSpec(suspendedCronJob("nightly-cleanup", jar, "* * * * *"));
+    clock.advance(Duration.ofMinutes(1));
+    reconciler.reconcileOnce();
+
+    assertEquals(
+        DEFAULT_SUCCESSFUL_LIMIT,
+        generatedJobsFor(store, "nightly-cleanup").size(),
+        "history pruning is independent of whether the schedule is paused");
+  }
+
+  @Test
+  void a_manual_trigger_still_fires_a_suspended_cronjob() {
+    TestClock clock = new TestClock();
+    StateStore store = new StateStore(clock);
+    Path jar = buildFixtureJar();
+    store.putCronJobSpec(suspendedCronJob("nightly-cleanup", jar, "* * * * *"));
+    CronJobReconciler reconciler =
+        new CronJobReconciler(store, mutation -> mutation.applyTo(store), clock);
+
+    Optional<String> triggered = reconciler.triggerNow(Optional.empty(), "nightly-cleanup");
+
+    assertTrue(
+        triggered.isPresent(),
+        "suspend pauses the schedule; an operator asking for one run right now is not that"
+            + " schedule");
     assertEquals(1, generatedJobsFor(store, "nightly-cleanup").size());
   }
 }
