@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.store.StateStore;
@@ -77,6 +79,35 @@ class MutationBatchTest {
     assertTrue(outcome instanceof MutationOutcome.Rejected);
     // The unguarded member ahead of the stale one must not have applied either.
     assertTrue(store.getService(Optional.empty(), "orders-service").isEmpty());
+  }
+
+  /**
+   * The instance-event cleanup a removal performs has to live inside the replicated mutation
+   * itself, not in some out-of-band map edit on the replica that happened to serve the delete --
+   * replaying the same committed log entries in order on any fresh replica must reach the same
+   * empty timeline.
+   */
+  @Test
+  void replaying_a_delete_then_recreate_log_leaves_the_recreated_name_with_no_prior_events() {
+    List<StateMutation> log =
+        List.of(
+            new StateMutation.PutDeployment(deployment("orders-service"), 0),
+            new StateMutation.AppendInstanceEvent(
+                Optional.empty(),
+                new InstanceEvent(
+                    "evt-old",
+                    "orders-service",
+                    0,
+                    InstanceEventKind.ACTIVE,
+                    "module active",
+                    1_000L)),
+            new StateMutation.RemoveDeployment(Optional.empty(), "orders-service", 1),
+            new StateMutation.PutDeployment(deployment("orders-service"), 0));
+
+    StateStore replica = new StateStore();
+    log.forEach(mutation -> mutation.applyTo(replica));
+
+    assertTrue(replica.listInstanceEvents(Optional.empty(), "orders-service", 0).isEmpty());
   }
 
   private static com.gimle.mimir.manifest.ServiceSpec service(String name) {

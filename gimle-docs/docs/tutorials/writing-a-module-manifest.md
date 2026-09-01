@@ -54,6 +54,24 @@ A module whose post-start warmup takes a moment (lazy init, a cache fill, JIT) c
 without slowing down every tick after it — otherwise an eager first tick can fail and get the
 module torn down within seconds of reaching `ACTIVE`.
 
+The rest of the probe timing is declarable per module too, and defaults to the worker's own values
+(1s interval, 2s timeout, 3 consecutive liveness failures before a restart) when omitted:
+
+```yaml
+health:
+  liveness: com.gimle.examples.greeter.provider.GreeterLivenessProbe
+  readiness: com.gimle.examples.greeter.provider.GreeterReadinessProbe
+  intervalSeconds: 10
+  timeoutSeconds: 30
+  failureThreshold: 6
+```
+
+`timeoutSeconds` is the one to reach for when a readiness check honestly needs more than a couple of
+seconds — a cold cache fill, a slow downstream dependency. Without it such a check fails every tick
+indistinguishably from a genuinely broken probe. `intervalSeconds` and `timeoutSeconds` must be
+positive and `failureThreshold` at least 1; anything else is rejected when the manifest is parsed,
+not silently normalized.
+
 ## Export a service
 
 For another module to call this one over the fabric, declare what it exports:

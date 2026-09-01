@@ -40,12 +40,41 @@ public final class WiredWorkerRuntime {
       ModuleId id,
       List<LifecycleEvent> events) {}
 
+  /** A fast probe cadence, so a test that isn't about probe timing itself never waits on one. */
+  private static final Duration DEFAULT_PROBE_INTERVAL = Duration.ofMillis(20);
+
+  private static final Duration DEFAULT_PROBE_TIMEOUT = Duration.ofSeconds(1);
+
   /**
    * {@code stableUptimeThreshold} empty means "use {@link WorkerRuntime}'s own production default"
    * -- routed to the eight/ten-arg constructor rather than duplicating that default's value here.
    */
   public static Result start(
       Path jar,
+      int livenessFailureThreshold,
+      Optional<Duration> stableUptimeThreshold,
+      Consumer<ModuleId> onRestartBudgetExhausted,
+      InstanceIdentityRegistry identityRegistry,
+      Consumer<InstanceIdentity> onInstanceUninstalled) {
+    return start(
+        jar,
+        DEFAULT_PROBE_INTERVAL,
+        DEFAULT_PROBE_TIMEOUT,
+        livenessFailureThreshold,
+        stableUptimeThreshold,
+        onRestartBudgetExhausted,
+        identityRegistry,
+        onInstanceUninstalled);
+  }
+
+  /**
+   * The worker-wide probe defaults spelled out, for a test proving that a module's own
+   * manifest-declared health timing takes precedence over them.
+   */
+  public static Result start(
+      Path jar,
+      Duration defaultProbeInterval,
+      Duration defaultProbeTimeout,
       int livenessFailureThreshold,
       Optional<Duration> stableUptimeThreshold,
       Consumer<ModuleId> onRestartBudgetExhausted,
@@ -88,8 +117,8 @@ public final class WiredWorkerRuntime {
                         registry,
                         serviceRegistry,
                         4,
-                        Duration.ofMillis(20),
-                        Duration.ofSeconds(1),
+                        defaultProbeInterval,
+                        defaultProbeTimeout,
                         livenessFailureThreshold,
                         onRestartBudgetExhausted,
                         threshold,
@@ -102,8 +131,8 @@ public final class WiredWorkerRuntime {
                         registry,
                         serviceRegistry,
                         4,
-                        Duration.ofMillis(20),
-                        Duration.ofSeconds(1),
+                        defaultProbeInterval,
+                        defaultProbeTimeout,
                         livenessFailureThreshold,
                         onRestartBudgetExhausted,
                         identityRegistry,

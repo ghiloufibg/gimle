@@ -244,15 +244,18 @@ public final class StateStore implements StoreReader {
   }
 
   /**
-   * Also clears this name's {@link ControllerRevision} history -- without this, a deleted
-   * Deployment's revisions stay keyed under {@link ControllerRevision#revisionKey}, orphaned
-   * indefinitely, and a later {@code apply} that recreates the same name would inherit them as if
-   * the new Deployment were a continuation of the old one: {@code nextRevisionFor} would keep
-   * incrementing from the old revision number instead of starting fresh, and a caller could roll
+   * Also clears this name's {@link ControllerRevision} history and every instance's {@link
+   * InstanceEvent} timeline -- without this, a deleted Deployment's revisions stay keyed under
+   * {@link ControllerRevision#revisionKey} and its events under {@link #instanceEventsKey},
+   * orphaned indefinitely, and a later {@code apply} that recreates the same name would inherit
+   * both as if the new Deployment were a continuation of the old one: {@code nextRevisionFor} would
+   * keep incrementing from the old revision number instead of starting fresh, a caller could roll
    * back to a revision from an entirely different, already-deleted Deployment that merely happened
-   * to share this name. Since {@link StateMutation} is applied in strict Raft log order with no
-   * concurrent writers, clearing here is enough on its own to make a delete-then-recreate a clean
-   * break -- no separate identity token is needed to protect against a race that can't happen.
+   * to share this name, and the new instances' event timelines would open with the old Deployment's
+   * history already in them. Since {@link StateMutation} is applied in strict Raft log order with
+   * no concurrent writers, clearing here is enough on its own to make a delete-then-recreate a
+   * clean break -- no separate identity token is needed to protect against a race that can't
+   * happen.
    */
   public void removeDeployment(Optional<String> tenantId, String name) {
     String key = scopedKey(tenantId, name);
@@ -263,6 +266,7 @@ public final class StateStore implements StoreReader {
     effectiveReplicas.remove(key);
     deploymentLastScale.remove(key);
     controllerRevisions.remove(ControllerRevision.revisionKey("Deployment", tenantId, name));
+    clearInstanceEventsFor(tenantId, name);
   }
 
   // ---- services ----
@@ -473,13 +477,14 @@ public final class StateStore implements StoreReader {
    * on disk for it; {@code DaemonSetReconciler}'s own orphaned-assignment sweep is responsible for
    * those, the same "spec gone -> reconciler tears assignments down" ordering {@link
    * #removeDeployment} already relies on for {@link InstanceAssignment}. Also clears this name's
-   * {@link ControllerRevision} history, for the same delete-then-recreate reason {@link
-   * #removeDeployment}'s own javadoc gives.
+   * {@link ControllerRevision} history and its instances' {@link InstanceEvent} timelines, for the
+   * same delete-then-recreate reason {@link #removeDeployment}'s own javadoc gives.
    */
   public void removeDaemonSetSpec(Optional<String> tenantId, String name) {
     daemonSetSpecs.remove(scopedKey(tenantId, name));
     clearAllRollingDaemonSetNodes(tenantId, name);
     controllerRevisions.remove(ControllerRevision.revisionKey("DaemonSet", tenantId, name));
+    clearInstanceEventsFor(tenantId, name);
   }
 
   // ---- daemonset assignments ----
@@ -567,13 +572,15 @@ public final class StateStore implements StoreReader {
    * (this method removing the spec doesn't itself remove any {@link StatefulSetAssignment}; {@code
    * StatefulSetReconciler}'s own orphaned-assignment sweep does that, the same "spec gone ->
    * reconciler tears assignments down" ordering {@link #removeDeployment} already relies on). Also
-   * clears this name's {@link ControllerRevision} history, for the same delete-then-recreate reason
-   * {@link #removeDeployment}'s own javadoc gives.
+   * clears this name's {@link ControllerRevision} history and its instances' {@link InstanceEvent}
+   * timelines, for the same delete-then-recreate reason {@link #removeDeployment}'s own javadoc
+   * gives.
    */
   public void removeStatefulSetSpec(Optional<String> tenantId, String name) {
     statefulSetSpecs.remove(scopedKey(tenantId, name));
     clearRollingStatefulSetIndex(tenantId, name);
     controllerRevisions.remove(ControllerRevision.revisionKey("StatefulSet", tenantId, name));
+    clearInstanceEventsFor(tenantId, name);
   }
 
   // ---- statefulset assignments ----
@@ -1194,6 +1201,27 @@ public final class StateStore implements StoreReader {
           }
           return List.copyOf(updated);
         });
+  }
+
+  /**
+   * Drops every instance index's timeline for one workload name, called from each workload kind's
+   * own removal so a later recreate under the same name starts with an empty timeline rather than
+   * the deleted workload's history. {@link #instanceEventsKey} appends {@code '#'} plus the
+   * instance index to the scoped key, so the match is on that prefix with an all-digits remainder
+   * -- a plain {@code startsWith} would also sweep an unrelated workload whose own name begins with
+   * this one followed by a {@code '#'}.
+   */
+  private void clearInstanceEventsFor(Optional<String> tenantId, String workloadName) {
+    String prefix = scopedKey(tenantId, workloadName) + "#";
+    instanceEvents.keySet().removeIf(key -> isInstanceIndexUnder(key, prefix));
+  }
+
+  private static boolean isInstanceIndexUnder(String key, String prefix) {
+    if (!key.startsWith(prefix)) {
+      return false;
+    }
+    String suffix = key.substring(prefix.length());
+    return !suffix.isEmpty() && suffix.chars().allMatch(Character::isDigit);
   }
 
   /** Newest-first -- the natural read order for a timeline, matching {@code /logs}' own tail. */

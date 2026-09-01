@@ -383,21 +383,22 @@ public final class WorkerMain {
                                 identity.instanceIndex(),
                                 nodeId,
                                 identity.tenantId())));
-    // How many virtual threads a module's BoundedModuleScheduler runs concurrently by default,
-    // and the liveness/readiness probe cadence every module is checked against once ACTIVE.
+    // How many virtual threads a module's BoundedModuleScheduler runs concurrently by default, and
+    // the liveness/readiness probe cadence a module is checked against once ACTIVE unless its own
+    // manifest declares health.intervalSeconds/timeoutSeconds/failureThreshold instead.
     int defaultMaxConcurrency = 4;
-    Duration probeInterval = Duration.ofSeconds(1);
-    Duration probeTimeout = Duration.ofSeconds(2);
-    int livenessFailureThreshold = 3;
+    Duration defaultProbeInterval = Duration.ofSeconds(1);
+    Duration defaultProbeTimeout = Duration.ofSeconds(2);
+    int defaultLivenessFailureThreshold = 3;
     WorkerRuntime runtime =
         new WorkerRuntime(
             controller,
             registry,
             fabricRegistry,
             defaultMaxConcurrency,
-            probeInterval,
-            probeTimeout,
-            livenessFailureThreshold,
+            defaultProbeInterval,
+            defaultProbeTimeout,
+            defaultLivenessFailureThreshold,
             id -> log.error("module {} exhausted its restart budget; awaiting worker restart", id),
             identityRegistry,
             identity ->
