@@ -1,5 +1,6 @@
 package com.gimle.mimir.manifest;
 
+import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -32,6 +33,14 @@ import java.util.Set;
  * PlacementConstraints#requiredNodeLabels}'s own "absent means unconstrained" convention. {@code
  * serviceInterfaceNames} narrows the policy further to fabric calls targeting those exported
  * service interfaces (fully-qualified interface names); absent means every interface.
+ *
+ * <p>{@code version} is the optimistic-concurrency token a write presents back as its {@code
+ * expectedVersion}: {@code 0} for a policy that has never been written, then one higher on every
+ * accepted write. It is minted by the write path, never by a submitter -- a submitted spec's own
+ * value is whatever the store last stamped, and is what a partial update or a guarded replace is
+ * checked against. This record's constructor validates the shape of what it is handed and nothing
+ * more: whether a listed tenant id names a tenant that actually exists is a question only a
+ * registry can answer, and is checked where the write is admitted.
  */
 public record NetworkPolicySpec(
     String name,
@@ -39,7 +48,8 @@ public record NetworkPolicySpec(
     Optional<Set<String>> deploymentNames,
     Optional<Set<String>> serviceInterfaceNames,
     Optional<Set<String>> allowedCallerTenantIds,
-    Optional<Set<String>> allowedCalleeTenantIds) {
+    Optional<Set<String>> allowedCalleeTenantIds,
+    int version) {
 
   public NetworkPolicySpec {
     if (name == null || name.isBlank()) {
@@ -67,10 +77,34 @@ public record NetworkPolicySpec(
       throw new IllegalArgumentException(
           "a network policy must restrict at least one direction (ingress or egress)");
     }
+    if (version < 0) {
+      throw new IllegalArgumentException("version must not be negative: " + version);
+    }
     deploymentNames = deploymentNames.map(Set::copyOf);
     serviceInterfaceNames = serviceInterfaceNames.map(Set::copyOf);
     allowedCallerTenantIds = allowedCallerTenantIds.map(Set::copyOf);
     allowedCalleeTenantIds = allowedCalleeTenantIds.map(Set::copyOf);
+  }
+
+  /**
+   * The full shape minus {@code version}, for a caller composing a spec to submit rather than one
+   * the store already stamped -- an unwritten policy is at version {@code 0}.
+   */
+  public NetworkPolicySpec(
+      String name,
+      String tenantId,
+      Optional<Set<String>> deploymentNames,
+      Optional<Set<String>> serviceInterfaceNames,
+      Optional<Set<String>> allowedCallerTenantIds,
+      Optional<Set<String>> allowedCalleeTenantIds) {
+    this(
+        name,
+        tenantId,
+        deploymentNames,
+        serviceInterfaceNames,
+        allowedCallerTenantIds,
+        allowedCalleeTenantIds,
+        0);
   }
 
   /** Convenience: an ingress-only policy scoped to the whole tenant. */
@@ -107,6 +141,27 @@ public record NetworkPolicySpec(
       throw new IllegalArgumentException("allowedCallerTenantIds must not be null");
     }
     return allowedCallerTenantIds;
+  }
+
+  /** The same policy at {@code newVersion} -- what the write path stamps on an accepted write. */
+  public NetworkPolicySpec withVersion(int newVersion) {
+    return new NetworkPolicySpec(
+        name,
+        tenantId,
+        deploymentNames,
+        serviceInterfaceNames,
+        allowedCallerTenantIds,
+        allowedCalleeTenantIds,
+        newVersion);
+  }
+
+  /** Every tenant id this policy names in either direction's allow list. */
+  public Set<String> referencedTenantIds() {
+    Set<String> referenced = new LinkedHashSet<>();
+    allowedCallerTenantIds.ifPresent(referenced::addAll);
+    allowedCalleeTenantIds.ifPresent(referenced::addAll);
+    referenced.remove(tenantId);
+    return Set.copyOf(referenced);
   }
 
   /** Whether this policy restricts inbound (ingress) fabric traffic at all. */

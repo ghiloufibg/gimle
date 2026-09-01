@@ -3,6 +3,7 @@ package com.gimle.agent;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.gimle.agent.networkpolicy.NetworkPolicySnapshot;
 import com.gimle.agent.networkpolicy.NetworkPolicySource;
 import com.gimle.core.module.HealthProbes;
 import com.gimle.core.module.IsolationTier;
@@ -95,20 +96,26 @@ class NetworkPolicyRelayTest {
 
   private static final class StaticSource implements NetworkPolicySource {
     private final List<NetworkPolicyRule> rules;
+    private final Set<String> denyByDefaultTenantIds;
 
     StaticSource(List<NetworkPolicyRule> rules) {
+      this(rules, Set.of());
+    }
+
+    StaticSource(List<NetworkPolicyRule> rules, Set<String> denyByDefaultTenantIds) {
       this.rules = rules;
+      this.denyByDefaultTenantIds = denyByDefaultTenantIds;
     }
 
     @Override
-    public List<NetworkPolicyRule> fetchPolicies() {
-      return rules;
+    public NetworkPolicySnapshot fetchPolicies() {
+      return new NetworkPolicySnapshot(rules, denyByDefaultTenantIds);
     }
   }
 
   private static final class FailingSource implements NetworkPolicySource {
     @Override
-    public List<NetworkPolicyRule> fetchPolicies() throws IOException {
+    public NetworkPolicySnapshot fetchPolicies() throws IOException {
       throw new IOException("control plane unreachable");
     }
   }
@@ -127,7 +134,27 @@ class NetworkPolicyRelayTest {
     relay.pollOnce();
 
     ControlMessage received = pair[1].receive().orElseThrow();
-    assertEquals(new ControlMessage.NetworkPoliciesUpdated(rules), received);
+    assertEquals(new ControlMessage.NetworkPoliciesUpdated(rules, Set.of()), received);
+  }
+
+  /**
+   * A closed tenant with no policies at all is the case a policy list alone cannot express, so the
+   * posture has to reach the worker even when there is nothing else to relay.
+   */
+  @Test
+  @Timeout(10)
+  void a_poll_relays_the_deny_by_default_tenants_alongside_the_policy_set() throws Exception {
+    WorkerConnection[] pair = connectedPair();
+    Map<String, SupervisedInstance> supervised = new ConcurrentHashMap<>();
+    supervised.put("orders-service#0", supervisedInstance(pair[0]));
+
+    NetworkPolicyRelay relay =
+        new NetworkPolicyRelay(
+            new StaticSource(List.of(), Set.of("acme")), Duration.ofMinutes(5), supervised);
+    relay.pollOnce();
+
+    ControlMessage received = pair[1].receive().orElseThrow();
+    assertEquals(new ControlMessage.NetworkPoliciesUpdated(List.of(), Set.of("acme")), received);
   }
 
   @Test
@@ -143,7 +170,7 @@ class NetworkPolicyRelayTest {
     relay.pollOnce();
 
     ControlMessage received = pair[1].receive().orElseThrow();
-    assertEquals(new ControlMessage.NetworkPoliciesUpdated(List.of()), received);
+    assertEquals(new ControlMessage.NetworkPoliciesUpdated(List.of(), Set.of()), received);
   }
 
   @Test
@@ -164,7 +191,7 @@ class NetworkPolicyRelayTest {
     relay.pollOnce();
 
     ControlMessage received = pair[1].receive().orElseThrow();
-    assertEquals(new ControlMessage.NetworkPoliciesUpdated(rules), received);
+    assertEquals(new ControlMessage.NetworkPoliciesUpdated(rules, Set.of()), received);
   }
 
   @Test

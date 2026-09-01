@@ -3,6 +3,7 @@ package com.gimle.agent.bifrost;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.gimle.agent.networkpolicy.NetworkPolicySnapshot;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -77,7 +78,7 @@ class BifrostTlsIdentityTest {
     proxy =
         new BifrostProxy(
             source,
-            () -> List.of(new NetworkPolicyRule("allow-partner", "acme", Set.of("partner-tenant"))),
+            () -> new NetworkPolicySnapshot(List.of(new NetworkPolicyRule("allow-partner", "acme", Set.of("partner-tenant"))), Set.of()),
             new BifrostSettings(
                 Duration.ofMinutes(5),
                 false,
@@ -105,7 +106,7 @@ class BifrostTlsIdentityTest {
     proxy =
         new BifrostProxy(
             source,
-            List::of,
+            NetworkPolicySnapshot::empty,
             new BifrostSettings(
                 Duration.ofMinutes(5),
                 false,

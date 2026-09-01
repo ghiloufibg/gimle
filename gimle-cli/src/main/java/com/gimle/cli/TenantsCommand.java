@@ -10,7 +10,12 @@ import java.util.Set;
 
 /**
  * {@code get tenants [id]}, {@code set tenant <id> --max-memory-bytes N --max-cpu-millicores N
- * --max-instances N}, {@code delete tenant <id>}.
+ * --max-instances N [--isolation-posture OPEN|DENY_BY_DEFAULT]}, {@code delete tenant <id>}.
+ *
+ * <p>{@code --isolation-posture} is the tenant's baseline stance on cross-tenant fabric traffic no
+ * network policy covers. Omitting it keeps whatever posture the tenant already has (and starts a
+ * new tenant {@code OPEN}), so a routine quota edit never silently reopens a tenant an operator
+ * deliberately closed.
  */
 public final class TenantsCommand {
 
@@ -35,7 +40,8 @@ public final class TenantsCommand {
 
   public void set(List<String> args) {
     String usage =
-        "set tenant requires <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N";
+        "set tenant requires <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N"
+            + " [--isolation-posture OPEN|DENY_BY_DEFAULT]";
     if (args.isEmpty()) {
       throw new CliException(usage);
     }
@@ -44,6 +50,7 @@ public final class TenantsCommand {
     long maxMemoryBytes = flags.requireLong("--max-memory-bytes");
     long maxCpuMillicores = flags.requireLong("--max-cpu-millicores");
     long maxInstances = flags.requireLong("--max-instances");
+    String isolationPosture = flags.getOrDefault("--isolation-posture", null);
 
     Map<String, Object> quota = new LinkedHashMap<>();
     quota.put("maxMemoryBytes", maxMemoryBytes);
@@ -51,6 +58,9 @@ public final class TenantsCommand {
     quota.put("maxInstances", maxInstances);
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("quota", quota);
+    if (isolationPosture != null && !isolationPosture.isBlank()) {
+      body.put("isolationPosture", isolationPosture);
+    }
 
     client.expectSuccess(client.put("/tenants/" + id, Json.write(body)));
     OutputFormat.printResult(
@@ -87,6 +97,9 @@ public final class TenantsCommand {
     quota.put("maxInstances", maxInstances);
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("quota", quota);
+    if (root.get("isolationPosture") instanceof String posture && !posture.isBlank()) {
+      body.put("isolationPosture", posture);
+    }
 
     ApiResponse response = client.put("/tenants/" + id, Json.write(body));
     client.expectSuccess(response);

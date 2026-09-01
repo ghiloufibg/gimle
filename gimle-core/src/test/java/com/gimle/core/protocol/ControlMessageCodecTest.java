@@ -77,8 +77,9 @@ class ControlMessageCodecTest {
                     "deployment-scoped",
                     "acme",
                     Optional.of(Set.of("orders-service", "payments-service")),
-                    Set.of("partner-tenant")))),
-        new ControlMessage.NetworkPoliciesUpdated(List.of()),
+                    Set.of("partner-tenant"))),
+            Set.of("acme", "closed tenant")),
+        new ControlMessage.NetworkPoliciesUpdated(List.of(), Set.of()),
         new ControlMessage.MetricsSnapshot(
             "worker-1",
             "{\"name\":\"gimle.module.request.count\"}\n{\"name\":\"gimle.module.threads\"}"),

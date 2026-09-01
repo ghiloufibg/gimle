@@ -65,6 +65,10 @@ import java.util.Map;
  *   gimle set networkpolicy &lt;name&gt; --tenant &lt;id&gt; [--deployment ...] [--service-interface ...]
  *                                   [--allowed-caller-tenant &lt;id&gt; ... | --deny-all-callers]
  *                                   [--allowed-callee-tenant &lt;id&gt; ... | --deny-all-callees]
+ *   gimle set networkpolicy &lt;name&gt; --tenant &lt;id&gt; [--add-allowed-caller-tenant &lt;id&gt; ...]
+ *                                   [--remove-allowed-caller-tenant &lt;id&gt; ...]
+ *                                   [--add-allowed-callee-tenant &lt;id&gt; ...]
+ *                                   [--remove-allowed-callee-tenant &lt;id&gt; ...]
  *   gimle delete networkpolicy &lt;name&gt;
  *   gimle get alertrules [name]
  *   gimle set alertrule &lt;name&gt; --deployment &lt;name&gt; --metric &lt;METRIC&gt; --comparator &lt;GREATER_THAN|LESS_THAN&gt;
@@ -72,6 +76,7 @@ import java.util.Map;
  *   gimle delete alertrule &lt;name&gt;
  *   gimle get tenants [id]
  *   gimle set tenant &lt;id&gt; --max-memory-bytes N --max-cpu-millicores N --max-instances N
+ *                          [--isolation-posture OPEN|DENY_BY_DEFAULT]
  *   gimle delete tenant &lt;id&gt;
  *   gimle get limitranges [tenantId]
  *   gimle set limitrange &lt;tenantId&gt; [--min-request-memory M --min-request-cpu M]
@@ -705,7 +710,9 @@ public final class GimleCli {
               """
               usage: gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
                                         [--allowed-caller-tenant <id> ... | --deny-all-callers]
-                                        [--allowed-callee-tenant <id> ... | --deny-all-callees]"""),
+                                        [--allowed-callee-tenant <id> ... | --deny-all-callees]
+                     gimle set networkpolicy <name> --tenant <id> [--add-allowed-caller-tenant <id> ...] [--remove-allowed-caller-tenant <id> ...]
+                                        [--add-allowed-callee-tenant <id> ...] [--remove-allowed-callee-tenant <id> ...]"""),
           Map.entry(
               "alertrule",
               """
@@ -714,7 +721,7 @@ public final class GimleCli {
           Map.entry(
               "tenant",
               "usage: gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N"
-                  + " --max-instances N"),
+                  + " --max-instances N [--isolation-posture OPEN|DENY_BY_DEFAULT]"),
           Map.entry(
               "limitrange",
               """
@@ -930,6 +937,8 @@ public final class GimleCli {
           set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
                                     [--allowed-caller-tenant <id> ... | --deny-all-callers]
                                     [--allowed-callee-tenant <id> ... | --deny-all-callees]
+          set networkpolicy <name> --tenant <id> [--add-allowed-caller-tenant <id> ...] [--remove-allowed-caller-tenant <id> ...]
+                                    [--add-allowed-callee-tenant <id> ...] [--remove-allowed-callee-tenant <id> ...]
           delete networkpolicy <name>
           get alertrules [name]
           set alertrule <name> --deployment <name> --metric <METRIC> --comparator <GREATER_THAN|LESS_THAN>
@@ -937,6 +946,7 @@ public final class GimleCli {
           delete alertrule <name>
           get tenants [id]
           set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
+                          [--isolation-posture OPEN|DENY_BY_DEFAULT]
           delete tenant <id>
           get limitranges [tenantId]
           set limitrange <tenantId> [--min-request-memory M --min-request-cpu M]

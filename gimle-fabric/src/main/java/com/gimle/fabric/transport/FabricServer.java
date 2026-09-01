@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
@@ -107,6 +108,10 @@ public final class FabricServer implements AutoCloseable {
   // recognize it as a duplicate of anything.
   private final InvocationDeduplicator deduplicator = new InvocationDeduplicator();
   private volatile List<NetworkPolicyRule> networkPolicies = List.of();
+  // The tenants whose declared posture denies cross-tenant traffic no rule covers. Held next to
+  // the rules rather than folded into them because it answers a different question: the rules say
+  // what is explicitly allowed or denied, this says what happens when none of them has an opinion.
+  private volatile Set<String> denyByDefaultTenantIds = Set.of();
   private volatile boolean closed;
 
   public FabricServer(ServiceRegistry localRegistry, ClassLoader interfaceLoader) {
@@ -283,15 +288,19 @@ public final class FabricServer implements AutoCloseable {
   }
 
   /**
-   * Replaces the {@link NetworkPolicyRule} set this listener currently enforces -- called by the
-   * worker each time its agent relays a fresh poll of the control plane's own {@code
-   * NetworkPolicySpec} registry down this worker's control channel (see {@link
-   * #checkNetworkPolicyPermitted}). A full replacement, not a merge: the caller always passes the
-   * complete currently-known set, the same level-triggered posture {@code
-   * ControlMessage.NetworkPoliciesUpdated} itself documents.
+   * Replaces the {@link NetworkPolicyRule} set this listener currently enforces, together with the
+   * tenants whose declared posture denies traffic no rule covers -- called by the worker each time
+   * its agent relays a fresh poll of the control plane's own {@code NetworkPolicySpec} registry
+   * down this worker's control channel (see {@link #checkNetworkPolicyPermitted}). A full
+   * replacement of both, not a merge: the caller always passes the complete currently-known state,
+   * the same level-triggered posture {@code ControlMessage.NetworkPoliciesUpdated} itself
+   * documents. Both are replaced in one call because applying either without the other decides
+   * uncovered calls wrongly in one direction or the other.
    */
-  public void updateNetworkPolicies(List<NetworkPolicyRule> policies) {
+  public void updateNetworkPolicies(
+      List<NetworkPolicyRule> policies, Set<String> denyByDefaultTenantIds) {
     this.networkPolicies = List.copyOf(policies);
+    this.denyByDefaultTenantIds = Set.copyOf(denyByDefaultTenantIds);
   }
 
   /**
@@ -637,12 +646,19 @@ public final class FabricServer implements AutoCloseable {
     checkCallerEgressPermitted(request);
   }
 
-  /** The ingress half: rules owned by <em>this worker's own</em> tenant, gating who may call in. */
+  /**
+   * The ingress half: rules owned by <em>this worker's own</em> tenant, gating who may call in. A
+   * call no such rule covers falls through to this tenant's own declared posture -- which denies a
+   * cross-tenant caller when the tenant is closed, and otherwise permits, the state every tenant
+   * starts in. Without that fallback a tenant with no policies yet written could never be closed
+   * at all, since a loop over an empty rule set denies nothing.
+   */
   private void checkIngressPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
     if (selfTenantId.isEmpty()) {
       return;
     }
     Optional<String> deploymentName = deploymentNameOf.apply(owner);
+    boolean covered = false;
     for (NetworkPolicyRule rule : networkPolicies) {
       if (!rule.tenantId().equals(selfTenantId.get())) {
         continue;
@@ -653,11 +669,25 @@ public final class FabricServer implements AutoCloseable {
       if (!rule.appliesToServiceInterface(request.interfaceName())) {
         continue;
       }
+      if (!rule.restrictsIngress()) {
+        continue;
+      }
+      covered = true;
       if (!rule.permitsCallerTenant(request.callerTenantId())) {
         throw GimleFabricAuthorizationException.tenantNotPermitted(
             request.interfaceName(),
             request.callerTenantId().map(id -> "tenant " + id).orElse("an untenanted caller"));
       }
+    }
+    if (!covered
+        && denyByDefaultTenantIds.contains(selfTenantId.get())
+        && !isSameTenant(request.callerTenantId(), selfTenantId.get())) {
+      throw GimleFabricAuthorizationException.tenantNotPermitted(
+          request.interfaceName(),
+          request
+              .callerTenantId()
+              .map(id -> "tenant " + id + " (callee tenant denies by default)")
+              .orElse("an untenanted caller (callee tenant denies by default)"));
     }
   }
 
@@ -677,6 +707,7 @@ public final class FabricServer implements AutoCloseable {
     if (callerTenantId.isEmpty()) {
       return; // an untenanted caller has no tenant whose egress policy could cover it
     }
+    boolean covered = false;
     for (NetworkPolicyRule rule : networkPolicies) {
       if (!rule.tenantId().equals(callerTenantId.get())) {
         continue;
@@ -687,6 +718,10 @@ public final class FabricServer implements AutoCloseable {
       if (!rule.appliesToServiceInterface(request.interfaceName())) {
         continue;
       }
+      if (!rule.restrictsEgress()) {
+        continue;
+      }
+      covered = true;
       if (!rule.permitsCalleeTenant(selfTenantId)) {
         throw GimleFabricAuthorizationException.tenantNotPermitted(
             request.interfaceName(),
@@ -695,6 +730,21 @@ public final class FabricServer implements AutoCloseable {
                 .orElse("an untenanted callee (egress restricted)"));
       }
     }
+    // The posture's egress half, mirroring the ingress one: a closed tenant's own workloads may
+    // not dial out across a tenant boundary until a policy says which boundaries they may cross.
+    if (!covered
+        && denyByDefaultTenantIds.contains(callerTenantId.get())
+        && !isSameTenant(selfTenantId, callerTenantId.get())) {
+      throw GimleFabricAuthorizationException.tenantNotPermitted(
+          request.interfaceName(),
+          selfTenantId
+              .map(id -> "callee tenant " + id + " (caller tenant denies by default)")
+              .orElse("an untenanted callee (caller tenant denies by default)"));
+    }
+  }
+
+  private static boolean isSameTenant(Optional<String> peerTenantId, String tenantId) {
+    return peerTenantId.isPresent() && peerTenantId.get().equals(tenantId);
   }
 
   private Object invokeLocally(FabricFrame.InvokeRequest request)

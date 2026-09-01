@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.agent.networkpolicy.NetworkPolicySnapshot;
 import com.gimle.agent.networkpolicy.NetworkPolicySource;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.BufferedReader;
@@ -109,7 +110,7 @@ class BifrostProxyTest {
     proxy =
         new BifrostProxy(
             source,
-            List::of,
+            NetworkPolicySnapshot::empty,
             new BifrostSettings(Duration.ofMinutes(5), true, Optional.empty(), Optional.empty()));
     proxy.pollOnce();
 
@@ -171,7 +172,7 @@ class BifrostProxyTest {
     proxy =
         new BifrostProxy(
             source,
-            List::of,
+            NetworkPolicySnapshot::empty,
             new BifrostSettings(
                 Duration.ofMinutes(5), false, Optional.of("node-a"), Optional.empty()));
     proxy.pollOnce();
@@ -193,7 +194,7 @@ class BifrostProxyTest {
     proxy =
         new BifrostProxy(
             source,
-            List::of,
+            NetworkPolicySnapshot::empty,
             new BifrostSettings(
                 Duration.ofMinutes(5), false, Optional.of("node-a"), Optional.empty()));
     proxy.pollOnce();
@@ -223,14 +224,19 @@ class BifrostProxyTest {
   /** A mutable {@code NetworkPolicySource} fake, the {@link InMemoryServiceSource} analogue. */
   private static final class MutableNetworkPolicySource implements NetworkPolicySource {
     private volatile List<NetworkPolicyRule> rules = List.of();
+    private volatile Set<String> denyByDefaultTenantIds = Set.of();
 
     void set(List<NetworkPolicyRule> newRules) {
       this.rules = newRules;
     }
 
+    void setDenyByDefaultTenantIds(Set<String> newTenantIds) {
+      this.denyByDefaultTenantIds = newTenantIds;
+    }
+
     @Override
-    public List<NetworkPolicyRule> fetchPolicies() {
-      return rules;
+    public NetworkPolicySnapshot fetchPolicies() {
+      return new NetworkPolicySnapshot(rules, denyByDefaultTenantIds);
     }
   }
 
@@ -313,5 +319,46 @@ class BifrostProxyTest {
     proxy.pollOnce();
 
     assertEquals("A", readTagFrom(clusterAddress));
+  }
+
+  /**
+   * A closed tenant with no policies yet written behaves here exactly as an explicit deny-all
+   * policy would: this proxy relays opaque bytes for whatever protocol the caller speaks, so it has
+   * no caller identity to check an allow list against and refuses rather than silently carrying
+   * traffic the tenant asked to be closed to.
+   */
+  @Test
+  @Timeout(15)
+  void a_deny_by_default_tenant_with_no_policies_makes_bifrost_refuse_to_proxy_its_service()
+      throws Exception {
+    ServiceEndpoint backend = startTaggedBackend("A");
+    source.put("orders", Optional.of("acme"), Set.of("orders-service"), 9109, List.of(backend));
+    MutableNetworkPolicySource policies = new MutableNetworkPolicySource();
+    policies.setDenyByDefaultTenantIds(Set.of("acme"));
+    proxy = new BifrostProxy(source, policies, Duration.ofMinutes(5));
+    proxy.pollOnce();
+    InetSocketAddress clusterAddress = proxy.boundAddressFor("orders").orElseThrow();
+
+    try (Socket socket = new Socket()) {
+      socket.connect(clusterAddress, 2000);
+      try (BufferedReader reader =
+          new BufferedReader(
+              new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+        assertEquals(null, reader.readLine());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(15)
+  void an_open_tenant_with_no_policies_is_proxied_normally() throws Exception {
+    ServiceEndpoint backend = startTaggedBackend("A");
+    source.put("orders", Optional.of("acme"), Set.of("orders-service"), 9110, List.of(backend));
+    MutableNetworkPolicySource policies = new MutableNetworkPolicySource();
+    policies.setDenyByDefaultTenantIds(Set.of("globex"));
+    proxy = new BifrostProxy(source, policies, Duration.ofMinutes(5));
+    proxy.pollOnce();
+
+    assertEquals("A", readTagFrom(proxy.boundAddressFor("orders").orElseThrow()));
   }
 }

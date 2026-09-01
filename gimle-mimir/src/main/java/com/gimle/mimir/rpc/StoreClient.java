@@ -231,6 +231,21 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return r.present() ? Optional.of(r.value()) : Optional.empty();
   }
 
+  /**
+   * Same query as {@link #getNetworkPolicy}, routed only to the current leader. A guarded write's
+   * own before-read needs this: a round-robin read can land on a lagging replica and report an
+   * older version, letting an {@code expectedVersion} check pass against a policy someone else has
+   * already moved on. Ordinary reads stay round-robin -- only the write path's check needs the
+   * stronger guarantee.
+   */
+  public Optional<NetworkPolicySpec> getNetworkPolicyLinearizable(String tenantId, String name) {
+    StoreRpc.NetworkPolicyResult r =
+        (StoreRpc.NetworkPolicyResult)
+            sendLeaderOnly(
+                "getNetworkPolicyLinearizable", new StoreRpc.GetNetworkPolicy(tenantId, name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
   public List<NetworkPolicySpec> listNetworkPolicies() {
     return ((StoreRpc.NetworkPolicyListResult) sendRead(new StoreRpc.ListNetworkPolicies()))
         .values();

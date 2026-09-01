@@ -29,7 +29,9 @@ import com.gimle.controlplane.galdr.GaldrJson;
 import com.gimle.controlplane.galdr.GaldrKinds;
 import com.gimle.controlplane.galdr.KindDefinitionParser;
 import com.gimle.controlplane.muninn.MuninnClient;
+import com.gimle.controlplane.networkpolicy.NetworkPolicyPatch;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyRegistry;
+import com.gimle.controlplane.networkpolicy.NetworkPolicyWriteResult;
 import com.gimle.controlplane.pki.BootstrapTokenRegistry;
 import com.gimle.controlplane.pki.CaKeyMaterial;
 import com.gimle.controlplane.pki.PendingCsrStore;
@@ -78,6 +80,7 @@ import com.gimle.core.session.SessionKeyFileManager;
 import com.gimle.core.session.SessionTokens;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.core.tenant.TenantIsolationPosture;
 import com.gimle.core.throttle.LoginThrottle;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -411,7 +414,7 @@ public final class ApiServer implements AutoCloseable {
     this.cronJobReconciler =
         new CronJobReconciler(storeClient, storeClient, Clock.systemUTC(), this.artifactResolver);
     this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
-    this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient, storeClient);
+    this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient);
     this.alertRuleRegistry = new AlertRuleRegistry(storeClient, storeClient);
     this.configMapStore = new ConfigMapStore(storeClient);
     this.configVersionStore = new ConfigVersionStore(storeClient);
@@ -487,6 +490,8 @@ public final class ApiServer implements AutoCloseable {
         "/networkpolicies/", instrument("networkpolicies", this::handleNetworkPolicy));
     target.createContext(
         "/networkpolicies", instrument("networkpolicies", this::handleNetworkPoliciesCollection));
+    target.createContext(
+        "/networkpostures", instrument("networkpostures", this::handleNetworkPosturesList));
     target.createContext("/alertrules/", instrument("alertrules", this::handleAlertRule));
     target.createContext("/alertrules", instrument("alertrules", this::handleAlertRulesCollection));
     target.createContext("/configmaps/", instrument("configmaps", this::handleConfigMap));
@@ -2034,6 +2039,8 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
 
+    OptionalInt expectedVersion = optionalIntField(body, "expectedVersion");
+
     // No re-tenanting guard needed here, for the same reason handlePostService's own no longer
     // needs one: a PUT always targets the submitted tenant's own (tenantId, name) key, so it can
     // never overwrite a different tenant's same-named NetworkPolicy.
@@ -2048,9 +2055,143 @@ public final class ApiServer implements AutoCloseable {
               serviceInterfaceNames,
               allowedCallerTenantIds,
               allowedCalleeTenantIds);
-      networkPolicyRegistry.put(spec);
-      respond(exchange, 200, "ok");
+      if (rejectUnknownAllowListTenants(exchange, spec.referencedTenantIds())) {
+        return;
+      }
+      respondNetworkPolicyWrite(exchange, networkPolicyRegistry.put(spec, expectedVersion));
     }
+  }
+
+  /**
+   * {@code PATCH /networkpolicies/{name}?tenant=<id>}: adds/removes individual allow-list tenants
+   * and replaces the scoping sets, leaving everything else exactly as stored. Body {@code
+   * {expectedVersion, addAllowedCallerTenantIds?, removeAllowedCallerTenantIds?,
+   * addAllowedCalleeTenantIds?, removeAllowedCalleeTenantIds?, deploymentNames?,
+   * serviceInterfaceNames?}}. {@code expectedVersion} is required and has no "unconditional"
+   * spelling, unlike {@code POST}'s -- a merge onto a base the caller never read is precisely the
+   * lost update this route exists to make impossible.
+   */
+  private void handlePatchNetworkPolicy(HttpExchange exchange, String tenant, String name)
+      throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    OptionalInt expectedVersion = optionalIntField(body, "expectedVersion");
+    if (expectedVersion.isEmpty()) {
+      respond(exchange, 400, "PATCH requires an 'expectedVersion' field");
+      return;
+    }
+    NetworkPolicyPatch patch =
+        new NetworkPolicyPatch(
+            tenantSetFromJson(body.get("addAllowedCallerTenantIds"), "addAllowedCallerTenantIds"),
+            tenantSetFromJson(
+                body.get("removeAllowedCallerTenantIds"), "removeAllowedCallerTenantIds"),
+            tenantSetFromJson(body.get("addAllowedCalleeTenantIds"), "addAllowedCalleeTenantIds"),
+            tenantSetFromJson(
+                body.get("removeAllowedCalleeTenantIds"), "removeAllowedCalleeTenantIds"),
+            presentMeansReplace(body.get("deploymentNames"), "deploymentNames"),
+            presentMeansReplace(body.get("serviceInterfaceNames"), "serviceInterfaceNames"));
+    if (patch.isEmpty()) {
+      respond(exchange, 400, "PATCH must change at least one field");
+      return;
+    }
+    if (rejectUnknownAllowListTenants(exchange, patch.addedTenantIds())) {
+      return;
+    }
+    respondNetworkPolicyWrite(
+        exchange, networkPolicyRegistry.patch(tenant, name, expectedVersion.getAsInt(), patch));
+  }
+
+  private void respondNetworkPolicyWrite(HttpExchange exchange, NetworkPolicyWriteResult result)
+      throws IOException {
+    switch (result) {
+      case NetworkPolicyWriteResult.Written written ->
+          respondJson(exchange, 200, networkPolicyToJson(written.spec(), knownTenantIds()));
+      case NetworkPolicyWriteResult.VersionConflict conflict -> {
+        Set<String> known = knownTenantIds();
+        Map<String, Object> conflictBody = new LinkedHashMap<>();
+        conflictBody.put("currentVersion", conflict.currentVersion());
+        conflict
+            .current()
+            .ifPresent(current -> conflictBody.put("current", networkPolicyToJson(current, known)));
+        respondJson(exchange, 409, conflictBody);
+      }
+      case NetworkPolicyWriteResult.NotFound ignored ->
+          respond(exchange, 404, "no such network policy to patch");
+      case NetworkPolicyWriteResult.WriteContention contention ->
+          respond(
+              exchange,
+              409,
+              "too many concurrent writers to this network policy ("
+                  + contention.attempts()
+                  + " attempts)");
+    }
+  }
+
+  /**
+   * Rejects a write naming a tenant that does not exist in either direction's allow list. Checked
+   * here rather than in {@link NetworkPolicySpec}'s own constructor, which validates the shape of
+   * what it is handed and has no registry to ask. A typo'd or long-gone tenant id would otherwise
+   * be stored as a rule that can never match anything, with nothing anywhere telling the operator
+   * so.
+   *
+   * <p>Only a write is rejected. A tenant deleted <em>after</em> a valid policy was written leaves
+   * a dangling reference, surfaced as an advisory on every read of that policy (see {@link
+   * #networkPolicyToJson}) and logged when the tenant is deleted -- never by retroactively voiding
+   * a stored policy, which would silently widen it at the exact moment a tenant disappeared.
+   */
+  private boolean rejectUnknownAllowListTenants(HttpExchange exchange, Set<String> referenced)
+      throws IOException {
+    if (referenced.isEmpty()) {
+      return false;
+    }
+    Set<String> known = knownTenantIds();
+    List<String> unknown = referenced.stream().filter(id -> !known.contains(id)).sorted().toList();
+    if (unknown.isEmpty()) {
+      return false;
+    }
+    respond(exchange, 400, "no such tenant(s) in this policy's allow list: " + unknown);
+    return true;
+  }
+
+  private Set<String> knownTenantIds() {
+    Set<String> ids = new LinkedHashSet<>();
+    for (Tenant tenant : storeClient.listTenants()) {
+      ids.add(tenant.id());
+    }
+    return ids;
+  }
+
+  /** A patch's allow-list edit: a missing field edits nothing in that direction. */
+  private static Set<String> tenantSetFromJson(Object rawValue, String field) {
+    if (rawValue == null) {
+      return Set.of();
+    }
+    if (!(rawValue instanceof List<?> rawTenants)) {
+      throw new IllegalArgumentException(field + " must be a JSON array");
+    }
+    Set<String> tenants = new LinkedHashSet<>();
+    for (Object rawTenant : rawTenants) {
+      tenants.add(String.valueOf(rawTenant));
+    }
+    return tenants;
+  }
+
+  /**
+   * A patch's scoping replacement: a missing field leaves the stored scoping alone, a present
+   * (possibly empty) array replaces it -- an empty one widening the policy back to the whole
+   * tenant.
+   */
+  private static Optional<Set<String>> presentMeansReplace(Object rawValue, String field) {
+    if (rawValue == null) {
+      return Optional.empty();
+    }
+    if (!(rawValue instanceof List<?> rawNames)) {
+      throw new IllegalArgumentException(field + " must be a JSON array");
+    }
+    Set<String> names = new LinkedHashSet<>();
+    for (Object rawName : rawNames) {
+      names.add(String.valueOf(rawName));
+    }
+    return Optional.of(names);
   }
 
   /** A scoping set (deployments, service interfaces): empty or missing both mean unscoped. */
@@ -2104,10 +2245,7 @@ public final class ApiServer implements AutoCloseable {
     respondJson(
         exchange,
         200,
-        networkPolicyRegistry.list().stream()
-            .filter(spec -> readableTenant.get().test(Optional.of(spec.tenantId())))
-            .map(ApiServer::networkPolicyToJson)
-            .toList());
+        networkPolicyList(readableTenant.get()));
   }
 
   /**
@@ -2133,6 +2271,13 @@ public final class ApiServer implements AutoCloseable {
           if (requireAuthorized(
               exchange, ResourceKind.NETWORK_POLICY, Verb.READ, Optional.of(tenant))) {
             handleGetNetworkPolicy(exchange, tenant, name);
+          }
+        }
+        case "PATCH" -> {
+          if (requireAuthorized(
+              exchange, ResourceKind.NETWORK_POLICY, Verb.WRITE, Optional.of(tenant))
+              && !rejectIfReservedSystemTenant(exchange, Optional.of(tenant))) {
+            handlePatchNetworkPolicy(exchange, tenant, name);
           }
         }
         case "DELETE" -> {
@@ -2161,7 +2306,60 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 404, "no such network policy: " + name);
       return;
     }
-    respondJson(exchange, 200, networkPolicyToJson(spec.get()));
+    respondJson(exchange, 200, networkPolicyToJson(spec.get(), knownTenantIds()));
+  }
+
+  /**
+   * One store read of the tenant set for the whole listing, rather than one per policy: the
+   * dangling-reference advisory below needs the same answer for every row.
+   */
+  private List<Map<String, Object>> networkPolicyList(Predicate<Optional<String>> readableTenant) {
+    Set<String> known = knownTenantIds();
+    return networkPolicyRegistry.list().stream()
+        .filter(spec -> readableTenant.test(Optional.of(spec.tenantId())))
+        .map(spec -> networkPolicyToJson(spec, known))
+        .toList();
+  }
+
+  /**
+   * {@code GET /networkpostures}: every readable tenant's declared cross-tenant isolation posture.
+   * A separate route from {@code /tenants} because a node agent polls this on every tick to relay
+   * it to its workers alongside the policy set, and a node has an unscoped read grant on network
+   * policies but deliberately none on tenants -- the posture is network-policy data derived from
+   * the tenant record, not the tenant record itself, and is gated as such.
+   */
+  private void handleNetworkPosturesList(HttpExchange exchange) {
+    try {
+      Optional<Predicate<Optional<String>>> readableTenant =
+          requireListAuthorized(exchange, ResourceKind.NETWORK_POLICY);
+      if (readableTenant.isEmpty()) {
+        return;
+      }
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(
+          exchange,
+          200,
+          storeClient.listTenants().stream()
+              .filter(tenant -> readableTenant.get().test(Optional.of(tenant.id())))
+              .map(
+                  tenant ->
+                      Map.<String, Object>of(
+                          "tenantId",
+                          tenant.id(),
+                          "isolationPosture",
+                          tenant.isolationPosture().name()))
+              .toList());
+    } catch (GimleRaftException e) {
+      respondStoreUnavailable(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("network postures list request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
   }
 
   /**
@@ -2171,11 +2369,19 @@ public final class ApiServer implements AutoCloseable {
    * NetworkPolicySpec}'s own {@code Optional.empty()} does. The two direction sets serialize only
    * when present, because for them "absent" (no restriction) and "empty" (deny every cross-tenant
    * peer) are distinct states.
+   *
+   * <p>{@code danglingTenantIds} is an advisory, present only when non-empty: allow-list tenants
+   * that were real when the policy was written and have since been deleted. The policy itself is
+   * left exactly as stored -- dropping the reference would silently change what the policy allows
+   * at the moment a tenant disappeared, and a tenant id can be recreated -- so this reports the
+   * condition to an operator instead of acting on it.
    */
-  private static Map<String, Object> networkPolicyToJson(NetworkPolicySpec spec) {
+  private static Map<String, Object> networkPolicyToJson(
+      NetworkPolicySpec spec, Set<String> knownTenantIds) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("name", spec.name());
     map.put("tenantId", spec.tenantId());
+    map.put("version", spec.version());
     map.put("deploymentNames", spec.deploymentNames().map(List::copyOf).orElse(List.of()));
     map.put(
         "serviceInterfaceNames", spec.serviceInterfaceNames().map(List::copyOf).orElse(List.of()));
@@ -2183,6 +2389,14 @@ public final class ApiServer implements AutoCloseable {
         .ifPresent(tenants -> map.put("allowedCallerTenantIds", List.copyOf(tenants)));
     spec.allowedCalleeTenantIds()
         .ifPresent(tenants -> map.put("allowedCalleeTenantIds", List.copyOf(tenants)));
+    List<String> dangling =
+        spec.referencedTenantIds().stream()
+            .filter(id -> !knownTenantIds.contains(id))
+            .sorted()
+            .toList();
+    if (!dangling.isEmpty()) {
+      map.put("danglingTenantIds", dangling);
+    }
     return map;
   }
 
@@ -4096,6 +4310,13 @@ public final class ApiServer implements AutoCloseable {
     }
   }
 
+  /**
+   * Omitting {@code isolationPosture} keeps whatever posture the tenant already has, and defaults a
+   * brand-new tenant to {@link TenantIsolationPosture#OPEN}. Deliberately not a full replace for
+   * this one field: every other field here is a quota an operator edits routinely, and a quota
+   * bump that silently reopened a tenant an operator had closed would be a security regression
+   * caused by an unrelated edit.
+   */
   private void handlePutTenant(HttpExchange exchange, String id) throws IOException {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
     Map<?, ?> quotaMap = (Map<?, ?>) body.get("quota");
@@ -4104,8 +4325,33 @@ public final class ApiServer implements AutoCloseable {
             ((Number) quotaMap.get("maxMemoryBytes")).longValue(),
             ((Number) quotaMap.get("maxCpuMillicores")).longValue(),
             ((Number) quotaMap.get("maxInstances")).intValue());
-    storeClient.propose(new StateMutation.PutTenant(new Tenant(id, quota)));
+    Optional<TenantIsolationPosture> submitted = parseIsolationPosture(body.get("isolationPosture"));
+    TenantIsolationPosture posture =
+        submitted.orElseGet(
+            () ->
+                storeClient
+                    .getTenant(id)
+                    .map(Tenant::isolationPosture)
+                    .orElse(TenantIsolationPosture.OPEN));
+    storeClient.propose(new StateMutation.PutTenant(new Tenant(id, quota, posture)));
     respond(exchange, 200, "ok");
+  }
+
+  private static Optional<TenantIsolationPosture> parseIsolationPosture(Object rawValue) {
+    if (rawValue == null) {
+      return Optional.empty();
+    }
+    String text = String.valueOf(rawValue);
+    for (TenantIsolationPosture candidate : TenantIsolationPosture.values()) {
+      if (candidate.name().equalsIgnoreCase(text)) {
+        return Optional.of(candidate);
+      }
+    }
+    throw new IllegalArgumentException(
+        "isolationPosture must be one of "
+            + Arrays.toString(TenantIsolationPosture.values())
+            + ", got: "
+            + text);
   }
 
   private void handleGetTenant(HttpExchange exchange, String id) throws IOException {
@@ -4117,8 +4363,27 @@ public final class ApiServer implements AutoCloseable {
     respondJson(exchange, 200, tenantToJson(tenant.get()));
   }
 
+  /**
+   * Deleting a tenant other policies name in their allow lists is permitted, but never silent: the
+   * references it leaves behind are logged here and reported as {@code danglingTenantIds} on every
+   * later read of the affected policies. Rewriting those policies instead would change what they
+   * allow without anyone asking for that, and a tenant id can legitimately be recreated later.
+   */
   private void handleDeleteTenant(HttpExchange exchange, String id) throws IOException {
     storeClient.propose(new StateMutation.RemoveTenant(id));
+    List<String> dangling =
+        networkPolicyRegistry.list().stream()
+            .filter(spec -> spec.referencedTenantIds().contains(id))
+            .map(spec -> spec.tenantId() + "/" + spec.name())
+            .sorted()
+            .toList();
+    if (!dangling.isEmpty()) {
+      log.warn(
+          "deleted tenant {} is still named in the allow list of network policies {};"
+              + " those rules can no longer match anything",
+          id,
+          dangling);
+    }
     respond(exchange, 200, "ok");
   }
 
@@ -4997,6 +5262,7 @@ public final class ApiServer implements AutoCloseable {
     quota.put("maxCpuMillicores", tenant.quota().maxCpuMillicores());
     quota.put("maxInstances", tenant.quota().maxInstances());
     map.put("quota", quota);
+    map.put("isolationPosture", tenant.isolationPosture().name());
     TenantUsage.Usage usage =
         TenantUsage.currentlyAssigned(storeClient, artifactResolver, tenant.id(), Optional.empty());
     Map<String, Object> usageJson = new LinkedHashMap<>();

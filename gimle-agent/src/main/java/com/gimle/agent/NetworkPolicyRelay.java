@@ -1,11 +1,10 @@
 package com.gimle.agent;
 
+import com.gimle.agent.networkpolicy.NetworkPolicySnapshot;
 import com.gimle.agent.networkpolicy.NetworkPolicySource;
 import com.gimle.core.protocol.ControlMessage;
-import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.IOException;
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -21,7 +20,9 @@ import org.slf4j.LoggerFactory;
  * CatalogUpdate}/{@code ConfigDelivered} traffic on -- a worker has no outbound network identity of
  * its own to poll the control plane directly (see {@code ModuleContext}'s own javadoc). Deciding
  * which relayed rules actually apply to which locally-hosted module is the receiving {@code
- * FabricServer}'s job, not this relay's -- it always ships the full set unfiltered. Level-triggered
+ * FabricServer}'s job, not this relay's -- it always ships the full set unfiltered. Each relayed
+ * message also carries the tenants whose declared posture closes them to traffic no rule covers,
+ * since a worker can only decide an uncovered call correctly while holding both halves at once. Level-triggered
  * like {@code BifrostProxy}: each poll relays whatever the source reports right now in full, not a
  * diff against a remembered previous poll, so a missed or failed tick self-heals on the next one
  * instead of leaving a worker's cached policy set stale.
@@ -77,9 +78,9 @@ final class NetworkPolicyRelay implements AutoCloseable {
    * the same reason {@code BifrostProxy#pollOnce} is public.
    */
   synchronized void pollOnce() {
-    List<NetworkPolicyRule> rules;
+    NetworkPolicySnapshot snapshot;
     try {
-      rules = source.fetchPolicies();
+      snapshot = source.fetchPolicies();
     } catch (IOException | InterruptedException e) {
       if (e instanceof InterruptedException) {
         Thread.currentThread().interrupt();
@@ -87,7 +88,9 @@ final class NetworkPolicyRelay implements AutoCloseable {
       log.warn("failed to poll network policies: {}", e.getMessage());
       return;
     }
-    ControlMessage update = new ControlMessage.NetworkPoliciesUpdated(rules);
+    ControlMessage update =
+        new ControlMessage.NetworkPoliciesUpdated(
+            snapshot.rules(), snapshot.denyByDefaultTenantIds());
     for (SupervisedInstance instance : supervised.values()) {
       WorkerConnection connection = instance.connection;
       if (connection != null) {

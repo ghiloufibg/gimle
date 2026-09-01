@@ -3,6 +3,7 @@ package com.gimle.agent.bifrost;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import com.gimle.agent.networkpolicy.NetworkPolicySnapshot;
 import com.gimle.agent.networkpolicy.NetworkPolicySource;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import com.gimle.core.tls.SslContexts;
@@ -264,14 +265,19 @@ class BifrostLiveConnectionPolicyTest {
   /** A mutable {@code NetworkPolicySource} fake, matching the one in {@code BifrostProxyTest}. */
   private static final class MutableNetworkPolicySource implements NetworkPolicySource {
     private volatile List<NetworkPolicyRule> rules = List.of();
+    private volatile Set<String> denyByDefaultTenantIds = Set.of();
 
     void set(List<NetworkPolicyRule> newRules) {
       this.rules = newRules;
     }
 
+    void setDenyByDefaultTenantIds(Set<String> newTenantIds) {
+      this.denyByDefaultTenantIds = newTenantIds;
+    }
+
     @Override
-    public List<NetworkPolicyRule> fetchPolicies() {
-      return rules;
+    public NetworkPolicySnapshot fetchPolicies() {
+      return new NetworkPolicySnapshot(rules, denyByDefaultTenantIds);
     }
   }
 }

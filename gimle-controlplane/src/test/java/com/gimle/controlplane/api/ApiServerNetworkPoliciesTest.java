@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.protocol.Json;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import java.io.IOException;
 import java.net.URI;
@@ -14,8 +17,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +61,16 @@ class ApiServerNetworkPoliciesTest {
     server.start();
     baseUrl = "http://localhost:" + server.port();
     client = HttpClient.newHttpClient();
+    // A policy's allow list is validated against the real tenant registry, so the tenants these
+    // scenarios name have to exist before a policy may name them.
+    for (String tenantId :
+        List.of("partner-tenant", "partner-a", "partner-b", "partner-c", "closed-tenant",
+            "odd-tenant")) {
+      inProcessStore.client().propose(new StateMutation.PutTenant(new Tenant(tenantId, QUOTA)));
+    }
   }
+
+  private static final ResourceQuota QUOTA = new ResourceQuota(1024L * 1024, 1000, 5);
 
   @AfterEach
   void stopServer() {
@@ -310,5 +324,210 @@ class ApiServerNetworkPoliciesTest {
                 .build());
     Map<String, Object> spec = Json.asObject(Json.parse(get.body()));
     assertEquals(List.of("orders-service"), spec.get("deploymentNames"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_policy_naming_a_tenant_that_does_not_exist_is_a_400() throws Exception {
+    HttpResponse<String> response =
+        post("/networkpolicies", tenantWidePolicyJson("typo", "acme", "no-such-tenant"));
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("no-such-tenant"), response.body());
+    assertEquals(404, get("/networkpolicies/typo?tenant=acme").statusCode());
+  }
+
+  /**
+   * A tenant deleted after a valid policy was written leaves a dangling reference. The stored
+   * policy is deliberately left exactly as written -- rewriting it would change what it allows at
+   * the moment a tenant disappeared -- so the condition surfaces as an advisory on reads instead.
+   */
+  @Test
+  @Timeout(10)
+  void a_tenant_deleted_after_a_policy_named_it_shows_up_as_a_dangling_reference()
+      throws Exception {
+    post("/networkpolicies", tenantWidePolicyJson("policy", "acme", "partner-a", "partner-b"));
+
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/partner-a")).DELETE().build())
+            .statusCode());
+
+    Map<String, Object> spec =
+        Json.asObject(Json.parse(get("/networkpolicies/policy?tenant=acme").body()));
+    assertEquals(List.of("partner-a"), spec.get("danglingTenantIds"));
+    assertEquals(
+        Set.of("partner-a", "partner-b"), Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_post_guarded_by_a_stale_expected_version_is_a_409() throws Exception {
+    post("/networkpolicies", tenantWidePolicyJson("policy", "acme", "partner-a"));
+    post("/networkpolicies", tenantWidePolicyJson("policy", "acme", "partner-b"));
+
+    HttpResponse<String> stale =
+        post(
+            "/networkpolicies",
+            "{\"name\": \"policy\", \"tenantId\": \"acme\","
+                + " \"allowedCallerTenantIds\": [\"partner-c\"], \"expectedVersion\": 1}");
+
+    assertEquals(409, stale.statusCode());
+    Map<String, Object> conflict = Json.asObject(Json.parse(stale.body()));
+    assertEquals(2, ((Number) conflict.get("currentVersion")).intValue());
+    Map<String, Object> spec =
+        Json.asObject(Json.parse(get("/networkpolicies/policy?tenant=acme").body()));
+    assertEquals(List.of("partner-b"), spec.get("allowedCallerTenantIds"));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_patch_adds_one_caller_tenant_without_resending_the_whole_policy() throws Exception {
+    post("/networkpolicies", tenantWidePolicyJson("policy", "acme", "partner-a"));
+
+    HttpResponse<String> patched =
+        patch("/networkpolicies/policy?tenant=acme", addCallerPatch(1, "partner-b"));
+
+    assertEquals(200, patched.statusCode());
+    Map<String, Object> spec =
+        Json.asObject(Json.parse(get("/networkpolicies/policy?tenant=acme").body()));
+    assertEquals(
+        Set.of("partner-a", "partner-b"), Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
+    assertEquals(2, ((Number) spec.get("version")).intValue());
+  }
+
+  /**
+   * The lost update, at the API surface: the second operator read version 1, the first operator's
+   * edit landed in between, and the second write is refused rather than replacing the policy with
+   * one that has never heard of the first operator's addition.
+   */
+  @Test
+  @Timeout(10)
+  void a_patch_against_a_stale_version_is_a_409_and_the_other_edit_survives() throws Exception {
+    post("/networkpolicies", tenantWidePolicyJson("policy", "acme", "partner-a"));
+    assertEquals(
+        200,
+        patch("/networkpolicies/policy?tenant=acme", addCallerPatch(1, "partner-b")).statusCode());
+
+    HttpResponse<String> stale =
+        patch("/networkpolicies/policy?tenant=acme", addCallerPatch(1, "partner-c"));
+
+    assertEquals(409, stale.statusCode());
+    Map<String, Object> spec =
+        Json.asObject(Json.parse(get("/networkpolicies/policy?tenant=acme").body()));
+    assertEquals(
+        Set.of("partner-a", "partner-b"), Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
+  }
+
+  @Test
+  @Timeout(10)
+  void a_patch_without_an_expected_version_is_a_400() throws Exception {
+    post("/networkpolicies", tenantWidePolicyJson("policy", "acme", "partner-a"));
+
+    assertEquals(
+        400,
+        patch(
+                "/networkpolicies/policy?tenant=acme",
+                "{\"addAllowedCallerTenantIds\": [\"partner-b\"]}")
+            .statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_patch_naming_a_tenant_that_does_not_exist_is_a_400() throws Exception {
+    post("/networkpolicies", tenantWidePolicyJson("policy", "acme", "partner-a"));
+
+    assertEquals(
+        400,
+        patch("/networkpolicies/policy?tenant=acme", addCallerPatch(1, "no-such-tenant"))
+            .statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void a_patch_of_a_policy_that_does_not_exist_is_a_404() throws Exception {
+    assertEquals(
+        404,
+        patch("/networkpolicies/nope?tenant=acme", addCallerPatch(0, "partner-a")).statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void network_postures_reports_each_tenants_declared_isolation_posture() throws Exception {
+    assertEquals(200, putTenant("closed-tenant", ", \"isolationPosture\": \"DENY_BY_DEFAULT\""));
+
+    Map<String, Object> postures = posturesByTenant();
+
+    assertEquals("DENY_BY_DEFAULT", postures.get("closed-tenant"));
+    assertEquals("OPEN", postures.get("partner-a"));
+  }
+
+  /**
+   * A quota edit that says nothing about the posture must not reopen a tenant an operator closed --
+   * the field is preserved, not defaulted, on an update.
+   */
+  @Test
+  @Timeout(10)
+  void a_later_quota_edit_that_omits_the_posture_keeps_the_tenant_closed() throws Exception {
+    putTenant("closed-tenant", ", \"isolationPosture\": \"DENY_BY_DEFAULT\"");
+
+    putTenant("closed-tenant", "");
+
+    assertEquals("DENY_BY_DEFAULT", posturesByTenant().get("closed-tenant"));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_unrecognized_isolation_posture_is_a_400() throws Exception {
+    assertEquals(
+        400, putTenant("odd-tenant", ", \"isolationPosture\": \"SOMEWHAT_CLOSED\""));
+  }
+
+  private int putTenant(String tenantId, String extraFields) throws Exception {
+    String body =
+        "{\"quota\": {\"maxMemoryBytes\": 1048576, \"maxCpuMillicores\": 1000,"
+            + " \"maxInstances\": 5}"
+            + extraFields
+            + "}";
+    return send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + tenantId))
+                .PUT(HttpRequest.BodyPublishers.ofString(body))
+                .build())
+        .statusCode();
+  }
+
+  private static String addCallerPatch(int expectedVersion, String tenantId) {
+    return "{\"expectedVersion\": "
+        + expectedVersion
+        + ", \"addAllowedCallerTenantIds\": [\""
+        + tenantId
+        + "\"]}";
+  }
+
+  private Map<String, Object> posturesByTenant() throws Exception {
+    Map<String, Object> byTenant = new LinkedHashMap<>();
+    for (Object entry : Json.asArray(Json.parse(get("/networkpostures").body()))) {
+      Map<String, Object> posture = Json.asObject(entry);
+      byTenant.put((String) posture.get("tenantId"), posture.get("isolationPosture"));
+    }
+    return byTenant;
+  }
+
+  private HttpResponse<String> post(String path, String body) throws Exception {
+    return send(
+        HttpRequest.newBuilder(URI.create(baseUrl + path))
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .build());
+  }
+
+  private HttpResponse<String> patch(String path, String body) throws Exception {
+    return send(
+        HttpRequest.newBuilder(URI.create(baseUrl + path))
+            .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
+            .build());
+  }
+
+  private HttpResponse<String> get(String path) throws Exception {
+    return send(HttpRequest.newBuilder(URI.create(baseUrl + path)).GET().build());
   }
 }

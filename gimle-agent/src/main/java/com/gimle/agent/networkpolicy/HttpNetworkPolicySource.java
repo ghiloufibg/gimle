@@ -37,19 +37,13 @@ public final class HttpNetworkPolicySource implements NetworkPolicySource {
   }
 
   @Override
-  public List<NetworkPolicyRule> fetchPolicies() throws IOException, InterruptedException {
-    HttpRequest request =
-        HttpRequest.newBuilder(controlPlaneBaseUrl.resolve("/networkpolicies"))
-            .timeout(REQUEST_TIMEOUT)
-            .GET()
-            .build();
-    HttpResponse<String> response =
-        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-    if (response.statusCode() != 200) {
-      throw GimleClusterException.unexpectedHttpStatus(
-          "list network policies", response.statusCode(), response.body());
-    }
-    List<Object> raw = Json.asArray(Json.parse(response.body()));
+  public NetworkPolicySnapshot fetchPolicies() throws IOException, InterruptedException {
+    return new NetworkPolicySnapshot(fetchRules(), fetchDenyByDefaultTenantIds());
+  }
+
+  private List<NetworkPolicyRule> fetchRules() throws IOException, InterruptedException {
+    List<Object> raw =
+        Json.asArray(Json.parse(get("/networkpolicies", "list network policies")));
     List<NetworkPolicyRule> rules = new ArrayList<>(raw.size());
     for (Object entryValue : raw) {
       Map<String, Object> entry = Json.asObject(entryValue);
@@ -68,6 +62,39 @@ public final class HttpNetworkPolicySource implements NetworkPolicySource {
               absentMeansUnrestricted(entry.get("allowedCalleeTenantIds"))));
     }
     return rules;
+  }
+
+  /**
+   * The tenants currently declaring {@code DENY_BY_DEFAULT}. Read from its own route rather than
+   * {@code /tenants} because a node agent holds an unscoped read grant on network policies and
+   * deliberately none on tenants -- a posture is network-policy data derived from the tenant
+   * record, and is served and gated as such.
+   */
+  private Set<String> fetchDenyByDefaultTenantIds() throws IOException, InterruptedException {
+    Set<String> denying = new LinkedHashSet<>();
+    for (Object entryValue :
+        Json.asArray(Json.parse(get("/networkpostures", "list network postures")))) {
+      Map<String, Object> entry = Json.asObject(entryValue);
+      if ("DENY_BY_DEFAULT".equals(entry.get("isolationPosture"))) {
+        denying.add((String) entry.get("tenantId"));
+      }
+    }
+    return denying;
+  }
+
+  private String get(String path, String what) throws IOException, InterruptedException {
+    HttpRequest request =
+        HttpRequest.newBuilder(controlPlaneBaseUrl.resolve(path))
+            .timeout(REQUEST_TIMEOUT)
+            .GET()
+            .build();
+    HttpResponse<String> response =
+        httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    if (response.statusCode() != 200) {
+      throw GimleClusterException.unexpectedHttpStatus(
+          what, response.statusCode(), response.body());
+    }
+    return response.body();
   }
 
   private static Optional<Set<String>> emptyMeansUnscoped(Object jsonArray) {
