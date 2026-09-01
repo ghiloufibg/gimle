@@ -67,6 +67,10 @@ gimle get networkpolicies [name] [--tenant <id>]
 gimle set networkpolicy <name> --tenant <id> [--deployment ...] [--service-interface ...]
                                 [--allowed-caller-tenant <id> ... | --deny-all-callers]
                                 [--allowed-callee-tenant <id> ... | --deny-all-callees]
+gimle set networkpolicy <name> --tenant <id> [--add-allowed-caller-tenant <id> ...]
+                                [--remove-allowed-caller-tenant <id> ...]
+                                [--add-allowed-callee-tenant <id> ...]
+                                [--remove-allowed-callee-tenant <id> ...]
 gimle delete networkpolicy <name> --tenant <id>
 gimle get alertrules [name] [--tenant <id>]
 gimle set alertrule <name> --deployment <name> --metric <METRIC> --comparator <GREATER_THAN|LESS_THAN>
@@ -74,6 +78,7 @@ gimle set alertrule <name> --deployment <name> --metric <METRIC> --comparator <G
 gimle delete alertrule <name> [--tenant <id>]
 gimle get tenants [id]
 gimle set tenant <id> --max-memory-bytes N --max-cpu-millicores N --max-instances N
+                       [--isolation-posture OPEN|DENY_BY_DEFAULT]
 gimle delete tenant <id>
 gimle get limitranges [tenantId]
 gimle set limitrange <tenantId> [--min-request-memory M --min-request-cpu M]
@@ -522,6 +527,14 @@ gimle set service orders-web --deployment orders-service-deployment --port 8080 
 gimle service endpoints orders-web --server 127.0.0.1:8080
 gimle set networkpolicy orders-policy --tenant orders-platform --allowed-caller-tenant billing --server 127.0.0.1:8080
 
+# Add or drop one caller without restating the whole allow list. The whole-list form above
+# replaces every field it omits, so reconstructing a policy client-side to change one entry can
+# silently un-scope it -- and two operators doing that concurrently lose one edit. These flags
+# read, amend and write under a version guard instead, so a concurrent edit is refused rather
+# than overwritten.
+gimle set networkpolicy orders-policy --tenant orders-platform --add-allowed-caller-tenant analytics --server 127.0.0.1:8080
+gimle set networkpolicy orders-policy --tenant orders-platform --remove-allowed-caller-tenant billing --server 127.0.0.1:8080
+
 # Who deleted the acme tenant's secrets in the last hour -- allowed and denied attempts alike
 gimle audit list --tenant acme --resource SECRET --since 1712000000000 --server 127.0.0.1:8080
 
@@ -553,6 +566,12 @@ gimle apply -f artifactset.yaml --server 127.0.0.1:8080
 
 # Per-tenant resource caps
 gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10
+
+# A tenant's baseline stance on inbound cross-tenant fabric calls before any NetworkPolicy names
+# it. OPEN (the default) means an empty policy set permits; DENY_BY_DEFAULT means an empty policy
+# set denies, so a freshly provisioned tenant is closed from the moment it exists rather than
+# staying open until someone remembers to write its first policy.
+gimle set tenant acme --max-memory-bytes 536870912 --max-cpu-millicores 2000 --max-instances 10 --isolation-posture DENY_BY_DEFAULT
 
 # Bound what any single deployment in acme may request/limit
 gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m --max-limit-memory 512Mi --max-limit-cpu 500m
