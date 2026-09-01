@@ -585,7 +585,8 @@ class AgentMainTest {
         assignedInstance("consumer-deployment", newDescriptor, Optional.of("acme"));
 
     Optional<SupervisedInstance> reusable =
-        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+        AgentMain.findReusableTier1Worker(
+            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
 
     assertTrue(reusable.isPresent());
     assertEquals(existing, reusable.get());
@@ -607,7 +608,8 @@ class AgentMainTest {
         assignedInstance("dedicated-deployment", tier2Descriptor, Optional.empty());
 
     Optional<SupervisedInstance> reusable =
-        AgentMain.findReusableTier1Worker(tier2Assigned, tier2Descriptor, supervised);
+        AgentMain.findReusableTier1Worker(
+            tier2Assigned, tier2Descriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
 
     assertFalse(reusable.isPresent());
   }
@@ -628,7 +630,8 @@ class AgentMainTest {
         assignedInstance("consumer-deployment", newDescriptor, Optional.of("other-tenant"));
 
     Optional<SupervisedInstance> reusable =
-        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+        AgentMain.findReusableTier1Worker(
+            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
 
     assertFalse(reusable.isPresent());
   }
@@ -649,7 +652,8 @@ class AgentMainTest {
         assignedInstance("consumer-deployment", newDescriptor, Optional.empty());
 
     Optional<SupervisedInstance> reusable =
-        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+        AgentMain.findReusableTier1Worker(
+            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
 
     assertTrue(reusable.isPresent());
   }
@@ -671,7 +675,8 @@ class AgentMainTest {
             "greeter-deployment", 1, descriptor.id(), "/does/not/matter.jar", Optional.empty());
 
     Optional<SupervisedInstance> reusable =
-        AgentMain.findReusableTier1Worker(replicaOne, descriptor, supervised);
+        AgentMain.findReusableTier1Worker(
+            replicaOne, descriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
 
     assertFalse(reusable.isPresent());
   }
@@ -680,8 +685,8 @@ class AgentMainTest {
   void a_worker_at_the_density_cap_is_not_reused() {
     WorkerConnection sharedConnection = fakeConnection();
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
-    // Fill the shared worker up to MAX_TIER1_DENSITY (4) with four distinct modules.
-    for (int i = 0; i < 4; i++) {
+    // Fill the shared worker up to the default density cap with that many distinct modules.
+    for (int i = 0; i < AgentMain.DEFAULT_MAX_TIER1_DENSITY; i++) {
       ModuleDescriptor occupantDescriptor = descriptor("occupant-" + i, IsolationTier.TIER_1);
       AssignedInstance occupantAssigned =
           assignedInstance("occupant-" + i + "-deployment", occupantDescriptor, Optional.empty());
@@ -695,7 +700,8 @@ class AgentMainTest {
         assignedInstance("one-too-many-deployment", newDescriptor, Optional.empty());
 
     Optional<SupervisedInstance> reusable =
-        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+        AgentMain.findReusableTier1Worker(
+            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
 
     assertFalse(reusable.isPresent());
   }
@@ -715,9 +721,79 @@ class AgentMainTest {
         assignedInstance("consumer-deployment", newDescriptor, Optional.empty());
 
     Optional<SupervisedInstance> reusable =
-        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised);
+        AgentMain.findReusableTier1Worker(
+            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
 
     assertFalse(reusable.isPresent());
+  }
+
+  // ---- Tier 1 density: the gimle.agent.maxTier1Density knob ----
+
+  @Test
+  void an_unset_density_property_keeps_the_documented_default() {
+    assertEquals(AgentMain.DEFAULT_MAX_TIER1_DENSITY, AgentMain.parseMaxTier1Density(null));
+    assertEquals(AgentMain.DEFAULT_MAX_TIER1_DENSITY, AgentMain.parseMaxTier1Density("  "));
+  }
+
+  @Test
+  void a_configured_density_is_honoured_verbatim() {
+    assertEquals(12, AgentMain.parseMaxTier1Density("12"));
+    assertEquals(1, AgentMain.parseMaxTier1Density(" 1 "));
+  }
+
+  @Test
+  void a_zero_or_negative_density_is_rejected_at_startup() {
+    // A silently-ignored setting is worse than a startup failure: the operator meant to change
+    // the packing behavior and would have no way to tell that nothing happened.
+    assertThrows(IllegalArgumentException.class, () -> AgentMain.parseMaxTier1Density("0"));
+    assertThrows(IllegalArgumentException.class, () -> AgentMain.parseMaxTier1Density("-3"));
+  }
+
+  @Test
+  void a_non_numeric_density_is_rejected_at_startup() {
+    assertThrows(IllegalArgumentException.class, () -> AgentMain.parseMaxTier1Density("dense"));
+  }
+
+  @Test
+  void a_density_of_one_disables_packing_entirely() {
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor existingDescriptor = descriptor("provider", IsolationTier.TIER_1);
+    AssignedInstance existingAssigned =
+        assignedInstance("provider-deployment", existingDescriptor, Optional.empty());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "provider-deployment#0",
+        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection));
+
+    ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
+    AssignedInstance newAssigned =
+        assignedInstance("consumer-deployment", newDescriptor, Optional.empty());
+
+    assertFalse(
+        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised, 1).isPresent());
+  }
+
+  @Test
+  void a_raised_density_packs_past_what_the_default_would_have_allowed() {
+    WorkerConnection sharedConnection = fakeConnection();
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    for (int i = 0; i < AgentMain.DEFAULT_MAX_TIER1_DENSITY; i++) {
+      ModuleDescriptor occupantDescriptor = descriptor("occupant-" + i, IsolationTier.TIER_1);
+      AssignedInstance occupantAssigned =
+          assignedInstance("occupant-" + i + "-deployment", occupantDescriptor, Optional.empty());
+      supervised.put(
+          "occupant-" + i + "-deployment#0",
+          supervisedInstance(occupantAssigned, occupantDescriptor, sharedConnection));
+    }
+
+    ModuleDescriptor newDescriptor = descriptor("one-more", IsolationTier.TIER_1);
+    AssignedInstance newAssigned =
+        assignedInstance("one-more-deployment", newDescriptor, Optional.empty());
+
+    assertTrue(
+        AgentMain.findReusableTier1Worker(
+                newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY + 1)
+            .isPresent());
   }
 
   // ---- requiresReplacement: a rolling update's moduleId/artifactPath change at a fixed key ----

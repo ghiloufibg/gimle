@@ -6,6 +6,7 @@ import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.mimir.authz.CertificateRotationAuditor;
 import com.gimle.mimir.health.StoreHealthServer;
 import com.gimle.mimir.raft.PeerAddress;
 import com.gimle.mimir.raft.PeerConnection;
@@ -17,15 +18,18 @@ import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreRpcHandler;
 import com.gimle.mimir.rpc.StoreTransport;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.observability.CertificateRotationMetrics;
 import com.gimle.observability.GimleTracing;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.observability.StoreMetrics;
+import com.gimle.pki.CertificateRotationMonitor;
 import com.gimle.pki.OwnCertificateRotator;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -195,6 +199,25 @@ public final class StoreMain {
     }
 
     URI finalCsrEndpoint = csrEndpoint;
+    // Every rotation check -- including one that fails -- is metered into the registry already
+    // shipped to Muninn and, at the start and the escalation point of a failure streak, appended to
+    // the durable audit trail. A rotation that quietly stops working is harmless only until the
+    // certificate it failed to renew expires, which is exactly the failure an operator must be able
+    // to see coming.
+    CertificateRotationMetrics certificateRotationMetrics =
+        new CertificateRotationMetrics(storeMetrics.registry());
+    OwnCertificateRotator certificateRotator =
+        new OwnCertificateRotator(
+            new CertificateRotationMonitor(
+                "store " + selfRaftId,
+                CERT_ROTATION_CHECK_INTERVAL,
+                new CertificateRotationAuditor(raftNode, selfRaftId)
+                    .andThen(
+                        status ->
+                            certificateRotationMetrics.recordCheck(
+                                status.outcome().name(),
+                                status.consecutiveFailures(),
+                                status.remainingValidity(Instant.now())))));
     ScheduledExecutorService ticker =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-mimir-cert-rotation-tick").unstarted(r));
@@ -210,7 +233,9 @@ public final class StoreMain {
             return;
           }
           boolean rotated =
-              OwnCertificateRotator.checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint);
+              certificateRotator
+                  .checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint)
+                  .rotated();
           if (rotated) {
             raftTransport.reloadTlsMaterial();
             storeTransport.reloadTlsMaterial();

@@ -6,7 +6,9 @@ import com.gimle.core.logging.GimleLogging;
 import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
+import com.gimle.mimir.authz.CertificateRotationAuditor;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.pki.CertificateRotationMonitor;
 import com.gimle.pki.OwnCertificateRotator;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -114,6 +116,16 @@ public final class MuninnMain {
         retentionPolicy.defaultDays());
 
     URI finalCsrEndpoint = csrEndpoint;
+    // A failing rotation check is recorded durably at the start and the escalation point of a
+    // failure streak, not just logged: a rotation that quietly stops working is harmless only
+    // until the certificate it failed to renew expires. No meter registry here, unlike every other
+    // process -- Muninn is the metrics sink and ships none of its own.
+    OwnCertificateRotator certificateRotator =
+        new OwnCertificateRotator(
+            new CertificateRotationMonitor(
+                "muninn",
+                CERT_ROTATION_CHECK_INTERVAL,
+                new CertificateRotationAuditor(storeClient, "muninn")));
     ScheduledExecutorService ticker =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-muninn-cert-rotation-tick").unstarted(r));
@@ -130,7 +142,9 @@ public final class MuninnMain {
             return;
           }
           boolean rotated =
-              OwnCertificateRotator.checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint);
+              certificateRotator
+                  .checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint)
+                  .rotated();
           if (rotated) {
             try {
               muninnServer.reloadTlsMaterial();

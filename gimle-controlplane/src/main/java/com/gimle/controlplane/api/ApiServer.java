@@ -97,6 +97,7 @@ import com.gimle.core.vessel.VesselSpec;
 import com.gimle.core.web.RootRedirectHandler;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.mimir.authz.Authorizer;
+import com.gimle.mimir.authz.CertificateRotationAuditor;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.galdr.KindScope;
@@ -127,7 +128,9 @@ import com.gimle.mimir.store.StatefulSetAssignment;
 import com.gimle.mimir.store.WorkloadTokenRecord;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.observability.ApiServerMetrics;
+import com.gimle.observability.CertificateRotationMetrics;
 import com.gimle.pki.CertificateAuthority;
+import com.gimle.pki.CertificateRotationMonitor;
 import com.gimle.pki.OwnCertificateRotator;
 import com.gimle.pki.Pem;
 import com.gimle.pki.Subjects;
@@ -238,6 +241,21 @@ public final class ApiServer implements AutoCloseable {
   // any public constructor parameter (no test/caller has ever needed to inject a custom
   // registry); a same-package test reads it back through #metrics().
   private final ApiServerMetrics metrics = new ApiServerMetrics();
+
+  /**
+   * Mirrors the cadence {@code ControlPlaneMain}'s own ticker calls {@link
+   * #checkAndRotateOwnCertificateIfDue} at. Used only to report when the next attempt is due in a
+   * rotation-failure log line and status -- nothing here schedules anything.
+   */
+  private static final Duration CERT_ROTATION_CHECK_INTERVAL = Duration.ofSeconds(2);
+
+  // Own-certificate rotation health, published into the same registry #metrics already ships and
+  // appended to the durable audit trail: a rotation that quietly stops working stays harmless only
+  // until the certificate it failed to renew expires, so the check needs a signal an operator can
+  // alert on long before that.
+  private final CertificateRotationMetrics certificateRotationMetrics =
+      new CertificateRotationMetrics(metrics.registry());
+  private final OwnCertificateRotator certificateRotator;
   // The ordered admission chain shared by every placeable workload kind's own PUT (Deployment,
   // Job, DaemonSet, StatefulSet) -- quota and limit-range enforcement, generalized over
   // WorkloadSpec rather than Deployment alone (see WorkloadResourceProfile's own javadoc for why),
@@ -452,6 +470,18 @@ public final class ApiServer implements AutoCloseable {
                 new PolicyConfigPlugin(), new ConfigMapRefsPlugin(), new SecretMapRefsPlugin()));
     this.sessionSigningKey = sessionSigningKey;
     this.authorizer = new Authorizer(storeClient);
+    this.certificateRotator =
+        new OwnCertificateRotator(
+            new CertificateRotationMonitor(
+                "control plane",
+                CERT_ROTATION_CHECK_INTERVAL,
+                new CertificateRotationAuditor(storeClient, "control-plane")
+                    .andThen(
+                        status ->
+                            certificateRotationMetrics.recordCheck(
+                                status.outcome().name(),
+                                status.consecutiveFailures(),
+                                status.remainingValidity(Instant.now())))));
     seedReservedSystemTenantIfAbsent();
     seedDefaultTenantIfAbsent();
     this.server = createHttpServer(port);
@@ -776,7 +806,7 @@ public final class ApiServer implements AutoCloseable {
     }
     TlsSettings settings = TlsSettings.fromConfig();
     URI ownCsrEndpoint = URI.create("https://127.0.0.1:" + boundPort + "/bootstrap/csr");
-    boolean rotated = OwnCertificateRotator.checkAndRotateIfDue(settings, ownCsrEndpoint);
+    boolean rotated = certificateRotator.checkAndRotateIfDue(settings, ownCsrEndpoint).rotated();
     if (rotated) {
       try {
         reloadTlsMaterial();
