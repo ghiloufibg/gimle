@@ -46,10 +46,13 @@ public interface VolumeManager {
    * Unconditionally deletes every named volume directory under {@code (tenantId, statefulSetName,
    * instanceIndex)}, ignoring any reclaim policy -- the explicit operator action that reclaims a
    * retained orphan, never called by the platform's own lifecycle (which goes through {@link
-   * #release}). A directory that's already gone is a silent no-op, matching {@link #release}'s
-   * idempotent posture.
+   * #release}). Deleting a directory that's already gone is not an error, matching {@link
+   * #release}'s idempotent posture, but it is reported: {@code false} means there was nothing on
+   * disk at that coordinate. Callers destroy irreversibly on an operator's behalf, and "nothing was
+   * there" is exactly the answer that distinguishes a completed reclaim from a mis-addressed one,
+   * so it is a return value rather than something only this class's own logging knows.
    */
-  void destroy(Optional<String> tenantId, String statefulSetName, int instanceIndex);
+  boolean destroy(Optional<String> tenantId, String statefulSetName, int instanceIndex);
 
   /**
    * The bytes currently occupied across every named volume of {@code (tenantId, statefulSetName,

@@ -37,15 +37,15 @@ also diffs `WorkerMetrics`' cumulative request/error counters against the previo
 real request-rate/error-rate figures (not just CPU/memory), plus each module's current
 `BoundedModuleScheduler` queue depth — all three travel through `ControlMessage.MetricsReport` to
 the node agent and on into `InstanceObservation`, the same heartbeat pipeline CPU/memory usage
-already rides. The control plane exposes a `GET /metrics` per-deployment rollup (average request
+already rides. The control plane exposes a `GET /metrics` per-deployment rollup (owning tenant, average request
 rate, average error rate, instance count) built from that same observation data, and the console's
 own Instances/Metrics screens surface both figures per instance and per deployment (an error-rate
 column on the Instances table, a total-error-rate stat tile and a ranked "instances with errors"
 panel on the Metrics screen derived per instance, plus a "per-deployment rollup" panel reading
-`GET /metrics` itself — see [Web console](./web-console.md#per-deployment-metrics-rollup),
-including the endpoint's own tenant-keying limitation). `gimle metrics` reads that same rollup from
-a terminal, marking the rows that limitation makes indistinguishable rather than merging them — see
-the [CLI reference](../reference/cli-reference.md). `WorkerMetrics`' own request-latency `Timer` is built with
+`GET /metrics` itself — see [Web console](./web-console.md#per-deployment-metrics-rollup)).
+Every row names its own tenant, so two tenants running a same-named deployment produce two rows
+that are told apart rather than merged; `gimle metrics` reads that same rollup from a terminal —
+see the [CLI reference](../reference/cli-reference.md). `WorkerMetrics`' own request-latency `Timer` is built with
 `publishPercentiles(0.5, 0.95, 0.99)` too, for parity with the three process-tier registries below.
 
 The same registry also carries the fabric's own circuit-breaker state, which used to be invisible

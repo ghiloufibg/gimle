@@ -79,43 +79,28 @@ const LIFECYCLE_COLOR: Record<LifecycleState, string> = {
   UNINSTALLED: "var(--status-bad)",
 };
 
-/**
- * A `GET /metrics` row plus the one thing the endpoint cannot tell a client on its own: whether
- * the row's deployment name is unique across the tenants the caller may read. The response is
- * keyed by deployment name alone, so two tenants each running a deployment of that name produce
- * two rows nothing in the payload can tell apart -- neither can this console, and it says so
- * rather than picking one.
- */
+/** A `GET /metrics` row plus what the rollup panel derives from it for display. */
 export interface RollupRow extends DeploymentMetricsRollup {
-  ambiguous: boolean;
   /** No instance contributed a reading, so the averages are an absence of data, not a real zero. */
   silent: boolean;
 }
 
-/** Deployment names carried by more than one row of the same response. */
-export function ambiguousDeploymentNames(rows: readonly DeploymentMetricsRollup[]): Set<string> {
-  const seen = new Set<string>();
-  const repeated = new Set<string>();
-  for (const row of rows) {
-    if (seen.has(row.deploymentName)) repeated.add(row.deploymentName);
-    seen.add(row.deploymentName);
-  }
-  return repeated;
+/**
+ * A row's stable identity. Two tenants may each run a deployment of the same name, so the name
+ * alone is not unique within one response -- the pair is, which is why the endpoint sends both.
+ */
+export function rollupRowKey(row: DeploymentMetricsRollup): string {
+  return `${row.tenantId ?? ""}/${row.deploymentName}`;
 }
 
 /**
  * Attention-first ordering: erroring deployments, then the busiest, then -- among the quiet ones
- * -- those reporting nothing at all ahead of those genuinely idle, and finally by name so the
- * order is stable between polls.
+ * -- those reporting nothing at all ahead of those genuinely idle, and finally by the row's full
+ * (tenant, name) identity so the order is stable between polls even when a name repeats.
  */
 export function rankRollupRows(rows: readonly DeploymentMetricsRollup[]): RollupRow[] {
-  const ambiguous = ambiguousDeploymentNames(rows);
   return rows
-    .map((row) => ({
-      ...row,
-      ambiguous: ambiguous.has(row.deploymentName),
-      silent: row.instanceCount === 0,
-    }))
+    .map((row) => ({ ...row, silent: row.instanceCount === 0 }))
     .sort((a, b) => {
       if (a.avgErrorRatePerSecond !== b.avgErrorRatePerSecond) {
         return b.avgErrorRatePerSecond - a.avgErrorRatePerSecond;
@@ -124,23 +109,12 @@ export function rankRollupRows(rows: readonly DeploymentMetricsRollup[]): Rollup
         return b.avgRequestRatePerSecond - a.avgRequestRatePerSecond;
       }
       if (a.silent !== b.silent) return a.silent ? -1 : 1;
-      return a.deploymentName.localeCompare(b.deploymentName);
+      return rollupRowKey(a).localeCompare(rollupRowKey(b));
     });
 }
 
 export function fmtRatePerSecond(value: number, fractionDigits = 1): string {
   return `${value.toFixed(fractionDigits)}/s`;
-}
-
-/**
- * The banner shown above the rollup when the response carries indistinguishable rows, naming the
- * deployments affected. `null` when every row is unambiguous, which is the common single-tenant
- * and distinct-names case.
- */
-export function rollupAmbiguityWarning(rows: readonly DeploymentMetricsRollup[]): string | null {
-  const repeated = [...ambiguousDeploymentNames(rows)].sort();
-  if (repeated.length === 0) return null;
-  return `${repeated.join(", ")}: rows carry no tenant, so same-named deployments in different tenants cannot be told apart here`;
 }
 
 /** Horizontal used-vs-allowance bullet row. */
@@ -285,7 +259,6 @@ function Metrics() {
   const busiestMax = busiest[0]?.i.observation.cpuMillicoresUsed ?? 1;
 
   const rollupRows = useMemo(() => rankRollupRows(rollup.rows), [rollup.rows]);
-  const rollupWarning = useMemo(() => rollupAmbiguityWarning(rollup.rows), [rollup.rows]);
   const rollupPeakRequestRate = Math.max(1, ...rollupRows.map((r) => r.avgRequestRatePerSecond));
 
   return (
@@ -642,26 +615,23 @@ function Metrics() {
                 rollup unavailable — {rollup.error}
               </p>
             )}
-            {rollupWarning && (
-              <p className="mb-2 font-mono text-[10px] text-status-warn">
-                ambiguous rows — {rollupWarning}
-              </p>
-            )}
             <ul className="space-y-1">
-              {rollupRows.map((r, idx) => (
-                <li key={`${r.deploymentName}-${idx}`} className="flex items-center gap-2">
+              {rollupRows.map((r) => (
+                <li key={rollupRowKey(r)} className="flex items-center gap-2">
                   <span className="flex w-56 shrink-0 items-center gap-1.5 truncate">
                     <span className="truncate font-mono text-[10px] text-signal">
                       {r.deploymentName}
                     </span>
-                    {r.ambiguous && (
-                      <span
-                        title="Two or more deployments share this name across tenants; GET /metrics carries no tenant, so this row cannot be attributed to one of them."
-                        className="shrink-0 rounded-[1px] bg-status-warn/20 px-1 font-mono text-[9px] uppercase tracking-widest text-status-warn"
-                      >
-                        ambiguous
-                      </span>
-                    )}
+                    <span
+                      title={
+                        r.tenantId
+                          ? `tenant ${r.tenantId}`
+                          : "untenanted — this deployment declares no tenant"
+                      }
+                      className="shrink-0 rounded-[1px] bg-muted px-1 font-mono text-[9px] uppercase tracking-widest text-muted-foreground"
+                    >
+                      {r.tenantId ?? "—"}
+                    </span>
                   </span>
                   <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                     <span

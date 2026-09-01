@@ -228,9 +228,38 @@ class LocalDiskVolumeManagerTest {
   }
 
   @Test
-  void destroy_of_a_nonexistent_volume_is_a_silent_no_op() {
+  void destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there() {
     LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
-    manager.destroy(NO_TENANT, "never-allocated", 7); // must not throw
+
+    assertFalse(manager.destroy(NO_TENANT, "never-allocated", 7));
+  }
+
+  @Test
+  void destroy_reports_true_only_when_it_actually_removed_something() throws IOException {
+    LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
+    manager.allocate(NO_TENANT, "orders", 0, "data", new VolumeRequest(1024));
+
+    assertTrue(manager.destroy(NO_TENANT, "orders", 0));
+    assertFalse(manager.destroy(NO_TENANT, "orders", 0));
+  }
+
+  /**
+   * The distinction the whole tenant-scoped destroy path rests on: naming the wrong tenant must
+   * report that nothing was there, never quietly reclaim the other tenant's identically-named
+   * volume and never claim success for a volume it did not touch.
+   */
+  @Test
+  void destroy_naming_the_wrong_tenant_removes_nothing_and_says_so() throws IOException {
+    LocalDiskVolumeManager manager = new LocalDiskVolumeManager(tempDir);
+    Path path =
+        manager.hostPath(
+            manager.allocate(Optional.of("tenant-a"), "db", 0, "data", new VolumeRequest(1024)));
+
+    assertFalse(manager.destroy(Optional.of("tenant-b"), "db", 0));
+    assertFalse(manager.destroy(NO_TENANT, "db", 0));
+
+    assertTrue(Files.exists(path));
+    assertEquals(1, manager.listAllocated().size());
   }
 
   @Test

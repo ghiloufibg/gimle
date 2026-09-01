@@ -623,11 +623,15 @@ individually.
 Volumes have their own operator surface: `gimle volume list` (backed by `GET /volumes`, aggregated
 across every node's agent) inventories each volume with its node, current on-disk usage, and
 whether the store still attaches it — `attached: false` marks a retained orphan the default
-`Retain` reclaim policy left behind. `gimle volume destroy <set> <index> --node <nodeId>` reclaims
-one explicitly; both the control plane (store attachment) and the owning agent (a live supervised
-instance) independently refuse to destroy a volume that is still in use. The console's
+`Retain` reclaim policy left behind. `gimle volume destroy <set> <index> --node <nodeId> [--tenant <id>]`
+reclaims one explicitly; both the control plane (store attachment) and the owning agent (a live
+supervised instance) independently refuse to destroy a volume that is still in use, and a
+coordinate with nothing on disk is a `404` rather than a reported success. `--tenant` is part of
+the volume's address, not a filter: omit it and the request names the untenanted volume at that
+set and index, never a tenanted one — the two are separate directories on the node, and each is
+only ever reachable by naming its own tenant. The console's
 [Volumes screen](../architecture/web-console.md#screens) is the same surface with the same refusals,
-and additionally names the owning tenant on a destroy and reports which nodes went unanswered.
+carries the same tenant on a destroy, and reports which nodes went unanswered.
 Each instance's heartbeat
 also samples its volume's on-disk size on a coarse interval, surfaced as `volumeUsageBytes` in its
 observation — a soft reading for operators, never an enforced ceiling.

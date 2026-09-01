@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 769
+- **Total requirements**: 772
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 642
+- **Not covered by automated test**: 645
 - **Release-readiness (automated coverage)**: 16.5%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -18,16 +18,16 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 53 | 6 | 47 | 11.3% |
+| gimle-agent | 54 | 6 | 48 | 11.1% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 107 | 17 | 90 | 15.9% |
+| gimle-controlplane | 108 | 17 | 91 | 15.7% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
 | gimle-gateway | 20 | 0 | 20 | 0.0% |
-| gimle-cli | 40 | 0 | 40 | 0.0% |
+| gimle-cli | 41 | 0 | 41 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 49 | 0 | 49 | 0.0% |
@@ -635,6 +635,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-705 | Per-worker raw stdout/stderr SYSTEM capture is size/count-rotated instead of growing unbounded | Given a worker writing raw stdout lines past the configured size cap; When the cap is crossed; Then the active capture file is rotated (renamed to .1, a fresh file opened) before the next line is written. Given more rotations than gimle.log.maxFiles allows; When rotation runs; Then the oldest rotated copy is discarded rather than accumulating without bound. Given rotated SYSTEM-capture files on disk; When an operator reads a node's SYSTEM log via the existing /logs API; Then lines from rotated copies are still returned, not only the active file's own content. | No |
+| [ ] | GIMLE-771 | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | Given a node holding a volume for tenant `acme` at sessions[0] When a destroy is issued for sessions[0] naming tenant `globex`, or naming no tenant at all Then the agent answers 404 and the volume is still on disk And a second destroy of a volume already reclaimed answers 404 rather than reporting success again | No |
 
 #### Secrets Management
 
@@ -1218,6 +1219,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-711 | A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved | Given an enabled AlertRule on deployment 'checkout-service' with metric=ERROR_RATE_PER_SECOND, comparator=GREATER_THAN, threshold=5.0; When the deployment's averaged observed error rate rises to 8.0 on a reconcile tick; Then exactly one FIRING webhook notification is sent. Given the rule from the previous scenario is already firing; When a later reconcile tick observes the error rate still above threshold; Then no additional notification is sent. Given the rule is firing; When the observed error rate drops back to 1.0; Then exactly one RESOLVED webhook notification is sent, and no further notification is sent while it stays resolved. Given a disabled AlertRule whose metric is currently crossed; When the reconciler evaluates it; Then no notification is ever sent. | No |
 | [ ] | GIMLE-766 | The audit trail pages with an eviction-safe cursor | Given an audit trail longer than one page When the next page is requested by cursor Then the following events are returned without skipping or repeating And a cursor whose anchor has been evicted reports the walk as expired rather than guessing | No |
+| [ ] | GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | Given tenants `acme` and `globex` each running a deployment named `api` When an operator reads the per-deployment rollup Then two rows are returned, one naming each tenant, neither merged into a single average And an untenanted deployment named `api` is a third, distinct row carrying a null tenant | No |
 
 #### Orchestration / Internal-Infra
 
@@ -1772,6 +1774,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-764 | gimle metrics-history and traces-history | Given shipped metrics history for a worker When gimle metrics-history is run with a limit Then the newest entries are printed And the resume cursor names the last printed entry rather than the whole window | No |
 | [ ] | GIMLE-765 | gimle context: pointing the CLI at more than one cluster | Given a configured current context When a command is run with an explicit --server Then the explicit flag wins And a malformed config file degrades to a warning rather than breaking the command | No |
 | [ ] | GIMLE-767 | gimle get --watch observes a resource converging | Given a deployment being scaled When gimle get deployments --watch is running Then only the changed row is printed on the next tick And a deleted row is reported as deleted rather than silently disappearing | No |
+| [ ] | GIMLE-770 | `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to | Given a volume owned by tenant `acme` at sessions[0] on node-a, and an identically-named volume owned by the `default` tenant When an operator runs `gimle volume destroy sessions 0 --node node-a --tenant acme` Then only the `acme` volume is reclaimed and the default tenant's volume is untouched And running the same command with no --tenant addresses the untenanted namespace, never either of them | No |
 
 #### CLI / Build Tooling
 

@@ -25,7 +25,7 @@ describe("MockMetricsRepository", () => {
     expect(second[0].avgRequestRatePerSecond).toBe(42.5);
   });
 
-  it("carries no tenant on any row, matching the endpoint it stands in for", async () => {
+  it("carries the owning tenant on every row, matching the endpoint it stands in for", async () => {
     const rows = await repo.fetchRollup();
     for (const row of rows) {
       expect(Object.keys(row).sort()).toEqual([
@@ -33,7 +33,16 @@ describe("MockMetricsRepository", () => {
         "avgRequestRatePerSecond",
         "deploymentName",
         "instanceCount",
+        "tenantId",
       ]);
     }
+  });
+
+  // Untenanted is a real, distinct value here, not a stand-in for "unknown": the fixture holds one
+  // of each so a consumer that only ever sees a string tenant is caught by this suite.
+  it("models an untenanted deployment as a null tenant, not an omitted field", async () => {
+    const rows = await repo.fetchRollup();
+
+    expect(rows.map((r) => r.tenantId)).toEqual(["acme", null]);
   });
 });

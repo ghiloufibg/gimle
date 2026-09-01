@@ -280,9 +280,12 @@ final class AgentLogServer implements AutoCloseable {
         String statefulSetName = segments[0];
         int instanceIndex = Integer.parseInt(segments[1]);
         // The owning tenant, if any, travels as ?tenant=<id> rather than a third path segment --
-        // the same convention the control plane's own tenant-scoped routes use -- since omitted
-        // unambiguously means the untenanted namespace, distinct from every real tenant id.
-        Optional<String> tenantId = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+        // the same convention the control plane's own tenant-scoped routes use. Omitted means the
+        // untenanted namespace, distinct from every real tenant id; so does an explicitly blank
+        // ?tenant=, which is how a caller spells "untenanted" when it must send the parameter at
+        // all. A tenant id is never blank, so the two spellings can't collide.
+        Optional<String> tenantId =
+            Optional.ofNullable(parseQuery(exchange).get("tenant")).filter(t -> !t.isBlank());
         if (inUseVolumeKeys.get().contains(volumeKey(tenantId, statefulSetName, instanceIndex))) {
           respond(
               exchange,
@@ -294,7 +297,22 @@ final class AgentLogServer implements AutoCloseable {
                   + "] is held by a currently-supervised instance");
           return;
         }
-        volumeManager.destroy(tenantId, statefulSetName, instanceIndex);
+        if (!volumeManager.destroy(tenantId, statefulSetName, instanceIndex)) {
+          // Nothing on disk at that coordinate. Answering 200 {"destroyed": true} here would tell
+          // an operator their reclaim succeeded when they had in fact addressed a volume that does
+          // not exist -- on this node, or under this tenant.
+          respond(
+              exchange,
+              404,
+              "no volume "
+                  + statefulSetName
+                  + "["
+                  + instanceIndex
+                  + "] for tenant "
+                  + tenantId.orElse("(untenanted)")
+                  + " on this node");
+          return;
+        }
         respondJson(exchange, 200, Map.of("destroyed", true));
         return;
       }

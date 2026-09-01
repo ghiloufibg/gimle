@@ -107,12 +107,12 @@ panel: that one is derived client-side from the deployment list and names indivi
 while this one is the server's own average and is the only place `instanceCount` — instances that
 reported, as opposed to instances that were placed — is visible at all.
 
-**Known limitation, surfaced rather than hidden:** a rollup row is keyed by deployment name alone,
-but the RBAC filter behind the endpoint is per-tenant. A caller who may read two tenants that each
-run a deployment of the same name therefore receives two rows nothing in the payload can tell
-apart. The console neither merges nor drops them: both rows are shown and both are flagged
-`ambiguous`, with a banner naming the affected deployments. Attributing a row to one tenant needs a
-`tenantId` on the wire, which the endpoint does not carry today.
+Each row carries its owning `tenantId` alongside the deployment name, and that pair — not the name
+alone — is the row's identity: the RBAC filter behind the endpoint is per-tenant, so a caller who
+may read two tenants each running a deployment of the same name receives two rows, and the tenant
+is what tells them apart. The console shows both, labels each with its tenant, and never merges
+them into an average the server never computed. An untenanted deployment carries an explicit
+`null`, which is a distinct row from any real tenant's rather than a stand-in for "unknown".
 
 ## Metrics history, traces, and audit trail
 

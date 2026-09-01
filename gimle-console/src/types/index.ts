@@ -951,6 +951,8 @@ export interface InstanceEvent {
  * each running a deployment of the same name produce two rows indistinguishable by name.
  */
 export interface DeploymentMetricsRollup {
+  /** `null` for a deployment in the untenanted namespace; with the name, a row's full identity. */
+  tenantId: string | null;
   deploymentName: string;
   instanceCount: number;
   avgRequestRatePerSecond: number;

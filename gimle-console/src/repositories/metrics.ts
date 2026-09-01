@@ -12,6 +12,7 @@ export interface MetricsRepository {
 
 const mockRollup: DeploymentMetricsRollup[] = [
   {
+    tenantId: "acme",
     deploymentName: "greeter-provider",
     instanceCount: 2,
     avgRequestRatePerSecond: 42.5,
@@ -19,6 +20,7 @@ const mockRollup: DeploymentMetricsRollup[] = [
   },
   {
     // Nothing placed yet: the averages are a real 0, not "unknown".
+    tenantId: null,
     deploymentName: "greeter-consumer",
     instanceCount: 0,
     avgRequestRatePerSecond: 0,

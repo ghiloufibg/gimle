@@ -184,10 +184,10 @@ public final class LocalDiskVolumeManager implements VolumeManager {
   }
 
   @Override
-  public void destroy(Optional<String> tenantId, String statefulSetName, int instanceIndex) {
+  public boolean destroy(Optional<String> tenantId, String statefulSetName, int instanceIndex) {
     Path path = instancePath(tenantId, statefulSetName, instanceIndex);
     if (!Files.exists(path)) {
-      return;
+      return false;
     }
     log.warn(
         "destroying volume data for tenant {} {}[{}] at {} (explicit operator destroy)",
@@ -196,6 +196,7 @@ public final class LocalDiskVolumeManager implements VolumeManager {
         instanceIndex,
         path);
     deleteRecursively(path, statefulSetName, instanceIndex);
+    return true;
   }
 
   @Override

@@ -3,15 +3,15 @@
   "metadata": {
     "baselineDocument": "REQUIREMENTS_MATRIX.md",
     "baselineCommit": "919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640",
-    "currentHeadCommit": "59600ce169af2960e98e02bc99fa417b29903b69",
-    "currentHeadShort": "59600ce",
+    "currentHeadCommit": "83f2c17230c388a4400103486d0175c6e2c10df7",
+    "currentHeadShort": "83f2c17",
     "branch": "claude/kubernetes-kinds-gimle-gap-o5499m",
     "rebaseAcknowledgment": "this branch was rebased onto `origin/master` for this scan. Between the baseline commit and `origin/master`'s current tip there is exactly **one** new commit -- `6bd450f` (\"test: add Norn deterministic Raft fault-injection simulation\"), which adds three new test-only files to `gimle-mimir` and modifies nothing else (`git diff 919bd40..origin/master --stat` confirms 3 files changed, 807 insertions, 0 deletions, 0 files touched elsewhere). Consequently **every one of the 564 baseline requirements is unchanged (`Active`)** -- none are `Modified` or `Removed` -- and exactly **one new requirement** (`GIMLE-565`) was discovered and added.",
     "scanDate": "2026-09-01",
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 769,
+  "requirementCount": 772,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -10611,8 +10611,8 @@
       "module": "gimle-os",
       "feature": "Volume reclaim policy: Retain-by-default persistent volume release",
       "category": "Module System / Storage",
-      "status": "New",
-      "statusNote": "newly added as part of the volume reclaim-policy work",
+      "status": "Modified",
+      "statusNote": "newly added as part of the volume reclaim-policy work Modified by the volume-tenant fix: VolumeManager#destroy now reports whether it actually removed a directory, so the agent answers 404 for a coordinate with nothing on disk rather than reporting a reclaim it never performed.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a StatefulSet module whose volume declares no reclaimPolicy, When its index is permanently removed, Then the volume directory and its contents remain on disk.",
@@ -10753,7 +10753,7 @@
       "feature": "Cluster-wide volume operator surface (/volumes API + CLI)",
       "category": "Storage / Operations",
       "status": "Modified",
-      "statusNote": "Modified by the CLI parity work: the `volume` verbs gained -o json structured results for their mutating forms, and the command now takes an err stream so a partial-failure path can report on stderr without polluting a JSON payload on stdout.",
+      "statusNote": "Modified by the CLI parity work: the `volume` verbs gained -o json structured results for their mutating forms, and the command now takes an err stream so a partial-failure path can report on stderr without polluting a JSON payload on stdout. Modified again by the volume-tenant fix: `volume destroy` gained --tenant, which is part of the volume's address rather than a filter -- omitting it names the untenanted volume, and the control plane no longer resolves an omitted tenant on /volumes/* to the default tenant.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given a StatefulSet scaled down under Retain, When the operator lists volumes and destroys the orphan through the CLI, Then the data directory is removed from the owning node.",
@@ -13055,8 +13055,8 @@
       "module": "gimle-console",
       "feature": "Per-deployment metrics rollup on the Metrics screen",
       "category": "Web Console / Frontend",
-      "status": "New",
-      "statusNote": "New requirement: Fixed: closes FUNC-13's console half. The per-deployment rollup at GET /metrics was unreachable from either surface -- the console's Metrics screen derived its charts entirely from other stores and no metrics repository existed. A rollup panel now renders one row per deployment ordered attention-first (erroring worst-first, then busiest, then deployments reporting nothing ahead of the genuinely idle, then by name so the order is stable between polls). It was added rather than replacing the existing per-instance error panel, because that one is client-derived per instance while this is the server's own per-deployment computation, and instanceCount here means instances that reported a reading rather than instances that were placed -- a distinction a client-side average cannot make. GET /metrics carries no tenantId while the RBAC filter behind it is per-tenant, so two tenants running a same-named deployment produce two rows a client cannot tell apart: such rows are kept, never merged and never dropped, and flagged with an ambiguity badge plus a panel-level banner, rather than implying a precision the data does not have.",
+      "status": "Modified",
+      "statusNote": "New requirement: Fixed: closes FUNC-13's console half. The per-deployment rollup at GET /metrics was unreachable from either surface -- the console's Metrics screen derived its charts entirely from other stores and no metrics repository existed. A rollup panel now renders one row per deployment ordered attention-first (erroring worst-first, then busiest, then deployments reporting nothing ahead of the genuinely idle, then by name so the order is stable between polls). It was added rather than replacing the existing per-instance error panel, because that one is client-derived per instance while this is the server's own per-deployment computation, and instanceCount here means instances that reported a reading rather than instances that were placed -- a distinction a client-side average cannot make. GET /metrics carries no tenantId while the RBAC filter behind it is per-tenant, so two tenants running a same-named deployment produce two rows a client cannot tell apart: such rows are kept, never merged and never dropped, and flagged with an ambiguity badge plus a panel-level banner, rather than implying a precision the data does not have. Modified by the metrics-tenant fix: the console rollup panel labels each row with its tenant and keys it by the (tenantId, deploymentName) pair, replacing the `ambiguous` flag and banner it previously showed because the endpoint carried no tenant.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "otherTestCoverage": "routes/-metrics-rollup.test.ts (14) covering ranking, ambiguity detection and formatting with an explicit five-test group for the same-name-across-tenants case; 5 store tests; Mock and Http repository tests asserting both same-named rows survive the repository layer.",
@@ -13210,8 +13210,8 @@
       "module": "gimle-cli",
       "feature": "gimle metrics: the per-deployment rollup from the terminal",
       "category": "CLI",
-      "status": "New",
-      "statusNote": "New requirement: Fixed: closes FUNC-13's CLI half. Every row is printed exactly as the server sent it -- nothing merged, which would fabricate a cross-tenant average the server never computed, and nothing dropped. Because GET /metrics keys rows by deployment name alone while the RBAC filter behind it is per-tenant, two tenants running a same-named deployment produce rows a client cannot attribute; each row therefore carries a client-derived ambiguous flag present in both table and JSON output, and under the table format only a trailing note names the affected deployments and states that the rows carry no tenant id. The note is suppressed under -o json so the output stays one parseable document, mirroring the console's own treatment.",
+      "status": "Modified",
+      "statusNote": "New requirement: Fixed: closes FUNC-13's CLI half. Every row is printed exactly as the server sent it -- nothing merged, which would fabricate a cross-tenant average the server never computed, and nothing dropped. Because GET /metrics keys rows by deployment name alone while the RBAC filter behind it is per-tenant, two tenants running a same-named deployment produce rows a client cannot attribute; each row therefore carries a client-derived ambiguous flag present in both table and JSON output, and under the table format only a trailing note names the affected deployments and states that the rows carry no tenant id. The note is suppressed under -o json so the output stays one parseable document, mirroring the console's own treatment. Modified by the metrics-tenant fix: rows now carry tenantId, so `gimle metrics` no longer computes a repeated-name set to stamp an `ambiguous` flag and print a trailing note -- the rows are told apart by their own tenant.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "otherTestCoverage": "MetricsCommandTest (8) against a real ApiServer, including the same-deployment-name-across-tenants case asserting both rows present, both flagged, neither merged.",
@@ -13317,6 +13317,57 @@
         "`gimle-console/src/repositories/http/audit.ts`"
       ],
       "gapNote": "No .feature scenario reads GET /audit. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-770",
+      "module": "gimle-cli",
+      "feature": "`gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "New requirement: Fixed. `VolumesCommand#destroy` built `/volumes/{node}/{set}/{index}` with no tenant query and had no `--tenant` flag at all, while `ApiServer#handleVolumeDestroy` resolved an omitted `?tenant=` through `workloadTenantHint`, whose documented default is `Tenant.DEFAULT_TENANT_ID` rather than untenanted. The CLI could therefore only ever address default-tenant volumes: pointed at a tenanted one it either 404'd or destroyed the *default tenant's* same-named volume at that set and index instead -- and `gimle volume list`, which does report each volume's tenant, happily listed volumes the CLI could not then delete. `volume destroy` gained `--tenant <id>`, forwarded as `?tenant=` and echoed in the `-o json` result body; the flag is part of the volume's address, not a filter, so omitting it names the untenanted volume rather than any tenanted one. The control plane stopped using `workloadTenantHint` on `/volumes/*` in favour of a volume-specific `volumeTenant`, whose javadoc records why this route must differ from every workload route: a volume's tenant comes from the allocation record the agent wrote, not from a manifest whose omitted `tenantId` the parser resolves to `default`, so untenanted volumes genuinely exist on disk and must stay addressable.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "ApiServerTest gained a_destroy_naming_no_tenant_never_resolves_to_the_default_tenants_volume (a stub agent records the forwarded URI, proving an omitted tenant reaches the agent omitted rather than rewritten, while the default tenant's attached volume is still guarded with 409 -- so the two coordinates are provably distinct) and a_blank_tenant_parameter_on_a_destroy_is_forwarded_as_untenanted. CliOutputContractTest gained volume_destroy_sends_the_tenant_it_was_given_all_the_way_to_the_owning_agent, volume_destroy_naming_no_tenant_reaches_the_agent_with_no_tenant_at_all, and volume_destroy_under_json_output_reports_the_tenant_it_addressed. LocalDiskVolumeManagerTest gained destroy_naming_the_wrong_tenant_removes_nothing_and_says_so.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java` (`--tenant`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`volumeTenant`, `handleVolumeDestroy`)"
+      ],
+      "gapNote": "No .feature scenario exercises the volume operator surface at all -- Holmgang has no `volume list`/`volume destroy` step definitions or a topology fixture with a retained orphan. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-771",
+      "module": "gimle-agent",
+      "feature": "A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace",
+      "category": "Operations",
+      "status": "New",
+      "statusNote": "New requirement: Fixed. `VolumeManager#destroy` was `void` and documented a missing directory as a silent no-op, and `AgentLogServer#handleVolumes` answered `200 {\"destroyed\": true}` unconditionally -- so a destroy naming a tenant, set or index with nothing on disk reported success for data it never touched, the exact answer that hid a mis-addressed reclaim. `destroy` now returns whether it actually removed a directory and the agent answers 404 with the coordinate it looked under when it did not. Separately, the agent read `?tenant=` as `Optional.ofNullable(...)`, so a present-but-blank parameter became `Optional.of(\"\")` -- a tenant no volume can ever have -- leaving a client that must always send the parameter no way to spell \"untenanted\"; blank now normalizes to untenanted on both the agent and the control plane, which is safe because a real tenant id is never blank.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "AgentLogServerTest gained destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk, a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it, and destroying_an_already_destroyed_volume_reports_404_rather_than_success. LocalDiskVolumeManagerTest's silent-no-op test became destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there, alongside destroy_reports_true_only_when_it_actually_removed_something.",
+      "sourceLocations": [
+        "`gimle-os/src/main/java/com/gimle/os/VolumeManager.java` (`destroy` returns boolean)",
+        "`gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java` (`destroy`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleVolumes` DELETE)"
+      ],
+      "gapNote": "No .feature scenario drives the agent's own /volumes DELETE surface; Holmgang has no volume-reclaim steps today. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-772",
+      "module": "gimle-controlplane",
+      "feature": "Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "New requirement: Fixed. `handleMetrics` keyed each row by `deploymentName` alone while `listDeployments()` spans tenants and the RBAC filter behind it is per-tenant, so a caller who may read two tenants each running a deployment of that name received two rows nothing in the payload could tell apart -- and no client could attribute either row to a tenant. The row now carries `tenantId` (explicitly `null` for an untenanted deployment, a distinct value rather than a stand-in for unknown). Both consumers dropped the workarounds they had grown around the gap: `MetricsCommand` no longer computes a repeated-name set to stamp an `ambiguous` flag on every colliding row and print a trailing note under the table format, and the console's Metrics screen no longer flags rows `ambiguous` behind a banner -- each row is labelled with its own tenant, keyed by the `(tenantId, deploymentName)` pair for React identity and for the ranking tie-break, so the order stays stable between polls even when a name repeats.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "MetricsCommandTest gained same_deployment_name_in_two_tenants_yields_two_rows_each_naming_its_own_tenant, the_table_output_carries_the_tenant_column_so_same_named_rows_read_apart, and an_untenanted_deployment_is_told_apart_from_a_same_named_tenanted_one (the untenanted case proposed straight against the store, since an omitted manifest tenantId parses as `default` and can never reach the untenanted namespace). Console: -metrics-rollup.test.ts covers distinct keys per same-named row, untenanted vs tenanted distinctness, and the identity tie-break; http/metrics.test.ts covers the tenant round-tripping and a null tenant passing through as null; metrics.test.ts pins the row's full field set.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleMetrics`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/MetricsCommand.java`",
+        "`gimle-console/src/routes/metrics.tsx` (`rollupRowKey`, `rankRollupRows`)",
+        "`gimle-console/src/types/index.ts` (`DeploymentMetricsRollup.tenantId`)"
+      ],
+      "gapNote": "No .feature scenario reads GET /metrics; Holmgang asserts on the platform's own lifecycle event log rather than the rollup endpoint. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

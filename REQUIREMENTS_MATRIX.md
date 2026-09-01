@@ -779,6 +779,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-767 | gimle get --watch observes a resource converging | CLI | Complete | Yes |
 | GIMLE-768 | Dry-run preview for a workload submission | CLI | Complete | Yes |
 | GIMLE-769 | The Audit screen's since filter sends the timestamp format the API parses | Web Console / Frontend | Complete | Yes |
+| GIMLE-770 | `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to | CLI | Complete | Yes |
+| GIMLE-771 | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | Operations | Complete | Yes |
+| GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | Observability | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -1915,7 +1918,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Module System / Storage
 - **User story**: As an operator, I want a permanent StatefulSet removal to retain the instance's volume data on disk by default, so one mistaken scale-down or spec delete never silently destroys data, while a module owning disposable data can opt into Delete.
-- **Status**: Complete
+- **Status**: Complete Modified by the volume-tenant fix: VolumeManager#destroy now reports whether it actually removed a directory, so the agent answers 404 for a coordinate with nothing on disk rather than reporting a reclaim it never performed.
 - **Confidence**: High
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/ReclaimPolicy.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`
 - **Test coverage**: `LocalDiskVolumeManagerTest` (release_under_default_retain_policy_leaves_the_data_on_disk, release_under_delete_policy_deletes_the_volume_directory_and_its_contents, release_of_a_never_allocated_handle_is_a_silent_no_op)
@@ -3381,6 +3384,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Bifrost listener for a Service
   When that Service disappears from the source
   Then a subsequent connection attempt is refused rather than proxied
+  ```
+
+#### GIMLE-771 — A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace
+
+- **Category**: Operations
+- **User story**: As an operator, I want a reclaim that found nothing on disk to tell me so, rather than reporting the destruction of data it never touched, so a mis-addressed destroy is visible immediately instead of leaving me believing a volume is gone.
+- **Status**: Fixed. `VolumeManager#destroy` was `void` and documented a missing directory as a silent no-op, and `AgentLogServer#handleVolumes` answered `200 {"destroyed": true}` unconditionally -- so a destroy naming a tenant, set or index with nothing on disk reported success for data it never touched, the exact answer that hid a mis-addressed reclaim. `destroy` now returns whether it actually removed a directory and the agent answers 404 with the coordinate it looked under when it did not. Separately, the agent read `?tenant=` as `Optional.ofNullable(...)`, so a present-but-blank parameter became `Optional.of("")` -- a tenant no volume can ever have -- leaving a client that must always send the parameter no way to spell "untenanted"; blank now normalizes to untenanted on both the agent and the control plane, which is safe because a real tenant id is never blank.
+- **Confidence**: High
+- **Source location(s)**: `gimle-os/src/main/java/com/gimle/os/VolumeManager.java` (`destroy` returns boolean), `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java` (`destroy`), `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleVolumes` DELETE)
+- **Test coverage**: AgentLogServerTest gained destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk, a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it, and destroying_an_already_destroyed_volume_reports_404_rather_than_success. LocalDiskVolumeManagerTest's silent-no-op test became destroy_of_a_nonexistent_volume_does_not_throw_but_reports_that_nothing_was_there, alongside destroy_reports_true_only_when_it_actually_removed_something.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node holding a volume for tenant `acme` at sessions[0]
+  When a destroy is issued for sessions[0] naming tenant `globex`, or naming no tenant at all
+  Then the agent answers 404 and the volume is still on disk
+  And a second destroy of a volume already reclaimed answers 404 rather than reporting success again
   ```
 
 ### gimle-mimir
@@ -5808,7 +5827,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Storage / Operations
 - **User story**: As an operator, I want to list every StatefulSet volume across the cluster (retained orphans included) and explicitly destroy a detached one, so Retain-reclaimed data is inspectable and reclaimable rather than invisible.
-- **Status**: Modified by the CLI parity work: the `volume` verbs gained -o json structured results for their mutating forms, and the command now takes an err stream so a partial-failure path can report on stderr without polluting a JSON payload on stdout.
+- **Status**: Modified by the CLI parity work: the `volume` verbs gained -o json structured results for their mutating forms, and the command now takes an err stream so a partial-failure path can report on stderr without polluting a JSON payload on stdout. Modified again by the volume-tenant fix: `volume destroy` gained --tenant, which is part of the volume's address rather than a filter -- omitting it names the untenanted volume, and the control plane no longer resolves an omitted tenant on /volumes/* to the default tenant.
 - **Confidence**: High
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`, `gimle-os/src/main/java/com/gimle/os/localdisk/LocalDiskVolumeManager.java`, `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java`
 - **Test coverage**: `ApiServerTest` (volumes_are_aggregated_with_attachment_and_destroy_guards_attached_data), `AgentLogServerTest` (volumes_are_listed_with_usage_and_in_use_flags_and_destroy_respects_them), `LocalDiskVolumeManagerTest` (list_allocated_reports_every_volume_directory_with_its_used_bytes, a_retained_orphan_still_lists_until_explicitly_destroyed, destroy_of_a_nonexistent_volume_is_a_silent_no_op)
@@ -6335,6 +6354,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then the verdict reports the admission rejection and its reason
   And the store is unchanged
   And a real submission of the same manifest is rejected identically
+  ```
+
+#### GIMLE-772 — Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable
+
+- **Category**: Observability
+- **User story**: As an operator reading the per-deployment request/error-rate rollup, I want each row to say which tenant's deployment it describes, so I can join a row back to a real deployment instead of guessing between two identically-named ones.
+- **Status**: Fixed. `handleMetrics` keyed each row by `deploymentName` alone while `listDeployments()` spans tenants and the RBAC filter behind it is per-tenant, so a caller who may read two tenants each running a deployment of that name received two rows nothing in the payload could tell apart -- and no client could attribute either row to a tenant. The row now carries `tenantId` (explicitly `null` for an untenanted deployment, a distinct value rather than a stand-in for unknown). Both consumers dropped the workarounds they had grown around the gap: `MetricsCommand` no longer computes a repeated-name set to stamp an `ambiguous` flag on every colliding row and print a trailing note under the table format, and the console's Metrics screen no longer flags rows `ambiguous` behind a banner -- each row is labelled with its own tenant, keyed by the `(tenantId, deploymentName)` pair for React identity and for the ranking tie-break, so the order stays stable between polls even when a name repeats.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleMetrics`), `gimle-cli/src/main/java/com/gimle/cli/MetricsCommand.java`, `gimle-console/src/routes/metrics.tsx` (`rollupRowKey`, `rankRollupRows`), `gimle-console/src/types/index.ts` (`DeploymentMetricsRollup.tenantId`)
+- **Test coverage**: MetricsCommandTest gained same_deployment_name_in_two_tenants_yields_two_rows_each_naming_its_own_tenant, the_table_output_carries_the_tenant_column_so_same_named_rows_read_apart, and an_untenanted_deployment_is_told_apart_from_a_same_named_tenanted_one (the untenanted case proposed straight against the store, since an omitted manifest tenantId parses as `default` and can never reach the untenanted namespace). Console: -metrics-rollup.test.ts covers distinct keys per same-named row, untenanted vs tenanted distinctness, and the identity tie-break; http/metrics.test.ts covers the tenant round-tripping and a null tenant passing through as null; metrics.test.ts pins the row's full field set.
+- **Gherkin scenario**:
+  ```gherkin
+  Given tenants `acme` and `globex` each running a deployment named `api`
+  When an operator reads the per-deployment rollup
+  Then two rows are returned, one naming each tenant, neither merged into a single average
+  And an untenanted deployment named `api` is a third, distinct row carrying a null tenant
   ```
 
 ### gimle-fafnir
@@ -8591,7 +8626,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: CLI
 - **User story**: As an operator automating an investigation, I want the per-deployment request and error rate rollup from the CLI, so that a working endpoint is reachable without a browser.
-- **Status**: Fixed: closes FUNC-13's CLI half. Every row is printed exactly as the server sent it -- nothing merged, which would fabricate a cross-tenant average the server never computed, and nothing dropped. Because GET /metrics keys rows by deployment name alone while the RBAC filter behind it is per-tenant, two tenants running a same-named deployment produce rows a client cannot attribute; each row therefore carries a client-derived ambiguous flag present in both table and JSON output, and under the table format only a trailing note names the affected deployments and states that the rows carry no tenant id. The note is suppressed under -o json so the output stays one parseable document, mirroring the console's own treatment.
+- **Status**: Fixed: closes FUNC-13's CLI half. Every row is printed exactly as the server sent it -- nothing merged, which would fabricate a cross-tenant average the server never computed, and nothing dropped. Because GET /metrics keys rows by deployment name alone while the RBAC filter behind it is per-tenant, two tenants running a same-named deployment produce rows a client cannot attribute; each row therefore carries a client-derived ambiguous flag present in both table and JSON output, and under the table format only a trailing note names the affected deployments and states that the rows carry no tenant id. The note is suppressed under -o json so the output stays one parseable document, mirroring the console's own treatment. Modified by the metrics-tenant fix: rows now carry tenantId, so `gimle metrics` no longer computes a repeated-name set to stamp an `ambiguous` flag and print a trailing note -- the rows are told apart by their own tenant.
 - **Confidence**: High
 - **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/MetricsCommand.java`
 - **Test coverage**: MetricsCommandTest (8) against a real ApiServer, including the same-deployment-name-across-tenants case asserting both rows present, both flagged, neither merged.
@@ -8649,6 +8684,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When gimle get deployments --watch is running
   Then only the changed row is printed on the next tick
   And a deleted row is reported as deleted rather than silently disappearing
+  ```
+
+#### GIMLE-770 — `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to
+
+- **Category**: CLI
+- **User story**: As an operator reclaiming a retained orphan, I want `volume destroy` to act on exactly the volume I named -- tenant included -- so an irreversible reclaim can never land on a different tenant's identically-named volume at the same set and index.
+- **Status**: Fixed. `VolumesCommand#destroy` built `/volumes/{node}/{set}/{index}` with no tenant query and had no `--tenant` flag at all, while `ApiServer#handleVolumeDestroy` resolved an omitted `?tenant=` through `workloadTenantHint`, whose documented default is `Tenant.DEFAULT_TENANT_ID` rather than untenanted. The CLI could therefore only ever address default-tenant volumes: pointed at a tenanted one it either 404'd or destroyed the *default tenant's* same-named volume at that set and index instead -- and `gimle volume list`, which does report each volume's tenant, happily listed volumes the CLI could not then delete. `volume destroy` gained `--tenant <id>`, forwarded as `?tenant=` and echoed in the `-o json` result body; the flag is part of the volume's address, not a filter, so omitting it names the untenanted volume rather than any tenanted one. The control plane stopped using `workloadTenantHint` on `/volumes/*` in favour of a volume-specific `volumeTenant`, whose javadoc records why this route must differ from every workload route: a volume's tenant comes from the allocation record the agent wrote, not from a manifest whose omitted `tenantId` the parser resolves to `default`, so untenanted volumes genuinely exist on disk and must stay addressable.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/VolumesCommand.java` (`--tenant`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`volumeTenant`, `handleVolumeDestroy`)
+- **Test coverage**: ApiServerTest gained a_destroy_naming_no_tenant_never_resolves_to_the_default_tenants_volume (a stub agent records the forwarded URI, proving an omitted tenant reaches the agent omitted rather than rewritten, while the default tenant's attached volume is still guarded with 409 -- so the two coordinates are provably distinct) and a_blank_tenant_parameter_on_a_destroy_is_forwarded_as_untenanted. CliOutputContractTest gained volume_destroy_sends_the_tenant_it_was_given_all_the_way_to_the_owning_agent, volume_destroy_naming_no_tenant_reaches_the_agent_with_no_tenant_at_all, and volume_destroy_under_json_output_reports_the_tenant_it_addressed. LocalDiskVolumeManagerTest gained destroy_naming_the_wrong_tenant_removes_nothing_and_says_so.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a volume owned by tenant `acme` at sessions[0] on node-a, and an identically-named volume owned by the `default` tenant
+  When an operator runs `gimle volume destroy sessions 0 --node node-a --tenant acme`
+  Then only the `acme` volume is reclaimed and the default tenant's volume is untouched
+  And running the same command with no --tenant addresses the untenanted namespace, never either of them
   ```
 
 ### gimle-hilmir
@@ -9888,7 +9939,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Web Console / Frontend
 - **User story**: As an operator, I want the control plane's own per-deployment request and error rate rollup on the Metrics screen, so that a real endpoint is not left unreachable from the product.
-- **Status**: Fixed: closes FUNC-13's console half. The per-deployment rollup at GET /metrics was unreachable from either surface -- the console's Metrics screen derived its charts entirely from other stores and no metrics repository existed. A rollup panel now renders one row per deployment ordered attention-first (erroring worst-first, then busiest, then deployments reporting nothing ahead of the genuinely idle, then by name so the order is stable between polls). It was added rather than replacing the existing per-instance error panel, because that one is client-derived per instance while this is the server's own per-deployment computation, and instanceCount here means instances that reported a reading rather than instances that were placed -- a distinction a client-side average cannot make. GET /metrics carries no tenantId while the RBAC filter behind it is per-tenant, so two tenants running a same-named deployment produce two rows a client cannot tell apart: such rows are kept, never merged and never dropped, and flagged with an ambiguity badge plus a panel-level banner, rather than implying a precision the data does not have.
+- **Status**: Fixed: closes FUNC-13's console half. The per-deployment rollup at GET /metrics was unreachable from either surface -- the console's Metrics screen derived its charts entirely from other stores and no metrics repository existed. A rollup panel now renders one row per deployment ordered attention-first (erroring worst-first, then busiest, then deployments reporting nothing ahead of the genuinely idle, then by name so the order is stable between polls). It was added rather than replacing the existing per-instance error panel, because that one is client-derived per instance while this is the server's own per-deployment computation, and instanceCount here means instances that reported a reading rather than instances that were placed -- a distinction a client-side average cannot make. GET /metrics carries no tenantId while the RBAC filter behind it is per-tenant, so two tenants running a same-named deployment produce two rows a client cannot tell apart: such rows are kept, never merged and never dropped, and flagged with an ambiguity badge plus a panel-level banner, rather than implying a precision the data does not have. Modified by the metrics-tenant fix: the console rollup panel labels each row with its tenant and keys it by the (tenantId, deploymentName) pair, replacing the `ambiguous` flag and banner it previously showed because the endpoint carried no tenant.
 - **Confidence**: High
 - **Source location(s)**: `gimle-console/src/routes/metrics.tsx`, `src/routes/-metrics-rollup.test.ts`, `gimle-console/src/stores/useMetricsRollupStore.ts`, `gimle-console/src/repositories/{metrics,http/metrics}.ts`
 - **Test coverage**: routes/-metrics-rollup.test.ts (14) covering ranking, ambiguity detection and formatting with an explicit five-test group for the same-name-across-tenants case; 5 store tests; Mock and Http repository tests asserting both same-named rows survive the repository layer.

@@ -2,18 +2,20 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code volume list} and {@code volume destroy <statefulSet> <index> --node <nodeId>} -- the
- * operator surface over StatefulSet persistent volumes, including retained orphans a permanent
- * removal left behind under the default {@code Retain} reclaim policy. {@code destroy} is the
- * explicit, irreversible reclaim of one of those orphans: the control plane refuses it while the
- * volume is still attached, so there is no {@code --force} to reach for -- an attached volume is
- * scaled down or its spec deleted first, never destroyed out from under a live instance.
+ * {@code volume list} and {@code volume destroy <statefulSet> <index> --node <nodeId> [--tenant
+ * <id>]} -- the operator surface over StatefulSet persistent volumes, including retained orphans a
+ * permanent removal left behind under the default {@code Retain} reclaim policy. {@code destroy} is
+ * the explicit, irreversible reclaim of one of those orphans: the control plane refuses it while
+ * the volume is still attached, so there is no {@code --force} to reach for -- an attached volume
+ * is scaled down or its spec deleted first, never destroyed out from under a live instance.
  */
 public final class VolumesCommand {
 
@@ -70,17 +72,33 @@ public final class VolumesCommand {
     if (nodeId == null || nodeId.isBlank()) {
       throw new CliException("--node <nodeId> is required for volume destroy\n\n" + usage());
     }
-    ApiResponse response = client.delete("/volumes/" + nodeId + "/" + statefulSet + "/" + index);
+    // Omitted means the untenanted namespace, exactly as the API reads it and exactly as `volume
+    // list` renders it (an empty tenantId cell). Sending nothing at all would leave the tenant for
+    // the server to guess, which is how a destroy could land on a different tenant's volume.
+    String tenant = flags.getOrDefault("--tenant", null);
+    String tenantQuery =
+        tenant == null || tenant.isBlank()
+            ? ""
+            : "?tenant=" + URLEncoder.encode(tenant, StandardCharsets.UTF_8);
+    ApiResponse response =
+        client.delete("/volumes/" + nodeId + "/" + statefulSet + "/" + index + tenantQuery);
     client.expectSuccess(response);
     Map<String, Object> resultBody = new LinkedHashMap<>();
     resultBody.put("result", "destroyed");
     resultBody.put("kind", "volume");
     resultBody.put("id", statefulSet + "/" + index);
     resultBody.put("nodeId", nodeId);
+    resultBody.put("tenantId", tenant == null || tenant.isBlank() ? null : tenant);
     OutputFormat.printResult(
         output,
         resultBody,
-        "destroyed volume " + statefulSet + "[" + index + "] on node " + nodeId,
+        "destroyed volume "
+            + statefulSet
+            + "["
+            + index
+            + "] on node "
+            + nodeId
+            + (tenant == null || tenant.isBlank() ? "" : " for tenant " + tenant),
         out);
   }
 
@@ -88,6 +106,9 @@ public final class VolumesCommand {
     return """
         usage:
           gimle volume list
-          gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>""";
+          gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId> [--tenant <id>]
+
+        --tenant is omitted for an untenanted volume, matching the empty tenantId `volume list`
+        shows for one; a tenanted volume is only ever addressable by naming its own tenant.""";
   }
 }

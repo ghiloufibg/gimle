@@ -26,7 +26,7 @@ Any order, anywhere on the command line:
 `-o json` is honored by **every** verb, not only the read-shaped ones. A read verb emits the
 resource (or the array of them) as the API returned it; a write verb emits a one-line result object
 in place of its human sentence — `{"result":"cordoned","kind":"node","id":"node-a"}` for
-`gimle cordon node-a`, `{"result":"destroyed","kind":"volume","id":"orders/0","nodeId":"node-a"}`
+`gimle cordon node-a`, `{"result":"destroyed","kind":"volume","id":"orders/0","nodeId":"node-a","tenantId":null}`
 for `gimle volume destroy orders 0 --node node-a`, and the same `result`/`kind`/`id` shape for
 every other `set`/`delete`/`apply`. `gimle logs` emits the structured log lines themselves rather
 than a re-serialization of its own one-line rendering: one JSON array per request (an empty array
@@ -106,7 +106,7 @@ gimle uncordon <nodeId>
 gimle taint <nodeId> <tenantId>
 gimle untaint <nodeId> <tenantId>
 gimle volume list
-gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
+gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId> [--tenant <id>]
 gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
 gimle metrics
 gimle metrics-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId>
@@ -795,8 +795,8 @@ gimle events orders-service-deployment 0 --server 127.0.0.1:8080
 gimle events orders-service-deployment 0 --tenant acme --server 127.0.0.1:8080
 gimle events orders-service-deployment 0 --limit 20 --server 127.0.0.1:8080
 
-# Which deployments are actually taking traffic, and which are erroring -- rows carrying
-# ambiguous: true are same-named deployments in different tenants the rollup cannot tell apart
+# Which deployments are actually taking traffic, and which are erroring -- every row names its
+# own tenant, so two tenants running a same-named deployment read as the two distinct rows they are
 gimle metrics --server 127.0.0.1:8080
 gimle -o json metrics --server 127.0.0.1:8080
 

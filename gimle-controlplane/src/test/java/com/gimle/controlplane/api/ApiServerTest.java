@@ -29,6 +29,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -2271,7 +2272,8 @@ class ApiServerTest {
 
       HttpResponse<String> refusedDestroy =
           send(
-              HttpRequest.newBuilder(URI.create(baseUrl + "/volumes/node-a/sessions/0"))
+              HttpRequest.newBuilder(
+                      URI.create(baseUrl + "/volumes/node-a/sessions/0?tenant=default"))
                   .DELETE()
                   .build());
       assertEquals(409, refusedDestroy.statusCode());
@@ -2279,11 +2281,122 @@ class ApiServerTest {
 
       HttpResponse<String> allowedDestroy =
           send(
-              HttpRequest.newBuilder(URI.create(baseUrl + "/volumes/node-a/sessions/1"))
+              HttpRequest.newBuilder(
+                      URI.create(baseUrl + "/volumes/node-a/sessions/1?tenant=default"))
                   .DELETE()
                   .build());
       assertEquals(200, allowedDestroy.statusCode());
       assertTrue(agentSawDelete.get());
+    } finally {
+      agentStub.stop(0);
+    }
+  }
+
+  /**
+   * A destroy that names no tenant addresses the untenanted namespace, never the {@code default}
+   * tenant's identically-named volume at the same set and index. Silently resolving an omitted
+   * tenant to {@code default} here -- correct for a workload route, whose manifest parser applies
+   * that same default -- made a request naming an untenanted or differently-tenanted volume land on
+   * the default tenant's data instead, on an irreversible operation.
+   */
+  @Test
+  void a_destroy_naming_no_tenant_never_resolves_to_the_default_tenants_volume() throws Exception {
+    java.util.List<String> agentDeletes = java.util.Collections.synchronizedList(new ArrayList<>());
+    com.sun.net.httpserver.HttpServer agentStub =
+        com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    agentStub.createContext(
+        "/volumes",
+        exchange -> {
+          if ("DELETE".equals(exchange.getRequestMethod())) {
+            agentDeletes.add(exchange.getRequestURI().toString());
+          }
+          byte[] body = "{\"destroyed\": true}".getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, body.length);
+          try (java.io.OutputStream out = exchange.getResponseBody()) {
+            out.write(body);
+          }
+        });
+    agentStub.start();
+    try {
+      store.putNodeRegistration(
+          new NodeRegistration(
+              "node-a",
+              new NodeCapabilities(Set.of(IsolationTier.TIER_1)),
+              Optional.of("127.0.0.1:" + agentStub.getAddress().getPort())));
+      // The default tenant's sessions[0] is attached, so a destroy resolving to it would be
+      // refused with 409 -- which is exactly what an omitted tenant must NOT resolve to.
+      store.putStatefulSetSpec(
+          new com.gimle.mimir.manifest.StatefulSetSpec(
+              "sessions",
+              new ModuleId("com.example.sessions", Version.parse("1.0.0")),
+              "/tmp/sessions.jar",
+              1,
+              com.gimle.mimir.manifest.PlacementConstraints.NONE,
+              Optional.of(Tenant.DEFAULT_TENANT_ID),
+              Optional.empty()));
+      store.putStatefulSetIndexNode(Optional.of(Tenant.DEFAULT_TENANT_ID), "sessions", 0, "node-a");
+
+      HttpResponse<String> untenantedDestroy =
+          send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/volumes/node-a/sessions/0"))
+                  .DELETE()
+                  .build());
+
+      assertEquals(200, untenantedDestroy.statusCode());
+      assertEquals(1, agentDeletes.size());
+      assertFalse(
+          agentDeletes.get(0).contains("tenant="),
+          "an omitted tenant must reach the agent omitted, not rewritten to a tenant id: "
+              + agentDeletes.get(0));
+
+      // And the tenanted coordinate is still guarded, proving the two are genuinely distinct.
+      assertEquals(
+          409,
+          send(HttpRequest.newBuilder(
+                      URI.create(baseUrl + "/volumes/node-a/sessions/0?tenant=default"))
+                  .DELETE()
+                  .build())
+              .statusCode());
+    } finally {
+      agentStub.stop(0);
+    }
+  }
+
+  /** A blank {@code ?tenant=} is the untenanted namespace, not a tenant literally named "". */
+  @Test
+  void a_blank_tenant_parameter_on_a_destroy_is_forwarded_as_untenanted() throws Exception {
+    java.util.List<String> agentDeletes = java.util.Collections.synchronizedList(new ArrayList<>());
+    com.sun.net.httpserver.HttpServer agentStub =
+        com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    agentStub.createContext(
+        "/volumes",
+        exchange -> {
+          if ("DELETE".equals(exchange.getRequestMethod())) {
+            agentDeletes.add(exchange.getRequestURI().toString());
+          }
+          byte[] body = "{\"destroyed\": true}".getBytes(StandardCharsets.UTF_8);
+          exchange.sendResponseHeaders(200, body.length);
+          try (java.io.OutputStream out = exchange.getResponseBody()) {
+            out.write(body);
+          }
+        });
+    agentStub.start();
+    try {
+      store.putNodeRegistration(
+          new NodeRegistration(
+              "node-a",
+              new NodeCapabilities(Set.of(IsolationTier.TIER_1)),
+              Optional.of("127.0.0.1:" + agentStub.getAddress().getPort())));
+
+      assertEquals(
+          200,
+          send(HttpRequest.newBuilder(URI.create(baseUrl + "/volumes/node-a/sessions/0?tenant="))
+                  .DELETE()
+                  .build())
+              .statusCode());
+
+      assertEquals(1, agentDeletes.size());
+      assertFalse(agentDeletes.get(0).contains("tenant="), agentDeletes.get(0));
     } finally {
       agentStub.stop(0);
     }

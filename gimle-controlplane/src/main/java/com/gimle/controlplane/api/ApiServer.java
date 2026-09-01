@@ -3898,9 +3898,10 @@ public final class ApiServer implements AutoCloseable {
   /**
    * A per-deployment rollup of the same real request/error-rate data {@link #deploymentStatus}
    * already surfaces per-instance -- average request rate, average error rate, and how many
-   * instances contributed a reading, one row per deployment. Instances with no observation yet
-   * (never heartbeated, or heartbeated but not yet reporting metrics) simply don't contribute to
-   * the average rather than dragging it toward zero, the same "degrade, don't fail" posture {@link
+   * instances contributed a reading, one row per deployment, keyed by the {@code (tenantId,
+   * deploymentName)} pair that actually identifies one. Instances with no observation yet (never
+   * heartbeated, or heartbeated but not yet reporting metrics) simply don't contribute to the
+   * average rather than dragging it toward zero, the same "degrade, don't fail" posture {@link
    * #findObservation} already has for a missing reading.
    */
   private void handleMetrics(HttpExchange exchange) {
@@ -3925,6 +3926,10 @@ public final class ApiServer implements AutoCloseable {
           findObservation(assignment).ifPresent(observations::add);
         }
         Map<String, Object> row = new LinkedHashMap<>();
+        // Both halves of the identity, not just the name: listDeployments spans tenants, so two
+        // tenants running an identically-named deployment produce two rows a client reading only
+        // deploymentName cannot tell apart -- or join back to either tenant's deployment.
+        row.put("tenantId", spec.tenantId().orElse(null));
         row.put("deploymentName", spec.name());
         row.put("instanceCount", observations.size());
         row.put(
@@ -7671,9 +7676,7 @@ public final class ApiServer implements AutoCloseable {
       String nodeId = segments[0];
       String statefulSetName = segments[1];
       int instanceIndex = Integer.parseInt(segments[2]);
-      // The owning tenant, if any, travels as ?tenant=<id> -- see workloadTenantHint's own
-      // javadoc for why an omitted one resolves to the default tenant rather than untenanted.
-      Optional<String> tenantId = workloadTenantHint(exchange);
+      Optional<String> tenantId = volumeTenant(exchange);
       if (!requireAuthorized(
           exchange,
           ResourceKind.STATEFULSET,
@@ -8279,6 +8282,24 @@ public final class ApiServer implements AutoCloseable {
    * read still correctly does, since those kinds have no such manifest-side default -- would
    * address a namespace no such workload can ever land in.
    */
+  /**
+   * The owning tenant of the volume a {@code /volumes/*} request addresses: {@code ?tenant=<id>}
+   * for a tenanted one, an omitted or blank {@code ?tenant=} for a genuinely untenanted one.
+   *
+   * <p>Deliberately not {@link #workloadTenantHint}, which every other workload-scoped route uses.
+   * That default exists because a workload manifest's own omitted {@code tenantId} resolves to
+   * {@link Tenant#DEFAULT_TENANT_ID}, so no workload can ever land in the untenanted namespace and
+   * a lookup addressing it would find nothing. A volume is different: its tenant comes from the
+   * allocation record the agent wrote, not from a manifest, and untenanted volumes genuinely exist
+   * on disk and are listed as {@code "tenantId": null} by {@code GET /volumes}. Defaulting an
+   * omitted {@code ?tenant=} to {@code default} here made every one of those unaddressable, and --
+   * far worse on a {@code DELETE} -- silently redirected a request naming a tenanted volume at the
+   * default tenant's identically-named volume at the same set and index instead.
+   */
+  private static Optional<String> volumeTenant(HttpExchange exchange) {
+    return Optional.ofNullable(parseQuery(exchange).get("tenant")).filter(t -> !t.isBlank());
+  }
+
   private static Optional<String> workloadTenantHint(HttpExchange exchange) {
     return Optional.of(parseQuery(exchange).getOrDefault("tenant", Tenant.DEFAULT_TENANT_ID));
   }

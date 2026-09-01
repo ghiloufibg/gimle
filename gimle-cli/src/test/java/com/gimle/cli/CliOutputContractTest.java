@@ -107,7 +107,14 @@ class CliOutputContractTest {
     storeRaftNode.close();
   }
 
+  /** The raw request URI of the most recent DELETE the stub agent saw, tenant query included. */
+  private static final java.util.concurrent.atomic.AtomicReference<String> lastVolumeDelete =
+      new java.util.concurrent.atomic.AtomicReference<>();
+
   private static void serveVolumes(HttpExchange exchange) throws IOException {
+    if ("DELETE".equals(exchange.getRequestMethod())) {
+      lastVolumeDelete.set(exchange.getRequestURI().toString());
+    }
     String body =
         "GET".equals(exchange.getRequestMethod())
             ? Json.write(
@@ -245,6 +252,58 @@ class CliOutputContractTest {
     assertEquals(0, run("volume", "destroy", "orders", "0", "--node", "node-vol"), stderr());
 
     assertEquals("destroyed volume orders[0] on node node-vol", stdout().strip());
+  }
+
+  /**
+   * Without a way to name the volume's tenant, {@code volume destroy} could only ever address one
+   * namespace -- so a tenanted volume that {@code volume list} happily shows was unreachable, and
+   * the request landed on whatever volume the server's own default resolved to instead.
+   */
+  @Test
+  void volume_destroy_sends_the_tenant_it_was_given_all_the_way_to_the_owning_agent()
+      throws Exception {
+    registerNode("node-vol", "127.0.0.1:" + stubAgent.getAddress().getPort());
+    lastVolumeDelete.set(null);
+
+    assertEquals(
+        0,
+        run("volume", "destroy", "orders", "0", "--node", "node-vol", "--tenant", "acme"),
+        stderr());
+
+    assertTrue(lastVolumeDelete.get().contains("tenant=acme"), lastVolumeDelete.get());
+    assertTrue(stdout().contains("for tenant acme"), stdout());
+  }
+
+  @Test
+  void volume_destroy_naming_no_tenant_reaches_the_agent_with_no_tenant_at_all() throws Exception {
+    registerNode("node-vol", "127.0.0.1:" + stubAgent.getAddress().getPort());
+    lastVolumeDelete.set(null);
+
+    assertEquals(0, run("volume", "destroy", "orders", "0", "--node", "node-vol"), stderr());
+
+    assertFalse(lastVolumeDelete.get().contains("tenant="), lastVolumeDelete.get());
+  }
+
+  @Test
+  void volume_destroy_under_json_output_reports_the_tenant_it_addressed() throws Exception {
+    registerNode("node-vol", "127.0.0.1:" + stubAgent.getAddress().getPort());
+
+    assertEquals(
+        0,
+        run(
+            "-o",
+            "json",
+            "volume",
+            "destroy",
+            "orders",
+            "0",
+            "--node",
+            "node-vol",
+            "--tenant",
+            "acme"),
+        stderr());
+
+    assertEquals("acme", Json.asObject(Json.parse(stdout())).get("tenantId"));
   }
 
   @Test

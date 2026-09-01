@@ -1,18 +1,14 @@
 import { describe, expect, it } from "vitest";
-import {
-  ambiguousDeploymentNames,
-  fmtRatePerSecond,
-  rankRollupRows,
-  rollupAmbiguityWarning,
-} from "./metrics";
+import { fmtRatePerSecond, rankRollupRows, rollupRowKey } from "./metrics";
 import type { DeploymentMetricsRollup } from "@/types";
 
-// Pure ranking/ambiguity/formatting logic only -- this project's vitest config is deliberately
+// Pure ranking/identity/formatting logic only -- this project's vitest config is deliberately
 // node-environment (see vitest.config.ts); the JSX half of the rollup panel is exercised live in a
 // real browser instead, not here.
 
 function row(overrides: Partial<DeploymentMetricsRollup> = {}): DeploymentMetricsRollup {
   return {
+    tenantId: null,
     deploymentName: "greeter-provider",
     instanceCount: 1,
     avgRequestRatePerSecond: 0,
@@ -79,53 +75,47 @@ describe("rankRollupRows", () => {
   });
 });
 
-// GET /metrics keys each row by deployment name alone while the RBAC filter behind it is
-// per-tenant, so a caller who may read two tenants can receive two rows nothing in the payload
-// distinguishes. Both rows are kept and both are flagged; neither is dropped, merged, or
-// attributed to a tenant the response never named.
+// GET /metrics spans tenants, so a caller who may read two of them can receive two rows for the
+// same deployment name. The rows are distinguished by their (tenant, name) pair, which the
+// endpoint sends on every row -- neither is dropped, merged, or attributed to the wrong tenant.
 describe("same deployment name across tenants", () => {
   const rows = [
-    row({ deploymentName: "api", instanceCount: 2, avgRequestRatePerSecond: 10 }),
-    row({ deploymentName: "api", instanceCount: 1, avgErrorRatePerSecond: 2 }),
-    row({ deploymentName: "worker", instanceCount: 1 }),
+    row({ tenantId: "acme", deploymentName: "api", instanceCount: 2, avgRequestRatePerSecond: 10 }),
+    row({ tenantId: "globex", deploymentName: "api", instanceCount: 1, avgErrorRatePerSecond: 2 }),
+    row({ tenantId: "acme", deploymentName: "worker", instanceCount: 1 }),
   ];
 
-  it("flags every row whose name is repeated, and no others", () => {
-    const ranked = rankRollupRows(rows);
-
-    expect(ranked.filter((r) => r.ambiguous).map((r) => r.deploymentName)).toEqual(["api", "api"]);
-    expect(ranked.find((r) => r.deploymentName === "worker")?.ambiguous).toBe(false);
-  });
-
-  it("keeps both ambiguous rows rather than collapsing them into one average", () => {
+  it("keeps both rows rather than collapsing them into one average", () => {
     const ranked = rankRollupRows(rows);
 
     expect(ranked).toHaveLength(3);
-    expect(ranked.filter((r) => r.deploymentName === "api").map((r) => r.instanceCount)).toEqual([
-      1, 2,
+    expect(ranked.filter((r) => r.deploymentName === "api").map((r) => r.tenantId)).toEqual([
+      "globex",
+      "acme",
     ]);
   });
 
-  it("names the affected deployments in the warning, once each and sorted", () => {
-    expect(rollupAmbiguityWarning([...rows, row({ deploymentName: "api" })])).toContain("api");
-    expect(rollupAmbiguityWarning(rows)).toContain("no tenant");
+  it("gives each same-named row a distinct key, so neither can stand in for the other", () => {
+    const keys = rows.map(rollupRowKey);
+
+    expect(new Set(keys).size).toBe(rows.length);
+    expect(rollupRowKey(rows[0])).not.toBe(rollupRowKey(rows[1]));
   });
 
-  it("warns about nothing when every deployment name is unique", () => {
-    expect(
-      rollupAmbiguityWarning([row({ deploymentName: "a" }), row({ deploymentName: "b" })]),
-    ).toBeNull();
-    expect(rollupAmbiguityWarning([])).toBeNull();
+  it("distinguishes an untenanted row from one belonging to a real tenant", () => {
+    const untenanted = row({ tenantId: null, deploymentName: "api" });
+    const tenanted = row({ tenantId: "acme", deploymentName: "api" });
+
+    expect(rollupRowKey(untenanted)).not.toBe(rollupRowKey(tenanted));
   });
 
-  it("reports a repeated name exactly once regardless of how many rows carry it", () => {
-    const repeated = ambiguousDeploymentNames([
-      row({ deploymentName: "api" }),
-      row({ deploymentName: "api" }),
-      row({ deploymentName: "api" }),
+  it("breaks a ranking tie on the full identity, so the order is stable when a name repeats", () => {
+    const ranked = rankRollupRows([
+      row({ tenantId: "globex", deploymentName: "api" }),
+      row({ tenantId: "acme", deploymentName: "api" }),
     ]);
 
-    expect([...repeated]).toEqual(["api"]);
+    expect(ranked.map((r) => r.tenantId)).toEqual(["acme", "globex"]);
   });
 });
 

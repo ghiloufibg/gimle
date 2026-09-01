@@ -1,7 +1,6 @@
 package com.gimle.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,6 +16,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,7 +76,11 @@ class MetricsCommandTest {
     return errBuffer.toString(StandardCharsets.UTF_8);
   }
 
-  /** An ordinary untenanted deployment, submitted the way an operator would: through the API. */
+  /**
+   * An ordinary deployment, submitted the way an operator would: through the API. Its manifest
+   * names no tenant, which the manifest parser resolves to the {@code default} tenant rather than
+   * to the untenanted namespace.
+   */
   private void apply(String name) throws IOException {
     Path file = tempDir.resolve(name + ".yaml");
     Files.writeString(
@@ -98,10 +102,23 @@ class MetricsCommandTest {
   /**
    * Proposed straight against the real store rather than submitted through the API: plaintext mode
    * deliberately refuses to admit a second real tenant (it has no caller identity to tell tenants
-   * apart), and two tenants is precisely the shape needed here. The ambiguity under test belongs to
+   * apart), and two tenants is precisely the shape needed here. The behavior under test belongs to
    * the read path, which stays entirely real.
    */
   private void storeTenantedDeployment(String tenantId, String name) {
+    storeDeployment(Optional.of(tenantId), name);
+  }
+
+  /**
+   * The untenanted namespace has no manifest spelling -- an omitted {@code tenantId} parses as
+   * {@code default} -- so the only way to put a deployment there is straight through the store,
+   * which is exactly what makes it worth asserting the rollup tells it apart from a real tenant.
+   */
+  private void storeUntenantedDeployment(String name) {
+    storeDeployment(Optional.empty(), name);
+  }
+
+  private void storeDeployment(Optional<String> tenantId, String name) {
     cluster
         .storeClient()
         .propose(
@@ -113,7 +130,7 @@ class MetricsCommandTest {
                     1,
                     PlacementConstraints.NONE,
                     Optional.empty(),
-                    Optional.of(tenantId)),
+                    tenantId),
                 0L));
   }
 
@@ -154,51 +171,63 @@ class MetricsCommandTest {
   }
 
   /**
-   * The rollup keys each row by deployment name alone and carries no tenant id, so two tenants
-   * running a same-named deployment produce two rows a client has no way to attribute. Both are
-   * kept and both are flagged.
+   * Two tenants running a same-named deployment produce two rows. Each carries its own tenant id,
+   * which is what makes them distinguishable -- both are kept, neither is merged into an average
+   * the server never computed.
    */
   @Test
-  void same_deployment_name_in_two_tenants_yields_two_rows_both_marked_ambiguous() {
+  void same_deployment_name_in_two_tenants_yields_two_rows_each_naming_its_own_tenant() {
     storeTenantedDeployment("acme", "api");
     storeTenantedDeployment("globex", "api");
     storeTenantedDeployment("acme", "billing");
 
     List<Map<String, Object>> rows = rollupRows();
 
-    List<Map<String, Object>> api =
-        rows.stream().filter(row -> "api".equals(row.get("deploymentName"))).toList();
-    assertEquals(2, api.size(), stdout());
-    assertTrue(api.stream().allMatch(row -> Boolean.TRUE.equals(row.get("ambiguous"))), stdout());
+    List<Object> apiTenants =
+        rows.stream()
+            .filter(row -> "api".equals(row.get("deploymentName")))
+            .map(row -> row.get("tenantId"))
+            .sorted(Comparator.comparing(String::valueOf))
+            .toList();
+    assertEquals(List.of("acme", "globex"), apiTenants, stdout());
     Map<String, Object> billing =
         rows.stream()
             .filter(row -> "billing".equals(row.get("deploymentName")))
             .findFirst()
             .orElseThrow();
-    assertEquals(Boolean.FALSE, billing.get("ambiguous"));
+    assertEquals("acme", billing.get("tenantId"), stdout());
   }
 
   @Test
-  void the_table_output_names_the_ambiguous_deployments_in_a_note() {
+  void the_table_output_carries_the_tenant_column_so_same_named_rows_read_apart() {
     storeTenantedDeployment("acme", "api");
     storeTenantedDeployment("globex", "api");
 
     assertEquals(0, run("metrics"), stderr());
 
-    assertTrue(stdout().contains("api appear(s) more than once"), stdout());
-    assertTrue(stdout().contains("cannot be told apart"), stdout());
+    assertTrue(stdout().contains("tenantId"), stdout());
+    assertTrue(stdout().contains("acme"), stdout());
+    assertTrue(stdout().contains("globex"), stdout());
   }
 
-  /** The note is a human sentence: emitting it under -o json would break every JSON reader. */
+  /**
+   * An untenanted deployment is a real, distinct row -- not the same thing as an unknown tenant.
+   */
   @Test
-  void json_output_stays_a_single_parseable_document_even_when_rows_are_ambiguous() {
+  void an_untenanted_deployment_is_told_apart_from_a_same_named_tenanted_one() {
+    storeUntenantedDeployment("api");
     storeTenantedDeployment("acme", "api");
-    storeTenantedDeployment("globex", "api");
 
     List<Map<String, Object>> rows = rollupRows();
 
-    assertFalse(stdout().contains("cannot be told apart"), stdout());
-    assertEquals(2, rows.size(), stdout());
+    List<Object> tenants =
+        rows.stream()
+            .filter(row -> "api".equals(row.get("deploymentName")))
+            .map(row -> row.get("tenantId"))
+            .toList();
+    assertEquals(2, tenants.size(), stdout());
+    assertTrue(tenants.contains("acme"), stdout());
+    assertTrue(tenants.contains(null), stdout());
   }
 
   @Test

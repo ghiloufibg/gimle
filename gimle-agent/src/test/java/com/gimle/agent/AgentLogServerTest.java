@@ -247,6 +247,75 @@ class AgentLogServerTest {
     assertEquals(400, delete("/volumes/..%5Cpwn/1").statusCode());
   }
 
+  /**
+   * A destroy naming a tenant this node holds no such volume for must not report success. The
+   * volume directory tree is keyed by tenant, so answering 200 for a coordinate with nothing on
+   * disk would tell an operator their reclaim happened when they had in fact addressed the wrong
+   * tenant -- and left the volume they meant to reclaim untouched.
+   */
+  @Test
+  void destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk()
+      throws Exception {
+    Path dataRoot = logRoot.resolve("data");
+    LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
+    Path tenanted =
+        volumeManager.hostPath(
+            volumeManager.allocate(
+                java.util.Optional.of("acme"), "sessions", 0, "data", new VolumeRequest(64)));
+    Files.writeString(tenanted.resolve("live.db"), "12345");
+    server =
+        new AgentLogServer(
+            logRoot, 0, java.util.function.Function.identity(), volumeManager, Set::of);
+    server.start();
+
+    assertEquals(404, delete("/volumes/sessions/0").statusCode());
+    assertEquals(404, delete("/volumes/sessions/0?tenant=globex").statusCode());
+    assertTrue(Files.exists(tenanted));
+
+    assertEquals(200, delete("/volumes/sessions/0?tenant=acme").statusCode());
+    assertFalse(Files.exists(tenanted));
+  }
+
+  /**
+   * A blank {@code ?tenant=} means the untenanted namespace, the same as omitting it -- a real
+   * tenant id is never blank, so the two spellings cannot collide, and a caller that must always
+   * send the parameter still has a way to say "untenanted".
+   */
+  @Test
+  void a_blank_tenant_parameter_addresses_the_untenanted_volume_the_same_as_omitting_it()
+      throws Exception {
+    Path dataRoot = logRoot.resolve("data");
+    LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
+    Path untenanted =
+        volumeManager.hostPath(
+            volumeManager.allocate(
+                java.util.Optional.empty(), "sessions", 0, "data", new VolumeRequest(64)));
+    Files.writeString(untenanted.resolve("old.db"), "123");
+    server =
+        new AgentLogServer(
+            logRoot, 0, java.util.function.Function.identity(), volumeManager, Set::of);
+    server.start();
+
+    assertEquals(200, delete("/volumes/sessions/0?tenant=").statusCode());
+    assertFalse(Files.exists(untenanted));
+  }
+
+  /** A second destroy of the same volume is a 404, not a second "destroyed" for the same data. */
+  @Test
+  void destroying_an_already_destroyed_volume_reports_404_rather_than_success() throws Exception {
+    Path dataRoot = logRoot.resolve("data");
+    LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
+    volumeManager.allocate(
+        java.util.Optional.empty(), "sessions", 0, "data", new VolumeRequest(64));
+    server =
+        new AgentLogServer(
+            logRoot, 0, java.util.function.Function.identity(), volumeManager, Set::of);
+    server.start();
+
+    assertEquals(200, delete("/volumes/sessions/0").statusCode());
+    assertEquals(404, delete("/volumes/sessions/0").statusCode());
+  }
+
   private HttpResponse<String> delete(String path) throws Exception {
     HttpRequest request =
         HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + path))

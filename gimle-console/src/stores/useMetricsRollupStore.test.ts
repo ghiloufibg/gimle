@@ -8,6 +8,7 @@ import { metricsRepo } from "@/repositories";
 import { useMetricsRollupStore } from "./useMetricsRollupStore";
 
 const ROW = {
+  tenantId: null,
   deploymentName: "greeter-provider",
   instanceCount: 2,
   avgRequestRatePerSecond: 42.5,
