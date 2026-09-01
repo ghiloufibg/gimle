@@ -100,6 +100,20 @@ agent-managed file changed underneath it. In every case, a connection attempted 
 close-to-rebind window fails and should be retried by the caller; already-established connections
 are unaffected.
 
+### When rotation fails
+
+A rotation check that fails leaves the still-valid certificate in place and retries on the next
+tick, which is correct — and used to be invisible, which was not: nothing but a single `WARN` line
+distinguished "renewal has been broken for a week" from a healthy cluster, and the first real
+symptom would have been an expiry outage. Every check now produces a result rather than a swallowed
+failure, tracked by `CertificateRotationMonitor` (`gimle-pki`) and surfaced three ways: two
+alertable gauges (`gimle.certificate.rotation.consecutive.failures` and
+`gimle.certificate.remaining.seconds`) plus a per-outcome counter, an escalating log line that names
+the error, the streak length, the expiry of the certificate still in use and the runway left on it,
+and a durable `AuditEvent` at the start and escalation point of a streak and on every completed
+rotation. See [Observability](./observability.md#certificate-rotation-health) for the meter names
+and how to alert on them.
+
 ## CLI surface
 
 See the [CLI reference](../reference/cli-reference.md)'s `cert` verbs: `token create`, `request`,

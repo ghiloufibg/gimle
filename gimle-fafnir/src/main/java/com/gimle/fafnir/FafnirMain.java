@@ -7,9 +7,12 @@ import com.gimle.core.net.DnsCacheTtl;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.core.web.BundledSpa;
+import com.gimle.mimir.authz.CertificateRotationAuditor;
 import com.gimle.mimir.rpc.StoreClient;
+import com.gimle.observability.CertificateRotationMetrics;
 import com.gimle.observability.GimleTracing;
 import com.gimle.observability.MuninnShipper;
+import com.gimle.pki.CertificateRotationMonitor;
 import com.gimle.pki.OwnCertificateRotator;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -17,6 +20,7 @@ import java.net.SocketAddress;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -124,6 +128,25 @@ public final class FafnirMain {
     }
 
     URI finalCsrEndpoint = csrEndpoint;
+    // Every rotation check -- including one that fails -- is metered into the registry already
+    // shipped to Muninn and, at the start and the escalation point of a failure streak, appended to
+    // the durable audit trail. A rotation that quietly stops working is harmless only until the
+    // certificate it failed to renew expires, which is exactly the failure an operator must be able
+    // to see coming.
+    CertificateRotationMetrics certificateRotationMetrics =
+        new CertificateRotationMetrics(fafnirServer.metrics().registry());
+    OwnCertificateRotator certificateRotator =
+        new OwnCertificateRotator(
+            new CertificateRotationMonitor(
+                "fafnir",
+                CERT_ROTATION_CHECK_INTERVAL,
+                new CertificateRotationAuditor(storeClient, "fafnir")
+                    .andThen(
+                        status ->
+                            certificateRotationMetrics.recordCheck(
+                                status.outcome().name(),
+                                status.consecutiveFailures(),
+                                status.remainingValidity(Instant.now())))));
     ScheduledExecutorService ticker =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-fafnir-cert-rotation-tick").unstarted(r));
@@ -140,7 +163,9 @@ public final class FafnirMain {
             return;
           }
           boolean rotated =
-              OwnCertificateRotator.checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint);
+              certificateRotator
+                  .checkAndRotateIfDue(TlsSettings.fromConfig(), finalCsrEndpoint)
+                  .rotated();
           if (rotated) {
             try {
               fafnirServer.reloadTlsMaterial();

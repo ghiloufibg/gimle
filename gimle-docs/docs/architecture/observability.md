@@ -78,6 +78,42 @@ result as a `"percentiles"` map alongside the existing `"measurements"` map (`{"
 unchanged, since `MuninnDayFileStore` stores each shipped line as opaque JSON. A `Timer` that was
 never built with `publishPercentiles(...)` ships exactly as before (no `"percentiles"` key at all).
 
+### Certificate rotation health
+
+Every process that renews its own leaf certificate — the node agent plus `gimle-controlplane`,
+`gimle-mimir`, `gimle-fafnir`, `gimle-muninn` and `gimle-andvari` — publishes the health of that
+renewal into the same registry it already ships, through `CertificateRotationMetrics`:
+
+| Meter | Kind | What it says |
+|---|---|---|
+| `gimle.certificate.rotation.consecutive.failures` | gauge | How many rotation checks in a row have failed. `0` while renewal is healthy. |
+| `gimle.certificate.remaining.seconds` | gauge | How much validity the certificate currently in use still has. Goes negative once it has expired. |
+| `gimle.certificate.rotation.checks` | counter, tagged `outcome` | One increment per check, tagged `DISABLED`, `NOT_DUE`, `ROTATED` or `FAILED`. |
+
+Both gauges are registered at startup rather than on the first check, so a healthy process reads
+as an explicit zero instead of an absent meter an operator has to interpret. They ride the same
+`MeterSnapshotCodec` → agent → Muninn shipping path everything else does, so they are queryable
+through `GET /metrics-history/*` with no new control-plane wire fields.
+
+Alert on the pair, never on either alone: a failing rotation is harmless while the certificate it
+failed to renew still has weeks of runway, and an outage in the making once it doesn't. The
+practical rule is "`consecutive.failures > 0` **and** `remaining.seconds` below your renewal
+window" for a page, with a plain `consecutive.failures > 0` warning long before that. `gimle-muninn`
+is the one process with no meter registry of its own (it is the sink, and ships nothing), so its
+rotation health is visible only through its log and the audit trail below.
+
+The same signal shows up two more ways. A failure streak is **logged** with escalation rather than
+one repeated `WARN`: the first failure logs at `WARN`, the third at `ERROR`, and an ongoing streak
+re-logs at most once a minute — each line naming the error, how many checks have failed in a row,
+the expiry of the certificate still in use with the runway left on it, and when the next attempt
+happens. And the start and escalation point of a streak, plus every completed rotation, are
+appended to the **durable audit trail** as a `CERTIFICATE_REQUEST`/`WRITE` `AuditEvent` against the
+target `own-certificate` (`APPLIED` for a rotation, `REJECTED` for a failure) — so "when did this
+node last renew, and when did renewal start failing" survives both log rotation and the process
+itself. Rotation checks run every few seconds, which is why only those points are audited rather
+than every failed check; the gauges carry the state in between. An unreachable store is logged and
+dropped: auditing a rotation failure must never break the loop that keeps the certificate alive.
+
 **Worker JVM metrics and traces reach Muninn too, relayed through the worker's own node agent** —
 a worker has no outbound network identity of its own (`WorkerMain`'s only CLI arguments are
 `nodeId`/`tenantId`/a control-socket path, no `-Dgimle.agent.muninnEndpoint`-equivalent), so it

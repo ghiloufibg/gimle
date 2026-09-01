@@ -48,12 +48,14 @@ import com.gimle.fabric.catalog.ServiceCatalog;
 import com.gimle.fabric.cluster.GossipConfig;
 import com.gimle.fabric.cluster.GossipMember;
 import com.gimle.fabric.cluster.MemberId;
+import com.gimle.mimir.authz.CertificateRotationAuditor;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.module.artifact.ArtifactPullCache;
 import com.gimle.module.artifact.ModuleArtifactReader;
 import com.gimle.module.artifact.ResolvedArtifact;
 import com.gimle.module.artifact.VesselEntrypointParser;
 import com.gimle.observability.AgentMetrics;
+import com.gimle.observability.CertificateRotationMetrics;
 import com.gimle.observability.MuninnShipper;
 import com.gimle.os.ResourceLimitHandle;
 import com.gimle.os.ResourceLimiter;
@@ -61,6 +63,9 @@ import com.gimle.os.VolumeHandle;
 import com.gimle.os.VolumeManager;
 import com.gimle.os.localdisk.LocalDiskVolumeManager;
 import com.gimle.os.portable.PortableJvmFlagsResourceLimiter;
+import com.gimle.pki.CertificateRotationListener;
+import com.gimle.pki.CertificateRotationMonitor;
+import com.gimle.pki.CertificateRotationStatus;
 import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
 import com.gimle.pki.RenewalSchedule;
@@ -155,14 +160,24 @@ public final class AgentMain {
   private static final Duration STOP_GRACE_POLL_INTERVAL = Duration.ofMillis(100);
 
   /**
-   * Tier 1 density cap: the most Tier-1 instances this agent will pack into one shared worker JVM
-   * before preferring a fresh one -- a simple constant to start, not a configurable knob yet. See
-   * {@link #findReusableTier1Worker} for the rest of the reuse decision (same node implicitly,
-   * since this only ever scans this agent's own {@code supervised} map; same tenant or both
-   * untenanted; never two instances of the same module, which would corrupt {@code WorkerRuntime}'s
-   * per-{@code ModuleId} keying).
+   * The default Tier 1 density cap: the most Tier-1 instances this agent will pack into one shared
+   * worker JVM before preferring a fresh one, unless {@link #MAX_TIER1_DENSITY_PROPERTY} says
+   * otherwise. Four is a deliberately conservative starting point rather than a measured optimum --
+   * every instance in a shared worker draws on that one JVM's single heap and CPU allocation, so
+   * the right value for a given node is a function of how much heap its workers are given and how
+   * much each hosted module actually uses. See {@link #findReusableTier1Worker} for the rest of the
+   * reuse decision (same node implicitly, since this only ever scans this agent's own {@code
+   * supervised} map; same tenant or both untenanted; never two instances of the same module, which
+   * would corrupt {@code WorkerRuntime}'s per-{@code ModuleId} keying).
    */
-  private static final int MAX_TIER1_DENSITY = 4;
+  static final int DEFAULT_MAX_TIER1_DENSITY = 4;
+
+  /**
+   * Overrides {@link #DEFAULT_MAX_TIER1_DENSITY}. Same optional-system-property shape as {@code
+   * gimle.agent.bifrostEnabled}/{@code gimle.agent.fafnirEndpoint} -- unset means the default, and
+   * {@code 1} disables packing entirely (every Tier-1 instance gets its own worker JVM).
+   */
+  static final String MAX_TIER1_DENSITY_PROPERTY = "gimle.agent.maxTier1Density";
 
   /**
    * How often each {@link MuninnShipper} instance ticks -- own logs and every supervised worker's.
@@ -256,6 +271,10 @@ public final class AgentMain {
     // governs unrelated work.
     boolean bifrostEnabled =
         Boolean.parseBoolean(System.getProperty("gimle.agent.bifrostEnabled", "false"));
+    // How many Tier-1 instances this node packs into one shared worker JVM. Read and validated
+    // here, before anything is supervised, so a bad value fails the agent at startup rather than
+    // silently reverting to the default the first time a Tier-1 instance is placed.
+    int maxTier1Density = parseMaxTier1Density(System.getProperty(MAX_TIER1_DENSITY_PROPERTY));
     // The NodePort analogue: wildcard-bind each Bifrost listener at its service's own port so
     // callers off this node can dial <nodeHost>:<servicePort>. Off by default -- loopback-only,
     // today's posture.
@@ -405,12 +424,36 @@ public final class AgentMain {
     // Authorizer, matching Fafnir/Andvari/Muninn's defense-in-depth pattern rather than
     // AgentLogServer's "trust the network topology" posture.
     AgentAdminServer adminServer = null;
+    // Shared with the certificate-rotation monitor below, which appends its own durable audit
+    // events through the same client -- an agent with no store endpoints configured keeps every
+    // rotation signal except that durable trail.
+    StoreClient storeClient = null;
     if (storeEndpoint != null && !storeEndpoint.isBlank()) {
-      StoreClient adminStoreClient = new StoreClient(parseStoreEndpoints(storeEndpoint));
-      adminServer = new AgentAdminServer(adminStoreClient, adminApiPort, supervised);
+      storeClient = new StoreClient(parseStoreEndpoints(storeEndpoint));
+      adminServer = new AgentAdminServer(storeClient, adminApiPort, supervised);
       adminServer.start();
       log.info("agent {} serving admin fault API at :{}", nodeId, adminServer.port());
     }
+
+    // Every rotation check -- including one that fails -- is metered into the same registry this
+    // agent already ships to Muninn and, at the start and the escalation point of a failure
+    // streak, appended to the durable audit trail. A rotation that quietly stops working is
+    // harmless only until the certificate it failed to renew expires, which is exactly the failure
+    // an operator must be able to see coming.
+    CertificateRotationMetrics certificateRotationMetrics =
+        new CertificateRotationMetrics(agentMetrics.registry());
+    CertificateRotationListener rotationListener =
+        status ->
+            certificateRotationMetrics.recordCheck(
+                status.outcome().name(),
+                status.consecutiveFailures(),
+                status.remainingValidity(Instant.now()));
+    if (storeClient != null) {
+      rotationListener =
+          new CertificateRotationAuditor(storeClient, nodeId).andThen(rotationListener);
+    }
+    CertificateRotationMonitor rotationMonitor =
+        new CertificateRotationMonitor("agent " + nodeId, TICK_INTERVAL, rotationListener);
 
     register(httpClient, baseUrl, nodeId, resourceLimiter, apiAddress);
     log.info("agent {} registered with control plane at {}", nodeId, baseUrl);
@@ -508,7 +551,8 @@ public final class AgentMain {
             capacityTracker,
             gossipMember,
             catalog,
-            logRoot);
+            logRoot,
+            maxTier1Density);
         sendHeartbeat(
             httpClient,
             baseUrl,
@@ -517,9 +561,10 @@ public final class AgentMain {
             supervisedVessels,
             capacityTracker,
             volumeManager);
-        RotationOutcome rotationOutcome = rotateCertificateIfDue(httpClient, baseUrl);
+        RotationOutcome rotationOutcome =
+            rotateCertificateIfDue(httpClient, baseUrl, rotationMonitor);
         httpClient = rotationOutcome.httpClient();
-        if (rotationOutcome.rotated()) {
+        if (rotationOutcome.status().rotated()) {
           gossipMember.reloadDtlsMaterial();
           if (adminServer != null) {
             adminServer.reloadTlsMaterial();
@@ -541,6 +586,33 @@ public final class AgentMain {
       throw new IllegalArgumentException("expected host:port, got: " + text);
     }
     return new InetSocketAddress(text.substring(0, at), Integer.parseInt(text.substring(at + 1)));
+  }
+
+  /**
+   * Rejects a non-numeric, zero, or negative density outright rather than silently falling back to
+   * the default: an operator who set this meant to change the packing behavior, and a value that
+   * quietly does nothing is worse than a startup failure that says exactly what is wrong.
+   */
+  static int parseMaxTier1Density(String value) {
+    if (value == null || value.isBlank()) {
+      return DEFAULT_MAX_TIER1_DENSITY;
+    }
+    final int parsed;
+    try {
+      parsed = Integer.parseInt(value.trim());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException(
+          MAX_TIER1_DENSITY_PROPERTY
+              + " must be a positive integer (instances per shared worker JVM), got: "
+              + value);
+    }
+    if (parsed < 1) {
+      throw new IllegalArgumentException(
+          MAX_TIER1_DENSITY_PROPERTY
+              + " must be at least 1 (1 disables Tier 1 packing entirely), got: "
+              + parsed);
+    }
+    return parsed;
   }
 
   private static List<InetSocketAddress> parseSeeds(String text) {
@@ -737,12 +809,14 @@ public final class AgentMain {
   }
 
   /**
-   * The "did rotation actually happen this tick" signal: {@code rotateCertificateIfDue} has three
-   * distinct not-rotated exits (plaintext, not due, request failed) plus one success exit, and the
-   * caller needs to tell them apart to know whether to also refresh {@code gossipMember}'s own DTLS
-   * material -- a raw {@link HttpClient} return gives no such signal.
+   * What one rotation check produced: the {@link HttpClient} to use from here on (a fresh one only
+   * after an actual rotation, since the old one still holds the retired key material) plus the
+   * {@link CertificateRotationStatus} saying what happened -- which of the not-rotated exits it
+   * was, how much validity the certificate on disk still has, and how many checks in a row have
+   * failed. The caller needs the rotated/not-rotated distinction to know whether to also refresh
+   * {@code gossipMember}'s own DTLS material; a raw {@link HttpClient} return gives no such signal.
    */
-  private record RotationOutcome(HttpClient httpClient, boolean rotated) {}
+  private record RotationOutcome(HttpClient httpClient, CertificateRotationStatus status) {}
 
   /**
    * Checked once per tick: if the agent's currently-loaded leaf certificate is due for renewal,
@@ -752,18 +826,22 @@ public final class AgentMain {
    * anywhere, so "hot-swap" here is just handing back a new outbound client, not the JDK
    * listening-socket rebuild {@code ApiServer#reloadTlsMaterial} needs. Returns {@code current}
    * unchanged (no-op) in plaintext mode, when not yet due, or if the rotation request fails --
-   * failures are logged and retried on a later tick, not fatal to this one.
+   * failures are retried on a later tick, not fatal to this one, and every check (failures
+   * included) is reported through {@code monitor} so a rotation that has quietly stopped working is
+   * visible long before the certificate it failed to renew expires.
    */
-  private static RotationOutcome rotateCertificateIfDue(HttpClient current, URI baseUrl) {
+  private static RotationOutcome rotateCertificateIfDue(
+      HttpClient current, URI baseUrl, CertificateRotationMonitor monitor) {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return new RotationOutcome(current, false);
+      return new RotationOutcome(current, monitor.disabled());
     }
+    X509Certificate certificate = null;
     try {
       TlsSettings settings = TlsSettings.fromConfig();
-      X509Certificate certificate =
+      certificate =
           Pem.decodeCertificate(Files.readString(settings.certFile(), StandardCharsets.US_ASCII));
       if (!RenewalSchedule.of(certificate).isDue(Instant.now())) {
-        return new RotationOutcome(current, false);
+        return new RotationOutcome(current, monitor.notDue(certificate));
       }
       log.info("agent certificate due for renewal, requesting rotation");
       KeyPair keyPair = generateRsaKeyPair();
@@ -788,13 +866,25 @@ public final class AgentMain {
       HttpResponse<String> response =
           current.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       if (response.statusCode() != 200) {
-        log.warn(
-            "certificate rotation request rejected with status {}: {}",
-            response.statusCode(),
-            response.body());
-        return new RotationOutcome(current, false);
+        return new RotationOutcome(
+            current,
+            monitor.failed(
+                "the rotation request was rejected with status "
+                    + response.statusCode()
+                    + ": "
+                    + response.body(),
+                certificate));
       }
       CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
+      String issuedPem =
+          result
+              .certificatePem()
+              .orElseThrow(
+                  () ->
+                      new IllegalStateException(
+                          "the rotation request returned status "
+                              + result.status()
+                              + " with no certificate"));
       // Key written *before* cert, deliberately: gimle-worker's FabricServerTlsWatcher polls
       // only certFile's mtime to detect a rotation happened, from a separate process with no
       // synchronization with this one. Writing the key first guarantees that by the time the
@@ -804,16 +894,17 @@ public final class AgentMain {
           settings.keyFile(),
           Pem.encodePrivateKey(keyPair.getPrivate()),
           StandardCharsets.US_ASCII);
-      Files.writeString(
-          settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
-      log.info("agent certificate rotated");
-      return new RotationOutcome(buildHttpClient(), true);
+      Files.writeString(settings.certFile(), issuedPem, StandardCharsets.US_ASCII);
+      return new RotationOutcome(
+          buildHttpClient(), monitor.rotated(Pem.decodeCertificate(issuedPem)));
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
-      return new RotationOutcome(current, false);
+      return new RotationOutcome(
+          current, monitor.failed("interrupted while requesting rotation", certificate));
     } catch (IOException | RuntimeException e) {
-      log.warn("certificate rotation check failed: {}", e.getMessage());
-      return new RotationOutcome(current, false);
+      return new RotationOutcome(
+          current,
+          monitor.failed(e.getMessage() == null ? e.toString() : e.getMessage(), certificate));
     }
   }
 
@@ -1352,7 +1443,8 @@ public final class AgentMain {
       CapacityTracker capacityTracker,
       GossipMember gossipMember,
       ServiceCatalog catalog,
-      Path logRoot)
+      Path logRoot,
+      int maxTier1Density)
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
@@ -1451,7 +1543,7 @@ public final class AgentMain {
                   assigned.moduleId(), descriptor.isolationTier());
             }
             Optional<SupervisedInstance> reusable =
-                findReusableTier1Worker(assigned, descriptor, supervised);
+                findReusableTier1Worker(assigned, descriptor, supervised, maxTier1Density);
             if (reusable.isPresent()) {
               installIntoExistingWorker(
                   assigned,
@@ -2092,15 +2184,16 @@ public final class AgentMain {
   /**
    * Tier 1 density: reuse an already-running worker for {@code assigned} instead of spawning a new
    * JVM, when doing so is safe -- deliberately narrow (agent-local, node-implicit) scope, see
-   * {@link #MAX_TIER1_DENSITY}'s own javadoc. Groups {@code supervised} by connection identity
-   * (every instance sharing one worker shares one {@link WorkerConnection} reference) rather than
-   * scanning candidates independently, since the module-conflict and density checks are properties
-   * of the *worker as a whole*, not of any single instance already on it.
+   * {@link #DEFAULT_MAX_TIER1_DENSITY}'s own javadoc. Groups {@code supervised} by connection
+   * identity (every instance sharing one worker shares one {@link WorkerConnection} reference)
+   * rather than scanning candidates independently, since the module-conflict and density checks are
+   * properties of the *worker as a whole*, not of any single instance already on it.
    */
   static Optional<SupervisedInstance> findReusableTier1Worker(
       AssignedInstance assigned,
       ModuleDescriptor descriptor,
-      Map<String, SupervisedInstance> supervised) {
+      Map<String, SupervisedInstance> supervised,
+      int maxTier1Density) {
     if (descriptor.isolationTier() != IsolationTier.TIER_1) {
       return Optional.empty();
     }
@@ -2121,7 +2214,7 @@ public final class AgentMain {
       // already legal today; density must never let them land in the same *worker* too.
       boolean noModuleConflict =
           group.stream().noneMatch(i -> i.assigned.moduleId().equals(assigned.moduleId()));
-      boolean underDensityLimit = group.size() < MAX_TIER1_DENSITY;
+      boolean underDensityLimit = group.size() < maxTier1Density;
       if (allTier1 && sameTenant && noModuleConflict && underDensityLimit) {
         return Optional.of(representative);
       }

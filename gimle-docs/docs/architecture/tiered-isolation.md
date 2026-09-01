@@ -52,7 +52,11 @@ relate above this diagram.
 The node agent packs multiple Tier-1 instances into one shared worker JVM when it's safe to do so:
 same node (implicit -- an agent only ever reuses its own already-running workers), same tenant (or
 both untenanted), never two instances of the same module (which would corrupt `WorkerRuntime`'s
-per-`ModuleId` keying), and under a fixed density cap. This is deliberately agent-local and
+per-`ModuleId` keying), and under a density cap (`-Dgimle.agent.maxTier1Density`, default `4`;
+`1` disables packing entirely, and a zero, negative, or non-numeric value fails the agent at
+startup rather than being ignored). See [Node sizing and worker
+density](../reference/node-sizing.md) for how to choose that value and what it costs. This is
+deliberately agent-local and
 invisible to the control plane: the scheduler still reasons about node-level capacity only, with no
 concept of which worker a Tier-1 instance lands in once it's placed on a node, and per-worker
 `-Xmx` subdivision is out of scope -- a shared worker's memory ceiling stays whatever it was sized

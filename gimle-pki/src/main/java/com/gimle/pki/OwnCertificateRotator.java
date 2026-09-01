@@ -39,45 +39,60 @@ import org.slf4j.LoggerFactory;
  * renewal-over-mTLS mechanism, not an ad-hoc self-signed cert or a second CSR-signing authority.
  * Deliberately does not reload any listener itself -- {@code RaftTransport}/{@code
  * StoreTransport}/{@code ApiServer}'s own {@code HttpsServer} are each a different caller's
- * concern, so the boolean return tells the caller whether *any* reload is needed, same contract
- * {@code ApiServer.checkAndRotateOwnCertificateIfDue} already had.
+ * concern, so {@link CertificateRotationStatus#rotated()} tells the caller whether *any* reload is
+ * needed.
+ *
+ * <p>Every check -- including one that fails -- is reported through the {@link
+ * CertificateRotationMonitor} this rotator is constructed with, which is what turns a failure into
+ * something an operator can see and alert on: a swallowed failure here is harmless only for as long
+ * as the certificate it failed to renew stays valid, and silently keeping a still-valid certificate
+ * is exactly how a surprise expiry outage is built.
  */
 public final class OwnCertificateRotator {
 
   private static final Logger log = LoggerFactory.getLogger(OwnCertificateRotator.class);
 
-  private OwnCertificateRotator() {}
+  private final CertificateRotationMonitor monitor;
+
+  public OwnCertificateRotator(CertificateRotationMonitor monitor) {
+    if (monitor == null) {
+      throw new IllegalArgumentException("monitor must not be null");
+    }
+    this.monitor = monitor;
+  }
 
   /**
-   * No-op in plaintext mode or when nothing is due yet. Returns {@code true} iff a rotation
-   * actually happened -- the caller is responsible for reloading whatever listeners key off {@code
-   * settings.certFile()}/{@code keyFile()} afterward.
+   * No-op in plaintext mode or when nothing is due yet. The returned status says which of those it
+   * was, how much validity the certificate on disk still has, and how many checks in a row have
+   * failed; the caller is responsible for reloading whatever listeners key off {@code
+   * settings.certFile()}/{@code keyFile()} once {@link CertificateRotationStatus#rotated()} is
+   * {@code true}.
    */
-  public static boolean checkAndRotateIfDue(TlsSettings settings, URI csrEndpoint) {
+  public CertificateRotationStatus checkAndRotateIfDue(TlsSettings settings, URI csrEndpoint) {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
-      return false;
+      return monitor.disabled();
     }
+    X509Certificate current = null;
     try {
-      X509Certificate current = loadOwnLeafCertificate(settings.certFile());
+      current = loadOwnLeafCertificate(settings.certFile());
       if (!RenewalSchedule.of(current).isDue(Instant.now())) {
-        return false;
+        return monitor.notDue(current);
       }
       if (csrEndpoint == null) {
-        log.warn("own leaf certificate is due for renewal but no CSR endpoint is configured");
-        return false;
+        // A due certificate with nowhere to renew it is a misconfiguration that expires the
+        // process on a fixed deadline, so it counts as a failed check rather than a quiet no-op.
+        return monitor.failed(
+            "the certificate is due for renewal but no CSR endpoint is configured", current);
       }
       log.info("own leaf certificate due for renewal, requesting rotation from {}", csrEndpoint);
-      rotate(settings, current, csrEndpoint);
-      return true;
+      X509Certificate issued = rotate(settings, keyPairSubjectOf(current), csrEndpoint);
+      return monitor.rotated(issued);
     } catch (RuntimeException | IOException e) {
-      log.warn("certificate rotation check failed: {}", e.getMessage(), e);
-      return false;
+      return monitor.failed(e.getMessage() == null ? e.toString() : e.getMessage(), current);
     }
   }
 
-  private static void rotate(TlsSettings settings, X509Certificate current, URI csrEndpoint)
-      throws IOException {
-    KeyPair keyPair = generateRsaKeyPair();
+  private static X500Name keyPairSubjectOf(X509Certificate current) {
     // X500Name.getInstance(...getEncoded()), never new X500Name(...getName()): the latter
     // round-trips through X500Principal's RFC 2253 string rendering, which reorders a multi-RDN
     // subject (most-specific RDN first, i.e. CN before O) relative to the certificate's own ASN.1
@@ -85,7 +100,12 @@ public final class OwnCertificateRotator {
     // carries both O= and CN=, so a reordered CSR subject here would fail
     // ApiServer#handleRotationRequest's own byte-for-byte comparison against the presented
     // certificate's real encoding, rejecting the rotation outright.
-    X500Name subject = X500Name.getInstance(current.getSubjectX500Principal().getEncoded());
+    return X500Name.getInstance(current.getSubjectX500Principal().getEncoded());
+  }
+
+  private static X509Certificate rotate(TlsSettings settings, X500Name subject, URI csrEndpoint)
+      throws IOException {
+    KeyPair keyPair = generateRsaKeyPair();
     PKCS10CertificationRequest csr = CertificateSigningRequests.generate(keyPair, subject);
     HttpClient client =
         HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(settings)).build();
@@ -113,11 +133,20 @@ public final class OwnCertificateRotator {
               + response.body());
     }
     CsrResult result = csrResultFromJson(Json.asObject(Json.parse(response.body())));
-    Files.writeString(
-        settings.certFile(), result.certificatePem().orElseThrow(), StandardCharsets.US_ASCII);
+    String issuedPem =
+        result
+            .certificatePem()
+            .orElseThrow(
+                () ->
+                    new IOException(
+                        "own rotation request returned status "
+                            + result.status()
+                            + " with no certificate"));
+    Files.writeString(settings.certFile(), issuedPem, StandardCharsets.US_ASCII);
     Files.writeString(
         settings.keyFile(), Pem.encodePrivateKey(keyPair.getPrivate()), StandardCharsets.US_ASCII);
     restrictPermissions(settings.keyFile());
+    return Pem.decodeCertificate(issuedPem);
   }
 
   /**
