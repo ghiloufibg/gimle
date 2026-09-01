@@ -21,16 +21,16 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 61 | 6 | 55 | 9.8% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 42 | 1 | 41 | 2.4% |
-| gimle-controlplane | 119 | 17 | 102 | 14.3% |
+| gimle-controlplane | 118 | 17 | 101 | 14.4% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
 | gimle-gateway | 21 | 0 | 21 | 0.0% |
-| gimle-cli | 41 | 0 | 41 | 0.0% |
+| gimle-cli | 43 | 0 | 43 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 57 | 0 | 57 | 0.0% |
+| gimle-console | 50 | 0 | 50 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 9 | 0 | 9 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -42,6 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
+| gimle-hugin | 6 | 0 | 6 | 0.0% |
 
 ## Checklist
 
@@ -1100,7 +1101,6 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-253 | Node-scoped self-service authorization (`gimle:nodes` group) | Given a certificate carrying gimle:nodes and CN=node-42; When calling POST /nodes/node-42/heartbeat; Then it succeeds via the self-service short-circuit; a request against node-99 is rejected. | No |
 | [ ] | GIMLE-254 | Node-tenant-scoped `/endpoints/*` read access | Given node-42 has an active instance for tenant T; When it calls GET /endpoints/{workload-of-T}; Then access is granted; a request for a tenant it has no assignment for is rejected 403. | No |
 | [ ] | GIMLE-709 | A group: RoleBinding subject now authorizes a session-cookie-authenticated (console/CLI-login) principal, not only a certificate-authenticated one | Given a Role bound to `group:qa-team` granting DEPLOYMENT:READ, and an Account with groups=["qa-team"]; When that account logs in via the console and requests GET /deployments; Then the request is authorized. Given the same setup but an Account with no groups; When it requests GET /deployments; Then the request is denied with 403. Given an already-logged-in session for an account currently in `qa-team`; When an operator removes that account's groups via PUT /accounts/{username} with an explicit empty groups array; Then the very next request on that same session is denied, with no re-login required. Given an account with groups=["qa-team"]; When its password is reset via PUT /accounts/{username} with only {password} (no groups field); Then its group membership is unchanged. | No |
-| [ ] | GIMLE-756 | Live permission vocabulary endpoint driving the console's Roles picker | Given a build whose ResourceKind enum gains a value When the console's Roles picker is opened Then the new value is offered without any console change And the picker still renders from its fallback if the endpoint is unreachable | No |
 
 #### Authorization / API Server
 
@@ -1813,6 +1813,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-602 | `deployment`/`statefulset`/`daemonset` `revisions`/`rollback` verbs | Given `gimle apply -f orders-v1.yaml` then `gimle apply -f orders-v2.yaml` have both run, When `gimle deployment rollback orders-service` is invoked, Then `gimle get deployment orders-service` shows the v1 module version restored, and `gimle deployment revisions orders-service` lists 3 revisions newest-first. | No |
 | [ ] | GIMLE-605 | `limitrange` get/set/delete verbs | Given no LimitRange for tenant "acme" exists, When "gimle set limitrange acme --min-request-memory 64Mi --min-request-cpu 50m", Then PUT /limitranges/acme creates it and "gimle get limitrange acme" returns minRequest {memory: "64Mi", cpu: "50m"}. | No |
 | [ ] | GIMLE-653 | CLI Flag Errors Always Show Usage | Given a command like "secret set default my-secret hunter2" where a value was passed positionally instead of via --value; When it is run; Then the error names the stray argument and also prints that command's own usage string, the same way a too-few-arguments error already does. | No |
+| [ ] | GIMLE-750 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | Given a CliExtension provider for the verb "top" on the CLI's own classpath When an operator runs `gimle top` Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed | No |
 | [ ] | GIMLE-760 | Every mutating verb honours -o json, including the node and volume ones | Given --output json When a node is cordoned Then stdout is parseable JSON naming the node and the result And an advisory about unreachable nodes goes to stderr rather than into the JSON body | No |
 | [ ] | GIMLE-761 | A failed invocation exits with a code naming why it failed | Given a command targeting a resource that does not exist When it is run Then it exits 3 rather than 1 And an unreachable control plane exits 6 | No |
 | [ ] | GIMLE-762 | gimle logs honours -o json | Given a log query with no matching lines When it is run with --output json Then stdout is an empty JSON array And --follow emits one JSON object per line | No |
@@ -1844,6 +1845,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-385 | RBAC role binding management | Given "gimle set rolebinding b1 --subject user:alice --role cluster-admin", Then PUT /rolebindings/b1; "gimle get rolebindings" lists "user:alice". | No |
 | [ ] | GIMLE-386 | Operator account management | Given "gimle set account admin --password s3cret-password", Then PUT /accounts/admin sent; JSON output includes "username" but never "passwordHash" or the raw password. | No |
 | [ ] | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | Given "gimle cert request --purpose operator --out-cert op.crt --out-key op.key" against a trust-only connection, Then a keypair/CSR is generated locally, private key written immediately, and CSR POSTed unauthenticated to /bootstrap/csr; a due-for-renewal cred triggers a warning on any other command. | No |
+| [ ] | GIMLE-751 | An extension is handed a read-only view of the control-plane API, never the client | Given a CLI extension holding a ClusterReader When it tries to reach a write method Then no such method exists on the type it was handed | No |
 
 #### CLI / console parity
 
@@ -2039,13 +2041,6 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-593 | SecretMaps screen | Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing. | No |
 | [ ] | GIMLE-596 | SecretMaps screen History panel | Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks "Roll back" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked "rollback of v1". | No |
 | [ ] | GIMLE-741 | A trace can be followed across processes from the console's Traces screen | Given a trace whose spans were created in two different worker processes When that trace id is selected on the Traces screen Then spans from both processes are shown grouped by process and nested by parent And processes the view could not reach are named explicitly | No |
-| [ ] | GIMLE-750 | LimitRange management in the web console | Given a tenant with no LimitRange When one is created with a minimum request but no maximum Then the maximum renders as unbounded rather than zero And re-editing it does not submit a zero maximum | No |
-| [ ] | GIMLE-751 | Volumes screen: see and reclaim orphaned StatefulSet volumes | Given a StatefulSet volume no longer attached or in use When it is destroyed from the console Then the confirmation names the exact set, index and node And a node whose agent did not answer is reported rather than silently omitted | No |
-| [ ] | GIMLE-752 | Seal-key lifecycle in the web console | Given an active sealing key When retirement of the currently active key is attempted Then it is refused locally with a rotate-first message And retiring another key requires typing its id after a consequence dialog | No |
-| [ ] | GIMLE-753 | Instance lifecycle event timeline on the instance detail page | Given an instance that has restarted When its detail page is opened Then its lifecycle events are listed newest-first And only the ten most recent render until older ones are requested | No |
-| [ ] | GIMLE-754 | Per-deployment metrics rollup on the Metrics screen | Given two tenants each running a deployment of the same name When the metrics rollup is rendered Then both rows are shown and both are flagged ambiguous And neither is merged nor attributed to a tenant | No |
-| [ ] | GIMLE-755 | Secrets master-key retirement from the console | Given a secrets master key ring When retirement of the active key is attempted Then it is refused locally with a rotate-first message And retiring an older key requires typing its id after a consequence dialog | No |
-| [ ] | GIMLE-757 | Workload detail pages render bounded, paginated instance tables | Given a DaemonSet with one instance per node When its detail page renders the instance table Then each row has a distinct key despite every instance reporting index 0 And the row action links to a target that resolves for that workload kind | No |
 | [ ] | GIMLE-758 | An expired console session is explained once, in plain language | Given a signed-in operator whose session has expired When any request returns 401 Then no technical toast is shown And the login screen explains that the session expired | No |
 | [ ] | GIMLE-759 | Console screens keep themselves current | Given a deployment scaled from another surface When its console screen is open with auto-refresh on Then the change appears without operator action And a poll never clobbers a form the operator is editing | No |
 | [ ] | GIMLE-769 | The Audit screen's since filter sends the timestamp format the API parses | Given an audit query narrowed by a since timestamp When it is sent from the console Then the control plane accepts it rather than answering 400 | No |
@@ -2361,3 +2356,21 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | Given the directory has never held an entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN. Given the directory holds a declared Service whose endpoint list is currently empty, When queried, Then the response is NOERROR with zero answer records rather than NXDOMAIN. Given SkaldServer's directory cache holds "orders.acme.svc.gimle.local" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record. Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence. | No |
 | [ ] | GIMLE-721 | Cluster DNS answers NODATA, not NXDOMAIN, for a declared Service with no live endpoints | Given a declared Service whose backing deployment is scaled to zero When a client resolves that Service name Then the responder answers NOERROR with zero answer records And a name that was never declared still answers NXDOMAIN | No |
+
+### gimle-hugin
+
+#### CLI UX
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-752 | `gimle top` renders a live, read-only cluster view of nodes and instances | Given a running cluster with nodes and placed instances When an operator runs `gimle top` Then both tables render live and refresh on a fixed interval without any further command | No |
+| [ ] | GIMLE-753 | A failed poll keeps the last good rows and ages them rather than clearing the screen | Given `gimle top` showing a healthy cluster When the control plane becomes unreachable Then the last good rows stay on screen, aged, with the failure's reason on the status line | No |
+| [ ] | GIMLE-754 | Instance drill-down with lifecycle timeline and a live log tail | Given `gimle top` with an instance selected When the operator presses Enter Then that instance's detail, recent lifecycle events and a live log tail are shown, and esc returns to the cluster view | No |
+| [ ] | GIMLE-755 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | Given `gimle top` running against a cluster When the operator moves the selection, filters, pauses and quits Then each key does what the help overlay says, and quitting restores the terminal | No |
+| [ ] | GIMLE-756 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | Given a terminal that advertises a particular colour depth When `gimle top` renders a frame Then it emits the console's own token values at that depth, and nothing at all under NO_COLOR | No |
+
+#### Distribution
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-757 | The terminal view ships in the CLI archives and is removable in one directory delete | Given the CLI distribution archive When gimle-hugin and its JLine jars are on its lib/ classpath Then `gimle top` resolves, and with them removed the verb is unknown again | No |

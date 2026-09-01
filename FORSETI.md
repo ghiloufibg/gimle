@@ -1246,14 +1246,14 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-747 | `gimle-gateway` | Gateway route-table and server fields are guarded under one monitor | internal | UNIT | Existing gimle-gateway suite (99 tests) green with spotbugs:check clean; verified against clean master that the two findings pre-existed this change set. |
 | GIMLE-748 | `gimle-agent` | A closed Bifrost service listener never serves one more connection | observable | FLEET | NET-3 |
 | GIMLE-749 | `gimle-controlplane` | Proxied query parameters are URL-encoded rather than relayed decoded | internal | UNIT | ApiServerLogsFallbackTest covers a text filter containing a space surviving the proxy hop to both the live-agent and Muninn-fallback paths. |
-| GIMLE-750 | `gimle-console` | LimitRange management in the web console | observable | FLEET | GOV-2, OBS-7 |
-| GIMLE-751 | `gimle-console` | Volumes screen: see and reclaim orphaned StatefulSet volumes | observable | FLEET | BATCH-5, BATCH-6, OBS-7 |
-| GIMLE-752 | `gimle-console` | Seal-key lifecycle in the web console | observable | FLEET | SEC-4, OBS-7 |
-| GIMLE-753 | `gimle-console` | Instance lifecycle event timeline on the instance detail page | observable | FLEET | DEP-1, OBS-9 |
-| GIMLE-754 | `gimle-console` | Per-deployment metrics rollup on the Metrics screen | observable | FLEET | OBS-4 |
-| GIMLE-755 | `gimle-console` | Secrets master-key retirement from the console | observable | FLEET | SEC-3 |
-| GIMLE-756 | `gimle-controlplane` | Live permission vocabulary endpoint driving the console's Roles picker | observable | FLEET | GOV-3 |
-| GIMLE-757 | `gimle-console` | Workload detail pages render bounded, paginated instance tables | observable | FLEET | DEP-12 |
+| GIMLE-750 | `gimle-cli` | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | observable | FLEET | GOV-2, OBS-7 |
+| GIMLE-751 | `gimle-cli` | An extension is handed a read-only view of the control-plane API, never the client | observable | FLEET | BATCH-5, BATCH-6, OBS-7 |
+| GIMLE-752 | `gimle-hugin` | `gimle top` renders a live, read-only cluster view of nodes and instances | observable | FLEET | SEC-4, OBS-7 |
+| GIMLE-753 | `gimle-hugin` | A failed poll keeps the last good rows and ages them rather than clearing the screen | observable | FLEET | DEP-1, OBS-9 |
+| GIMLE-754 | `gimle-hugin` | Instance drill-down with lifecycle timeline and a live log tail | observable | FLEET | OBS-4 |
+| GIMLE-755 | `gimle-hugin` | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | observable | FLEET | SEC-3 |
+| GIMLE-756 | `gimle-hugin` | Terminal colour is the console's own tokens, degrading to 256-colour and to none | observable | FLEET | GOV-3 |
+| GIMLE-757 | `gimle-hugin` | The terminal view ships in the CLI archives and is removable in one directory delete | observable | FLEET | DEP-12 |
 | GIMLE-758 | `gimle-console` | An expired console session is explained once, in plain language | observable | FLEET | SEC-9 |
 | GIMLE-759 | `gimle-console` | Console screens keep themselves current | observable | FLEET | DEP-12 |
 | GIMLE-760 | `gimle-cli` | Every mutating verb honours -o json, including the node and volume ones | observable | FLEET | CHAOS-3 |
