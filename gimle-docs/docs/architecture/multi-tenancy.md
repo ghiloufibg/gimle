@@ -326,3 +326,38 @@ the node agent's own direct fetch path, in that order (source: `diagrams/secrets
   an oversized write is refused with `413` rather than read into memory first. Without these, a
   multi-megabyte blob was silently accepted, encrypted, and replicated through Raft consensus
   exactly like a small entry — held in every store replica's memory and written into every snapshot.
+
+### The sealing key lifecycle, in the console
+
+Separate from the symmetric master key ring above, Fafnir also holds an **asymmetric sealing key
+pair** — the one whose public half lets a caller with no Gimlé credentials at all seal a value
+entirely client-side (`gimle seal value`), for a CI pipeline or a value committed to a config repo
+ahead of deploy. Only Fafnir's matching private half can ever unwrap one, at the moment
+`secretmap seal` commits it. Three routes make up that lifecycle, all proxied byte-for-byte by the
+control plane to Fafnir:
+
+- `GET /seal/public-key` — the active key id, its algorithm (`RSA-OAEP-SHA256`), and the public key
+  as base64 of its X.509 `SubjectPublicKeyInfo` DER. Deliberately unauthenticated: the key is meant
+  to be public, and gating it would only block the credential-less caller it exists for.
+- `POST /seal/rotate-key` — mints the next key id and makes it active. Earlier keys stay on the
+  ring, so an envelope sealed under an older id still unwraps.
+- `POST /seal/retire-key` — deletes that id's key files outright.
+
+The console's **Seal Keys** screen is the UI over exactly those three, and it deliberately does not
+give rotation and retirement equal weight, because the two are not equally reversible. Rotation is
+one button beside the key it replaces; the screen then re-reads the public key rather than
+relabelling the id above stale base64. Retirement takes the key id in a field, refuses locally
+every id Fafnir would refuse anyway (out of the 0–255 byte range, the base key 0 — which would
+regenerate rather than stay retired — and the currently active key, which has to be rotated away
+from first), and then puts the call behind a confirmation dialog that says in plain language what
+is about to be lost and requires the operator to type that key id out a second time. Nothing about
+retirement can ride on a single mis-aimed click.
+
+That weighting matches the real consequence. Retirement is destructive by design, not a soft flag:
+the private key file is deleted, so any envelope sealed under that id and **not yet committed** can
+never be decrypted again, by anyone, including Fafnir. What is *not* affected is a SecretMap value
+already applied through `secretmap seal` — that was re-encrypted under Fafnir's own current
+symmetric key at commit time and was never stored in sealed form. Fafnir also publishes no listing
+of the ids still on the ring (only the active one), which is why the id being retired is typed in
+from the operator's own record of past rotations rather than picked from a list the API could
+supply.

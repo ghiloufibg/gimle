@@ -33,4 +33,30 @@ describe("MockSealRepository", () => {
     await expect(repo.retireKey(3)).rejects.toThrow("cannot retire the active sealing key");
     await expect(repo.retireKey(999)).rejects.toThrow("between 0 and 255");
   });
+
+  it("refuses the base key, which regenerates instead of staying retired", async () => {
+    const repo = new MockSealRepository();
+
+    await expect(repo.retireKey(0)).rejects.toThrow("cannot retire the base sealing key");
+  });
+
+  it("retiring the same id twice fails as an unknown id -- the key is gone, not flagged", async () => {
+    const repo = new MockSealRepository();
+
+    await repo.retireKey(1);
+
+    await expect(repo.retireKey(1)).rejects.toThrow("no sealing key with id 1");
+  });
+
+  it("the key retired after a rotation is the one that rotation displaced", async () => {
+    const repo = new MockSealRepository();
+
+    const rotated = await repo.rotateKey();
+
+    // 3 was active and unretirable a moment ago; rotating to 4 is exactly what frees it.
+    await expect(repo.retireKey(3)).resolves.toEqual({ retiredKeyId: 3 });
+    await expect(repo.retireKey(rotated.activeSealingKeyId)).rejects.toThrow(
+      "cannot retire the active sealing key",
+    );
+  });
 });
