@@ -25,8 +25,8 @@ the three dedicated services rather than either client talking to them directly 
 
 ## Screens
 
-Twenty-two screens, each backed by a real `Http*Repository` hitting the control plane's own API — the
-same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth. Twenty
+Twenty-six screens, each backed by a real `Http*Repository` hitting the control plane's own API — the
+same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth. Twenty-four
 live under the sidebar's "Cluster" group, `Logs` is reached contextually from an
 instance/deployment rather than its own top-level nav entry, and `Control plane` sits in its own
 "System" nav group, separate from the rest:
@@ -40,7 +40,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | DaemonSets | List/create/inspect [`kind: DaemonSet`](../reference/manifest-schema.md#daemonset-manifest) per-node workloads, surfacing `placement.requiredLabels` as a first-class column since it's the primary way an operator scopes which nodes run one, plus the same revision-history/rollback panel Deployments has. |
 | StatefulSets | List/create/inspect [`kind: StatefulSet`](../reference/manifest-schema.md#statefulset-manifest) workloads, including each index's sticky `nodeId` assignment, plus the same revision-history/rollback panel Deployments has. |
 | Volumes | Every StatefulSet persistent volume across every node — owning set, instance index, volume name, tenant, node, on-disk size, host path, and whether the store still attaches it and its agent still reports it held. Retained orphans carry a destroy action behind a confirmation naming the exact set/index/node about to be erased; a volume still attached or still in use offers none. A node whose agent didn't answer is called out in a warning strip, since a listing that silently omits one node's volumes is the wrong thing to trust on a reclamation screen. The UI equivalent of `gimle volume list/destroy`, with the tenant carried explicitly on destroy. |
-| Instances | Per-instance detail: lifecycle state, health, resource usage. |
+| Instances | Per-instance detail: lifecycle state, health, resource usage, plus that instance's own lifecycle-event timeline — the "why did this instance restart" panel, below. |
 | Custom Resources | Instances of cluster-defined [custom kinds](./custom-kinds.md): a kind picker fed by `/kinddefinitions`, an instance table honoring each definition's own `printColumns`, and a detail pane showing spec and status side by side with the generation/observedGeneration pair made visible — the at-a-glance "has the operator caught up" signal. Deliberately read-only; authoring stays in the CLI. |
 | Nodes | Registered node agents and their reported capacity, plus cordon/uncordon and per-tenant taint/untaint controls on the detail page — the UI equivalent of `gimle get nodes` and `gimle cordon/uncordon/taint/untaint`. Cordoning/tainting only ever affects future scheduling; neither evicts an already-running instance. |
 | Networking | Two tabs: [Services](./service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment) (the ClusterIP analogue — create/inspect/delete, plus each row's live backing endpoints) and NetworkPolicies (which other tenants may call a tenant's own Services) — the UI equivalent of `gimle get/set/delete service` and `gimle get/set/delete networkpolicy`. |
@@ -50,7 +50,9 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Tenants | Tenant list and quota management — see [Multi-tenancy](./multi-tenancy.md). |
 | LimitRanges | Per-tenant [LimitRange](./multi-tenancy.md#limitrange) management — list every tenant that has one, create/edit its four optional `minRequest`/`maxRequest`/`minLimit`/`maxLimit` bounds, delete it. The UI equivalent of `gimle get/set/delete limitrange`. Each bound is a memory + cpu pair, and a bound left blank is written as absent (unbounded) rather than as zero — the same absent-means-unbounded rule the API itself uses. |
 | Config | Tenant-scoped, plain (non-secret) config entries — see [Multi-tenancy](./multi-tenancy.md#tenant-scoped-config). |
+| ConfigMaps | Tenant-scoped grouped config objects with version history and rollback — the UI equivalent of `gimle get/set/delete configmap` and `gimle configmap versions/rollback`. |
 | Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker showing each version's author and write time, a declared-type selector on write (`opaque`/`pem-certificate`/`pem-private-key`), soft/hard delete, master-key rotation. See [Multi-tenancy](./multi-tenancy.md#secrets). |
+| SecretMaps | Grouped, sealed secret objects — batch set/replace/rollback and seal-envelope handling, the UI equivalent of `gimle secretmap`. |
 | Seal Keys | Fafnir's asymmetric sealing key pair — the active key id, its algorithm, and the base64 X.509 SubjectPublicKeyInfo public key with a copy action, plus rotation and retirement. The UI equivalent of `gimle seal public-key/rotate-key/retire-key`. See [Multi-tenancy](./multi-tenancy.md#the-sealing-key-lifecycle-in-the-console). |
 | Artifacts | Module jars pushed to the [Andvari](./node-topology.md#andvari) artifact registry — push/list/copy-checksum/delete against the real `/artifacts/*` proxy, the UI equivalent of `gimle artifact push/list/get/delete`. |
 | Access Control | `Role`/`RoleBinding`/`Account` management (tabs, below) — the UI equivalent of `gimle get/set/delete role/rolebinding/accounts`. |
@@ -149,6 +151,37 @@ same template: an optional, collapsible `maxUnavailable`/`maxSurge` sub-form on 
 and a read-only panel on the detail screen when a deployment has one. Unlike `autoscale:`,
 `disruption:` had *never* been on the wire at all before this — `ApiServer.deploymentStatus` gained
 its first `disruption` key here, not merely a later addition to an existing one.
+
+## Instance lifecycle events
+
+"Why did this instance restart" is the question an operator opens the console to answer, and the
+instance detail page answers it in place: a **Lifecycle events** panel showing that instance's own
+durable timeline from [`GET /events?deployment=&instance=[&tenant=]`](./control-plane.md#instance-event-log)
+— the same record `gimle events` prints, not a parallel source of truth. Newest-first, each entry
+showing its transition kind, the message, the failure's `causeSummary` when it has one, and both the
+absolute and relative time it occurred.
+
+Two details worth stating outright:
+
+- **The kinds are visually distinguished, and `TRANSITION_FAILED` is the only one tinted as a
+  failure.** It is what the panel exists to surface, so scanning a long timeline for "what went
+  wrong" is a matter of spotting the one red row. `UNINSTALLED` is deliberately *not* tinted as a
+  failure here, unlike the badge showing a live instance's current lifecycle state: in a timeline it
+  is the ordinary terminal transition of a deliberate teardown.
+- **The panel bounds itself; the API does not.** `GET /events` has no `limit` parameter of its own
+  (unlike `GET /audit`) — it returns the instance's whole retained timeline — so, exactly as the CLI
+  does for `gimle events --limit`, the console truncates the already-newest-first response
+  client-side. It renders the ten most recent transitions with a control to expand to the full
+  timeline, so a long-lived, repeatedly-restarted instance does not bury its most recent transition
+  under scrollback.
+
+The timeline shown is only what the control plane still retains: an instance's history is capped
+per instance with oldest-first pruning, so transitions older than that window are gone from here
+as they are from `gimle events`.
+
+The panel is keyed by the instance's own `(tenantId, deploymentName, instanceIndex)` triple, taken
+from the instance row itself — a bare name would address only the untenanted namespace, the same
+convention every other by-name lookup here follows.
 
 ## Logs: live tailing and crash dumps
 

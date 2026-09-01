@@ -372,8 +372,10 @@ an `InstanceEvent`, its agent forwards it to the control plane
 `AppendInstanceEvent` mutation — the store's first many-per-key resource kind (every other resource
 holds one current value per key; an instance's timeline is a bounded, ordered history instead,
 capped at 50 events per instance with oldest-first pruning applied deterministically inside
-`applyTo` so every Raft replica prunes identically). `GET /events?deployment=&instance=` and
-`gimle-cli events <deploymentName> <instanceIndex>` read it back newest-first.
+`applyTo` so every Raft replica prunes identically). `GET /events?deployment=&instance=`,
+`gimle-cli events <deploymentName> <instanceIndex>`, and the
+[web console](./web-console.md#instance-lifecycle-events)'s instance detail page all read it back
+newest-first.
 
 This is deliberately distinct from general [audit logging](./authn-authz.md#audit-logging) (who
 changed what, cluster-wide) — both are real, both live in `gimle-mimir`, but as two different
