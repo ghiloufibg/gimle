@@ -174,7 +174,13 @@ Managed as its own top-level resource, `PUT`/`GET`/`DELETE /limitranges/{tenantI
 since a LimitRange is naturally one-per-tenant) plus `GET /limitranges` for the full list, RBAC-gated
 on its own `ResourceKind.LIMIT_RANGE` — a role can be granted "manage this tenant" without also
 getting "constrain what any single deployment within it may request." See [CLI
-reference](../reference/cli-reference.md) for the `gimle limitrange` verbs.
+reference](../reference/cli-reference.md) for the `gimle limitrange` verbs, and the [web
+console](./web-console.md#screens)'s own LimitRanges screen for the same CRUD in the UI.
+
+Each of the four bounds is written only when it is actually declared: an absent key means
+*unbounded*, which is a different statement from a bound of zero (which would forbid everything).
+Both the CLI's all-or-nothing flag pairs and the console's blank-means-unbounded fields preserve
+that distinction rather than defaulting an unfilled bound to zero.
 
 ## Tenant-scoped config
 

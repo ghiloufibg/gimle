@@ -60,6 +60,27 @@ describe("HttpLimitRangesRepository", () => {
     });
   });
 
+  it("save omits an unset bound entirely, so the server reads it as unbounded", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse()]);
+    const repo = new HttpLimitRangesRepository();
+
+    await repo.save({ tenantId: "acme", maxRequest: { memory: "2Gi", cpu: "2000m" } });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(Object.keys(body)).toEqual(["maxRequest"]);
+  });
+
+  it("save carries an explicit zero bound rather than dropping it as unset", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse()]);
+    const repo = new HttpLimitRangesRepository();
+
+    await repo.save({ tenantId: "acme", minRequest: { memory: "0", cpu: "0" } });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ minRequest: { memory: "0", cpu: "0" } });
+  });
+
   it("remove DELETEs /limitranges/{tenantId}", async () => {
     const fetchMock = stubFetchSequence([() => okResponse()]);
     const repo = new HttpLimitRangesRepository();
