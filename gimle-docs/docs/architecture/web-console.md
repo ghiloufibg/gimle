@@ -40,7 +40,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | DaemonSets | List/create/inspect [`kind: DaemonSet`](../reference/manifest-schema.md#daemonset-manifest) per-node workloads, surfacing `placement.requiredLabels` as a first-class column since it's the primary way an operator scopes which nodes run one, plus the same revision-history/rollback panel Deployments has. |
 | StatefulSets | List/create/inspect [`kind: StatefulSet`](../reference/manifest-schema.md#statefulset-manifest) workloads, including each index's sticky `nodeId` assignment, plus the same revision-history/rollback panel Deployments has. |
 | Volumes | Every StatefulSet persistent volume across every node — owning set, instance index, volume name, tenant, node, on-disk size, host path, and whether the store still attaches it and its agent still reports it held. Retained orphans carry a destroy action behind a confirmation naming the exact set/index/node about to be erased; a volume still attached or still in use offers none. A node whose agent didn't answer is called out in a warning strip, since a listing that silently omits one node's volumes is the wrong thing to trust on a reclamation screen. The UI equivalent of `gimle volume list/destroy`, with the tenant carried explicitly on destroy. |
-| Instances | Per-instance detail: lifecycle state, health, resource usage, plus that instance's own lifecycle-event timeline — the "why did this instance restart" panel, below. |
+| Instances | Per-instance detail: lifecycle state, health, resource usage, plus that instance's own lifecycle-event timeline — the "why did this instance restart" panel, below. The same paginated instance table backs the Nodes screen and every workload detail page, below. |
 | Custom Resources | Instances of cluster-defined [custom kinds](./custom-kinds.md): a kind picker fed by `/kinddefinitions`, an instance table honoring each definition's own `printColumns`, and a detail pane showing spec and status side by side with the generation/observedGeneration pair made visible — the at-a-glance "has the operator caught up" signal. Deliberately read-only; authoring stays in the CLI. |
 | Nodes | Registered node agents and their reported capacity, plus cordon/uncordon and per-tenant taint/untaint controls on the detail page — the UI equivalent of `gimle get nodes` and `gimle cordon/uncordon/taint/untaint`. Cordoning/tainting only ever affects future scheduling; neither evicts an already-running instance. |
 | Networking | Two tabs: [Services](./service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment) (the ClusterIP analogue — create/inspect/delete, plus each row's live backing endpoints) and NetworkPolicies (which other tenants may call a tenant's own Services) — the UI equivalent of `gimle get/set/delete service` and `gimle get/set/delete networkpolicy`. |
@@ -131,8 +131,11 @@ before the UI did:
   either a verified mTLS client certificate or a verified console session cookie — plaintext mode
   has neither.
 - **Access Control** (`GET/PUT/DELETE /roles/*`, `/rolebindings/*`, `/accounts/*`): three tabs —
-  Roles (a repeatable permission-row editor: resource kind, verb, optional tenant scope), Role
-  Bindings (a user/group subject toggle plus a role picker sourced from the Roles tab's own store),
+  Roles (a repeatable permission-row editor: resource kind, verb, optional tenant scope — both
+  pickers filled from [`GET /authz/vocabulary`](./authn-authz.md), the control plane's own live
+  `ResourceKind`/`Verb` enums, so a kind the platform has grown is grantable here without waiting
+  for the console to be rebuilt; a bundled copy of the enum is the offline fallback if that call
+  fails), Role Bindings (a user/group subject toggle plus a role picker sourced from the Roles tab's own store),
   and Accounts (username plus a create-or-reset password form — the API never returns password
   material, so the list view never shows one). `RoleBinding`'s `id` is caller-chosen; the create
   form defaults it to a slug of the subject and role rather than asking the operator to invent one.

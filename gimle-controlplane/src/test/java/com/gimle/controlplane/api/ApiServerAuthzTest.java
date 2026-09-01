@@ -46,6 +46,7 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1725,6 +1726,67 @@ class ApiServerAuthzTest {
                       URI.create(baseUrl + "/authz/can-i?resource=DEPLOYMENT&verb=READ"))
                   .GET()
                   .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(401, anonymous.statusCode());
+    }
+  }
+
+  /**
+   * The permission vocabulary is served from the live enums, so a picker driven by it can never
+   * offer fewer kinds than the {@code Authorizer} on the other end accepts. Authenticated but
+   * ungated: the caller here holds no role binding at all and still gets the full answer, since
+   * there is nothing principal-specific in it to withhold.
+   */
+  @Test
+  void authz_vocabulary_serves_every_resource_kind_and_verb_this_build_enforces() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    inProcessStore
+        .store()
+        .putAccount(new Account("nobody", PasswordHashes.hash("pw".toCharArray())));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "nobody", "pw");
+
+      HttpResponse<String> response =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/authz/vocabulary"))
+                  .header("Cookie", cookie)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, response.statusCode());
+      Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+      assertEquals(
+          Arrays.stream(ResourceKind.values()).map(Enum::name).toList(),
+          Json.asArray(body.get("resourceKinds")));
+      assertEquals(
+          Arrays.stream(Verb.values()).map(Enum::name).toList(), Json.asArray(body.get("verbs")));
+
+      // Read-only, and still an identity-gated route like its /authz/can-i neighbour.
+      HttpResponse<String> written =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/authz/vocabulary"))
+                  .header("Cookie", cookie)
+                  .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(405, written.statusCode());
+
+      HttpResponse<String> anonymous =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/authz/vocabulary")).GET().build(),
               HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
       assertEquals(401, anonymous.statusCode());
     }

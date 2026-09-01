@@ -593,6 +593,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/auth/session", instrument("auth-session", this::handleAuthSession));
     target.createContext("/authz/can-i", instrument("authz-can-i", this::handleCanI));
     target.createContext(
+        "/authz/vocabulary", instrument("authz-vocabulary", this::handleAuthzVocabulary));
+    target.createContext(
         "/kinddefinitions/", instrument("kinddefinitions", this::handleKindDefinition));
     target.createContext(
         "/kinddefinitions", instrument("kinddefinitions", this::handleKindDefinitionsList));
@@ -6991,6 +6993,43 @@ public final class ApiServer implements AutoCloseable {
       tenant.ifPresent(t -> body.put("tenant", t));
       targetId.ifPresent(t -> body.put("target", t));
       body.put("allowed", allowed);
+      respondJson(exchange, 200, body);
+    } catch (IOException e) {
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  // ---- /authz/vocabulary ----
+
+  /**
+   * The permission vocabulary itself: {@code GET /authz/vocabulary} answers with every {@link
+   * ResourceKind} and {@link Verb} this build actually enforces, in declaration order. It exists so
+   * a permission editor can offer exactly the kinds {@link Authorizer} will accept instead of
+   * carrying its own hand-maintained copy of the enum -- a copy that has silently fallen behind
+   * this enum more than once, leaving whole resource kinds grantable only from the CLI.
+   *
+   * <p>Read-only and gated the same way its {@code /authz/can-i} neighbour is: under mTLS a caller
+   * must authenticate, but no permission is required beyond that, and nothing is audited. There is
+   * nothing here to withhold -- the answer is a compile-time constant of this build, identical for
+   * every principal, carrying no cluster state, no tenant's data, and no hint of who may do what.
+   * Gating it behind a grant would only break the picker for exactly the operator being asked to
+   * choose from it.
+   */
+  private void handleAuthzVocabulary(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      if (exchange instanceof HttpsExchange && resolvePrincipal(exchange).isEmpty()) {
+        respondQuietly(exchange, 401, "authentication required");
+        return;
+      }
+      Map<String, Object> body = new LinkedHashMap<>();
+      body.put("resourceKinds", Arrays.stream(ResourceKind.values()).map(Enum::name).toList());
+      body.put("verbs", Arrays.stream(Verb.values()).map(Enum::name).toList());
       respondJson(exchange, 200, body);
     } catch (IOException e) {
       respondQuietly(exchange, 500, "internal error");

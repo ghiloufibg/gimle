@@ -1,5 +1,5 @@
+import { useEffect } from "react";
 import type { Permission, ResourceKind, Verb } from "@/types";
-import { RESOURCE_KINDS, VERBS } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,9 +10,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { optionsIncludingSelected } from "@/lib/authz-vocabulary";
+import { useAuthzVocabularyStore } from "@/stores/useAuthzVocabularyStore";
 import { Plus, X } from "lucide-react";
 
-/** Repeatable permission row editor used by the Roles tab. */
+/**
+ * Repeatable permission row editor used by the Roles tab. Both pickers are filled from the control
+ * plane's own `ResourceKind`/`Verb` enums (`GET /authz/vocabulary`) rather than a list compiled into
+ * this console, so a kind the platform has grown is grantable here the moment the server knows it.
+ */
 export function PermissionRows({
   value,
   onChange,
@@ -20,6 +26,14 @@ export function PermissionRows({
   value: Permission[];
   onChange: (next: Permission[]) => void;
 }) {
+  const resourceKinds = useAuthzVocabularyStore((s) => s.resourceKinds);
+  const verbs = useAuthzVocabularyStore((s) => s.verbs);
+  const loadVocabulary = useAuthzVocabularyStore((s) => s.load);
+
+  useEffect(() => {
+    loadVocabulary();
+  }, [loadVocabulary]);
+
   function patch(i: number, p: Partial<Permission>) {
     onChange(value.map((row, ix) => (ix === i ? { ...row, ...p } : row)));
   }
@@ -46,7 +60,7 @@ export function PermissionRows({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {RESOURCE_KINDS.map((r) => (
+              {optionsIncludingSelected(resourceKinds, row.resource).map((r) => (
                 <SelectItem key={r} value={r} className="font-mono text-xs">
                   {r}
                 </SelectItem>
@@ -58,7 +72,7 @@ export function PermissionRows({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {VERBS.map((v) => (
+              {optionsIncludingSelected(verbs, row.verb).map((v) => (
                 <SelectItem key={v} value={v} className="font-mono text-xs">
                   {v}
                 </SelectItem>
