@@ -50,11 +50,18 @@ import org.slf4j.LoggerFactory;
  * CronJob's schedule effectively starts counting from whenever the control plane first reconciles
  * it, not retroactively.
  *
+ * <p>A {@link CronJobSpec#suspend()}ed CronJob materializes nothing at all, but is otherwise
+ * untouched: it stays listed, keeps every Job it already generated (history pruning still runs),
+ * and keeps its {@code cronJobLastSchedule} advancing past each instant that came due while it was
+ * paused -- so unsuspending resumes at the next due instant instead of back-firing a backlog.
+ *
  * <p>{@link #triggerNow} is the manual-fire path ({@code gimle cronjob trigger <name>}): it shares
  * {@link #planFiring} with the scheduled path but deliberately never touches {@code
  * cronJobLastSchedule} -- a manual trigger is a one-off action independent of the schedule, not a
  * scheduled firing standing in for one (matching {@code kubectl create job --from=cronjob/x}'s own
- * behavior, which never advances the CronJob controller's own state either).
+ * behavior, which never advances the CronJob controller's own state either). For the same reason it
+ * fires a suspended CronJob too: suspending pauses the schedule, and an operator asking for one
+ * explicit run right now is not that schedule.
  *
  * <p>Every generated {@link JobSpec} runs through the identical {@link
  * com.gimle.controlplane.admission.LimitRangePlugin}/{@link
@@ -143,6 +150,18 @@ public final class CronJobReconciler {
     // firing is lost to a crash in between.
     List<StateMutation> firing = new ArrayList<>();
     firing.add(new StateMutation.PutCronJobLastSchedule(spec.tenantId(), spec.name(), due.get()));
+
+    if (spec.suspend()) {
+      // The last-schedule advance still rides this tick even though nothing fires: that is what
+      // makes unsuspending resume from the next due instant rather than immediately firing a
+      // schedule that came due while the CronJob was paused. Recording it here, rather than
+      // stamping "now" on every tick, also keeps a suspended CronJob's write rate down to its own
+      // schedule's cadence instead of the reconcile loop's.
+      log.info(
+          "cronjob {} is suspended; schedule at {} recorded but not fired", spec.name(), due.get());
+      mutations.proposeAll(firing);
+      return;
+    }
 
     if (spec.startingDeadline().isPresent()
         && Duration.between(due.get(), now).compareTo(spec.startingDeadline().get()) > 0) {

@@ -468,6 +468,21 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
+  /**
+   * Proposed in the same batch as the {@link PutEffectiveReplicas} it accounts for -- what an
+   * {@code AutoscalePolicy}'s stabilization windows are measured against on every later tick,
+   * whichever control-plane replica runs that tick.
+   */
+  record PutDeploymentLastScale(
+      Optional<String> tenantId, String deploymentName, Instant lastScaleTime)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putDeploymentLastScale(tenantId, deploymentName, lastScaleTime);
+      return MutationOutcome.accepted();
+    }
+  }
+
   record PutNodeRegistration(NodeRegistration registration) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {

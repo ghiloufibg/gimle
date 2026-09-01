@@ -81,7 +81,10 @@ public record StateSnapshot(
     // logout. A session token issued at or before its own username's watermark is rejected even
     // though its HMAC signature still verifies -- see StateStore#putSessionRevocation's javadoc.
     Map<String, Long> sessionRevokedBeforeEpochMilli,
-    List<AlertRuleSpec> alertRules) {
+    List<AlertRuleSpec> alertRules,
+    // When the autoscaler last moved each deployment's effectiveReplicas -- what makes an
+    // AutoscalePolicy's stabilization windows survive a control-plane restart or failover.
+    Map<String, Instant> deploymentLastScale) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -149,5 +152,6 @@ public record StateSnapshot(
     workloadHealthStates = List.copyOf(workloadHealthStates);
     sessionRevokedBeforeEpochMilli = Map.copyOf(sessionRevokedBeforeEpochMilli);
     alertRules = List.copyOf(alertRules);
+    deploymentLastScale = Map.copyOf(deploymentLastScale);
   }
 }

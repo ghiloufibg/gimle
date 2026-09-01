@@ -160,6 +160,9 @@ public interface StoreReader {
 
   Optional<Integer> getEffectiveReplicas(Optional<String> tenantId, String deploymentName);
 
+  /** Empty means "never scaled" -- see {@code StateStore#deploymentLastScale}'s own comment. */
+  Optional<Instant> getDeploymentLastScale(Optional<String> tenantId, String deploymentName);
+
   Set<Integer> getRollingIndices(Optional<String> tenantId, String deploymentName);
 
   Map<Integer, Integer> getSurgeIndices(Optional<String> tenantId, String deploymentName);

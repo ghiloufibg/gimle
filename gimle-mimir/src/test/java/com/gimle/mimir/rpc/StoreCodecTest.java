@@ -38,6 +38,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -192,6 +193,8 @@ class StoreCodecTest {
         new StoreRpc.GetAccount("alice"),
         new StoreRpc.GetNodeRegistration("node-1"),
         new StoreRpc.GetEffectiveReplicas(Optional.empty(), "greeter"),
+        new StoreRpc.GetDeploymentLastScale(Optional.empty(), "greeter"),
+        new StoreRpc.GetDeploymentLastScale(Optional.of("tenant-1"), "greeter"),
         new StoreRpc.ListRollingIndices(Optional.empty(), "greeter"),
         new StoreRpc.ListRollingDaemonSetNodes(Optional.empty(), "greeter-daemonset"),
         new StoreRpc.GetNodeHeartbeat("node-1"),
@@ -330,7 +333,12 @@ class StoreCodecTest {
                     OptionalDouble.of(1.0),
                     OptionalDouble.of(3.0),
                     OptionalDouble.of(2.0),
-                    OptionalDouble.of(1.5))),
+                    OptionalDouble.of(1.5),
+                    // Non-default in both directions, for the same reason every other field here
+                    // is: a default value round-trips correctly even from a codec that never
+                    // writes it.
+                    Duration.ofSeconds(30),
+                    Duration.ofMinutes(15))),
             Optional.empty(),
             Optional.empty());
     StoreRpc.Propose original = new StoreRpc.Propose(new StateMutation.PutDeployment(spec, 0));

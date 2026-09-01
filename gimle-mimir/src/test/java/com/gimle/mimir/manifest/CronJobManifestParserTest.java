@@ -1,6 +1,7 @@
 package com.gimle.mimir.manifest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -50,6 +51,7 @@ class CronJobManifestParserTest {
     assertEquals(Optional.of("default"), spec.tenantId());
     assertEquals(3, spec.successfulJobsHistoryLimit(), "matches Kubernetes CronJob's own default");
     assertEquals(1, spec.failedJobsHistoryLimit(), "matches Kubernetes CronJob's own default");
+    assertFalse(spec.suspend(), "a manifest that says nothing about suspend is running");
   }
 
   @Test
@@ -75,6 +77,7 @@ class CronJobManifestParserTest {
                 tenantId: acme
                 successfulJobsHistoryLimit: 5
                 failedJobsHistoryLimit: 2
+                suspend: true
                 """));
 
     assertEquals(3, spec.jobTemplate().backoffLimit());
@@ -86,6 +89,26 @@ class CronJobManifestParserTest {
     assertEquals("acme", spec.tenantId().orElseThrow());
     assertEquals(5, spec.successfulJobsHistoryLimit());
     assertEquals(2, spec.failedJobsHistoryLimit());
+    assertTrue(spec.suspend());
+  }
+
+  @Test
+  void a_non_boolean_suspend_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            CronJobManifestParser.parse(
+                yaml(
+                    """
+                    name: nightly-cleanup
+                    schedule: "0 2 * * *"
+                    jobTemplate:
+                      module:
+                        name: com.gimle.example.cleanup
+                        version: 1.0.0
+                      artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
+                    suspend: paused-please
+                    """)));
   }
 
   @Test

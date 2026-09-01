@@ -16,6 +16,7 @@ import com.gimle.core.vessel.VesselSpec;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -459,6 +460,98 @@ class DeploymentManifestParserTest {
     assertEquals(3.0, policy.requestRateWeight().orElseThrow());
     assertTrue(policy.errorRateWeight().isEmpty());
     assertTrue(policy.queueDepthWeight().isEmpty());
+  }
+
+  @Test
+  void an_absent_cooldown_takes_the_policys_own_asymmetric_defaults() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 2
+                autoscale:
+                  minReplicas: 1
+                  maxReplicas: 5
+                  targetCpuUtilizationPercent: 50
+                """));
+
+    AutoscalePolicy policy = spec.autoscale().orElseThrow();
+    assertEquals(Duration.ZERO, policy.scaleUpCooldown());
+    assertEquals(Duration.ofMinutes(5), policy.scaleDownCooldown());
+  }
+
+  @Test
+  void parses_both_stabilization_windows_including_an_explicit_zero() {
+    DeploymentSpec spec =
+        DeploymentManifestParser.parse(
+            yaml(
+                """
+                name: orders-service
+                module:
+                  name: com.gimle.example.orders
+                  version: 1.2.0
+                artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                replicas: 2
+                autoscale:
+                  minReplicas: 1
+                  maxReplicas: 5
+                  targetCpuUtilizationPercent: 50
+                  scaleUpCooldownSeconds: 0
+                  scaleDownCooldownSeconds: 900
+                """));
+
+    AutoscalePolicy policy = spec.autoscale().orElseThrow();
+    assertEquals(Duration.ZERO, policy.scaleUpCooldown());
+    assertEquals(Duration.ofMinutes(15), policy.scaleDownCooldown());
+  }
+
+  @Test
+  void a_negative_cooldown_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    autoscale:
+                      minReplicas: 1
+                      maxReplicas: 5
+                      targetCpuUtilizationPercent: 50
+                      scaleDownCooldownSeconds: -1
+                    """)));
+  }
+
+  @Test
+  void a_non_numeric_cooldown_throws() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            DeploymentManifestParser.parse(
+                yaml(
+                    """
+                    name: orders-service
+                    module:
+                      name: com.gimle.example.orders
+                      version: 1.2.0
+                    artifactPath: /var/gimle/artifacts/orders-1.2.0.jar
+                    replicas: 1
+                    autoscale:
+                      minReplicas: 1
+                      maxReplicas: 5
+                      targetCpuUtilizationPercent: 50
+                      scaleUpCooldownSeconds: five minutes
+                    """)));
   }
 
   @Test

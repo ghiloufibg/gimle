@@ -5,6 +5,7 @@ import com.gimle.core.manifest.ApiVersion;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.vessel.VesselSpec;
 import java.io.InputStream;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -145,6 +146,12 @@ public final class DeploymentManifestParser {
         ManifestFields.optionalDoubleField(autoscale, "errorRateWeight", "autoscale.");
     OptionalDouble queueDepthWeight =
         ManifestFields.optionalDoubleField(autoscale, "queueDepthWeight", "autoscale.");
+    Duration scaleUpCooldown =
+        parseCooldown(
+            autoscale, "scaleUpCooldownSeconds", AutoscalePolicy.DEFAULT_SCALE_UP_COOLDOWN);
+    Duration scaleDownCooldown =
+        parseCooldown(
+            autoscale, "scaleDownCooldownSeconds", AutoscalePolicy.DEFAULT_SCALE_DOWN_COOLDOWN);
     try {
       return Optional.of(
           new AutoscalePolicy(
@@ -158,10 +165,30 @@ public final class DeploymentManifestParser {
               cpuWeight,
               requestRateWeight,
               errorRateWeight,
-              queueDepthWeight));
+              queueDepthWeight,
+              scaleUpCooldown,
+              scaleDownCooldown));
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid autoscale policy: " + e.getMessage(), e);
     }
+  }
+
+  /**
+   * A stabilization window, in whole seconds. Absent means {@code defaultValue} (see {@link
+   * AutoscalePolicy}'s own javadoc for why the two directions default differently); {@code 0} is a
+   * meaningful value operators do write -- it disables that direction's window outright -- so
+   * unlike {@code startingDeadlineSeconds} this accepts zero and rejects only a negative.
+   */
+  private static Duration parseCooldown(Map<?, ?> autoscale, String field, Duration defaultValue) {
+    Object value = autoscale.get(field);
+    if (value == null) {
+      return defaultValue;
+    }
+    if (!(value instanceof Number number) || number.longValue() < 0) {
+      throw new GimleManifestException(
+          "'autoscale." + field + "' must be a non-negative number of seconds if present");
+    }
+    return Duration.ofSeconds(number.longValue());
   }
 
   /**

@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.Stream;
@@ -41,6 +42,20 @@ import org.slf4j.LoggerFactory;
  * {@link com.gimle.controlplane.reconcile.DeploymentReconciler} reads this effective count in place
  * of the user-submitted {@code replicas} whenever a policy is present; this reconciler never
  * touches {@link com.gimle.mimir.store.InstanceAssignment}s itself.
+ *
+ * <p>One replica per tick bounds how fast a decision is acted on, but not how often the direction
+ * may reverse -- a metric sitting on its own target would otherwise scale up, then down, then up
+ * again forever. {@link AutoscalePolicy#scaleUpCooldown()}/{@link
+ * AutoscalePolicy#scaleDownCooldown()} are the stabilization windows that stop that: a move in
+ * either direction is suppressed until that direction's window has elapsed since the deployment's
+ * last recorded scale event. That timestamp is read from and written to the store ({@code
+ * StateMutation.PutDeploymentLastScale}, committed in the same batch as the replica-count change it
+ * accounts for), never held on this object -- a reconciler field would reset on every control-plane
+ * restart and mean nothing at all to the replica that takes over after a failover, which is exactly
+ * the level-triggered property every reconciler here has to preserve. Clamping an out-of-range
+ * stored count back into {@code [minReplicas, maxReplicas]} is never suppressed: it corrects the
+ * count against the policy's own bounds (typically right after an operator edited them) rather than
+ * acting on an observed signal, so a window that has not elapsed must not leave it out of range.
  *
  * <p>Every sibling reconciler that reads a node heartbeat for a scheduling/health decision (e.g.
  * {@link com.gimle.controlplane.reconcile.ReplicaCountReconciler}) gates on the heartbeat's own
@@ -218,14 +233,21 @@ public final class AutoscaleReconciler {
         };
     int clampedIdeal = clamp(idealReplicas, policy);
 
-    int nextEffective = currentEffective;
-    if (clampedIdeal > currentEffective) {
-      nextEffective = currentEffective + 1;
-    } else if (clampedIdeal < currentEffective) {
-      nextEffective = currentEffective - 1;
+    // The bounds correction is computed first and separately from the signal-driven step, so the
+    // cooldown below can suppress the step alone and still leave an out-of-range stored count
+    // corrected on this very tick.
+    int bounded = clamp(currentEffective, policy);
+    int nextEffective = bounded;
+    if (clampedIdeal > bounded) {
+      nextEffective = clamp(bounded + 1, policy);
+    } else if (clampedIdeal < bounded) {
+      nextEffective = clamp(bounded - 1, policy);
     }
-    nextEffective = clamp(nextEffective, policy);
 
+    if (nextEffective != bounded && withinCooldown(spec, policy, nextEffective > bounded)) {
+      putEffectiveReplicas(spec, bounded);
+      return;
+    }
     if (nextEffective != currentEffective) {
       log.info(
           "deployment {}: ideal replicas by signal (cpu={}, requestRate={}, errorRate={},"
@@ -237,8 +259,46 @@ public final class AutoscaleReconciler {
           idealFromQueueDepth,
           currentEffective,
           nextEffective);
+      // The last-scale stamp rides the same batch as the change it accounts for: a stamp that
+      // landed without its own replica-count change (or the reverse) would let the next tick
+      // measure the stabilization window against something that never happened.
+      mutations.proposeAll(
+          List.of(
+              new StateMutation.PutEffectiveReplicas(spec.tenantId(), spec.name(), nextEffective),
+              new StateMutation.PutDeploymentLastScale(
+                  spec.tenantId(), spec.name(), clock.instant())));
+      return;
     }
     putEffectiveReplicas(spec, nextEffective);
+  }
+
+  /**
+   * Whether this deployment's own stabilization window for {@code scalingUp}'s direction has yet to
+   * elapse since its last recorded scale event. A deployment that has never scaled has no window to
+   * wait out, and a zero-length window never suppresses anything -- including when a replica's
+   * clock reads slightly behind whichever one stamped the last event.
+   */
+  private boolean withinCooldown(DeploymentSpec spec, AutoscalePolicy policy, boolean scalingUp) {
+    Duration window = scalingUp ? policy.scaleUpCooldown() : policy.scaleDownCooldown();
+    if (window.isZero()) {
+      return false;
+    }
+    Optional<Instant> lastScale = store.getDeploymentLastScale(spec.tenantId(), spec.name());
+    if (lastScale.isEmpty()) {
+      return false;
+    }
+    Duration sinceLastScale = Duration.between(lastScale.get(), clock.instant());
+    boolean suppressed = sinceLastScale.compareTo(window) < 0;
+    if (suppressed) {
+      log.debug(
+          "deployment {}: {} suppressed, {} of the {} stabilization window elapsed since {}",
+          spec.name(),
+          scalingUp ? "scale-up" : "scale-down",
+          sinceLastScale,
+          window,
+          lastScale.get());
+    }
+    return suppressed;
   }
 
   private static double errorRatePercent(InstanceObservation obs) {

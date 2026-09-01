@@ -463,6 +463,12 @@ gimle apply -f cronjob.yaml --server 127.0.0.1:8080
 gimle get cronjobs --server 127.0.0.1:8080
 gimle cronjob trigger nightly-cleanup --server 127.0.0.1:8080
 
+# Pause a schedule without losing its firing history: export the CronJob as a manifest, set
+# suspend: true, and apply it back. `get` shows the current value in its own suspend column, and
+# `-o manifest` round-trips it, so re-applying with suspend removed resumes the schedule.
+# A suspended CronJob still answers `gimle cronjob trigger` -- that is a manual run, not a schedule.
+gimle get cronjobs nightly-cleanup -o manifest --server 127.0.0.1:8080 > cronjob.yaml
+
 # Run one instance on every eligible node (topology-derived, no --replicas flag to set)
 gimle apply -f daemonset.yaml --server 127.0.0.1:8080
 gimle get daemonsets node-exporter --server 127.0.0.1:8080

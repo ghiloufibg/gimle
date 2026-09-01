@@ -178,6 +178,8 @@ public final class StoreNode implements StoreRpcHandler {
           nodeRegistrationResult(store.getNodeRegistration(r.nodeId()));
       case StoreRpc.GetEffectiveReplicas r ->
           intResult(store.getEffectiveReplicas(r.tenantId(), r.deploymentName()));
+      case StoreRpc.GetDeploymentLastScale r ->
+          instantResult(store.getDeploymentLastScale(r.tenantId(), r.deploymentName()));
       case StoreRpc.ListRollingIndices r ->
           new StoreRpc.IntSetResult(
               List.copyOf(store.getRollingIndices(r.tenantId(), r.deploymentName())));

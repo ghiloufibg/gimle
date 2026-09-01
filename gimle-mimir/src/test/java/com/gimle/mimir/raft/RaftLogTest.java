@@ -72,7 +72,8 @@ class RaftLogTest {
         List.of(), // customResources
         List.of(), // workloadHealthStates
         Map.of(), // sessionRevokedBeforeEpochMilli
-        List.of()); // alertRules
+        List.of(), // alertRules
+        Map.of()); // deploymentLastScale
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -122,7 +123,8 @@ class RaftLogTest {
         base.customResources(),
         base.workloadHealthStates(),
         base.sessionRevokedBeforeEpochMilli(),
-        base.alertRules());
+        base.alertRules(),
+        base.deploymentLastScale());
   }
 
   @Test

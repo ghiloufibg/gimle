@@ -400,6 +400,7 @@ public final class DomainCodec {
     writeOptionalString(out, spec.tenantId());
     out.writeInt(spec.successfulJobsHistoryLimit());
     out.writeInt(spec.failedJobsHistoryLimit());
+    out.writeBoolean(spec.suspend());
   }
 
   public static CronJobSpec readCronJobSpec(DataInputStream in) throws IOException {
@@ -411,6 +412,7 @@ public final class DomainCodec {
     Optional<String> tenantId = readOptionalString(in);
     int successfulJobsHistoryLimit = in.readInt();
     int failedJobsHistoryLimit = in.readInt();
+    boolean suspend = in.readBoolean();
     return new CronJobSpec(
         name,
         schedule,
@@ -419,7 +421,8 @@ public final class DomainCodec {
         concurrencyPolicy,
         tenantId,
         successfulJobsHistoryLimit,
-        failedJobsHistoryLimit);
+        failedJobsHistoryLimit,
+        suspend);
   }
 
   public static void writeDaemonSetSpec(DataOutputStream out, DaemonSetSpec spec)
@@ -583,6 +586,8 @@ public final class DomainCodec {
       writeOptionalDouble(out, p.requestRateWeight());
       writeOptionalDouble(out, p.errorRateWeight());
       writeOptionalDouble(out, p.queueDepthWeight());
+      out.writeLong(p.scaleUpCooldown().toMillis());
+      out.writeLong(p.scaleDownCooldown().toMillis());
     }
   }
 
@@ -603,6 +608,8 @@ public final class DomainCodec {
     OptionalDouble requestRateWeight = readOptionalDouble(in);
     OptionalDouble errorRateWeight = readOptionalDouble(in);
     OptionalDouble queueDepthWeight = readOptionalDouble(in);
+    Duration scaleUpCooldown = Duration.ofMillis(in.readLong());
+    Duration scaleDownCooldown = Duration.ofMillis(in.readLong());
     return Optional.of(
         new AutoscalePolicy(
             minReplicas,
@@ -615,7 +622,9 @@ public final class DomainCodec {
             cpuWeight,
             requestRateWeight,
             errorRateWeight,
-            queueDepthWeight));
+            queueDepthWeight,
+            scaleUpCooldown,
+            scaleDownCooldown));
   }
 
   public static void writeOptionalDisruptionBudget(

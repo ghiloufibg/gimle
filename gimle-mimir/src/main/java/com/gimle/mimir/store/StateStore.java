@@ -108,6 +108,11 @@ public final class StateStore implements StoreReader {
   // mismatched index is only ever tracked by one of the two at a time.
   private final Map<String, Map<Integer, Integer>> surgeIndices = new ConcurrentHashMap<>();
   private final Map<String, Integer> effectiveReplicas = new ConcurrentHashMap<>();
+  // When the autoscaler last actually moved a deployment's effectiveReplicas. Absent means "never
+  // scaled," which no stabilization window can ever suppress. Durable rather than a field on the
+  // reconciler so a control-plane restart or failover onto another replica can't reset the window
+  // and let a flapping metric scale again immediately.
+  private final Map<String, Instant> deploymentLastScale = new ConcurrentHashMap<>();
   private final Map<String, Tenant> tenants = new ConcurrentHashMap<>();
   private final Map<String, Boolean> quotaViolations = new ConcurrentHashMap<>();
   private final Map<String, Boolean> nodeCordons = new ConcurrentHashMap<>();
@@ -256,6 +261,7 @@ public final class StateStore implements StoreReader {
     clearAllRollingIndices(tenantId, name);
     clearAllSurgeIndices(tenantId, name);
     effectiveReplicas.remove(key);
+    deploymentLastScale.remove(key);
     controllerRevisions.remove(ControllerRevision.revisionKey("Deployment", tenantId, name));
   }
 
@@ -731,6 +737,21 @@ public final class StateStore implements StoreReader {
 
   public Optional<Integer> getEffectiveReplicas(Optional<String> tenantId, String deploymentName) {
     return Optional.ofNullable(effectiveReplicas.get(scopedKey(tenantId, deploymentName)));
+  }
+
+  /**
+   * Stamped by {@code AutoscaleReconciler} in the same batch as the {@code effectiveReplicas} move
+   * it accounts for, so the two can never disagree about whether a scale event happened.
+   */
+  public void putDeploymentLastScale(
+      Optional<String> tenantId, String deploymentName, Instant lastScaleTime) {
+    deploymentLastScale.put(scopedKey(tenantId, deploymentName), lastScaleTime);
+  }
+
+  /** Empty means "never scaled" -- see {@link #deploymentLastScale}'s own field comment. */
+  public Optional<Instant> getDeploymentLastScale(
+      Optional<String> tenantId, String deploymentName) {
+    return Optional.ofNullable(deploymentLastScale.get(scopedKey(tenantId, deploymentName)));
   }
 
   // ---- node registrations ----
@@ -1513,7 +1534,8 @@ public final class StateStore implements StoreReader {
         List.copyOf(customResources.values()),
         List.copyOf(workloadHealthStates.values()),
         Map.copyOf(sessionRevokedBeforeEpochMilli),
-        List.copyOf(alertRules.values()));
+        List.copyOf(alertRules.values()),
+        Map.copyOf(deploymentLastScale));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1591,6 +1613,7 @@ public final class StateStore implements StoreReader {
     rollingIndices.clear();
     surgeIndices.clear();
     effectiveReplicas.clear();
+    deploymentLastScale.clear();
     kindDefinitions.clear();
     customResources.clear();
     clearAllInstanceEvents();
@@ -1644,6 +1667,9 @@ public final class StateStore implements StoreReader {
         .surgeIndices()
         .forEach((key, indices) -> surgeIndices.put(key, new ConcurrentHashMap<>(indices)));
     snapshot.effectiveReplicas().forEach((key, replicas) -> effectiveReplicas.put(key, replicas));
+    snapshot
+        .deploymentLastScale()
+        .forEach((key, lastScaleTime) -> deploymentLastScale.put(key, lastScaleTime));
     snapshot.tenants().forEach(this::putTenant);
     snapshot.quotaViolatingDeployments().forEach(key -> quotaViolations.put(key, Boolean.TRUE));
     snapshot.cordonedNodes().forEach(nodeId -> putNodeCordon(nodeId, true));

@@ -160,6 +160,7 @@ public final class RaftCodec {
   private static final byte MUT_RESTORE_SNAPSHOT = 70;
   private static final byte MUT_PUT_ALERT_RULE = 71;
   private static final byte MUT_REMOVE_ALERT_RULE = 72;
+  private static final byte MUT_PUT_DEPLOYMENT_LAST_SCALE = 73;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -512,6 +513,12 @@ public final class RaftCodec {
         out.writeUTF(m.deploymentName());
         out.writeInt(m.replicas());
       }
+      case StateMutation.PutDeploymentLastScale m -> {
+        out.writeByte(MUT_PUT_DEPLOYMENT_LAST_SCALE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
+        out.writeUTF(m.deploymentName());
+        out.writeLong(m.lastScaleTime().toEpochMilli());
+      }
       case StateMutation.PutNodeRegistration m -> {
         out.writeByte(MUT_PUT_NODE_REGISTRATION);
         DomainCodec.writeNodeRegistration(out, m.registration());
@@ -861,6 +868,12 @@ public final class RaftCodec {
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
         String deploymentName = in.readUTF();
         yield new StateMutation.PutEffectiveReplicas(tenantId, deploymentName, in.readInt());
+      }
+      case MUT_PUT_DEPLOYMENT_LAST_SCALE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String deploymentName = in.readUTF();
+        yield new StateMutation.PutDeploymentLastScale(
+            tenantId, deploymentName, Instant.ofEpochMilli(in.readLong()));
       }
       case MUT_PUT_NODE_REGISTRATION ->
           new StateMutation.PutNodeRegistration(DomainCodec.readNodeRegistration(in));
@@ -1250,6 +1263,11 @@ public final class RaftCodec {
       for (AlertRuleSpec spec : snapshot.alertRules()) {
         DomainCodec.writeAlertRuleSpec(out, spec);
       }
+      out.writeInt(snapshot.deploymentLastScale().size());
+      for (Map.Entry<String, Instant> e : snapshot.deploymentLastScale().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeLong(e.getValue().toEpochMilli());
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1512,6 +1530,11 @@ public final class RaftCodec {
       for (int i = 0; i < alertRuleCount; i++) {
         alertRules.add(DomainCodec.readAlertRuleSpec(in));
       }
+      Map<String, Instant> deploymentLastScale = new LinkedHashMap<>();
+      int deploymentLastScaleCount = in.readInt();
+      for (int i = 0; i < deploymentLastScaleCount; i++) {
+        deploymentLastScale.put(in.readUTF(), Instant.ofEpochMilli(in.readLong()));
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1555,7 +1578,8 @@ public final class RaftCodec {
           customResources,
           workloadHealthStates,
           sessionRevokedBeforeEpochMilli,
-          alertRules);
+          alertRules,
+          deploymentLastScale);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

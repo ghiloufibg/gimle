@@ -213,6 +213,8 @@ class ApiServerTest {
           requestRateWeight: 3.0
           errorRateWeight: 2.0
           queueDepthWeight: 1.5
+          scaleUpCooldownSeconds: 30
+          scaleDownCooldownSeconds: 900
         """
         .formatted(name);
   }
@@ -251,6 +253,10 @@ class ApiServerTest {
     assertEquals(3.0, autoscale.get("requestRateWeight"));
     assertEquals(2.0, autoscale.get("errorRateWeight"));
     assertEquals(1.5, autoscale.get("queueDepthWeight"));
+    assertEquals(30L, autoscale.get("scaleUpCooldownSeconds"));
+    assertEquals(900L, autoscale.get("scaleDownCooldownSeconds"));
+    assertFalse(
+        status.containsKey("lastScaleTime"), "the autoscaler has not moved this deployment yet");
   }
 
   // A deployment submitted with no autoscale: block (the common case, and every manifest written
@@ -585,7 +591,28 @@ class ApiServerTest {
     assertEquals("nightly-cleanup", spec.get("name"));
     assertEquals("0 2 * * *", spec.get("schedule"));
     assertEquals("ALLOW", spec.get("concurrencyPolicy"));
+    assertEquals(Boolean.FALSE, spec.get("suspend"));
     assertFalse(status.containsKey("lastScheduleTime"), "never fired yet");
+  }
+
+  @Test
+  void put_then_get_a_suspended_cronjob_round_trips_its_suspend_flag() throws Exception {
+    String suspended = cronJobYaml("nightly-cleanup") + "suspend: true\n";
+    HttpResponse<String> put =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .PUT(HttpRequest.BodyPublishers.ofString(suspended))
+                .build());
+    assertEquals(200, put.statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/cronjobs/nightly-cleanup"))
+                .GET()
+                .build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> spec = Json.asObject(Json.asObject(Json.parse(get.body())).get("spec"));
+    assertEquals(Boolean.TRUE, spec.get("suspend"));
   }
 
   /**

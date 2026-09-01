@@ -253,7 +253,18 @@ the same ready-instance observations `HealthReconciler` already reads:
   when weights are omitted.
 
 Either mode feeds into the existing `[minReplicas, maxReplicas]` clamp and one-replica-per-tick
-damping unchanged. Error rate is evaluated as a percentage of that instance's own request volume
+damping unchanged. That damping bounds how far one tick may move, not how often the direction may
+reverse, so a separate pair of stabilization windows does the latter:
+`AutoscalePolicy.scaleUpCooldown`/`scaleDownCooldown` (defaults: none for up, five minutes for
+down — see [Manifest schema §
+autoscale](../reference/manifest-schema.md#deployment-manifest-autoscale)) suppress a move until
+that direction's window has elapsed since this deployment's last recorded scale event. That
+timestamp is written to `gimle-mimir` in the same batch as the replica-count change it accounts
+for, never held on the reconciler object — a window that lived in memory would reopen on every
+control-plane restart and mean nothing to the replica that takes over after a failover, which is
+exactly the level-triggered property every reconciler here has to preserve. A deployment that has
+never scaled has no window to wait out, and clamping an out-of-range stored count back into the
+policy's own bounds is a correction rather than a scaling decision, so it is never suppressed. Error rate is evaluated as a percentage of that instance's own request volume
 (errors/sec ÷ requests/sec), not a raw errors/sec count. Every pre-existing policy (constructed
 without a `CombinationMode` or weights at all) defaults to `WORST_SIGNAL` with no weights, so this
 is purely additive — the combination mode and all four weights are also tunable from the console's
