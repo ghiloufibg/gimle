@@ -11,6 +11,7 @@ import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import com.gimle.pki.CertificateAuthority;
 import com.gimle.pki.CertificateSigningRequests;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -26,8 +27,13 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSocket;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -46,6 +52,10 @@ import org.junit.jupiter.api.parallel.Resources;
  * completely untouched when TLS isn't configured (this test file's own back-compat obligation,
  * separate from every pre-existing {@link GatewayDispatcherTest}/{@link GatewayRouteConfigTest}
  * continuing to pass unchanged).
+ *
+ * <p>Also covers per-virtual-host certificate selection: which certificate a real handshake is
+ * actually served depends on the SNI hostname the client asked for, with the cluster-wide
+ * certificate answering both a client that sends no SNI and one naming a hostname with no binding.
  */
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 class GatewayHooksTlsTest {
@@ -97,6 +107,91 @@ class GatewayHooksTlsTest {
   }
 
   @Test
+  void each_sni_hostname_selects_its_own_certificate() throws Exception {
+    // The gateway routes by the inbound Host header, so one instance legitimately fronts several
+    // hostnames -- with a single certificate, every hostname outside its SAN fails the client's
+    // own hostname verification before its (perfectly functional) route is ever consulted.
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
+    TlsSettings shop = issueLeaf(ca, "shop.example.com", List.of("shop.example.com"));
+    TlsSettings client = issueLeaf(ca, "caller", List.of());
+
+    hooks = new GatewayHooks();
+    hooks.onStart(
+        contextWithGreeterRoute(Map.of("gateway.tlsCertificates", bindings(orders, shop))));
+
+    assertEquals(
+        "CN=orders.example.com",
+        presentedCertificateSubject(Optional.of("orders.example.com"), client));
+    assertEquals(
+        "CN=shop.example.com",
+        presentedCertificateSubject(Optional.of("shop.example.com"), client));
+  }
+
+  @Test
+  void a_client_sending_no_sni_gets_the_cluster_wide_default_certificate() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
+    TlsSettings client = issueLeaf(ca, "caller", List.of());
+
+    hooks = new GatewayHooks();
+    hooks.onStart(contextWithGreeterRoute(Map.of("gateway.tlsCertificates", bindings(orders))));
+
+    assertEquals("CN=gimle-gateway", presentedCertificateSubject(Optional.empty(), client));
+  }
+
+  @Test
+  void an_unknown_sni_hostname_falls_back_to_the_default_certificate() throws Exception {
+    // Not a refused handshake: a host-unconstrained route still serves a hostname no certificate
+    // binding names, so failing the connection closed would take that fallback routing down too.
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
+    TlsSettings client = issueLeaf(ca, "caller", List.of());
+
+    hooks = new GatewayHooks();
+    hooks.onStart(contextWithGreeterRoute(Map.of("gateway.tlsCertificates", bindings(orders))));
+
+    assertEquals(
+        "CN=gimle-gateway",
+        presentedCertificateSubject(Optional.of("unbound.example.com"), client));
+  }
+
+  @Test
+  void a_route_still_serves_normally_with_per_host_certificates_configured() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
+    TlsSettings clientSettings = issueLeaf(ca, "caller", List.of());
+
+    hooks = new GatewayHooks();
+    hooks.onStart(contextWithGreeterRoute(Map.of("gateway.tlsCertificates", bindings(orders))));
+
+    HttpClient client =
+        HttpClient.newBuilder().sslContext(SslContexts.forMutualTls(clientSettings)).build();
+    HttpRequest request =
+        HttpRequest.newBuilder(URI.create("https://localhost:" + hooks.port() + "/greet"))
+            .POST(HttpRequest.BodyPublishers.ofString("Frigg"))
+            .build();
+
+    HttpResponse<String> response =
+        client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+    assertEquals(200, response.statusCode());
+    assertEquals("hello, Frigg", response.body());
+  }
+
+  @Test
   void plaintext_gateway_still_works_when_tls_is_not_configured() throws Exception {
     hooks = new GatewayHooks();
     hooks.onStart(contextWithGreeterRoute());
@@ -115,18 +210,62 @@ class GatewayHooksTlsTest {
   }
 
   private static SimpleModuleContext contextWithGreeterRoute() {
+    return contextWithGreeterRoute(Map.of());
+  }
+
+  private static SimpleModuleContext contextWithGreeterRoute(Map<String, String> extraConfig) {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     ModuleId gatewayId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
     registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
-    return new SimpleModuleContext(
-        gatewayId,
-        registry,
-        new ConcurrentHashMap<>(
-            Map.of(
-                "gateway.port",
-                "0",
-                "gateway.routes",
-                "FABRIC /greet " + TestGreeter.class.getName() + " 1 greet STRING\n")));
+    Map<String, String> config = new ConcurrentHashMap<>(extraConfig);
+    config.put("gateway.port", "0");
+    config.put(
+        "gateway.routes", "FABRIC /greet " + TestGreeter.class.getName() + " 1 greet STRING\n");
+    return new SimpleModuleContext(gatewayId, registry, new ConcurrentHashMap<>(config));
+  }
+
+  /** A {@code gateway.tlsCertificates} value binding each leaf's own CN to its own key pair. */
+  private static String bindings(TlsSettings... perHost) {
+    StringBuilder text = new StringBuilder();
+    for (TlsSettings settings : perHost) {
+      String hostname = settings.certFile().getFileName().toString().replace("-cert.pem", "");
+      text.append(hostname)
+          .append(' ')
+          .append(settings.certFile())
+          .append(' ')
+          .append(settings.keyFile())
+          .append('\n');
+    }
+    return text.toString();
+  }
+
+  /**
+   * Handshakes with the running gateway over a raw {@link SSLSocket} and reports the subject of the
+   * certificate it presented. A raw socket rather than {@code HttpClient} on purpose: the SNI
+   * hostname has to be set independently of the address actually dialled (only loopback resolves
+   * here), and a socket obtained this way does no endpoint identification, so the assertion is
+   * about which certificate was *selected*, not about hostname verification on top of it.
+   */
+  private String presentedCertificateSubject(
+      Optional<String> sniHostname, TlsSettings clientSettings) throws Exception {
+    SSLContext clientContext = SslContexts.forMutualTls(clientSettings);
+    try (SSLSocket socket =
+        (SSLSocket)
+            clientContext
+                .getSocketFactory()
+                .createSocket(InetAddress.getLoopbackAddress(), hooks.port())) {
+      socket.setSoTimeout(5_000);
+      SSLParameters parameters = socket.getSSLParameters();
+      // An empty server-name list means the extension is not sent at all -- the no-SNI case.
+      parameters.setServerNames(
+          sniHostname
+              .<List<SNIServerName>>map(host -> List.of(new SNIHostName(host)))
+              .orElse(List.of()));
+      socket.setSSLParameters(parameters);
+      socket.startHandshake();
+      X509Certificate presented = (X509Certificate) socket.getSession().getPeerCertificates()[0];
+      return presented.getSubjectX500Principal().getName();
+    }
   }
 
   private void configureServerTls(CertificateAuthority ca) throws Exception {
@@ -148,9 +287,16 @@ class GatewayHooksTlsTest {
   }
 
   private TlsSettings issueLeaf(CertificateAuthority ca, String commonName) throws Exception {
+    return issueLeaf(ca, commonName, List.of());
+  }
+
+  private TlsSettings issueLeaf(
+      CertificateAuthority ca, String commonName, List<String> subjectAlternativeNames)
+      throws Exception {
     KeyPair keyPair = generateRsaKeyPair();
     PKCS10CertificationRequest csr =
-        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+        CertificateSigningRequests.generate(
+            keyPair, new X500Name("CN=" + commonName), subjectAlternativeNames);
     X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
 
     Path certFile = writePem(commonName + "-cert.pem", "CERTIFICATE", leaf.getEncoded());

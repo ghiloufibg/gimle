@@ -358,10 +358,26 @@ inbound `httpPath` forwarded verbatim either way.
 `ctx.config("gateway.port")` supplies the fixed listen port for any route kind — there is no
 platform-level port allocation for modules yet, so an operator is responsible for picking one that
 doesn't collide across co-located `DaemonSet` instances, the same posture `greeter-load-generator`'s
-own `load.port` config key takes for its own listen port. The gateway's own listener is plain HTTP
-only — `GatewayHooks` binds a plain `HttpServer`, with no TLS termination at the gateway itself yet;
-an operator fronting it with TLS today has to terminate that TLS somewhere else in front of the
-gateway.
+own `load.port` config key takes for its own listen port.
+
+**TLS termination.** The gateway's own listener is plaintext by default and terminates TLS when the
+same cluster-wide `-Dgimle.transport.protocol=tls` switch (plus `gimle.tls.certFile`/`keyFile`/
+`caFile`) every other TLS-capable listener here reads is set — `GatewayHooks` binds an `HttpsServer`
+with `wantClientAuth` rather than `needClientAuth`, since a north-south caller from outside the
+cluster has no cluster-issued client certificate to present. This is termination, not a relay: the
+gateway still speaks plain HTTP to whatever fabric/vessel/service target a route resolves to.
+
+Because routing is by `Host`, one certificate is not enough: a client verifies what it is served
+against the hostname *it* dialled, so with a single certificate every routed hostname outside that
+certificate's SAN fails TLS before its otherwise-functional route is ever consulted. An optional
+`ctx.config("gateway.tlsCertificates")` value binds hostnames to their own key pairs, one
+`<hostname> <certFile> <keyFile>` per line, and a custom `X509ExtendedKeyManager` picks among them
+per connection from the client's SNI extension. A client sending no SNI, and one naming a hostname
+with no binding, both get the cluster-wide certificate — so configuring nothing is exactly the
+single-certificate listener that already existed. Selection never *rejects* a connection (no
+`SNIMatcher` is installed): an unrecognized hostname is still served by a host-unconstrained route,
+and failing its handshake closed would take that fallback routing down with it. Bindings carry no
+CA of their own; trust stays cluster-wide, and only the presented identity varies per virtual host.
 
 See `gimle-gateway/deployment.yaml` for a complete worked example, including the two `/config/
 gimle-system/*` API calls a real deployment needs alongside the manifest itself.

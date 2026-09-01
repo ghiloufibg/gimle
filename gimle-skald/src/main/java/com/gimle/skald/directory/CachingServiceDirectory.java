@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -51,6 +52,10 @@ public final class CachingServiceDirectory implements ServiceDirectory {
    * Called once per successful poll cycle, never merged incrementally -- the control plane's own
    * listing is always treated as the complete, current set of services. Marks this instant as the
    * last successful refresh and clears the consecutive-failure count.
+   *
+   * <p>A name mapped to an empty list is a first-class entry, not a no-op: it records a Service
+   * that genuinely exists with no live endpoints right now, which resolves differently from a name
+   * absent from the map altogether (see {@link #resolveAll}).
    */
   public void replaceAll(Map<String, List<HostPort>> next) {
     this.endpointsByName = Map.copyOf(next);
@@ -68,9 +73,11 @@ public final class CachingServiceDirectory implements ServiceDirectory {
   }
 
   @Override
-  public List<HostPort> resolveAll(String qualifiedServiceName) {
-    List<HostPort> endpoints = endpointsByName.get(qualifiedServiceName);
-    return endpoints == null ? List.of() : endpoints;
+  public Optional<List<HostPort>> resolveAll(String qualifiedServiceName) {
+    // One map read, not a contains-then-get pair: the map reference is swapped wholesale by a
+    // poll, so two reads could straddle a refresh and report a name as known with no endpoints
+    // that the very same refresh had actually removed.
+    return Optional.ofNullable(endpointsByName.get(qualifiedServiceName));
   }
 
   @Override

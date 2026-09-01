@@ -18,6 +18,18 @@
 # worker included, with nothing gateway-specific to configure. Plaintext (the default) needs none
 # of this. See GatewayHooks#createHttpServer's own javadoc for exactly how the swap happens.
 #
+# One thing about TLS *is* gateway-specific, and optional: a gateway routing several hostnames
+# (HOST route lines) needs one certificate per hostname, since a client verifies what it is served
+# against the hostname it dialled. A third config key binds them, selected per connection from the
+# client's SNI extension, with the cluster-wide certificate above still serving any hostname not
+# named here:
+#
+#   PUT /config/gimle-system/gateway.tlsCertificates
+#     {"value": "orders.example.com /etc/gimle/tls/orders-cert.pem /etc/gimle/tls/orders-key.pem\n",
+#      "encrypted": false}
+#
+# See GatewayTlsConfig's own javadoc for the format.
+#
 # tenantId: gimle-system only ever admits through a gimle:operators-group credential -- see
 # ApiServer#rejectIfReservedSystemTenant. placement.requiredLabels: [edge] matches how an operator
 # marks a machine as an edge node today: `-Dgimle.node.labels=edge` on that node's own AgentMain

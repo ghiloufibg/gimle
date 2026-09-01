@@ -93,9 +93,15 @@ public final class ControlPlaneServicePoller implements AutoCloseable {
         // fetchEndpoints needs the bare name (the control plane's registry key), but the
         // directory cache is keyed by the qualified name a DNS query resolves to -- the two
         // differ for every tenant-scoped Service.
+        //
+        // A Service whose endpoint list came back empty is cached as an empty entry rather than
+        // dropped: it was in the catalog listing, so it genuinely exists, and dropping it would
+        // make a Service that is merely mid-rollout or scaled to zero indistinguishable from a
+        // name nobody ever declared. Only a Service that has disappeared from the catalog between
+        // the listing and this fetch (an absent Optional -- the control plane answered 404) is
+        // left out, which is exactly right: by then it really is gone.
         client
             .fetchEndpoints(listing.name())
-            .filter(endpoints -> !endpoints.endpoints().isEmpty())
             .ifPresent(endpoints -> next.put(listing.qualifiedName(), endpoints.endpoints()));
       } catch (IOException | InterruptedException e) {
         if (e instanceof InterruptedException) {

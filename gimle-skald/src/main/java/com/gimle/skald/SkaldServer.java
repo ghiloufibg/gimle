@@ -234,10 +234,13 @@ public final class SkaldServer implements AutoCloseable {
    *       returned a moment ago actually resolvable.
    * </ul>
    *
-   * <p>A name that exists but has no records of the queried type (an {@code SRV} for a dashed
-   * endpoint name) answers {@code NOERROR} with zero answers -- the NODATA shape a real
-   * authoritative server uses -- rather than {@code NXDOMAIN}, which would claim the name itself
-   * doesn't exist.
+   * <p>A name that exists but has no records to answer with -- an {@code SRV} for a dashed endpoint
+   * name, or a declared Service currently backed by zero live instances (mid-rollout, or scaled to
+   * zero) -- answers {@code NOERROR} with zero answers, the NODATA shape a real authoritative
+   * server uses, rather than {@code NXDOMAIN}, which would claim the name itself doesn't exist.
+   * Only a name the directory has never heard of is {@code NXDOMAIN}, so the two failures an
+   * operator most needs to tell apart -- a typo'd or never-declared Service, and a real Service
+   * that is momentarily empty -- never look identical from the resolver's side.
    */
   private byte[] buildResponse(DnsCodec.Query query) {
     if (query.opcode() != DnsCodec.OPCODE_QUERY) {
@@ -258,8 +261,8 @@ public final class SkaldServer implements AutoCloseable {
       return buildEndpointResponse(query, qtype, endpointName.get());
     }
 
-    List<HostPort> endpoints = directory.resolveAll(qualifiedName.get());
-    if (endpoints.isEmpty()) {
+    Optional<List<HostPort>> resolved = directory.resolveAll(qualifiedName.get());
+    if (resolved.isEmpty()) {
       // A name we don't currently know of stays NXDOMAIN regardless of staleness: the caller sees
       // a clean failure either way, whether the name was genuinely never registered or the
       // directory's copy of it is just old. It is a *positive* answer -- confidently vouching an
@@ -269,6 +272,14 @@ public final class SkaldServer implements AutoCloseable {
     }
     if (isSeverelyStale()) {
       return staleServfail(query);
+    }
+    List<HostPort> endpoints = resolved.get();
+    if (endpoints.isEmpty()) {
+      // The Service exists, it just has no live backing instance this instant (mid-rollout, or
+      // scaled to zero). NODATA, not NXDOMAIN: the name is real, so an operator chasing "why
+      // won't this resolve during a deploy" gets "exists, temporarily empty" rather than a
+      // misleading "no such name," and a resolver still fails the connection attempt cleanly.
+      return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NOERROR, List.of(), false);
     }
     if (qtype == DnsCodec.TYPE_A) {
       List<DnsCodec.Answer> answers = new ArrayList<>();
@@ -362,7 +373,7 @@ public final class SkaldServer implements AutoCloseable {
 
   private byte[] buildEndpointResponse(DnsCodec.Query query, int qtype, EndpointName endpointName) {
     boolean known =
-        directory.resolveAll(endpointName.serviceName()).stream()
+        directory.resolveAll(endpointName.serviceName()).orElse(List.of()).stream()
             .anyMatch(endpoint -> endpoint.host().equals(endpointName.host()));
     if (!known) {
       return DnsCodec.encodeResponse(query, DnsCodec.RCODE_NXDOMAIN, List.of());

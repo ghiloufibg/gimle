@@ -165,6 +165,73 @@ final class SkaldServerTest {
   }
 
   @Test
+  void a_known_service_with_no_endpoints_answers_noerror_with_zero_answers() throws IOException {
+    // A Service mid-rollout or scaled to zero exists; only the addresses behind it are missing.
+    // NXDOMAIN here would tell an operator the name itself is wrong, which is the single most
+    // misleading answer available while a deploy is in flight.
+    directory.replaceAll(Map.of("orders.acme", List.of()));
+
+    byte[] response = query(0xA1, "orders.acme.svc.gimle.local", 1);
+
+    assertEquals(0, unsignedShort(response, 2) & 0xF); // RCODE: NOERROR, not NXDOMAIN
+    assertEquals(0, unsignedShort(response, 6)); // ANCOUNT: NODATA
+  }
+
+  @Test
+  void an_srv_query_for_a_known_service_with_no_endpoints_also_answers_noerror()
+      throws IOException {
+    directory.replaceAll(Map.of("orders.acme", List.of()));
+
+    byte[] response = query(0xA2, "orders.acme.svc.gimle.local", 33); // SRV
+
+    assertEquals(0, unsignedShort(response, 2) & 0xF); // RCODE: NOERROR
+    assertEquals(0, unsignedShort(response, 6)); // ANCOUNT
+  }
+
+  @Test
+  void an_unknown_name_stays_nxdomain_while_a_known_empty_one_is_noerror() throws IOException {
+    // The whole point of the distinction, asserted side by side against one directory snapshot.
+    directory.replaceAll(Map.of("orders.acme", List.of()));
+
+    byte[] known = query(0xA3, "orders.acme.svc.gimle.local", 1);
+    byte[] unknown = query(0xA4, "ordrs.acme.svc.gimle.local", 1); // typo'd name
+
+    assertEquals(0, unsignedShort(known, 2) & 0xF); // NOERROR
+    assertEquals(3, unsignedShort(unknown, 2) & 0xF); // NXDOMAIN
+  }
+
+  @Test
+  void a_dashed_endpoint_name_under_an_empty_service_answers_nxdomain() throws IOException {
+    // That specific endpoint name genuinely doesn't exist -- the service being known and empty
+    // says nothing about a per-endpoint address it has never carried.
+    directory.replaceAll(Map.of("orders.acme", List.of()));
+
+    byte[] response = query(0xA5, "10-0-0-5.orders.acme.svc.gimle.local", 1);
+
+    assertEquals(3, unsignedShort(response, 2) & 0xF); // RCODE: NXDOMAIN
+  }
+
+  @Test
+  void a_known_but_empty_service_is_servfail_rather_than_nodata_once_severely_stale()
+      throws IOException {
+    // "Zero endpoints" is still a claim about current cluster state; once the directory's data is
+    // too old to trust, refusing beats confidently reporting an emptiness nobody has confirmed.
+    TestClock clock = new TestClock();
+    CachingServiceDirectory staleDirectory = new CachingServiceDirectory(clock);
+    staleDirectory.replaceAll(Map.of("orders.acme", List.of()));
+    Duration threshold = Duration.ofSeconds(30);
+    try (SkaldServer staleServer = new SkaldServer(staleDirectory, 0, threshold)) {
+      byte[] fresh = query(staleServer.port(), 0xA6, "orders.acme.svc.gimle.local", 1);
+      assertEquals(0, unsignedShort(fresh, 2) & 0xF); // RCODE: NOERROR
+
+      clock.advance(threshold.plusSeconds(1));
+
+      byte[] stale = query(staleServer.port(), 0xA7, "orders.acme.svc.gimle.local", 1);
+      assertEquals(2, unsignedShort(stale, 2) & 0xF); // RCODE: SERVFAIL
+    }
+  }
+
+  @Test
   void answers_unsupported_query_type_with_notimp() throws IOException {
     directory.replaceAll(Map.of("orders", List.of(new HostPort("10.0.0.5", 8080))));
 

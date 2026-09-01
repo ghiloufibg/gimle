@@ -284,6 +284,14 @@ no plaintext-warning banner and no mTLS mode of its own yet — its polling conn
 plane stays plain HTTP for this first slice, matching how a new component in this codebase
 typically starts plaintext-only before a transport-security pass lands.
 
+A Service the catalog lists but which currently has no live endpoints — mid-rollout, or scaled to
+zero, which the control plane's own `ServiceReconciler` treats as a normal, valid outcome — is
+cached as a known-but-empty name, not dropped. Skald answers it `NOERROR` with zero answer records
+(the NODATA shape a real authoritative server uses) rather than `NXDOMAIN`, so an operator asking
+"why can't my client resolve this service mid-deploy" gets "it exists, it's temporarily empty"
+instead of a signal indistinguishable from a typo'd or never-declared name. `NXDOMAIN` is reserved
+for exactly that: a name the directory has never heard of.
+
 A poll failure leaves the cache exactly as it was rather than flipping every cached name to
 NXDOMAIN over one bad tick, but `CachingServiceDirectory` separately tracks how long it's been
 since a poll last actually succeeded and how many polls have failed in a row, both exposed as
@@ -294,7 +302,8 @@ six poll cycles by default (30 seconds at the default 5-second poll interval), l
 absorb a blip or a brief control-plane restart but short enough that real cluster churn has
 likely invalidated at least some cached endpoint by then — `SkaldServer` stops trusting the cache
 enough to hand out a positive answer: a name it would otherwise resolve gets `SERVFAIL` instead of
-a confident (and possibly wrong) address, while a name genuinely absent from the cache still
+a confident (and possibly wrong) address — a known-but-empty name included, since "no endpoints" is
+itself a claim about current cluster state — while a name genuinely absent from the cache still
 answers `NXDOMAIN` either way. `ControlPlaneServicePoller` also escalates its own failure logging
 from `WARN` to `ERROR` once three polls have failed in a row, ahead of the `SERVFAIL` threshold, as
 an earlier operator-facing signal that this is no longer a single missed poll.
