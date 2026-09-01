@@ -154,6 +154,23 @@ to export immediately rather than waiting for its own periodic interval — `Wor
 alongside its `StopModule` metrics flush (above), the tracing half of the same "don't lose a
 short-lived instance's final data" concern.
 
+### Sampling
+
+Every provider `GimleTracing` builds — all three install paths above — gets the same
+**parent-based** sampler, whose root sampling ratio comes from `-Dgimle.tracing.samplingRatio`
+(`0.0`..`1.0`, defaulting to `1.0`: record every trace). A ratio of `1.0` records everything, `0.0`
+records nothing, and anything between records that fraction of *root* spans.
+
+Parent-based is the load-bearing part. The decision is made once, at the trace's root, and every
+downstream hop honours whatever the incoming `TraceContext` already decided — so a cross-worker
+fabric call's client span and the provider's server span are always both kept or both dropped. If
+each hop sampled independently at ratio `r`, only `r^hops` of any multi-process trace would survive
+whole and the rest would arrive as orphaned fragments, which is precisely the trace shape this
+platform's own service fabric produces most of.
+
+A malformed or out-of-range value is logged and ignored, falling back to recording everything: a
+mistyped observability knob is never a reason for a worker or control plane to refuse to start.
+
 ## Per-module CPU and allocation: `ThreadNameJfrAttributor`
 
 This is the piece that makes Tier 1's soft accounting concrete. It subscribes to the JVM's own JFR

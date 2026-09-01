@@ -125,6 +125,8 @@ public final class ControlMessageCodec {
               escape(m.key()),
               escape(m.value()),
               Boolean.toString(m.wasEncrypted()));
+      case ControlMessage.ConfigKeysRetained m ->
+          line("CONFIG_KEYS_RETAINED", escape(Json.write(m.keys())));
       case ControlMessage.RelayControlPlaneResult m ->
           line("RELAY_RESULT", m.correlationId(), Integer.toString(m.status()), escape(m.body()));
       case ControlMessage.NetworkPoliciesUpdated m ->
@@ -236,6 +238,8 @@ public final class ControlMessageCodec {
               unescape(field(fields, 1)),
               unescape(field(fields, 2)),
               Boolean.parseBoolean(field(fields, 3)));
+      case "CONFIG_KEYS_RETAINED" ->
+          new ControlMessage.ConfigKeysRetained(decodeStringList(unescape(field(fields, 1))));
       case "RELAY_RESULT" ->
           new ControlMessage.RelayControlPlaneResult(
               field(fields, 1), Integer.parseInt(field(fields, 2)), unescape(field(fields, 3)));
@@ -387,6 +391,16 @@ public final class ControlMessageCodec {
    */
   private static String encodePorts(Map<String, Integer> ports) {
     return Json.write(new LinkedHashMap<String, Object>(ports));
+  }
+
+  /** A JSON-array field of strings -- {@code ConfigKeysRetained}'s authoritative key set. */
+  private static List<String> decodeStringList(String json) {
+    List<Object> raw = Json.asArray(Json.parse(json));
+    List<String> values = new ArrayList<>(raw.size());
+    for (Object value : raw) {
+      values.add(String.valueOf(value));
+    }
+    return values;
   }
 
   /** A JSON-object field of string values -- {@code ResolveModule}'s volume-name-to-path map. */

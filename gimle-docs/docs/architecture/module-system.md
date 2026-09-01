@@ -29,9 +29,12 @@ constructed; `ModuleDescriptorParser`/`ModuleArtifactReader` read the module's `
 and JAR to get there. `ModuleContext`/`SimpleModuleContext` is what a running instance actually
 sees: its own service registry lookups, resource handles, and lifecycle-hook callback surface,
 scoped to that one instance. Beyond services and lifecycle, it carries the instance's config view
-(`config(key)` for a point lookup, `configKeys()` to enumerate everything the agent actually
+(`config(key)` for a point lookup, `configKeys()` to enumerate everything the agent currently has
 delivered — for a module that treats its config as a namespace rather than a fixed set of known
-keys) and the downward-API-style `instanceInfo()`: the instance's own placement identity as the
+keys, and `onConfigChange(listener)` to be told about a delivery, rotation, or retraction as it
+happens instead of polling for it; see
+[Multi-tenancy](./multi-tenancy.md) for how the agent keeps that view current, deletions included)
+and the downward-API-style `instanceInfo()`: the instance's own placement identity as the
 platform sees it (deployment name, replica index, node id, owning tenant), looked up live on every
 call so an in-place retarget changes the answer without the module restarting, and empty for a
 module the platform never identified (a directly-embedded controller in a test).

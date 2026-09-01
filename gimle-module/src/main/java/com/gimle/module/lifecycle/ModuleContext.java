@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * A module's view into the platform, passed to its lifecycle hooks. This is a placeholder: the full
@@ -50,17 +51,58 @@ public interface ModuleContext {
   /**
    * Looks up a tenant-scoped configuration or secret value the agent has relayed down for this
    * instance — always plaintext by the time a module sees it, whether or not it was encrypted at
-   * rest. Absent if the key was never delivered.
+   * rest. Absent if the key was never delivered, and absent again once the key is deleted upstream:
+   * the agent re-asserts the full set of keys that still exist on every relay tick, and this
+   * context drops anything no longer named, so revoking a value by deleting it takes effect on a
+   * running instance without waiting for a restart.
    */
   Optional<String> config(String key);
 
   /**
-   * Every key currently visible via {@link #config} — a snapshot, not a live view, so a module can
-   * iterate it while config delivery is happening concurrently. Lets a module that treats its
-   * config as a namespace (a prefix of related keys, a set whose names it doesn't know at compile
-   * time) enumerate what it actually received instead of probing key by key.
+   * Every key currently visible via {@link #config} — the set as it stands at the moment of the
+   * call, copied so a module can iterate it while config delivery is happening concurrently, not a
+   * live collection that mutates underneath the iterator. Lets a module that treats its config as a
+   * namespace (a prefix of related keys, a set whose names it doesn't know at compile time)
+   * enumerate what it actually received instead of probing key by key. A module that needs to
+   * *react* to a change rather than re-read on its own schedule registers an {@link
+   * #onConfigChange} listener instead of polling this.
    */
   Set<String> configKeys();
+
+  /**
+   * Registers {@code listener} to be called whenever a key this instance can see is delivered,
+   * changed, or retracted — a rotated credential arrives as a {@link ConfigChange} carrying the new
+   * value, a revoked one as a change carrying an empty value, both before any module has to notice
+   * on its own. Called on the delivering thread, so a listener that blocks delays delivery of the
+   * remaining keys in that batch; a listener that throws is logged and skipped rather than
+   * interrupting delivery to anyone else. Only future changes are reported — a listener registered
+   * after a key already arrived is not replayed the arrival, so a module that also needs the
+   * current state reads {@link #config}/{@link #configKeys} once at registration time. Cancelling
+   * the returned subscription stops further callbacks; every subscription is dropped anyway when
+   * this instance is uninstalled, so a module has no obligation to unregister in its own {@code
+   * onStop}.
+   */
+  ConfigSubscription onConfigChange(Consumer<ConfigChange> listener);
+
+  /**
+   * One change to one key, as {@link #onConfigChange} reports it: {@code value} carries the new
+   * plaintext for a delivery or an update, and is empty when the key was retracted because it no
+   * longer exists upstream.
+   */
+  record ConfigChange(String key, Optional<String> value) {
+
+    public boolean retracted() {
+      return value.isEmpty();
+    }
+  }
+
+  /**
+   * The handle {@link #onConfigChange} returns. Not {@link AutoCloseable}: its {@code close} throws
+   * a checked exception, which this codebase's own API surface never does.
+   */
+  interface ConfigSubscription {
+    void cancel();
+  }
 
   /**
    * This instance's own placement identity as the platform sees it: which deployment it backs,

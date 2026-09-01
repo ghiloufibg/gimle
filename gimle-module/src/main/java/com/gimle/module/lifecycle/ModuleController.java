@@ -12,10 +12,13 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -224,10 +227,41 @@ public final class ModuleController {
   /**
    * Called by {@code gimle-worker}'s {@code WorkerMain} on {@code ControlMessage.ConfigDelivered}:
    * makes {@code value} visible via {@code ModuleContext.config(key)} for every module this
-   * controller hosts, whether it resolved before or after this call.
+   * controller hosts, whether it resolved before or after this call. Notifies every hosted module's
+   * own {@code ModuleContext.onConfigChange} listeners only when the value actually changed, so a
+   * relay that re-sends an unchanged value doesn't wake a listener for nothing.
    */
   public void deliverConfig(String key, String value) {
-    configValues.put(key, value);
+    String previous = configValues.put(key, value);
+    if (!Objects.equals(previous, value)) {
+      notifyConfigChange(new ModuleContext.ConfigChange(key, Optional.of(value)));
+    }
+  }
+
+  /**
+   * Called by {@code gimle-worker}'s {@code WorkerMain} on {@code
+   * ControlMessage.ConfigKeysRetained}: drops every locally-held config/secret key not named in
+   * {@code keys}, which is the full set that still exists upstream for the instances this worker
+   * hosts. This is how a key deleted from a ConfigMap or Secret stops being readable by a running
+   * instance instead of surviving until its next restart.
+   *
+   * <p>Applying a whole-set assertion rather than reacting to per-key removals is what makes this
+   * converge from any starting state: this controller does not need to have seen the deletion, or
+   * any prior tick, for the very next assertion to leave it holding exactly the right keys.
+   */
+  public void retainConfigKeys(Collection<String> keys) {
+    Set<String> retained = Set.copyOf(keys);
+    for (String key : List.copyOf(configValues.keySet())) {
+      if (!retained.contains(key) && configValues.remove(key) != null) {
+        notifyConfigChange(new ModuleContext.ConfigChange(key, Optional.empty()));
+      }
+    }
+  }
+
+  private void notifyConfigChange(ModuleContext.ConfigChange change) {
+    for (SimpleModuleContext context : contextsByModule.values()) {
+      context.notifyConfigChange(change);
+    }
   }
 
   public ModuleWiring resolve(ModuleId id) {

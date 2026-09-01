@@ -87,7 +87,17 @@ before the UI did:
   `FabricServer` (an inbound cross-worker service call) and its own instance's `WorkerMain`
   relay — so this screen only ever shows data for the `WORKER` process kind, none of the other
   four, an accurate reflection of where spans are actually created today rather than a gap in
-  this UI.
+  this UI. Selecting a trace id opens **Follow trace**, which assembles that one trace's spans
+  from every worker process the console can currently name, grouped by process and indented into a
+  call tree — the cross-worker case (a consumer's client span and a provider's server span sharing
+  one trace id across two JVMs) read end to end instead of by opening two views and eyeballing
+  truncated id prefixes. There is no server-side trace search, so this fans the same per-process
+  history call out client-side, and the panel states its own limits in place rather than implying
+  completeness: only `WORKER` processes are searched, searchable workers come from the instance
+  list (a torn-down worker's spans may still be in Muninn but cannot be addressed from here), each
+  worker's history is walked only a few pages back, any process that failed to answer is named,
+  and a parent span that no searched process produced is reported as making the trace provably
+  incomplete.
 - **Audit trail** (`GET /audit?principal=&resource=&tenant=&since=&limit=`): a filterable table,
   most recent first, allowed/denied visually distinguished. Only ever populated in TLS mode — see
   [Authentication and authorization](./authn-authz.md) — since `requireAuthorized` only resolves a

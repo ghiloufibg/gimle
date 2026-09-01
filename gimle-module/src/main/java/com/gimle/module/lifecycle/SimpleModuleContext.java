@@ -2,13 +2,18 @@ package com.gimle.module.lifecycle;
 
 import com.gimle.core.module.ModuleId;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Default {@link ModuleContext}: an atomic in-flight counter, a thin delegate onto a shared {@link
@@ -16,9 +21,12 @@ import java.util.function.Supplier;
  * across every context {@link ModuleController} creates for one worker, not copied per instance --
  * config delivered by the agent before or after a given module resolves both work identically,
  * since every context reads through to the same live map rather than a snapshot taken at
- * construction time.
+ * construction time. Change listeners are the one piece deliberately not shared: they are held per
+ * context so they die with the instance that registered them.
  */
 public final class SimpleModuleContext implements ModuleContext {
+
+  private static final Logger log = LoggerFactory.getLogger(SimpleModuleContext.class);
 
   /**
    * The default {@code relay} for a caller that doesn't wire the real agent-backed collaborator
@@ -43,6 +51,11 @@ public final class SimpleModuleContext implements ModuleContext {
   private final Supplier<Optional<InstanceInfo>> instanceInfo;
   private final AtomicInteger inFlight = new AtomicInteger();
   private final Map<String, Integer> reportedPorts = new ConcurrentHashMap<>();
+
+  // Held per context, never on the shared config map, so an uninstalled instance's listeners --
+  // and the module classloader they close over -- go away with the context itself rather than
+  // pinning a disposed ModuleLayer's loader alive in a worker-wide registry.
+  private final List<Consumer<ConfigChange>> configListeners = new CopyOnWriteArrayList<>();
 
   public SimpleModuleContext(ModuleId id, ServiceRegistry serviceRegistry) {
     this(id, serviceRegistry, new ConcurrentHashMap<>());
@@ -178,6 +191,33 @@ public final class SimpleModuleContext implements ModuleContext {
   @Override
   public Set<String> configKeys() {
     return Set.copyOf(configValues.keySet());
+  }
+
+  @Override
+  public ConfigSubscription onConfigChange(final Consumer<ConfigChange> listener) {
+    if (listener == null) {
+      throw new IllegalArgumentException("config change listener must not be null");
+    }
+    configListeners.add(listener);
+    return () -> configListeners.remove(listener);
+  }
+
+  /**
+   * Fans {@code change} out to this context's own registered listeners. Called by {@link
+   * ModuleController} once it has already applied the change to the shared config map, so a
+   * listener that reads {@link #config} from its callback sees the new state, not the old one. A
+   * listener that throws is contained here: the remaining listeners still run, and the delivery
+   * that triggered this is unaffected.
+   */
+  void notifyConfigChange(final ConfigChange change) {
+    for (Consumer<ConfigChange> listener : configListeners) {
+      try {
+        listener.accept(change);
+      } catch (RuntimeException e) {
+        log.warn(
+            "config change listener for {} failed on key {}: {}", id, change.key(), e.getMessage());
+      }
+    }
   }
 
   @Override

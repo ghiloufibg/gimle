@@ -731,6 +731,7 @@ public final class WorkerMain {
               m.udsPath().isEmpty() ? Optional.empty() : Optional.of(m.udsPath()),
               new InetSocketAddress(m.tcpHost(), m.tcpPort()));
       case ControlMessage.ConfigDelivered m -> controller.deliverConfig(m.key(), m.value());
+      case ControlMessage.ConfigKeysRetained m -> controller.retainConfigKeys(m.keys());
       case ControlMessage.NetworkPoliciesUpdated m -> fabricServer.updateNetworkPolicies(m.rules());
       case ControlMessage.RelayControlPlaneResult m -> relay.complete(m);
       default -> log.warn("unexpected control message from agent: {}", message);

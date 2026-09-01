@@ -179,9 +179,28 @@ the identical fetch logic re-runs on the interval — same tenant scoping, same
 `configMapRefs`/`secretMapRefs` narrowing — and any value that changed since the relay last sent it
 to that instance is re-pushed over the control channel, so a config edit or a rotated secret
 reaches a running instance's very next `ModuleContext.config(key)` read instead of waiting for its
-restart. Only creates and updates propagate: a deleted key is never retracted from a running
-instance (the control channel has no removal message, and a module that already read the value
-holds it anyway) — the next restart starts from the current set.
+restart.
+
+Deletions propagate too. Alongside the changed values, each successful tick sends one
+`ControlMessage.ConfigKeysRetained` naming the **full set of keys that still exist** for the
+instances behind that control channel; the worker applies it by dropping everything not named, so
+deleting a ConfigMap or Secret key genuinely revokes it from a running instance rather than leaving
+the stale value readable until a restart. It is a whole-set assertion re-sent every tick rather
+than a one-shot "key X was removed" event, and is therefore level-triggered in the same sense every
+reconciler here is: a worker that reconnected mid-deletion, or missed ticks entirely, converges on
+the correct set from the very next assertion, with no replay. The set is computed per control
+channel rather than per instance, because a Tier 1 worker hosts several density-packed instances
+behind one channel and one worker-wide config map — asserting one instance's keys alone would
+retract its neighbours'. A tick in which any instance on a channel failed to fetch sends no
+assertion at all for that channel, so a transient control-plane blip never reads as "everything was
+deleted".
+
+A module that needs to *react* to a change rather than re-read on its own schedule registers
+`ModuleContext.onConfigChange(listener)`: each delivery, rotation, and retraction arrives as a
+`ConfigChange` carrying the key and either its new plaintext or an empty value for a retraction.
+Listeners are held per instance context and dropped when that instance is uninstalled, so a
+disposed module's callback can never keep its classloader alive; a listener that throws is logged
+and skipped without disturbing the rest of the delivery.
 
 ## Secrets
 

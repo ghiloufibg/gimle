@@ -51,6 +51,9 @@ class ControlMessageCodecTest {
             9000),
         new ControlMessage.Pong("corr-2"),
         new ControlMessage.ConfigDelivered("db.password", "hunter2", true),
+        new ControlMessage.ConfigKeysRetained(List.of()),
+        new ControlMessage.ConfigKeysRetained(List.of("db.url", "db.password")),
+        new ControlMessage.ConfigKeysRetained(List.of("key with spaces", "key\\with\\backslash")),
         new ControlMessage.RelayControlPlaneRead("corr-10", "/endpoints/orders-service"),
         new ControlMessage.RelayResourceStatusPut(
             "corr-12",
