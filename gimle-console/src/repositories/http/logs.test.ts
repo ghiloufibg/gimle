@@ -3,6 +3,7 @@ import { HttpLogsRepository } from "./logs";
 import { ApiError } from "./apiClient";
 import { jsonResponse, stubFetchSequence, textResponse } from "./testUtil";
 import type { LogTarget } from "@/types";
+import { EMPTY_LOG_FILTER, toLogFilter } from "@/lib/log-filter";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -22,7 +23,12 @@ describe("HttpLogsRepository.fetchPage", () => {
     ]);
     const repo = new HttpLogsRepository();
 
-    const page = await repo.fetchPage({ target: NODE_TARGET, cursor: null, pageSize: 50 });
+    const page = await repo.fetchPage({
+      target: NODE_TARGET,
+      filter: EMPTY_LOG_FILTER,
+      cursor: null,
+      pageSize: 50,
+    });
 
     expect(page.items).toHaveLength(1);
     expect(page.nextCursor).toBe("2026-08-01T00:00:00Z");
@@ -36,7 +42,12 @@ describe("HttpLogsRepository.fetchPage", () => {
     ]);
     const repo = new HttpLogsRepository();
 
-    await repo.fetchPage({ target: NODE_TARGET, cursor: "2026-08-01T00:00:00Z", pageSize: 50 });
+    await repo.fetchPage({
+      target: NODE_TARGET,
+      filter: EMPTY_LOG_FILTER,
+      cursor: "2026-08-01T00:00:00Z",
+      pageSize: 50,
+    });
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe(
@@ -49,7 +60,12 @@ describe("HttpLogsRepository.fetchPage", () => {
     const repo = new HttpLogsRepository();
 
     await expect(
-      repo.fetchPage({ target: NODE_TARGET, cursor: null, pageSize: 50 }),
+      repo.fetchPage({
+        target: NODE_TARGET,
+        filter: EMPTY_LOG_FILTER,
+        cursor: null,
+        pageSize: 50,
+      }),
     ).rejects.toMatchObject(new ApiError(500, "nope"));
   });
 });
@@ -77,7 +93,7 @@ describe("HttpLogsRepository.openFollow", () => {
     const repo = new HttpLogsRepository();
     const onLine = vi.fn();
 
-    const stop = repo.openFollow(NODE_TARGET, onLine);
+    const stop = repo.openFollow(NODE_TARGET, EMPTY_LOG_FILTER, onLine);
     try {
       await vi.waitFor(() => expect(onLine).toHaveBeenCalledTimes(1));
       expect(onLine).toHaveBeenCalledWith(expect.objectContaining({ message: "genuinely new" }));
@@ -85,6 +101,91 @@ describe("HttpLogsRepository.openFollow", () => {
       const pollUrl = fetchMock.mock.calls[1]?.[0] as string;
       expect(pollUrl).toContain(`since=${encodeURIComponent(seedTimestamp)}`);
       expect(pollUrl).not.toContain("cursor=");
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe("HttpLogsRepository filtering", () => {
+  it("sends level and contains as query parameters, url-encoded", async () => {
+    const fetchMock = stubFetchSequence([
+      () => jsonResponse({ lines: [], olderCursor: null, newerCursor: null }),
+    ]);
+    const repo = new HttpLogsRepository();
+
+    await repo.fetchPage({
+      target: NODE_TARGET,
+      filter: toLogFilter("WARN", "timed out"),
+      cursor: null,
+      pageSize: 50,
+    });
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("/logs/nodes/node-1?category=PLATFORM&limit=50&level=WARN&contains=timed+out");
+  });
+
+  it("omits both parameters entirely when nothing is filtered", async () => {
+    const fetchMock = stubFetchSequence([
+      () => jsonResponse({ lines: [], olderCursor: null, newerCursor: null }),
+    ]);
+    const repo = new HttpLogsRepository();
+
+    await repo.fetchPage({
+      target: NODE_TARGET,
+      filter: EMPTY_LOG_FILTER,
+      cursor: null,
+      pageSize: 50,
+    });
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).not.toContain("level=");
+    expect(url).not.toContain("contains=");
+  });
+
+  it("surfaces a zero-match filtered page as an empty page, not an error", async () => {
+    stubFetchSequence([() => jsonResponse({ lines: [], olderCursor: null, newerCursor: null })]);
+    const repo = new HttpLogsRepository();
+
+    const page = await repo.fetchPage({
+      target: NODE_TARGET,
+      filter: toLogFilter("ERROR", "nothing matches this"),
+      cursor: null,
+      pageSize: 50,
+    });
+
+    expect(page.items).toEqual([]);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("carries the filter into both the follow seed request and every poll", async () => {
+    const seedTimestamp = "2026-08-01T00:00:00Z";
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          lines: [{ timestamp: seedTimestamp, level: "ERROR", message: "already on disk" }],
+          olderCursor: null,
+          newerCursor: seedTimestamp,
+        }),
+      () =>
+        jsonResponse({
+          lines: [{ timestamp: "2026-08-01T00:00:05Z", level: "ERROR", message: "genuinely new" }],
+          olderCursor: seedTimestamp,
+          newerCursor: "2026-08-01T00:00:05Z",
+        }),
+    ]);
+    const repo = new HttpLogsRepository();
+    const onLine = vi.fn();
+
+    const stop = repo.openFollow(NODE_TARGET, toLogFilter("ERROR", null), onLine);
+    try {
+      await vi.waitFor(() => expect(onLine).toHaveBeenCalledTimes(1));
+      const seedUrl = fetchMock.mock.calls[0]?.[0] as string;
+      const pollUrl = fetchMock.mock.calls[1]?.[0] as string;
+      // The seed has to be filtered too, or the cursor would start past a line the tail itself
+      // would have shown.
+      expect(seedUrl).toContain("level=ERROR");
+      expect(pollUrl).toContain("level=ERROR");
     } finally {
       stop();
     }

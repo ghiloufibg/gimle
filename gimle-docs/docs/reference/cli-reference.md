@@ -121,6 +121,7 @@ gimle backup restore <path>
 gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                   [--since <epochMillis>] [--limit N]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
+                    [--level=LEVEL] [--contains=TEXT]
 gimle get roles [name]
 gimle set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] [--permission ...]
                        (resource, verb, and tenant each accept "*" for every value — quote it,
@@ -317,6 +318,20 @@ all-or-nothing — setting one flag of a pair without the other is rejected as a
 guessed. Unlike `service`/`networkpolicy`, `limitrange` is PUT by `tenantId` directly (like `tenant`
 itself) rather than POSTed to a collection, since a LimitRange is naturally one-per-tenant.
 
+`logs` accepts two content filters alongside its timestamp cursor, and both are applied by
+whichever log reader answers — the owning node's agent, the control plane's own platform log, or
+Muninn's shipped history for a node that is already gone — so a filtered read never ships a whole
+high-volume stream just to have most of it discarded at the client. `--level` is a **threshold**,
+not an equality test: `--level=WARN` keeps `WARN` and `ERROR`, and a line carrying no level at all
+(a raw, unstructured SYSTEM capture) is never kept by one, since it cannot be placed on the scale.
+`--contains` is a plain, **case-insensitive substring** — never a regular expression, so pasting a
+message fragment containing `(`, `[` or `.` matches literally — tested against a line's
+human-readable fields only (`message`, `logger`, `stackTrace`, `raw`), not machine identifiers like
+`nodeId` or `thread`. Both work together, both work under `--follow`, and a query matching nothing
+prints what was filtered on rather than exiting silently. An unrecognized level fails locally,
+before any request is sent. The console's Logs screen exposes the identical two filters, backed by
+the identical `level`/`contains` query parameters.
+
 `audit list` reads the cross-resource audit trail (see
 [Authentication and authorization](../architecture/authn-authz.md#audit-logging)) — every
 `WRITE`/`DELETE` authorization decision, allowed and denied, across both the control plane and
@@ -436,6 +451,13 @@ gimle deployment rollback orders-service-deployment --to-revision 2 --server 127
 
 # Tail a target's logs live -- the CLI-side equivalent of the console's own Logs screen
 gimle logs instance/greeter-consumer-deployment/0 --follow --server 127.0.0.1:8080
+
+# Narrow a high-volume log to what an incident is actually about: a level threshold
+# (WARN keeps WARN and ERROR) and a plain case-insensitive substring, both applied
+# server-side, both usable together and under --follow
+gimle logs node/node-1 --level=WARN --server 127.0.0.1:8080
+gimle logs instance/orders-service-deployment/0 --contains="timed out" --server 127.0.0.1:8080
+gimle logs controlplane --level=ERROR --contains=quota --follow --server 127.0.0.1:8080
 
 # Inspect which node an instance landed on, and what else is scheduled there
 gimle get nodes --server 127.0.0.1:8080

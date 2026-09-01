@@ -101,7 +101,7 @@ class LogRotationTest {
     // The cursor is a timestamp, so LogFileReader must still find every surviving line across the
     // active file plus both rotated copies -- this is the property a file-index/byte-offset cursor
     // would have broken, since FixedWindowRollingPolicy renames files on every rollover.
-    LogPage all = LogFileReader.readOlder(file, 3, null, 1000);
+    LogPage all = LogFileReader.readOlder(file, 3, null, 1000, LogFilter.NONE);
     assertTrue(all.lines().size() >= 3, "expected multiple surviving lines across rotated files");
     for (Map<String, Object> line : all.lines()) {
       assertNotNull(line.get("timestamp"), "every line must carry a parseable timestamp cursor");
@@ -139,12 +139,12 @@ class LogRotationTest {
     appender.stop();
 
     // Page backward from "now" (no cursor): should return the most recent lines, oldest-first.
-    LogPage recent = LogFileReader.readOlder(file, 3, null, 5);
+    LogPage recent = LogFileReader.readOlder(file, 3, null, 5, LogFilter.NONE);
     assertEquals(5, recent.lines().size());
     assertNotNull(recent.olderCursor(), "more history should remain to page into");
 
     // Paging further back with olderCursor must not re-return anything from the first page.
-    LogPage older = LogFileReader.readOlder(file, 3, recent.olderCursor(), 5);
+    LogPage older = LogFileReader.readOlder(file, 3, recent.olderCursor(), 5, LogFilter.NONE);
     assertTrue(older.lines().size() > 0);
     String firstPageEarliest = (String) recent.lines().get(0).get("message");
     for (Map<String, Object> line : older.lines()) {
@@ -153,7 +153,8 @@ class LogRotationTest {
 
     // readAfter(newerCursor) from the first page must pick up exactly where it left off -- the
     // resume-a-follow-session query a live tail depends on.
-    List<Map<String, Object>> after = LogFileReader.readAfter(file, 3, recent.newerCursor());
+    List<Map<String, Object>> after =
+        LogFileReader.readAfter(file, 3, recent.newerCursor(), LogFilter.NONE);
     assertTrue(
         after.isEmpty(), "nothing was written after the last line, so nothing new to return");
 
@@ -161,9 +162,10 @@ class LogRotationTest {
     // still present qualifies, and eventually run out of older history (null olderCursor) once
     // rotation has evicted the rest -- never an error, matching kubectl logs' own behavior once a
     // container's older rotated logs are gone.
-    LogPage everything = LogFileReader.readOlder(file, 3, null, 10_000);
+    LogPage everything = LogFileReader.readOlder(file, 3, null, 10_000, LogFilter.NONE);
     assertNull(
-        LogFileReader.readOlder(file, 3, everythingEarliestCursor(everything), 10_000)
+        LogFileReader.readOlder(
+                file, 3, everythingEarliestCursor(everything), 10_000, LogFilter.NONE)
             .olderCursor());
   }
 

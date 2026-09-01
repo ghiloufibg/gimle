@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.LoggerContext;
 import com.gimle.core.logging.GimleLogging;
@@ -73,11 +74,37 @@ class AgentLogServerTest {
   }
 
   private void writePlatformLine(String message) {
+    writePlatformLine(Level.INFO, message);
+  }
+
+  private void writePlatformLine(Level level, String message) {
     if (platformAppender == null) {
       platformAppender =
           GimleLogging.attachPlatformFileAppender(logRoot.resolve("agent-platform.log"));
     }
-    logger.info(message);
+    // Explicit, so a DEBUG line the filtering tests depend on isn't dropped by whatever level
+    // this test logger inherits from the surrounding configuration.
+    logger.setLevel(Level.TRACE);
+    switch (level.toInt()) {
+      case Level.DEBUG_INT -> logger.debug(message);
+      case Level.WARN_INT -> logger.warn(message);
+      case Level.ERROR_INT -> logger.error(message);
+      default -> logger.info(message);
+    }
+  }
+
+  /** The four levels the filtering tests below span, one line each, oldest first. */
+  private void writeMixedLevelPlatformLines() {
+    writePlatformLine(Level.DEBUG, "cache warmed");
+    writePlatformLine(Level.INFO, "agent registered with control plane");
+    writePlatformLine(Level.WARN, "heartbeat delayed by 4s");
+    writePlatformLine(Level.ERROR, "downstream call timed out");
+  }
+
+  private static List<String> messagesOf(Map<String, Object> page) {
+    return Json.asObjectList(page.get("lines")).stream()
+        .map(l -> String.valueOf(l.get("message")))
+        .toList();
   }
 
   /**
@@ -321,5 +348,88 @@ class AgentLogServerTest {
         getRaw("/logs/instances/orders-service/0/crashdumps/worker-platform.log");
 
     assertEquals(400, response.statusCode());
+  }
+
+  @Test
+  void a_level_filter_keeps_that_level_and_every_level_above_it() throws Exception {
+    startServer();
+    writeMixedLevelPlatformLines();
+
+    List<String> messages = messagesOf(get("/logs/nodes/node-a?category=PLATFORM&level=WARN"));
+
+    assertEquals(List.of("heartbeat delayed by 4s", "downstream call timed out"), messages);
+  }
+
+  @Test
+  void a_level_filter_at_the_lowest_threshold_keeps_every_ranked_line() throws Exception {
+    startServer();
+    writeMixedLevelPlatformLines();
+
+    List<String> messages = messagesOf(get("/logs/nodes/node-a?category=PLATFORM&level=trace"));
+
+    assertEquals(4, messages.size(), "TRACE is the floor -- nothing structured ranks below it");
+  }
+
+  @Test
+  void a_text_filter_keeps_only_lines_carrying_that_substring() throws Exception {
+    startServer();
+    writeMixedLevelPlatformLines();
+
+    List<String> messages =
+        messagesOf(get("/logs/nodes/node-a?category=PLATFORM&contains=HEARTBEAT"));
+
+    assertEquals(List.of("heartbeat delayed by 4s"), messages);
+  }
+
+  @Test
+  void level_and_text_filters_apply_together_and_alongside_the_since_cursor() throws Exception {
+    startServer();
+    writeMixedLevelPlatformLines();
+
+    List<String> messages =
+        messagesOf(
+            get(
+                "/logs/nodes/node-a?category=PLATFORM&since=2000-01-01T00:00:00Z"
+                    + "&level=WARN&contains=timed"));
+
+    assertEquals(List.of("downstream call timed out"), messages);
+  }
+
+  @Test
+  void a_filter_matching_nothing_answers_with_an_empty_page_not_an_error() throws Exception {
+    startServer();
+    writeMixedLevelPlatformLines();
+
+    Map<String, Object> page =
+        get("/logs/nodes/node-a?category=PLATFORM&contains=no%20such%20text%20anywhere");
+
+    assertTrue(Json.asObjectList(page.get("lines")).isEmpty());
+    // The paging shape survives a zero-match query, so a caller renders "nothing matched" rather
+    // than failing to parse a differently-shaped body.
+    assertTrue(page.containsKey("olderCursor"));
+    assertTrue(page.containsKey("newerCursor"));
+  }
+
+  @Test
+  void an_unrecognized_level_is_rejected_rather_than_silently_ignored() throws Exception {
+    startServer();
+    writeMixedLevelPlatformLines();
+
+    HttpResponse<String> response = getRaw("/logs/nodes/node-a?category=PLATFORM&level=SEVERE");
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("SEVERE"), response.body());
+  }
+
+  @Test
+  void instance_logs_apply_the_same_filter_the_node_routes_do() throws Exception {
+    startServer();
+    writeInstanceLine("orders-service", 0, "instance 0 line");
+    writeInstanceLine("orders-service", 0, "instance 0 second line");
+
+    List<String> messages =
+        messagesOf(get("/logs/instances/orders-service/0?category=APPLICATION&contains=second"));
+
+    assertEquals(List.of("instance 0 second line"), messages);
   }
 }

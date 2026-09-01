@@ -2,6 +2,7 @@ package com.gimle.agent;
 
 import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.logging.LogFileReader.LogPage;
+import com.gimle.core.logging.LogFilter;
 import com.gimle.core.web.HttpResponses;
 import com.gimle.os.AllocatedVolume;
 import com.gimle.os.VolumeManager;
@@ -153,13 +154,18 @@ final class AgentLogServer implements AutoCloseable {
       boolean follow = "true".equals(query.get("follow"));
       String cursor = query.get("cursor");
       int limit = parseLimit(query.get("limit"));
+      // Content filtering happens here, at the reader, never at the client: a high-volume log is
+      // exactly the case an operator reaches for a filter in, and shipping the whole stream just
+      // to discard most of it at the far end defeats the point.
+      LogFilter filter = LogFilter.fromQuery(query);
 
       if ("PLATFORM".equals(category)) {
         Path file = logRoot.resolve("agent-platform.log");
         if (follow) {
-          streamFollow(exchange, file, LogFileReader.configuredMaxFiles(), cursor);
+          streamFollow(exchange, file, LogFileReader.configuredMaxFiles(), cursor, filter);
         } else {
-          respondPage(exchange, readPage(file, LogFileReader.configuredMaxFiles(), query, limit));
+          respondPage(
+              exchange, readPage(file, LogFileReader.configuredMaxFiles(), query, limit, filter));
         }
         return;
       }
@@ -176,7 +182,7 @@ final class AgentLogServer implements AutoCloseable {
               "follow=true is not supported for node-level SYSTEM logs (multiple underlying files)");
           return;
         }
-        respondPage(exchange, readMergedSystemLogs(query, limit));
+        respondPage(exchange, readMergedSystemLogs(query, limit, filter));
         return;
       }
       respond(exchange, 400, "unknown category: " + category);
@@ -190,7 +196,8 @@ final class AgentLogServer implements AutoCloseable {
     }
   }
 
-  private LogPage readMergedSystemLogs(Map<String, String> query, int limit) throws IOException {
+  private LogPage readMergedSystemLogs(Map<String, String> query, int limit, LogFilter filter)
+      throws IOException {
     String since = query.get("since");
     String cursor = query.get("cursor");
     Path workersDir = logRoot.resolve("workers");
@@ -205,8 +212,8 @@ final class AgentLogServer implements AutoCloseable {
           int maxFiles = LogFileReader.configuredMaxFiles();
           merged.addAll(
               since != null
-                  ? LogFileReader.readAfter(file, maxFiles, since)
-                  : LogFileReader.readOlder(file, maxFiles, cursor, limit).lines());
+                  ? LogFileReader.readAfter(file, maxFiles, since, filter)
+                  : LogFileReader.readOlder(file, maxFiles, cursor, limit, filter).lines());
         }
       }
     }
@@ -360,6 +367,7 @@ final class AgentLogServer implements AutoCloseable {
       boolean follow = "true".equals(query.get("follow"));
       String cursor = query.get("cursor");
       int limit = parseLimit(query.get("limit"));
+      LogFilter filter = LogFilter.fromQuery(query);
 
       Path file =
           "PLATFORM".equals(category)
@@ -380,9 +388,10 @@ final class AgentLogServer implements AutoCloseable {
       }
 
       if (follow) {
-        streamFollow(exchange, file, LogFileReader.configuredMaxFiles(), cursor);
+        streamFollow(exchange, file, LogFileReader.configuredMaxFiles(), cursor, filter);
       } else {
-        respondPage(exchange, readPage(file, LogFileReader.configuredMaxFiles(), query, limit));
+        respondPage(
+            exchange, readPage(file, LogFileReader.configuredMaxFiles(), query, limit, filter));
       }
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
@@ -546,23 +555,25 @@ final class AgentLogServer implements AutoCloseable {
    * poll-based {@code openFollow} (console) and non-follow {@code --since} (gimle-cli) callers
    * actually need.
    */
-  private static LogPage readPage(Path file, int maxFiles, Map<String, String> query, int limit) {
+  private static LogPage readPage(
+      Path file, int maxFiles, Map<String, String> query, int limit, LogFilter filter) {
     String since = query.get("since");
     if (since != null) {
-      List<Map<String, Object>> lines = LogFileReader.readAfter(file, maxFiles, since);
+      List<Map<String, Object>> lines = LogFileReader.readAfter(file, maxFiles, since, filter);
       String newerCursor =
           lines.isEmpty() ? since : String.valueOf(lines.get(lines.size() - 1).get("timestamp"));
       return new LogPage(lines, null, newerCursor);
     }
-    return LogFileReader.readOlder(file, maxFiles, query.get("cursor"), limit);
+    return LogFileReader.readOlder(file, maxFiles, query.get("cursor"), limit, filter);
   }
 
-  private static void streamFollow(HttpExchange exchange, Path file, int maxFiles, String cursor)
+  private static void streamFollow(
+      HttpExchange exchange, Path file, int maxFiles, String cursor, LogFilter filter)
       throws IOException {
     exchange.getResponseHeaders().add("Content-Type", "application/x-ndjson; charset=utf-8");
     exchange.sendResponseHeaders(200, 0);
     try (OutputStream out = exchange.getResponseBody()) {
-      LogFileReader.streamFollow(file, maxFiles, cursor, FOLLOW_POLL_INTERVAL, out);
+      LogFileReader.streamFollow(file, maxFiles, cursor, FOLLOW_POLL_INTERVAL, out, filter);
     } catch (IOException e) {
       // The client disconnected -- the normal, only way a follow session ends. Not an error.
       log.debug("log follow session ended: {}", e.getMessage());

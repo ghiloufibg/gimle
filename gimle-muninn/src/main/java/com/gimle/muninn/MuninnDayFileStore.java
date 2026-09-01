@@ -1,6 +1,7 @@
 package com.gimle.muninn;
 
 import com.gimle.core.logging.LogFileReader.LogPage;
+import com.gimle.core.logging.LogFilter;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -109,14 +110,16 @@ final class MuninnDayFileStore {
    * return Muninn's entire unbounded history in one response, the same unboundedness {@link
    * #readOlder} already guards against via its own {@code limit} parameter. Truncation is signalled
    * the same way {@link #readOlder} signals its own: the caller re-issues {@code since} with the
-   * last returned line's own timestamp to fetch the next page.
+   * last returned line's own timestamp to fetch the next page. {@code filter} is applied before the
+   * cap, so the cap counts matching lines only -- an operator's filtered read of shipped history
+   * returns the same lines the identical filtered read of a still-live agent would.
    */
-  List<Map<String, Object>> readAfter(String subtreePath, String cursor, int limit)
-      throws IOException {
+  List<Map<String, Object>> readAfter(
+      String subtreePath, String cursor, int limit, LogFilter filter) throws IOException {
     Instant after = cursor == null ? null : parseCursor(cursor);
     List<Map<String, Object>> result = new ArrayList<>();
     for (Map<String, Object> line : readAllLinesSorted(subtreePath)) {
-      if (after == null || timestampOf(line).isAfter(after)) {
+      if ((after == null || timestampOf(line).isAfter(after)) && filter.matches(line)) {
         result.add(line);
         if (result.size() >= limit) {
           break;
@@ -131,11 +134,12 @@ final class MuninnDayFileStore {
    * to the most recent {@code limit}, oldest-first -- mirrors {@code LogFileReader.readOlder}'s own
    * contract, including its {@link LogPage} return shape.
    */
-  LogPage readOlder(String subtreePath, String cursor, int limit) throws IOException {
+  LogPage readOlder(String subtreePath, String cursor, int limit, LogFilter filter)
+      throws IOException {
     Instant before = cursor == null ? null : parseCursor(cursor);
     List<Map<String, Object>> matching = new ArrayList<>();
     for (Map<String, Object> line : readAllLinesSorted(subtreePath)) {
-      if (before == null || timestampOf(line).isBefore(before)) {
+      if ((before == null || timestampOf(line).isBefore(before)) && filter.matches(line)) {
         matching.add(line);
       }
     }

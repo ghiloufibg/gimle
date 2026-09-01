@@ -1,6 +1,7 @@
 import type {
   CrashDump,
   LogCategory,
+  LogFilter,
   LogLevel,
   LogLine,
   LogTarget,
@@ -9,6 +10,7 @@ import type {
   StructuredLogLine,
 } from "@/types";
 import { deployments, nodes } from "./fixture";
+import { matchesLogFilter } from "@/lib/log-filter";
 import { delay } from "./util";
 
 const LOGGERS = [
@@ -128,12 +130,19 @@ function makeLine(target: LogTarget, ts: Date): LogLine {
 }
 
 export interface LogsRepository {
+  /**
+   * `filter` is applied by the backend, not here: a level threshold and a substring query travel
+   * as query parameters so a high-volume log is never shipped in full just to be trimmed in the
+   * browser. A page can therefore legitimately come back with fewer than `pageSize` items, or
+   * none at all, without meaning "end of history".
+   */
   fetchPage(args: {
     target: LogTarget;
+    filter: LogFilter;
     cursor: string | null;
     pageSize: number;
   }): Promise<Page<LogLine>>;
-  openFollow(target: LogTarget, onLine: (line: LogLine) => void): () => void;
+  openFollow(target: LogTarget, filter: LogFilter, onLine: (line: LogLine) => void): () => void;
   /** Only instance targets have a worker JVM to crash; node/controlplane targets always resolve
    * to an empty list (no backend route exists for those). */
   listCrashDumps(target: LogTarget): Promise<CrashDump[]>;
@@ -142,10 +151,12 @@ export interface LogsRepository {
 export class MockLogsRepository implements LogsRepository {
   async fetchPage({
     target,
+    filter,
     cursor,
     pageSize,
   }: {
     target: LogTarget;
+    filter: LogFilter;
     cursor: string | null;
     pageSize: number;
   }) {
@@ -155,17 +166,21 @@ export class MockLogsRepository implements LogsRepository {
     const items: LogLine[] = [];
     for (let i = pageSize - 1; i >= 0; i--) {
       const ts = new Date(end - i * intBetween(500, 3000));
-      items.push(makeLine(target, ts));
+      const line = makeLine(target, ts);
+      // Stands in for the server-side filtering the real repository gets for free, so a filtered
+      // page here has the same shape (fewer items, possibly none) a real one would.
+      if (matchesLogFilter(line, filter)) items.push(line);
     }
     const nextCursor = String(endAgoMs + pageSize * 1500);
     return delay({ items, nextCursor });
   }
 
-  openFollow(target: LogTarget, onLine: (line: LogLine) => void): () => void {
+  openFollow(target: LogTarget, filter: LogFilter, onLine: (line: LogLine) => void): () => void {
     let stopped = false;
     const tick = () => {
       if (stopped) return;
-      onLine(makeLine(target, new Date()));
+      const line = makeLine(target, new Date());
+      if (matchesLogFilter(line, filter)) onLine(line);
       const next = 800 + Math.random() * 1200;
       setTimeout(tick, next);
     };

@@ -97,16 +97,20 @@ public final class LogFileReader {
   }
 
   /**
-   * Lines strictly before {@code cursor} (or the whole tail if {@code cursor} is null), trimmed to
-   * the most recent {@code limit}, returned oldest-first. {@code olderCursor} lets a caller page
-   * further back; it's {@code null} once nothing older remains on disk -- the same user-visible
-   * behavior as {@code kubectl logs} once a container's older rotated logs have aged out.
+   * Lines strictly before {@code cursor} (or the whole tail if {@code cursor} is null), matching
+   * {@code filter}, trimmed to the most recent {@code limit}, returned oldest-first. {@code
+   * olderCursor} lets a caller page further back; it's {@code null} once nothing older remains on
+   * disk -- the same user-visible behavior as {@code kubectl logs} once a container's older rotated
+   * logs have aged out. {@code filter} is applied before {@code limit} is imposed, so a page is the
+   * most recent {@code limit} <i>matching</i> lines rather than whatever handful of matches
+   * happened to fall inside the most recent {@code limit} raw ones.
    */
-  public static LogPage readOlder(Path activeFile, int maxFiles, String cursor, int limit) {
+  public static LogPage readOlder(
+      Path activeFile, int maxFiles, String cursor, int limit, LogFilter filter) {
     Instant before = cursor == null ? null : parseCursor(cursor);
     List<Map<String, Object>> matching = new ArrayList<>();
     for (Map<String, Object> line : readAllLines(activeFile, maxFiles)) {
-      if (before == null || timestampOf(line).isBefore(before)) {
+      if ((before == null || timestampOf(line).isBefore(before)) && filter.matches(line)) {
         matching.add(line);
       }
     }
@@ -119,15 +123,16 @@ public final class LogFileReader {
   }
 
   /**
-   * Lines strictly after {@code cursor} (or everything currently on disk if {@code cursor} is
-   * null), oldest first -- the building block both one-shot "what's new" polling and {@link
-   * #streamFollow} use.
+   * Lines strictly after {@code cursor} (or everything currently on disk if {@code cursor} is null)
+   * matching {@code filter}, oldest first -- the building block both one-shot "what's new" polling
+   * and {@link #streamFollow} use.
    */
-  public static List<Map<String, Object>> readAfter(Path activeFile, int maxFiles, String cursor) {
+  public static List<Map<String, Object>> readAfter(
+      Path activeFile, int maxFiles, String cursor, LogFilter filter) {
     Instant after = cursor == null ? null : parseCursor(cursor);
     List<Map<String, Object>> result = new ArrayList<>();
     for (Map<String, Object> line : readAllLines(activeFile, maxFiles)) {
-      if (after == null || timestampOf(line).isAfter(after)) {
+      if ((after == null || timestampOf(line).isAfter(after)) && filter.matches(line)) {
         result.add(line);
       }
     }
@@ -141,18 +146,31 @@ public final class LogFileReader {
    * "stream starting from now" semantics). Returns only when {@code out} throws {@link IOException}
    * (the client disconnected) or the current thread is interrupted -- the only two stopping signals
    * a live tail has; callers should treat either as "follow session ended," not an error.
+   *
+   * <p>{@code filter} suppresses non-matching lines from the stream, but the cursor still advances
+   * over them: reading unfiltered and filtering at the write is what keeps a long run of
+   * non-matching lines from being re-read on every single poll tick forever.
    */
   public static void streamFollow(
-      Path activeFile, int maxFiles, String cursor, Duration pollInterval, OutputStream out)
+      Path activeFile,
+      int maxFiles,
+      String cursor,
+      Duration pollInterval,
+      OutputStream out,
+      LogFilter filter)
       throws IOException {
     String lastCursor = cursor == null ? latestCursor(activeFile, maxFiles) : cursor;
     while (true) {
-      List<Map<String, Object>> lines = readAfter(activeFile, maxFiles, lastCursor);
+      List<Map<String, Object>> lines = readAfter(activeFile, maxFiles, lastCursor, LogFilter.NONE);
+      boolean wrote = false;
       for (Map<String, Object> line : lines) {
-        out.write((Json.write(line) + "\n").getBytes(StandardCharsets.UTF_8));
+        if (filter.matches(line)) {
+          out.write((Json.write(line) + "\n").getBytes(StandardCharsets.UTF_8));
+          wrote = true;
+        }
         lastCursor = (String) line.get("timestamp");
       }
-      if (!lines.isEmpty()) {
+      if (wrote) {
         out.flush();
       }
       try {

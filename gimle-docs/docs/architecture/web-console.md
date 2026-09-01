@@ -52,7 +52,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Artifacts | Module jars pushed to the [Andvari](./node-topology.md#andvari) artifact registry — push/list/copy-checksum/delete against the real `/artifacts/*` proxy, the UI equivalent of `gimle artifact push/list/get/delete`. |
 | Access Control | `Role`/`RoleBinding`/`Account` management (tabs, below) — the UI equivalent of `gimle get/set/delete role/rolebinding/accounts`. |
 | Audit | Filterable audit trail (principal, resource kind, verb, tenant, allow/deny), below. |
-| Logs | Live log tailing and crash-dump listing, below. |
+| Logs | Live log tailing, level/text filtering, and crash-dump listing, below. |
 | Control plane | Scheduler, quota enforcer, and heartbeat-worker status at a glance, plus a link into the control plane's own log. In its own sidebar group since it reports on the control plane process itself rather than on a workload. |
 
 ## Metrics history, traces, and audit trail
@@ -126,13 +126,27 @@ polling a static file. The same data is available from the CLI
 proof that one backend mechanism serves both consumers identically, not two independent
 implementations that happen to agree.
 
+The screen also carries a content filter, so hunting one line in a high-volume log doesn't mean
+paging through raw NDJSON by hand. A level dropdown applies a **threshold** (`WARN` keeps `WARN` and
+`ERROR`; a raw, unstructured SYSTEM capture carrying no level at all is never kept by one), and a
+text box applies a plain, **case-insensitive substring** — never a regular expression — over a
+line's human-readable fields (`message`, `logger`, `stackTrace`, `raw`), not machine identifiers
+like `nodeId` or `thread`. Both are applied server-side, travelling as `level`/`contains` query
+parameters on the same `/logs/*` routes, so a filtered view never ships the whole stream to the
+browser just to discard most of it; both survive the "follow" toggle; and both live in the URL, so
+a filtered view is bookmarkable and shareable. A query that legitimately matches nothing says so
+and names what it filtered on, rather than showing an empty panel indistinguishable from a broken
+request. `gimle logs --level/--contains` are the identical filters over the identical parameters.
+
 For a crashed instance, the Logs screen also lists any `hs_err_pid*.log` JVM crash dumps it left
 behind — the kind of file you'd otherwise have to know to go find on disk by hand.
 
 A gone node or instance's logs are still served transparently: `ApiServer`'s `/logs/*` proxy falls
 back to Muninn's own shipped history (see [Node topology](./node-topology.md#muninn)) whenever a
 live agent genuinely can't be reached, so the Logs screen keeps working with no console-side code
-change — the fallback is invisible from this screen's own point of view.
+change — the fallback is invisible from this screen's own point of view. The content filter is
+invisible across it too: `level`/`contains` are relayed to Muninn unchanged and re-applied there, so
+the same filtered query returns the same lines whether or not the owning node is still alive.
 
 ## Login
 

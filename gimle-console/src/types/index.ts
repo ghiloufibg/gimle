@@ -429,6 +429,16 @@ export interface RawLogLine {
 
 export type LogLine = StructuredLogLine | RawLogLine;
 
+/**
+ * The server-side content filter every /logs/* route accepts, alongside its timestamp cursor.
+ * `minLevel` is a threshold (WARN means WARN and above), `contains` a plain case-insensitive
+ * substring (never a regex); `null` on either means "no constraint".
+ */
+export interface LogFilter {
+  minLevel: LogLevel | null;
+  contains: string | null;
+}
+
 export type LogTarget =
   | {
       kind: "instance";

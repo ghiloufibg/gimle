@@ -1,4 +1,5 @@
-import type { CrashDump, LogLine, LogTarget, Page } from "@/types";
+import type { CrashDump, LogFilter, LogLine, LogTarget, Page } from "@/types";
+import { applyLogFilterParams } from "@/lib/log-filter";
 import type { LogsRepository } from "../logs";
 import { ApiError } from "./apiClient";
 
@@ -36,22 +37,25 @@ interface RawLogPage {
 export class HttpLogsRepository implements LogsRepository {
   async fetchPage({
     target,
+    filter,
     cursor,
     pageSize,
   }: {
     target: LogTarget;
+    filter: LogFilter;
     cursor: string | null;
     pageSize: number;
   }): Promise<Page<LogLine>> {
     const params = new URLSearchParams({ category: target.category, limit: String(pageSize) });
     if (cursor !== null) params.set("cursor", cursor);
+    applyLogFilterParams(params, filter);
     const res = await fetch(`${pathFor(target)}?${params.toString()}`);
     if (!res.ok) throw new ApiError(res.status, await res.text());
     const body = (await res.json()) as RawLogPage;
     return { items: body.lines, nextCursor: body.olderCursor };
   }
 
-  openFollow(target: LogTarget, onLine: (line: LogLine) => void): () => void {
+  openFollow(target: LogTarget, filter: LogFilter, onLine: (line: LogLine) => void): () => void {
     let stopped = false;
     let cursor: string | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -61,6 +65,7 @@ export class HttpLogsRepository implements LogsRepository {
       try {
         const params = new URLSearchParams({ category: target.category, limit: "200" });
         if (cursor !== null) params.set("since", cursor);
+        applyLogFilterParams(params, filter);
         const res = await fetch(`${pathFor(target)}?${params.toString()}`);
         if (res.ok) {
           const body = (await res.json()) as RawLogPage;
@@ -79,8 +84,10 @@ export class HttpLogsRepository implements LogsRepository {
 
     // Seed the cursor at "now" (the newest line already on disk) so the first poll only ever
     // emits genuinely new lines, matching follow=true's "stream starting from now" semantics --
-    // one throwaway fetchPage call, not a second code path.
-    this.fetchPage({ target, cursor: null, pageSize: 1 })
+    // one throwaway fetchPage call, not a second code path. Seeded through the same filter, so
+    // the cursor lands on the newest line this session would itself have emitted rather than on
+    // one the filter suppresses.
+    this.fetchPage({ target, filter, cursor: null, pageSize: 1 })
       .then((page) => {
         if (page.items.length > 0) {
           cursor = (page.items[page.items.length - 1] as { timestamp?: string }).timestamp ?? null;

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import type { CrashDump, LogCategory, LogLine, LogTarget } from "@/types";
+import type { CrashDump, LogCategory, LogFilter, LogLevel, LogLine, LogTarget } from "@/types";
 import { useLogStore } from "@/stores/useLogStore";
 import { logsRepo } from "@/repositories";
 import { PageContainer, PageHeader } from "@/components/page-shell";
@@ -10,6 +10,17 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Play, Pause, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fmtBytes, fmtRelativeTime } from "@/lib/format";
+import { describeLogFilter, isLogFilterActive, LOG_LEVELS, toLogFilter } from "@/lib/log-filter";
+import { Input } from "@/components/ui/input";
+
+// The content filter lives in the URL, so a filtered view is bookmarkable and shareable the same
+// way the target and category already are. Both parts are optional and validated leniently: an
+// unknown level in a hand-edited URL degrades to "no level constraint" rather than throwing the
+// whole route into the error boundary.
+const filterSearch = {
+  level: z.enum(["TRACE", "DEBUG", "INFO", "WARN", "ERROR"]).optional().catch(undefined),
+  contains: z.string().optional().catch(undefined),
+};
 
 // Exported for logs.test.ts -- pure Zod/branching logic, no rendering involved, so it's testable
 // under this project's node-environment vitest config without needing component-rendering infra.
@@ -19,15 +30,18 @@ export const searchSchema = z.union([
     deploymentName: z.string(),
     instanceIndex: z.coerce.number().int(),
     category: z.enum(["APPLICATION", "PLATFORM"]).default("APPLICATION"),
+    ...filterSearch,
   }),
   z.object({
     kind: z.literal("node"),
     nodeId: z.string(),
     category: z.enum(["PLATFORM", "SYSTEM"]).default("PLATFORM"),
+    ...filterSearch,
   }),
   z.object({
     kind: z.literal("controlplane"),
     category: z.enum(["PLATFORM", "SYSTEM"]).default("PLATFORM"),
+    ...filterSearch,
   }),
 ]);
 
@@ -58,6 +72,29 @@ const LEVEL_STYLE: Record<string, string> = {
   TRACE: "text-muted-foreground/70",
 };
 
+type LogsSearch = z.infer<typeof searchSchema>;
+
+/**
+ * Splits one flat search object into the two things the repositories take separately: the target
+ * (what stream to read) and the filter (what to keep from it). Exported for the route's own tests
+ * -- pure, no rendering involved.
+ */
+export function targetOf(search: LogsSearch): LogTarget {
+  const { level: _level, contains: _contains, ...target } = search;
+  return target as LogTarget;
+}
+
+export function filterOf(search: LogsSearch): LogFilter {
+  return toLogFilter(search.level ?? null, search.contains ?? null);
+}
+
+/** The empty-state line shown when a query legitimately matched nothing, rather than silence. */
+export function emptyStateMessage(filter: LogFilter): string {
+  return isLogFilterActive(filter)
+    ? `No log lines matched ${describeLogFilter(filter)}.`
+    : "No log lines yet.";
+}
+
 function targetTitle(t: LogTarget): string {
   if (t.kind === "instance") return `${t.deploymentName} #${t.instanceIndex}`;
   if (t.kind === "node") return t.nodeId;
@@ -74,10 +111,22 @@ export function validCategories(kind: LogTarget["kind"]): LogCategory[] {
 
 function LogsPage() {
   const search = Route.useSearch();
-  const target = search as LogTarget;
-  const store = useLogStore(target);
+  const navigate = Route.useNavigate();
+  const target = targetOf(search);
+  const filter = filterOf(search);
+  const store = useLogStore(target, filter);
   const state = store();
   const { lines, loading, following, error } = state;
+
+  const [containsDraft, setContainsDraft] = useState(search.contains ?? "");
+  useEffect(() => {
+    setContainsDraft(search.contains ?? "");
+  }, [search.contains]);
+  function applyContains() {
+    const next = containsDraft.trim() === "" ? undefined : containsDraft;
+    if (next === search.contains) return;
+    navigate({ search: (prev) => ({ ...prev, contains: next }) });
+  }
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
@@ -92,6 +141,8 @@ function LogsPage() {
     target.kind === "instance" ? target.deploymentName : undefined,
     target.kind === "node" ? target.nodeId : undefined,
     target.category,
+    search.level,
+    search.contains,
   ]);
 
   useEffect(() => {
@@ -208,6 +259,8 @@ function LogsPage() {
                     deploymentName: target.deploymentName,
                     instanceIndex: target.instanceIndex,
                     category: c as "APPLICATION" | "PLATFORM",
+                    level: search.level,
+                    contains: search.contains,
                   },
                 }
               : target.kind === "node"
@@ -217,6 +270,8 @@ function LogsPage() {
                       kind: "node" as const,
                       nodeId: target.nodeId,
                       category: c as "PLATFORM" | "SYSTEM",
+                      level: search.level,
+                      contains: search.contains,
                     },
                   }
                 : {
@@ -224,6 +279,8 @@ function LogsPage() {
                     search: {
                       kind: "controlplane" as const,
                       category: c as "PLATFORM" | "SYSTEM",
+                      level: search.level,
+                      contains: search.contains,
                     },
                   };
           const active = target.category === c;
@@ -242,6 +299,54 @@ function LogsPage() {
             </Link>
           );
         })}
+      </div>
+
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
+          Level
+          <select
+            value={search.level ?? ""}
+            onChange={(e) =>
+              navigate({
+                search: (prev) => ({
+                  ...prev,
+                  level: e.target.value === "" ? undefined : (e.target.value as LogLevel),
+                }),
+              })
+            }
+            className="h-7 rounded border border-border bg-background px-2 font-mono text-[11px]"
+          >
+            <option value="">all</option>
+            {LOG_LEVELS.map((level) => (
+              <option key={level} value={level}>
+                {level}+
+              </option>
+            ))}
+          </select>
+        </label>
+        <Input
+          value={containsDraft}
+          onChange={(e) => setContainsDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") applyContains();
+          }}
+          onBlur={applyContains}
+          placeholder="contains… (plain text, not a regex)"
+          className="h-7 max-w-xs font-mono text-[11px]"
+        />
+        {isLogFilterActive(filter) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-[11px]"
+            onClick={() => {
+              setContainsDraft("");
+              navigate({ search: (prev) => ({ ...prev, level: undefined, contains: undefined }) });
+            }}
+          >
+            Clear filter
+          </Button>
+        )}
       </div>
 
       <div className="relative rounded border border-border bg-card">
@@ -275,7 +380,7 @@ function LogsPage() {
             <LogRow key={i} line={line} />
           ))}
           {lines.length === 0 && !loading && !error && (
-            <div className="p-6 text-center text-muted-foreground">No log lines yet.</div>
+            <div className="p-6 text-center text-muted-foreground">{emptyStateMessage(filter)}</div>
           )}
         </div>
         {!stickToBottom && newLineCount > 0 && (

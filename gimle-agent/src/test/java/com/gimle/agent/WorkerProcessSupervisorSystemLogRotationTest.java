@@ -3,6 +3,7 @@ package com.gimle.agent;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.LogFileReader;
+import com.gimle.core.logging.LogFilter;
 import com.gimle.core.restart.RestartTracker;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -84,7 +85,8 @@ class WorkerProcessSupervisorSystemLogRotationTest {
       // Content survives the rotation, readable through the ordinary rotated-file-aware reader --
       // not silently discarded by the rename.
       List<?> rotatedLines =
-          LogFileReader.readOlder(logFile, LogFileReader.configuredMaxFiles(), null, 10_000)
+          LogFileReader.readOlder(
+                  logFile, LogFileReader.configuredMaxFiles(), null, 10_000, LogFilter.NONE)
               .lines();
       assertTrue(!rotatedLines.isEmpty(), "expected captured lines to survive rotation");
     }
