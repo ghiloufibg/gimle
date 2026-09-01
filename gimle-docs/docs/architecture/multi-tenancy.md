@@ -276,7 +276,14 @@ the node agent's own direct fetch path, in that order (source: `diagrams/secrets
   local development only), the key is still written but the restriction is skipped with a logged
   warning rather than a hard failure. `POST /secrets/rotate-key` generates a new active key and
   re-encrypts every existing secret under it; old keys are kept, never deleted, so any entry the
-  rotation walk hasn't reached yet still decrypts correctly under its original key.
+  rotation walk hasn't reached yet still decrypts correctly under its original key. `POST
+  /secrets/retire-key` is the sharper operation: it deletes that id's key file outright, so any
+  value still encrypted under it — one rotation alone never re-encrypts an entry the walk missed —
+  becomes permanently unrecoverable. The console's **Secrets** screen exposes both, gated exactly
+  the way the Seal Keys screen gates the asymmetric ring (below): rotation is one button, while
+  retirement refuses locally every id Fafnir would refuse anyway and then requires the key id typed
+  out a second time in a confirmation dialog. Two equally irreversible operations behave
+  identically rather than each screen inventing its own weighting.
 - **Versioning** — every write claims a new, immutable version rather than overwriting the last one
   (`gimle secret set`/`GET .../versions`); `gimle secret get` defaults to the latest version,
   `--version N` reads a specific historical one. `gimle secret delete` soft-deletes by default

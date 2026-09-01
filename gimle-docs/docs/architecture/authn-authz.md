@@ -128,6 +128,18 @@ Any authenticated caller may ask about itself (and only itself — there is no p
 it is never audited (a hypothetical is a read-shaped question), and in plaintext mode it honestly
 answers `true` for everything, since nothing is actually gated in that mode.
 
+**`GET /authz/vocabulary`** serves the permission vocabulary itself: every `ResourceKind` and every
+`Verb` this build enforces, in the enums' own declaration order. It exists so a permission editor
+offers exactly the kinds the `Authorizer` on the other end accepts, instead of carrying its own
+hand-maintained copy that falls behind the moment the platform grows a kind — which is what left
+several resource kinds grantable only from the CLI. Read-only, and gated exactly like its
+`/authz/can-i` neighbour: under mTLS a caller must authenticate, but no permission is required
+beyond that and nothing is audited. There is nothing here to withhold — the answer is a
+compile-time constant of the build, identical for every principal, carrying no cluster state and no
+hint of who may do what; gating it would only break the picker for the very operator being asked to
+choose from it. The console's Roles editor reads it on mount and falls back to its own bundled copy
+of the enum if the call fails, so the screen stays usable either way.
+
 **Workload identity** is the ServiceAccount analogue: each node's agent mints a short-lived token
 per assigned, tenanted deployment (`POST /workload-tokens` — under mTLS a `gimle:nodes` principal
 may mint only for its own node and only for a deployment the store currently assigns there; an

@@ -617,6 +617,12 @@ export interface DisruptionBudget {
  * RBAC (Access Control): roles, role bindings, accounts
  * ------------------------------------------------------------------------ */
 
+/**
+ * Mirrors `com.gimle.core.authz.ResourceKind`, in that enum's own declaration order. This copy is
+ * only the offline fallback and the compile-time type: the Roles permission picker fills itself
+ * from `GET /authz/vocabulary`, which serves the running control plane's own enum, so a kind added
+ * server-side is grantable here whether or not this list has caught up.
+ */
 export type ResourceKind =
   | "DEPLOYMENT"
   | "JOB"
@@ -635,7 +641,15 @@ export type ResourceKind =
   | "AUDIT"
   | "ARTIFACT"
   | "SERVICE"
-  | "NETWORK_POLICY";
+  | "NETWORK_POLICY"
+  | "CONFIGMAP"
+  | "SECRETMAP"
+  | "LIMIT_RANGE"
+  | "FAULT"
+  | "KIND_DEFINITION"
+  | "CUSTOM_RESOURCE"
+  | "BACKUP"
+  | "ALERT_RULE";
 
 export type Verb = "READ" | "WRITE" | "DELETE" | "APPROVE";
 
@@ -662,6 +676,7 @@ export interface Account {
   groups: string[];
 }
 
+/** Offline fallback for the permission picker when `GET /authz/vocabulary` cannot be reached. */
 export const RESOURCE_KINDS: ResourceKind[] = [
   "DEPLOYMENT",
   "JOB",
@@ -681,6 +696,14 @@ export const RESOURCE_KINDS: ResourceKind[] = [
   "ARTIFACT",
   "SERVICE",
   "NETWORK_POLICY",
+  "CONFIGMAP",
+  "SECRETMAP",
+  "LIMIT_RANGE",
+  "FAULT",
+  "KIND_DEFINITION",
+  "CUSTOM_RESOURCE",
+  "BACKUP",
+  "ALERT_RULE",
 ];
 
 export const VERBS: Verb[] = ["READ", "WRITE", "DELETE", "APPROVE"];

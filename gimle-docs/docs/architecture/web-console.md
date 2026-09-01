@@ -40,7 +40,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | DaemonSets | List/create/inspect [`kind: DaemonSet`](../reference/manifest-schema.md#daemonset-manifest) per-node workloads, surfacing `placement.requiredLabels` as a first-class column since it's the primary way an operator scopes which nodes run one, plus the same revision-history/rollback panel Deployments has. |
 | StatefulSets | List/create/inspect [`kind: StatefulSet`](../reference/manifest-schema.md#statefulset-manifest) workloads, including each index's sticky `nodeId` assignment, plus the same revision-history/rollback panel Deployments has. |
 | Volumes | Every StatefulSet persistent volume across every node — owning set, instance index, volume name, tenant, node, on-disk size, host path, and whether the store still attaches it and its agent still reports it held. Retained orphans carry a destroy action behind a confirmation naming the exact set/index/node about to be erased; a volume still attached or still in use offers none. A node whose agent didn't answer is called out in a warning strip, since a listing that silently omits one node's volumes is the wrong thing to trust on a reclamation screen. The UI equivalent of `gimle volume list/destroy`, with the tenant carried explicitly on destroy. |
-| Instances | Per-instance detail: lifecycle state, health, resource usage, plus that instance's own lifecycle-event timeline — the "why did this instance restart" panel, below. |
+| Instances | Per-instance detail: lifecycle state, health, resource usage, plus that instance's own lifecycle-event timeline — the "why did this instance restart" panel, below. The same paginated instance table backs the Nodes screen and every workload detail page, below. |
 | Custom Resources | Instances of cluster-defined [custom kinds](./custom-kinds.md): a kind picker fed by `/kinddefinitions`, an instance table honoring each definition's own `printColumns`, and a detail pane showing spec and status side by side with the generation/observedGeneration pair made visible — the at-a-glance "has the operator caught up" signal. Deliberately read-only; authoring stays in the CLI. |
 | Nodes | Registered node agents and their reported capacity, plus cordon/uncordon and per-tenant taint/untaint controls on the detail page — the UI equivalent of `gimle get nodes` and `gimle cordon/uncordon/taint/untaint`. Cordoning/tainting only ever affects future scheduling; neither evicts an already-running instance. |
 | Networking | Two tabs: [Services](./service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment) (the ClusterIP analogue — create/inspect/delete, plus each row's live backing endpoints) and NetworkPolicies (which other tenants may call a tenant's own Services) — the UI equivalent of `gimle get/set/delete service` and `gimle get/set/delete networkpolicy`. |
@@ -51,7 +51,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | LimitRanges | Per-tenant [LimitRange](./multi-tenancy.md#limitrange) management — list every tenant that has one, create/edit its four optional `minRequest`/`maxRequest`/`minLimit`/`maxLimit` bounds, delete it. The UI equivalent of `gimle get/set/delete limitrange`. Each bound is a memory + cpu pair, and a bound left blank is written as absent (unbounded) rather than as zero — the same absent-means-unbounded rule the API itself uses. |
 | Config | Tenant-scoped, plain (non-secret) config entries — see [Multi-tenancy](./multi-tenancy.md#tenant-scoped-config). |
 | ConfigMaps | Tenant-scoped grouped config objects with version history and rollback — the UI equivalent of `gimle get/set/delete configmap` and `gimle configmap versions/rollback`. |
-| Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker showing each version's author and write time, a declared-type selector on write (`opaque`/`pem-certificate`/`pem-private-key`), soft/hard delete, master-key rotation. See [Multi-tenancy](./multi-tenancy.md#secrets). |
+| Secrets | Versioned, per-tenant secrets served by Fafnir — mask/reveal, a version picker showing each version's author and write time, a declared-type selector on write (`opaque`/`pem-certificate`/`pem-private-key`), soft/hard delete, master-key rotation, and master-key retirement behind the same typed-key-id confirmation the Seal Keys screen uses. See [Multi-tenancy](./multi-tenancy.md#secrets). |
 | SecretMaps | Grouped, sealed secret objects — batch set/replace/rollback and seal-envelope handling, the UI equivalent of `gimle secretmap`. |
 | Seal Keys | Fafnir's asymmetric sealing key pair — the active key id, its algorithm, and the base64 X.509 SubjectPublicKeyInfo public key with a copy action, plus rotation and retirement. The UI equivalent of `gimle seal public-key/rotate-key/retire-key`. See [Multi-tenancy](./multi-tenancy.md#the-sealing-key-lifecycle-in-the-console). |
 | Artifacts | Module jars pushed to the [Andvari](./node-topology.md#andvari) artifact registry — push/list/copy-checksum/delete against the real `/artifacts/*` proxy, the UI equivalent of `gimle artifact push/list/get/delete`. |
@@ -164,8 +164,11 @@ before the UI did:
   either a verified mTLS client certificate or a verified console session cookie — plaintext mode
   has neither.
 - **Access Control** (`GET/PUT/DELETE /roles/*`, `/rolebindings/*`, `/accounts/*`): three tabs —
-  Roles (a repeatable permission-row editor: resource kind, verb, optional tenant scope), Role
-  Bindings (a user/group subject toggle plus a role picker sourced from the Roles tab's own store),
+  Roles (a repeatable permission-row editor: resource kind, verb, optional tenant scope — both
+  pickers filled from [`GET /authz/vocabulary`](./authn-authz.md), the control plane's own live
+  `ResourceKind`/`Verb` enums, so a kind the platform has grown is grantable here without waiting
+  for the console to be rebuilt; a bundled copy of the enum is the offline fallback if that call
+  fails), Role Bindings (a user/group subject toggle plus a role picker sourced from the Roles tab's own store),
   and Accounts (username plus a create-or-reset password form — the API never returns password
   material, so the list view never shows one). `RoleBinding`'s `id` is caller-chosen; the create
   form defaults it to a slug of the subject and role rather than asking the operator to invent one.
@@ -184,6 +187,19 @@ same template: an optional, collapsible `maxUnavailable`/`maxSurge` sub-form on 
 and a read-only panel on the detail screen when a deployment has one. Unlike `autoscale:`,
 `disruption:` had *never* been on the wire at all before this — `ApiServer.deploymentStatus` gained
 its first `disruption` key here, not merely a later addition to an existing one.
+
+## The shared instance table
+
+Deployment, DaemonSet and StatefulSet detail pages all render their instance list through the same
+paginated table the Instances and Nodes screens use, rather than each hand-rolling its own. That
+matters most exactly where a hand-rolled one stops working: a Deployment autoscaled to hundreds of
+replicas is a page an operator opens *because* something is wrong with it, and one unbounded table
+of every replica is the wrong thing to hand them at that moment. The table shows a page of rows at
+a time with a "Load more" action, its per-column filters hidden on a detail page (the workload
+already scopes the list), and its two per-row links follow whichever workload kind owns the row:
+the name links to that kind's own detail page, and the row action opens the Deployment instance's
+own detail page or, for the other two kinds — which have no per-instance page — that instance's
+logs directly.
 
 ## Instance lifecycle events
 

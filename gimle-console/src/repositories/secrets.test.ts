@@ -97,4 +97,19 @@ describe("MockSecretsRepository", () => {
   it("fetchVersions for an unknown key rejects rather than returning an empty list", async () => {
     await expect(repo.fetchVersions(tenantA.id, "no-such-key")).rejects.toThrow("no such secret");
   });
+
+  it("retireKey refuses the base key, the active key, and an out-of-range id", async () => {
+    const active = await repo.rotateKey();
+    await expect(repo.retireKey(0)).rejects.toThrow("base secrets key");
+    await expect(repo.retireKey(active)).rejects.toThrow("active secrets key");
+    await expect(repo.retireKey(256)).rejects.toThrow("between 0 and 255");
+  });
+
+  it("retireKey destroys the id outright, so retiring it twice is an unknown id", async () => {
+    const active = await repo.rotateKey();
+    const target = active - 1;
+
+    expect(await repo.retireKey(target)).toBe(target);
+    await expect(repo.retireKey(target)).rejects.toThrow(`no secrets key with id ${target}`);
+  });
 });

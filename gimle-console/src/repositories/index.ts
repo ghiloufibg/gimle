@@ -28,6 +28,7 @@ import { HttpVolumesRepository } from "./http/volumes";
 import { HttpSealRepository } from "./http/seal";
 import { HttpEventsRepository } from "./http/events";
 import { HttpMetricsRepository } from "./http/metrics";
+import { HttpAuthzVocabularyRepository } from "./http/authzVocabulary";
 
 export const deploymentsRepo = new HttpDeploymentsRepository();
 export const jobsRepo = new HttpJobsRepository();
@@ -58,3 +59,4 @@ export const volumesRepo = new HttpVolumesRepository();
 export const sealRepo = new HttpSealRepository();
 export const eventsRepo = new HttpEventsRepository();
 export const metricsRepo = new HttpMetricsRepository();
+export const authzVocabularyRepo = new HttpAuthzVocabularyRepository();

@@ -17,65 +17,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useSealStore } from "@/stores/useSealStore";
 import { cn } from "@/lib/utils";
+import { checkRetireTarget, retirementConfirmed } from "./-seal";
 import { Copy, KeyRound, RefreshCw, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { notifyApiError } from "@/lib/api-error";
 
 const DESCRIPTION =
   "Fafnir's asymmetric sealing key: fetch the public key, rotate it, retire an old one.";
-
-/** The lowest sealing key id, always regenerated if absent, so retiring it is refused outright. */
-const BASE_SEALING_KEY_ID = 0;
-
-/** Sealing key ids travel the wire as a single unsigned byte. */
-const MAX_SEALING_KEY_ID = 255;
-
-export interface RetireTargetCheck {
-  /** The id to send, or null when `error` explains why nothing may be sent. */
-  keyId: number | null;
-  error: string | null;
-}
-
-/**
- * Mirrors every rejection Fafnir's own retire path makes, so a hopeless id is refused here with a
- * specific reason rather than round-tripping to a bare 400. The active-key rule is the one that
- * needs the currently-loaded key: it cannot be checked at all before the public key has loaded, so
- * an unknown active id deliberately lets the id through for the server to rule on.
- */
-export function checkRetireTarget(raw: string, activeKeyId: number | null): RetireTargetCheck {
-  const trimmed = raw.trim();
-  if (trimmed === "") {
-    return { keyId: null, error: "Enter the id of the sealing key to retire." };
-  }
-  if (!/^\d+$/.test(trimmed)) {
-    return { keyId: null, error: "A sealing key id is a whole number." };
-  }
-  const keyId = Number(trimmed);
-  if (keyId > MAX_SEALING_KEY_ID) {
-    return { keyId: null, error: `A sealing key id is between 0 and ${MAX_SEALING_KEY_ID}.` };
-  }
-  if (keyId === BASE_SEALING_KEY_ID) {
-    return {
-      keyId: null,
-      error: "Key 0 is the base sealing key and can never be retired — it would regenerate.",
-    };
-  }
-  if (activeKeyId !== null && keyId === activeKeyId) {
-    return {
-      keyId: null,
-      error: `Key ${keyId} is the active sealing key. Rotate first, then retire it.`,
-    };
-  }
-  return { keyId, error: null };
-}
-
-/**
- * The typed-confirmation gate on retirement: an operator has to write the id out again, so the
- * destructive action can never ride on one mis-aimed click the way rotation safely can.
- */
-export function retirementConfirmed(typed: string, keyId: number): boolean {
-  return typed.trim() === String(keyId);
-}
 
 export const Route = createFileRoute("/seal")({
   head: () => ({

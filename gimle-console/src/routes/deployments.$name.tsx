@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { useDeploymentsStore } from "@/stores/useDeploymentsStore";
 import { PageContainer, PageHeader, Panel } from "@/components/page-shell";
 import { RevisionHistoryPanel } from "@/components/revision-history";
-import { LifecycleBadge, StatusBadge, StatusDot } from "@/components/status";
+import { StatusBadge } from "@/components/status";
+import { InstancesTable } from "@/components/instances-table";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -16,9 +17,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { fmtBytes, fmtMillicores } from "@/lib/format";
-import { Trash2, FileText, Activity } from "lucide-react";
-import { joinWorkerProcessId } from "@/components/process-picker";
+import {
+  WORKLOAD_INSTANCE_PAGE,
+  deploymentInstanceRows,
+  instanceWindow,
+} from "@/lib/workload-instances";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { AutoscalePolicy, DisruptionBudget } from "@/types";
 
@@ -45,6 +49,7 @@ function DeploymentDetail() {
   const rollback = useDeploymentsStore((s) => s.rollback);
   const [deleting, setDeleting] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [visibleInstances, setVisibleInstances] = useState(WORKLOAD_INSTANCE_PAGE);
 
   useEffect(() => {
     getOrFetch(name).catch(() => setNotFound(true));
@@ -89,6 +94,8 @@ function DeploymentDetail() {
     if (err) toast.error(err);
     else toast.success(`Rolled back to revision ${revision}`);
   }
+
+  const { visible: rows, hasMore } = instanceWindow(deploymentInstanceRows(d), visibleInstances);
 
   return (
     <PageContainer>
@@ -167,109 +174,15 @@ function DeploymentDetail() {
         </div>
         {d.unplacedCount > 0 && <StatusBadge variant="bad">{d.unplacedCount} unplaced</StatusBadge>}
       </div>
-      <div className="overflow-x-auto rounded border border-border bg-card">
-        <table className="w-full text-xs">
-          <thead className="bg-muted/50 text-muted-foreground">
-            <tr className="text-left">
-              <th className="px-2 py-1.5 font-medium">Idx</th>
-              <th className="px-2 py-1.5 font-medium">Node</th>
-              <th className="px-2 py-1.5 font-medium">Worker</th>
-              <th className="px-2 py-1.5 font-medium">Lifecycle</th>
-              <th className="px-2 py-1.5 font-medium">A/R</th>
-              <th className="px-2 py-1.5 font-medium text-right">req/s</th>
-              <th className="px-2 py-1.5 font-medium text-right">queue</th>
-              <th className="px-2 py-1.5 font-medium text-right">cpu</th>
-              <th className="px-2 py-1.5 font-medium text-right">mem</th>
-              <th className="px-2 py-1.5 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {d.instances.map((i) => (
-              <tr key={i.instanceIndex} className="border-t border-border hover:bg-muted/30">
-                <td className="px-2 py-1.5 font-mono">
-                  <Link
-                    to="/instances/$name/$idx"
-                    params={{ name: d.spec.name, idx: String(i.instanceIndex) }}
-                    className="text-primary hover:underline"
-                  >
-                    {i.instanceIndex}
-                  </Link>
-                </td>
-                <td className="px-2 py-1.5 font-mono">
-                  <Link
-                    to="/nodes/$nodeId"
-                    params={{ nodeId: i.nodeId }}
-                    className="text-primary hover:underline"
-                  >
-                    {i.nodeId}
-                  </Link>
-                </td>
-                <td className="px-2 py-1.5 font-mono text-muted-foreground">
-                  {i.observation.workerId ?? "—"}
-                </td>
-                <td className="px-2 py-1.5">
-                  <LifecycleBadge state={i.observation.lifecycleState} />
-                </td>
-                <td className="px-2 py-1.5">
-                  <div className="flex items-center gap-1">
-                    <StatusDot variant={i.observation.alive ? "ok" : "bad"} />
-                    <StatusDot
-                      variant={i.observation.ready ? "ok" : i.observation.alive ? "warn" : "bad"}
-                    />
-                  </div>
-                </td>
-                <td className="px-2 py-1.5 font-mono text-right">
-                  {i.observation.requestRatePerSecond.toFixed(1)}
-                </td>
-                <td className="px-2 py-1.5 font-mono text-right">{i.observation.queueDepth}</td>
-                <td className="px-2 py-1.5 font-mono text-right">
-                  {fmtMillicores(i.observation.cpuMillicoresUsed)}
-                </td>
-                <td className="px-2 py-1.5 font-mono text-right">
-                  {fmtBytes(i.observation.memoryBytesUsed)}
-                </td>
-                <td className="px-2 py-1.5">
-                  <div className="flex items-center gap-2">
-                    <Link
-                      to="/logs"
-                      search={{
-                        kind: "instance",
-                        deploymentName: d.spec.name,
-                        instanceIndex: i.instanceIndex,
-                        category: "APPLICATION" as const,
-                      }}
-                      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                    >
-                      <FileText className="h-3 w-3" />
-                      logs
-                    </Link>
-                    {i.observation.workerId && (
-                      <Link
-                        to="/metrics"
-                        search={{
-                          processKind: "WORKER" as const,
-                          processId: joinWorkerProcessId(i.nodeId, i.observation.workerId),
-                        }}
-                        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                      >
-                        <Activity className="h-3 w-3" />
-                        metrics
-                      </Link>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {d.instances.length === 0 && (
-              <tr>
-                <td colSpan={10} className="px-4 py-6 text-center text-muted-foreground">
-                  No placed instances.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <InstancesTable
+        rows={rows}
+        filters={{}}
+        onFiltersChange={() => {}}
+        showFilters={false}
+        hasMore={hasMore}
+        loading={false}
+        onLoadMore={() => setVisibleInstances((n) => n + WORKLOAD_INSTANCE_PAGE)}
+      />
     </PageContainer>
   );
 }

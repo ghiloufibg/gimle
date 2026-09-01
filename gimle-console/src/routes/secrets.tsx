@@ -2,10 +2,20 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useSecretsStore } from "@/stores/useSecretsStore";
 import { useTenantsStore } from "@/stores/useTenantsStore";
-import { PageContainer, PageHeader } from "@/components/page-shell";
+import { PageContainer, PageHeader, Panel } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectContent,
@@ -14,7 +24,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status";
-import { Eye, EyeOff, RefreshCw, Skull, Trash2 } from "lucide-react";
+import { checkRetireTarget, retirementConfirmed } from "./-secrets";
+import { Eye, EyeOff, RefreshCw, ShieldAlert, Skull, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { SECRET_TYPES, type SecretType, type SecretVersion } from "@/types";
 
@@ -65,6 +76,8 @@ function SecretsPage() {
     upsert,
     remove,
     rotateKey,
+    retireKey,
+    activeKeyId,
   } = useSecretsStore();
   const [newEntry, setNewEntry] = useState<{ key: string; value: string; type: SecretType }>({
     key: "",
@@ -72,6 +85,13 @@ function SecretsPage() {
     type: "opaque",
   });
   const [pickedVersion, setPickedVersion] = useState<Record<string, number>>({});
+  const [retireInput, setRetireInput] = useState("");
+  const [confirmInput, setConfirmInput] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const retireTarget = checkRetireTarget(retireInput, activeKeyId);
+  const retireConfirmed =
+    retireTarget.keyId !== null && retirementConfirmed(confirmInput, retireTarget.keyId);
 
   useEffect(() => {
     if (tenants.length === 0) loadTenants();
@@ -148,8 +168,24 @@ function SecretsPage() {
 
   async function handleRotateKey() {
     try {
-      const activeKeyId = await rotateKey();
-      toast.success(`Master key rotated (active key id ${activeKeyId})`);
+      const rotatedTo = await rotateKey();
+      toast.success(`Master key rotated (active key id ${rotatedTo})`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  function openRetireConfirm() {
+    setConfirmInput("");
+    setConfirmOpen(true);
+  }
+
+  async function handleRetireKey() {
+    if (retireTarget.keyId === null) return;
+    try {
+      const retired = await retireKey(retireTarget.keyId);
+      setRetireInput("");
+      toast.success(`Master key ${retired} retired — anything still under it is unrecoverable`);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -350,6 +386,95 @@ function SecretsPage() {
           </div>
         </>
       )}
+
+      <Panel title="Retire a master key" className="mt-6 border-status-bad/40">
+        <div className="p-4">
+          <div className="mb-3 flex gap-2 rounded border border-status-bad/40 bg-status-bad-bg/40 p-3 text-xs text-status-bad">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              Retiring deletes that key from Fafnir's master ring for good. Every secret version in
+              every tenant still encrypted under it becomes permanently unreadable — by anyone,
+              including Fafnir. There is no undo and no recovery. Rotation alone is safe: it mints a
+              new active key and leaves earlier ones on the ring, so older versions still decrypt.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="grid gap-1">
+              <Label
+                htmlFor="retire-secrets-key-id"
+                className="text-[10px] uppercase tracking-wider text-muted-foreground"
+              >
+                Key id to retire
+              </Label>
+              <Input
+                id="retire-secrets-key-id"
+                className="h-8 w-32 font-mono text-xs"
+                value={retireInput}
+                onChange={(e) => setRetireInput(e.target.value)}
+                placeholder="e.g. 2"
+                inputMode="numeric"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={openRetireConfirm}
+              disabled={retireTarget.keyId === null}
+            >
+              Retire key…
+            </Button>
+            {retireInput.trim() !== "" && retireTarget.error && (
+              <p className="text-xs text-status-bad">{retireTarget.error}</p>
+            )}
+          </div>
+
+          <p className="mt-3 text-xs text-muted-foreground">
+            Fafnir publishes no listing of the ids still on the master ring, so the id to retire
+            comes from your own record of past rotations
+            {activeKeyId !== null && ` (this session rotated to key ${activeKeyId})`}.
+          </p>
+        </div>
+      </Panel>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Retire master key {retireTarget.keyId}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently destroys master key {retireTarget.keyId}. Any secret version still
+              encrypted under it can never be decrypted again, by anyone, in any tenant. This cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-1">
+            <Label
+              htmlFor="retire-secrets-confirm"
+              className="text-[10px] uppercase tracking-wider text-muted-foreground"
+            >
+              Type {retireTarget.keyId} to confirm
+            </Label>
+            <Input
+              id="retire-secrets-confirm"
+              className="h-8 w-32 font-mono text-xs"
+              value={confirmInput}
+              onChange={(e) => setConfirmInput(e.target.value)}
+              inputMode="numeric"
+              autoComplete="off"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRetireKey}
+              disabled={!retireConfirmed}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Retire permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageContainer>
   );
 }

@@ -14,6 +14,10 @@ interface State {
   // Fetched on demand, not present in the list response -- keyed by secret key.
   revealed: Record<string, SecretValue>;
   versions: Record<string, SecretVersion[]>;
+  // Fafnir publishes no listing of the master ring, so the only id this console ever learns for
+  // certain is the one a rotation it performed just returned. Null means "not known here", which
+  // the retire pre-flight treats as "let the server rule on it".
+  activeKeyId: number | null;
   setTenant(id: string | null): void;
   loadFirstPage(): Promise<void>;
   loadMore(): Promise<void>;
@@ -24,6 +28,7 @@ interface State {
   upsert(key: string, value: string, type?: SecretType): Promise<void>;
   remove(key: string, destroy: boolean): Promise<void>;
   rotateKey(): Promise<number>;
+  retireKey(keyId: number): Promise<number>;
 }
 
 export const useSecretsStore = create<State>((set, get) => ({
@@ -35,6 +40,7 @@ export const useSecretsStore = create<State>((set, get) => ({
   error: null,
   revealed: {},
   versions: {},
+  activeKeyId: null,
   setTenant(id) {
     set({
       tenantId: id,
@@ -129,7 +135,15 @@ export const useSecretsStore = create<State>((set, get) => ({
     });
   },
   async rotateKey() {
-    return secretsRepo.rotateKey();
+    const activeKeyId = await secretsRepo.rotateKey();
+    set({ activeKeyId });
+    return activeKeyId;
+  },
+  async retireKey(keyId) {
+    const retired = await secretsRepo.retireKey(keyId);
+    // Nothing cached here is keyed by master key id -- a revealed value was decrypted server-side
+    // before it ever reached this store -- so there is no per-key cache to drop.
+    return retired;
   },
 }));
 

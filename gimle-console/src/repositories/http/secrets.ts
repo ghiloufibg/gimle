@@ -96,6 +96,13 @@ export class HttpSecretsRepository implements SecretsRepository {
     );
     return raw.activeKeyId;
   }
+
+  async retireKey(keyId: number): Promise<number> {
+    const raw = await requestJsonWithBody<{ retiredKeyId: number }>("POST", "/secrets/retire-key", {
+      keyId,
+    });
+    return raw.retiredKeyId;
+  }
 }
 
 function encodeBase64(value: string): string {

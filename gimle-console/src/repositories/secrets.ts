@@ -19,17 +19,19 @@ export interface SecretsRepository {
   }): Promise<Page<SecretMetadata>>;
   fetchValue(tenantId: string, key: string, version?: number): Promise<SecretValue>;
   fetchVersions(tenantId: string, key: string): Promise<SecretVersion[]>;
-  upsert(
-    tenantId: string,
-    key: string,
-    value: string,
-    type?: SecretType,
-  ): Promise<SecretMetadata>;
+  upsert(tenantId: string, key: string, value: string, type?: SecretType): Promise<SecretMetadata>;
   remove(tenantId: string, key: string, destroy: boolean): Promise<void>;
   rotateKey(): Promise<number>;
+  /**
+   * Stops trusting a master key id outright, returning the id actually retired. Unlike {@link
+   * rotateKey}, this is permanently destructive: any ciphertext still encrypted under that id can
+   * never be decrypted again.
+   */
+  retireKey(keyId: number): Promise<number>;
 }
 
 let mockActiveKeyId = 1;
+const mockRetiredKeyIds = new Set<number>();
 
 export class MockSecretsRepository implements SecretsRepository {
   async fetchPage({
@@ -93,5 +95,24 @@ export class MockSecretsRepository implements SecretsRepository {
   async rotateKey(): Promise<number> {
     mockActiveKeyId += 1;
     return delay(mockActiveKeyId);
+  }
+
+  async retireKey(keyId: number): Promise<number> {
+    if (keyId < 0 || keyId > 255) {
+      throw new Error("'keyId' must be between 0 and 255");
+    }
+    if (keyId === 0) {
+      throw new Error("cannot retire the base secrets key");
+    }
+    if (keyId === mockActiveKeyId) {
+      throw new Error(`cannot retire the active secrets key ${keyId}`);
+    }
+    // Retirement deletes the key file, so a second attempt at the same id is an unknown id rather
+    // than a no-op -- the same answer Fafnir gives once that file is gone.
+    if (mockRetiredKeyIds.has(keyId)) {
+      throw new Error(`no secrets key with id ${keyId}`);
+    }
+    mockRetiredKeyIds.add(keyId);
+    return delay(keyId);
   }
 }
