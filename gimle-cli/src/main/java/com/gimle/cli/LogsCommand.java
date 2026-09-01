@@ -23,14 +23,23 @@ import java.util.Map;
  * <p>{@code --level}/{@code --contains} are applied by whichever log reader answers, never here: an
  * operator hunting one ERROR line in a high-volume log gets only the matching lines over the wire,
  * not the whole stream to grep locally.
+ *
+ * <p>Under {@code -o json} the structured line objects the reader already sends are emitted as they
+ * are, never a re-serialization of the human one-line rendering: a JSON consumer gets the
+ * timestamp, level, logger, message, and stack trace as separate fields. A single request prints
+ * one JSON array (an empty one when nothing matched, so a zero-match query is still valid JSON to
+ * pipe onward); {@code --follow} prints one JSON object per line as it arrives, since a stream that
+ * never ends has no closing bracket to print.
  */
 public final class LogsCommand {
 
   private final ControlPlaneClient client;
+  private final OutputFormat.Kind output;
   private final PrintStream out;
 
-  public LogsCommand(ControlPlaneClient client, PrintStream out) {
+  public LogsCommand(ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
     this.client = client;
+    this.output = output;
     this.out = out;
   }
 
@@ -90,9 +99,13 @@ public final class LogsCommand {
     }
     appendFilter(query, filter);
     Map<String, Object> body = client.getObject(path + query);
-    List<Object> lines = Json.asArray(body.get("lines"));
-    for (Object rawLine : lines) {
-      out.println(formatLine(Json.asObject(rawLine)));
+    List<Map<String, Object>> lines = Json.asObjectList(body.get("lines"));
+    if (output == OutputFormat.Kind.JSON) {
+      OutputFormat.printList(output, lines, out);
+      return;
+    }
+    for (Map<String, Object> line : lines) {
+      out.println(formatLine(line));
     }
     if (lines.isEmpty()) {
       // Silence would be indistinguishable from a broken query -- say so, and say what was
@@ -116,7 +129,8 @@ public final class LogsCommand {
         if (line.isBlank()) {
           continue;
         }
-        out.println(formatLine(Json.asObject(Json.parse(line))));
+        Map<String, Object> parsed = Json.asObject(Json.parse(line));
+        out.println(output == OutputFormat.Kind.JSON ? Json.write(parsed) : formatLine(parsed));
       }
     } catch (IOException e) {
       throw new CliException("log stream ended: " + e.getMessage(), e);
@@ -193,6 +207,8 @@ public final class LogsCommand {
           --level: TRACE|DEBUG|INFO|WARN|ERROR -- a threshold, so --level=WARN keeps WARN and
                    ERROR; a line with no level (raw SYSTEM capture) is never kept by one
           --contains: keep only lines whose message, logger, stack trace or raw text contains
-                      this text, case-insensitively (plain substring, not a regex)""";
+                      this text, case-insensitively (plain substring, not a regex)
+          -o json: emit the structured log lines themselves -- one JSON array per request, or one
+                   JSON object per line under --follow""";
   }
 }

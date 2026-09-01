@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -19,11 +20,14 @@ public final class VolumesCommand {
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
+  private final PrintStream err;
 
-  public VolumesCommand(ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
+  public VolumesCommand(
+      ControlPlaneClient client, OutputFormat.Kind output, PrintStream out, PrintStream err) {
     this.client = client;
     this.output = output;
     this.out = out;
+    this.err = err;
   }
 
   public void run(List<String> args) {
@@ -45,7 +49,10 @@ public final class VolumesCommand {
     OutputFormat.printList(output, volumes, out);
     Object unreachable = body.get("unreachableNodes");
     if (unreachable != null) {
-      out.println("warning: unreachable nodes not included in this listing: " + unreachable);
+      // Diagnostic, not result data: on stderr so it neither corrupts the JSON array on stdout
+      // under -o json nor lands in a table an operator is piping onward, while still being
+      // impossible to miss at a terminal.
+      err.println("warning: unreachable nodes not included in this listing: " + unreachable);
     }
   }
 
@@ -65,7 +72,16 @@ public final class VolumesCommand {
     }
     ApiResponse response = client.delete("/volumes/" + nodeId + "/" + statefulSet + "/" + index);
     client.expectSuccess(response);
-    out.println("destroyed volume " + statefulSet + "[" + index + "] on node " + nodeId);
+    Map<String, Object> resultBody = new LinkedHashMap<>();
+    resultBody.put("result", "destroyed");
+    resultBody.put("kind", "volume");
+    resultBody.put("id", statefulSet + "/" + index);
+    resultBody.put("nodeId", nodeId);
+    OutputFormat.printResult(
+        output,
+        resultBody,
+        "destroyed volume " + statefulSet + "[" + index + "] on node " + nodeId,
+        out);
   }
 
   static String usage() {

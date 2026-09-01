@@ -453,7 +453,7 @@ class ArtifactSetCommandTest {
 
     int exitCode = run("apply", "-f", manifest.toString(), "--server", serverAddress);
 
-    assertEquals(1, exitCode);
+    assertEquals(2, exitCode);
     String err = errBuffer.toString(StandardCharsets.UTF_8);
     assertTrue(err.contains("error: invalid manifest:"), err);
     assertTrue(err.contains("command"), err);

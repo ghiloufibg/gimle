@@ -246,7 +246,7 @@ class CustomResourceCommandTest {
             tenantId: team-a
             spec: {}
             """);
-    assertEquals(1, run("apply", "-f", instance.toString()));
+    assertEquals(2, run("apply", "-f", instance.toString()));
     assertTrue(stderr().contains("unknown kind 'custom.Greetng'"), stderr());
     assertTrue(stderr().contains("custom.Greeting"), stderr());
   }
@@ -272,7 +272,7 @@ class CustomResourceCommandTest {
     Path breaking =
         writeManifest(
             "greeting-kind-breaking.yaml", GREETING_DEFINITION.replace("max: 100", "max: 2"));
-    assertEquals(1, run("apply", "-f", breaking.toString()));
+    assertEquals(5, run("apply", "-f", breaking.toString()));
     assertTrue(stderr().contains("conflict"), stderr());
     assertTrue(stderr().contains("hello-world"), stderr());
   }
@@ -284,7 +284,7 @@ class CustomResourceCommandTest {
     assertEquals(0, run("apply", "-f", instance.toString()), stderr());
     resetOutput();
 
-    assertEquals(1, run("delete", "kinddefinition", "custom.Greeting"));
+    assertEquals(5, run("delete", "kinddefinition", "custom.Greeting"));
     assertTrue(stderr().contains("instance"), stderr());
   }
 

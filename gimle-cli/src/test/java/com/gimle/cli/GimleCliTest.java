@@ -397,7 +397,7 @@ class GimleCliTest {
     assertEquals(0, deleteExit);
 
     int getAfterDeleteExit = run("get", "deployment", "catalog-service");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -487,7 +487,7 @@ class GimleCliTest {
 
     outBuffer.reset();
     int getAfterDeleteExit = run("get", "limitrange", "acme");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -622,7 +622,7 @@ class GimleCliTest {
     assertEquals(0, deleteExit, stderr());
 
     int getAfterDeleteExit = run("secret", "get", "acme", "temp");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
   }
 
   @Test
@@ -667,7 +667,7 @@ class GimleCliTest {
     run("secret", "delete", "acme", "temp", "--destroy");
 
     int undeleteExit = run("secret", "undelete", "acme", "temp");
-    assertEquals(1, undeleteExit);
+    assertEquals(3, undeleteExit);
   }
 
   @Test
@@ -775,7 +775,7 @@ class GimleCliTest {
   @Test
   void a_404_produces_a_clear_error_and_nonzero_exit() {
     int exit = run("get", "deployment", "does-not-exist");
-    assertEquals(1, exit);
+    assertEquals(3, exit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -823,7 +823,7 @@ class GimleCliTest {
     assertEquals(0, deleteExit, errBuffer::toString);
     outBuffer.reset();
     int getAfterDeleteExit = run("get", "role", "deployment-reader");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
   }
 
   @Test
@@ -928,7 +928,7 @@ class GimleCliTest {
     assertEquals(1, run("set", "role", "broken", "--permission", "custom_resource:read:acme:*"));
     assertTrue(stderr().contains("qualifier"), stderr());
 
-    assertEquals(1, run("get", "role", "broken"));
+    assertEquals(3, run("get", "role", "broken"));
   }
 
   @Test
@@ -955,8 +955,8 @@ class GimleCliTest {
     assertTrue(out.contains("b1"), out);
     assertTrue(out.contains("b2"), out);
 
-    assertEquals(1, run("get", "rolebinding", "b1"));
-    assertEquals(1, run("get", "rolebinding", "b2"));
+    assertEquals(3, run("get", "rolebinding", "b1"));
+    assertEquals(3, run("get", "rolebinding", "b2"));
   }
 
   @Test
@@ -1103,7 +1103,7 @@ class GimleCliTest {
   @Test
   void an_unreachable_control_plane_produces_a_clear_error_and_nonzero_exit() {
     int exit = GimleCli.run(new String[] {"get", "tenants", "--server", "localhost:1"}, out, err);
-    assertEquals(1, exit);
+    assertEquals(6, exit);
     assertTrue(stderr().contains("could not reach control plane"));
   }
 
@@ -1281,7 +1281,7 @@ class GimleCliTest {
     int deleteExit = run("delete", "job", "one-off-job");
     assertEquals(0, deleteExit);
     int getAfterDeleteExit = run("get", "job", "one-off-job");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -1327,7 +1327,7 @@ class GimleCliTest {
   @Test
   void cronjob_trigger_on_an_unknown_cronjob_fails() throws Exception {
     int triggerExit = run("cronjob", "trigger", "no-such-cronjob");
-    assertEquals(1, triggerExit);
+    assertEquals(3, triggerExit);
     assertTrue(stderr().contains("no such cronjob"));
   }
 
@@ -1382,7 +1382,7 @@ class GimleCliTest {
   @Test
   void deployment_rollback_of_an_unknown_deployment_fails() throws Exception {
     int rollbackExit = run("deployment", "rollback", "never-deployed");
-    assertEquals(1, rollbackExit);
+    assertEquals(3, rollbackExit);
     assertTrue(stderr().contains("no revision history"));
   }
 
@@ -1406,7 +1406,7 @@ class GimleCliTest {
     int deleteExit = run("delete", "daemonset", "short-lived-daemonset");
     assertEquals(0, deleteExit);
     int getAfterDeleteExit = run("get", "daemonset", "short-lived-daemonset");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -1468,7 +1468,7 @@ class GimleCliTest {
     int deleteExit = run("delete", "statefulset", "short-lived-statefulset");
     assertEquals(0, deleteExit);
     int getAfterDeleteExit = run("get", "statefulset", "short-lived-statefulset");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -1545,7 +1545,7 @@ class GimleCliTest {
     assertEquals(0, deleteExit);
     outBuffer.reset();
     int getAfterDeleteExit = run("get", "service", "web");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -1624,7 +1624,7 @@ class GimleCliTest {
   @Test
   void get_service_not_found_produces_a_clear_error() {
     int exit = run("get", "service", "does-not-exist");
-    assertEquals(1, exit);
+    assertEquals(3, exit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -1662,7 +1662,7 @@ class GimleCliTest {
     assertEquals(0, deleteExit);
     outBuffer.reset();
     int getAfterDeleteExit = run("get", "networkpolicy", "acme-policy", "--tenant", "acme");
-    assertEquals(1, getAfterDeleteExit);
+    assertEquals(3, getAfterDeleteExit);
     assertTrue(stderr().contains("not found"));
   }
 
@@ -1755,7 +1755,7 @@ class GimleCliTest {
   @Test
   void get_networkpolicy_not_found_produces_a_clear_error() {
     int exit = run("get", "networkpolicy", "does-not-exist", "--tenant", "acme");
-    assertEquals(1, exit);
+    assertEquals(3, exit);
     assertTrue(stderr().contains("not found"));
   }
 

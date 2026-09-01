@@ -95,7 +95,15 @@ class LogsCommandTest {
   }
 
   private void run(String... args) {
-    new LogsCommand(new ControlPlaneClient("127.0.0.1:" + stub.getAddress().getPort()), out)
+    run(OutputFormat.Kind.TABLE, args);
+  }
+
+  private void runJson(String... args) {
+    run(OutputFormat.Kind.JSON, args);
+  }
+
+  private void run(OutputFormat.Kind output, String... args) {
+    new LogsCommand(new ControlPlaneClient("127.0.0.1:" + stub.getAddress().getPort()), output, out)
         .run(List.of(args));
   }
 
@@ -175,5 +183,43 @@ class LogsCommandTest {
   void the_usage_text_documents_both_filtering_flags() {
     assertTrue(LogsCommand.usage().contains("--level"));
     assertTrue(LogsCommand.usage().contains("--contains"));
+  }
+
+  @Test
+  void json_output_emits_the_structured_lines_rather_than_the_formatted_text() {
+    pageLines = List.of(line("ERROR", "downstream call timed out"));
+
+    runJson("node/node-a");
+
+    List<Map<String, Object>> parsed = Json.asObjectList(Json.parse(printed()));
+    assertEquals(1, parsed.size());
+    assertEquals("ERROR", parsed.get(0).get("level"));
+    assertEquals("downstream call timed out", parsed.get(0).get("message"));
+    assertEquals("com.example.Handler", parsed.get(0).get("logger"));
+    // The human rendering's own separator must not appear -- these are the structured fields, not
+    // a re-serialization of the one-line text form.
+    assertFalse(printed().contains("com.example.Handler - downstream"), printed());
+  }
+
+  @Test
+  void a_zero_match_json_query_prints_an_empty_array_not_the_human_placeholder() {
+    pageLines = List.of();
+
+    runJson("node/node-a", "--level=ERROR", "--contains=boom");
+
+    assertFalse(printed().contains("no log lines"), printed());
+    assertTrue(Json.asObjectList(Json.parse(printed())).isEmpty(), printed());
+  }
+
+  @Test
+  void json_output_under_follow_emits_one_object_per_line() {
+    pageLines = List.of(line("INFO", "first"), line("WARN", "second"));
+
+    runJson("instance/orders-service/0", "--follow");
+
+    List<String> emitted = printed().lines().filter(text -> !text.isBlank()).toList();
+    assertEquals(2, emitted.size(), printed());
+    assertEquals("first", Json.asObject(Json.parse(emitted.get(0))).get("message"));
+    assertEquals("WARN", Json.asObject(Json.parse(emitted.get(1))).get("level"));
   }
 }

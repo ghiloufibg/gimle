@@ -183,7 +183,7 @@ public final class ControlPlaneClient {
           response.headers().firstValue("X-Gimle-Artifact-Tenant"),
           response.headers().firstValue("X-Gimle-Artifact-Kind"));
     } catch (IOException e) {
-      throw new CliException(
+      throw CliException.unavailable(
           "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -207,15 +207,14 @@ public final class ControlPlaneClient {
       HttpResponse<InputStream> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
       if (response.statusCode() != 200) {
-        throw new CliException(
-            describeError(new ApiResponse(response.statusCode(), readAll(response.body()))));
+        throw errorFrom(new ApiResponse(response.statusCode(), readAll(response.body())));
       }
       try (InputStream in = response.body()) {
         Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
       }
       return response.headers().firstValue("X-Gimle-Artifact-Sha256");
     } catch (IOException e) {
-      throw new CliException(
+      throw CliException.unavailable(
           "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -245,12 +244,11 @@ public final class ControlPlaneClient {
       HttpResponse<InputStream> response =
           httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
       if (response.statusCode() != 200) {
-        throw new CliException(
-            describeError(new ApiResponse(response.statusCode(), readAll(response.body()))));
+        throw errorFrom(new ApiResponse(response.statusCode(), readAll(response.body())));
       }
       return response.body();
     } catch (IOException e) {
-      throw new CliException(
+      throw CliException.unavailable(
           "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -270,7 +268,7 @@ public final class ControlPlaneClient {
     if (response.isSuccess()) {
       return response.body();
     }
-    throw new CliException(describeError(response));
+    throw errorFrom(response);
   }
 
   /**
@@ -295,14 +293,27 @@ public final class ControlPlaneClient {
     }
   }
 
-  private static String describeError(ApiResponse response) {
+  /**
+   * Turns a non-2xx response into the exception the caller will fail with, classified by the
+   * distinction the status code already draws so the reason survives all the way to the process's
+   * own exit status. {@code 401} and {@code 403} share {@link CliExitCode#FORBIDDEN}: both mean the
+   * caller may not do this, and the CLI can offer no remedy that depends on telling them apart. A
+   * {@code 307} only reaches here when the leader is unknown -- one with a {@code Location} header
+   * was already followed -- which makes it a retry-shortly condition, the same class as an
+   * unreachable server.
+   */
+  private static CliException errorFrom(ApiResponse response) {
     return switch (response.statusCode()) {
-      case 400 -> "invalid request: " + response.body();
-      case 404 -> "not found: " + response.body();
-      case 405 -> "method not allowed: " + response.body();
-      case 409 -> "conflict: " + response.body();
-      case 307 -> describeNotLeader(response.body());
-      default -> "unexpected response (" + response.statusCode() + "): " + response.body();
+      case 400 -> CliException.invalidInput("invalid request: " + response.body());
+      case 401 -> CliException.forbidden("unauthorized: " + response.body());
+      case 403 -> CliException.forbidden("forbidden: " + response.body());
+      case 404 -> CliException.notFound("not found: " + response.body());
+      case 409 -> CliException.conflict("conflict: " + response.body());
+      case 307 -> CliException.unavailable(describeNotLeader(response.body()));
+      case 405 -> new CliException("method not allowed: " + response.body());
+      default ->
+          new CliException(
+              "unexpected response (" + response.statusCode() + "): " + response.body());
     };
   }
 
@@ -330,7 +341,7 @@ public final class ControlPlaneClient {
       return new ApiResponse(
           response.statusCode(), response.body(), response.headers().allValues("X-Gimle-Warning"));
     } catch (IOException e) {
-      throw new CliException(
+      throw CliException.unavailable(
           "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();

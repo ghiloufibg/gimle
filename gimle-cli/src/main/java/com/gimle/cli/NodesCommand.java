@@ -50,24 +50,40 @@ public final class NodesCommand {
 
   public void cordon(String nodeId) {
     client.expectSuccess(client.post("/nodes/" + nodeId + "/cordon", ""));
-    out.println("node/" + nodeId + " cordoned");
+    OutputFormat.printResult(
+        output, resultBody("cordoned", nodeId), "node/" + nodeId + " cordoned", out);
   }
 
   public void uncordon(String nodeId) {
     client.expectSuccess(client.post("/nodes/" + nodeId + "/uncordon", ""));
-    out.println("node/" + nodeId + " uncordoned");
+    OutputFormat.printResult(
+        output, resultBody("uncordoned", nodeId), "node/" + nodeId + " uncordoned", out);
   }
 
   public void taint(String nodeId, String tenantId) {
     client.expectSuccess(
         client.post("/nodes/" + nodeId + "/taint", Json.write(Map.of("tenantId", tenantId))));
-    out.println("node/" + nodeId + " tainted for tenant " + tenantId);
+    Map<String, Object> body = resultBody("tainted", nodeId);
+    body.put("tenantId", tenantId);
+    OutputFormat.printResult(
+        output, body, "node/" + nodeId + " tainted for tenant " + tenantId, out);
   }
 
   public void untaint(String nodeId, String tenantId) {
     client.expectSuccess(
         client.post("/nodes/" + nodeId + "/untaint", Json.write(Map.of("tenantId", tenantId))));
-    out.println("node/" + nodeId + " untainted for tenant " + tenantId);
+    Map<String, Object> body = resultBody("untainted", nodeId);
+    body.put("tenantId", tenantId);
+    OutputFormat.printResult(
+        output, body, "node/" + nodeId + " untainted for tenant " + tenantId, out);
+  }
+
+  private static Map<String, Object> resultBody(String result, String nodeId) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("result", result);
+    body.put("kind", "node");
+    body.put("id", nodeId);
+    return body;
   }
 
   /**
