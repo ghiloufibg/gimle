@@ -22,6 +22,10 @@ import org.slf4j.LoggerFactory;
  * from every node and process in the cluster needs an explicit, age-based bound instead. Runs on
  * its own virtual thread ({@code Thread.ofVirtual()}), the same lightweight-background-work idiom
  * {@code AgentMain}'s own instance-starter thread already uses.
+ *
+ * <p>Each file is aged against the window its own signal was given (see {@link RetentionPolicy}),
+ * not one window for the whole data root: a single sweep pass, but a per-file cutoff, so logs can
+ * outlive the far bulkier metrics and traces they were shipped alongside.
  */
 final class RetentionSweeper implements AutoCloseable {
 
@@ -29,12 +33,12 @@ final class RetentionSweeper implements AutoCloseable {
   private static final Pattern DAY_FILE = Pattern.compile("(\\d{4}-\\d{2}-\\d{2})\\.log");
 
   private final Path dataRoot;
-  private final int retentionDays;
+  private final RetentionPolicy policy;
   private final ScheduledExecutorService scheduler;
 
-  RetentionSweeper(Path dataRoot, int retentionDays, Duration sweepInterval) {
+  RetentionSweeper(Path dataRoot, RetentionPolicy policy, Duration sweepInterval) {
     this.dataRoot = dataRoot;
-    this.retentionDays = retentionDays;
+    this.policy = policy;
     this.scheduler =
         Executors.newSingleThreadScheduledExecutor(
             r -> Thread.ofVirtual().name("gimle-muninn-retention-sweep").unstarted(r));
@@ -55,7 +59,7 @@ final class RetentionSweeper implements AutoCloseable {
     if (!Files.isDirectory(dataRoot)) {
       return;
     }
-    LocalDate cutoff = LocalDate.now(ZoneOffset.UTC).minusDays(retentionDays);
+    LocalDate today = LocalDate.now(ZoneOffset.UTC);
     try (var paths = Files.walk(dataRoot)) {
       for (Path file : paths.filter(Files::isRegularFile).toList()) {
         var fileName = file.getFileName();
@@ -67,7 +71,7 @@ final class RetentionSweeper implements AutoCloseable {
           continue;
         }
         LocalDate day = LocalDate.parse(matcher.group(1));
-        if (day.isBefore(cutoff)) {
+        if (day.isBefore(today.minusDays(policy.daysFor(dataRoot, file)))) {
           // Files.deleteIfExists rather than delete: a concurrent sweep-and-retry, or the file
           // already having been cleaned up by an earlier pass, is a no-op here, not an error.
           Files.deleteIfExists(file);

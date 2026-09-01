@@ -252,6 +252,31 @@ public sealed interface ControlMessage {
       implements ControlMessage {}
 
   /**
+   * The full set of configuration and secret keys that currently exist upstream for every instance
+   * this worker hosts -- the authoritative answer to "what should still be visible", which the
+   * worker applies by dropping any locally-held key not named here. This is what makes a deleted
+   * ConfigMap/Secret key actually disappear from a running instance instead of staying readable
+   * until its next restart.
+   *
+   * <p>A whole-set assertion rather than a per-key removal event, and re-sent every relay tick
+   * rather than only when something was deleted: a removal event that a disconnected worker missed
+   * would leave the revoked value live forever, whereas re-asserting the whole set converges from
+   * any starting state -- including a worker that reconnected mid-deletion or a relay that skipped
+   * ticks entirely. The keys of every instance sharing one worker are carried together, since a
+   * Tier 1 worker hosts several instances behind one channel and one instance's set alone would
+   * wrongly retract another's.
+   */
+  record ConfigKeysRetained(List<String> keys) implements ControlMessage {
+
+    public ConfigKeysRetained {
+      if (keys == null) {
+        throw new IllegalArgumentException("keys must not be null");
+      }
+      keys = List.copyOf(keys);
+    }
+  }
+
+  /**
    * The agent relaying its most recent poll of the control plane's own {@code NetworkPolicySpec}s
    * down to this worker -- a worker has no outbound network identity of its own to poll the control
    * plane directly, the same reason {@link CatalogUpdate} and {@link ConfigDelivered} already

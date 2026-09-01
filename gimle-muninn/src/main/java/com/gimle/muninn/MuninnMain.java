@@ -101,11 +101,17 @@ public final class MuninnMain {
     MuninnServer muninnServer = new MuninnServer(storeClient, port, dataRoot);
     muninnServer.start();
 
-    int retentionDays = Integer.getInteger("gimle.muninn.retentionDays", 30);
+    RetentionPolicy retentionPolicy = RetentionPolicy.fromConfig();
     Duration retentionSweepInterval =
         Duration.ofSeconds(Long.getLong("gimle.muninn.retentionSweepIntervalSeconds", 3600L));
     RetentionSweeper retentionSweeper =
-        new RetentionSweeper(dataRoot, retentionDays, retentionSweepInterval);
+        new RetentionSweeper(dataRoot, retentionPolicy, retentionSweepInterval);
+    log.info(
+        "retention windows (days): logs={}, metrics={}, traces={}, other={}",
+        retentionPolicy.logsDays(),
+        retentionPolicy.metricsDays(),
+        retentionPolicy.tracesDays(),
+        retentionPolicy.defaultDays());
 
     URI finalCsrEndpoint = csrEndpoint;
     ScheduledExecutorService ticker =

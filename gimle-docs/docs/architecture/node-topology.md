@@ -184,6 +184,16 @@ every other process talks to, and re-runs its own independent `Authorizer.author
 proxied reads rather than trusting an already-forwarded principal claim as proof by itself — the
 same defense-in-depth posture Fafnir established for `/secrets/*`.
 
+Retention is age-based and **per signal**, since a central aggregator's three data kinds have very
+different value curves: logs are usually the compliance- and investigation-relevant record, while
+metrics and traces are far higher-volume and lose most of their worth within a short window.
+`-Dgimle.muninn.retentionDays` (default `30`) sets the window every signal inherits, and
+`-Dgimle.muninn.logs.retentionDays`, `-Dgimle.muninn.metrics.retentionDays`, and
+`-Dgimle.muninn.traces.retentionDays` each override it for one signal. A single sweep pass
+(`-Dgimle.muninn.retentionSweepIntervalSeconds`, default hourly) walks the whole data root and ages
+each day file against the window of the subtree it sits under — anything outside the three known
+signal subtrees falls back to the global window rather than being kept forever.
+
 `gimle-controlplane`'s existing `/logs/*` proxy falls back to Muninn's shipped history whenever a
 live agent genuinely can't be reached (a gone node, an unreachable agent) instead of a bare
 404/502; `GET /metrics-history/*` and `GET /traces-history/*` are new, Muninn-only read surfaces
