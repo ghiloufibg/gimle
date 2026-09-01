@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useInstancesStore } from "@/stores/useInstancesStore";
+import { useEventsStore } from "@/stores/useEventsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
+import { InstanceEventsPanel } from "@/components/instance-events";
 import { LifecycleBadge, StatusDot } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { joinWorkerProcessId } from "@/components/process-picker";
@@ -25,6 +27,12 @@ function InstanceDetail() {
   const instanceIndex = parseInt(idx, 10);
   const items = useInstancesStore((s) => s.items);
   const getOrFetch = useInstancesStore((s) => s.getOrFetch);
+  const events = useEventsStore((s) => s.items);
+  const eventsLoading = useEventsStore((s) => s.loading);
+  const eventsLoaded = useEventsStore((s) => s.loaded);
+  const eventsError = useEventsStore((s) => s.error);
+  const loadEvents = useEventsStore((s) => s.load);
+  const resetEvents = useEventsStore((s) => s.reset);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
@@ -32,6 +40,16 @@ function InstanceDetail() {
   }, [name, instanceIndex, getOrFetch]);
 
   const r = items.find((x) => x.deploymentName === name && x.instanceIndex === instanceIndex);
+
+  // The timeline is keyed by the instance's own tenant, so it can only be fetched once the
+  // instance row itself has resolved one -- a bare name would address the untenanted namespace.
+  const tenantId = r?.tenantId ?? null;
+  const instanceResolved = r !== undefined;
+  useEffect(() => {
+    if (!instanceResolved) return;
+    loadEvents(name, instanceIndex, tenantId);
+    return resetEvents;
+  }, [instanceResolved, name, instanceIndex, tenantId, loadEvents, resetEvents]);
 
   if (notFound) {
     return (
@@ -152,6 +170,13 @@ function InstanceDetail() {
         <StatCell label="Worker" value={r.workerId ?? "—"} mono />
         <StatCell label="Tenant" value={r.tenantId ?? "—"} mono />
       </div>
+
+      <InstanceEventsPanel
+        events={events}
+        loading={eventsLoading}
+        loaded={eventsLoaded}
+        error={eventsError}
+      />
 
       <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         Artifact

@@ -39,7 +39,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | CronJobs | List/create/inspect [`kind: CronJob`](../reference/manifest-schema.md#cronjob-manifest) scheduled generators, including each one's generated Jobs — the UI equivalent of `gimle get/apply cronjobs`. |
 | DaemonSets | List/create/inspect [`kind: DaemonSet`](../reference/manifest-schema.md#daemonset-manifest) per-node workloads, surfacing `placement.requiredLabels` as a first-class column since it's the primary way an operator scopes which nodes run one, plus the same revision-history/rollback panel Deployments has. |
 | StatefulSets | List/create/inspect [`kind: StatefulSet`](../reference/manifest-schema.md#statefulset-manifest) workloads, including each index's sticky `nodeId` assignment, plus the same revision-history/rollback panel Deployments has. |
-| Instances | Per-instance detail: lifecycle state, health, resource usage. |
+| Instances | Per-instance detail: lifecycle state, health, resource usage, plus that instance's own lifecycle-event timeline — the "why did this instance restart" panel, below. |
 | Custom Resources | Instances of cluster-defined [custom kinds](./custom-kinds.md): a kind picker fed by `/kinddefinitions`, an instance table honoring each definition's own `printColumns`, and a detail pane showing spec and status side by side with the generation/observedGeneration pair made visible — the at-a-glance "has the operator caught up" signal. Deliberately read-only; authoring stays in the CLI. |
 | Nodes | Registered node agents and their reported capacity, plus cordon/uncordon and per-tenant taint/untaint controls on the detail page — the UI equivalent of `gimle get nodes` and `gimle cordon/uncordon/taint/untaint`. Cordoning/tainting only ever affects future scheduling; neither evicts an already-running instance. |
 | Networking | Two tabs: [Services](./service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment) (the ClusterIP analogue — create/inspect/delete, plus each row's live backing endpoints) and NetworkPolicies (which other tenants may call a tenant's own Services) — the UI equivalent of `gimle get/set/delete service` and `gimle get/set/delete networkpolicy`. |
@@ -125,6 +125,37 @@ same template: an optional, collapsible `maxUnavailable`/`maxSurge` sub-form on 
 and a read-only panel on the detail screen when a deployment has one. Unlike `autoscale:`,
 `disruption:` had *never* been on the wire at all before this — `ApiServer.deploymentStatus` gained
 its first `disruption` key here, not merely a later addition to an existing one.
+
+## Instance lifecycle events
+
+"Why did this instance restart" is the question an operator opens the console to answer, and the
+instance detail page answers it in place: a **Lifecycle events** panel showing that instance's own
+durable timeline from [`GET /events?deployment=&instance=[&tenant=]`](./control-plane.md#instance-event-log)
+— the same record `gimle events` prints, not a parallel source of truth. Newest-first, each entry
+showing its transition kind, the message, the failure's `causeSummary` when it has one, and both the
+absolute and relative time it occurred.
+
+Two details worth stating outright:
+
+- **The kinds are visually distinguished, and `TRANSITION_FAILED` is the only one tinted as a
+  failure.** It is what the panel exists to surface, so scanning a long timeline for "what went
+  wrong" is a matter of spotting the one red row. `UNINSTALLED` is deliberately *not* tinted as a
+  failure here, unlike the badge showing a live instance's current lifecycle state: in a timeline it
+  is the ordinary terminal transition of a deliberate teardown.
+- **The panel bounds itself; the API does not.** `GET /events` has no `limit` parameter of its own
+  (unlike `GET /audit`) — it returns the instance's whole retained timeline — so, exactly as the CLI
+  does for `gimle events --limit`, the console truncates the already-newest-first response
+  client-side. It renders the ten most recent transitions with a control to expand to the full
+  timeline, so a long-lived, repeatedly-restarted instance does not bury its most recent transition
+  under scrollback.
+
+The timeline shown is only what the control plane still retains: an instance's history is capped
+per instance with oldest-first pruning, so transitions older than that window are gone from here
+as they are from `gimle events`.
+
+The panel is keyed by the instance's own `(tenantId, deploymentName, instanceIndex)` triple, taken
+from the instance row itself — a bare name would address only the untenanted namespace, the same
+convention every other by-name lookup here follows.
 
 ## Logs: live tailing and crash dumps
 
