@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { FALLBACK_SEARCH, searchSchemaWithFallback, validCategories } from "./logs";
+import {
+  emptyStateMessage,
+  FALLBACK_SEARCH,
+  filterOf,
+  searchSchemaWithFallback,
+  targetOf,
+  validCategories,
+} from "./logs";
+import { EMPTY_LOG_FILTER } from "@/lib/log-filter";
 
 // Pure schema/branching logic only -- this project's vitest config is deliberately
 // node-environment, store/repository-logic-only (see vitest.config.ts); the JSX-rendering half of
@@ -40,5 +48,67 @@ describe("validCategories", () => {
 
   it("still offers both categories for instance targets", () => {
     expect(validCategories("instance")).toEqual(["APPLICATION", "PLATFORM"]);
+  });
+});
+
+describe("logs route filter search params", () => {
+  it("parses level and contains alongside the target", () => {
+    const result = searchSchemaWithFallback.safeParse({
+      kind: "node",
+      nodeId: "node-1",
+      level: "WARN",
+      contains: "timed out",
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(filterOf(result.data)).toEqual({ minLevel: "WARN", contains: "timed out" });
+  });
+
+  it("degrades an unknown level in a hand-edited URL to no constraint rather than throwing", () => {
+    const result = searchSchemaWithFallback.safeParse({
+      kind: "node",
+      nodeId: "node-1",
+      level: "SEVERE",
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(filterOf(result.data)).toEqual(EMPTY_LOG_FILTER);
+  });
+
+  it("leaves the filter empty when neither parameter is present", () => {
+    const result = searchSchemaWithFallback.safeParse({ kind: "controlplane" });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(filterOf(result.data)).toEqual(EMPTY_LOG_FILTER);
+  });
+
+  it("keeps the filter parameters out of the target the repositories receive", () => {
+    const result = searchSchemaWithFallback.safeParse({
+      kind: "instance",
+      deploymentName: "hello-deployment",
+      instanceIndex: "0",
+      level: "ERROR",
+      contains: "boom",
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(targetOf(result.data)).toEqual({
+      kind: "instance",
+      deploymentName: "hello-deployment",
+      instanceIndex: 0,
+      category: "APPLICATION",
+    });
+  });
+});
+
+describe("emptyStateMessage", () => {
+  it("says nothing has been logged yet when no filter is active", () => {
+    expect(emptyStateMessage(EMPTY_LOG_FILTER)).toBe("No log lines yet.");
+  });
+
+  it("names what was filtered on when a filter matched nothing, rather than looking broken", () => {
+    expect(emptyStateMessage({ minLevel: "ERROR", contains: "boom" })).toBe(
+      "No log lines matched level \u2265 ERROR, containing \u201Cboom\u201D.",
+    );
   });
 });

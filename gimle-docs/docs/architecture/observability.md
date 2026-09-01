@@ -177,3 +177,31 @@ instance, and lifecycle-hook execution is MDC-tagged so a hook's own synchronous
 correctly attributed to that instance's `APPLICATION` output rather than miscategorized as platform
 noise — a real gap the `greeter-provider`/`greeter-consumer` example surfaced and fixed, not a
 default that was always correct.
+
+### Reading logs back: cursor, level, and text
+
+Every log read — the console's Logs screen, `gimle logs`, and the control plane's own platform log
+alike — goes through one shared reader (`LogFileReader` in `gimle-core`, and its day-bucketed twin
+inside Muninn), so a query means the same thing whichever surface asks and whichever store answers.
+Three parameters narrow a read, all applied server-side, all combinable:
+
+- **`cursor`/`since`** — the timestamp cursor: page backward through history, or poll forward for
+  what's new. Stable across log rotation, since rotation renames files but never changes what
+  instant a line was written at.
+- **`level`** — a **threshold**, not an equality test: `WARN` keeps `WARN` and `ERROR`, which is what
+  an operator narrowing down an incident actually wants. A line carrying no level, or one outside
+  the `TRACE < DEBUG < INFO < WARN < ERROR` scale (a raw, unstructured SYSTEM capture), cannot be
+  placed against a threshold and is therefore excluded rather than silently admitted. An
+  unrecognized level is a 400 naming the accepted values, never a silently unfiltered page.
+- **`contains`** — a plain, **case-insensitive substring**, deliberately not a regular expression,
+  so a pasted message fragment containing `(`, `[` or `.` matches literally instead of erroring or
+  wildcarding. Tested against a line's human-readable fields only (`message`, `logger`,
+  `stackTrace`, `raw`) — never machine identifiers like `nodeId` or `thread`, where a short query
+  would otherwise match every line from one node.
+
+The page `limit` is applied *after* filtering, so a page is the most recent N *matching* lines
+rather than however few matches happened to fall inside the most recent N raw ones. Under
+`follow=true` the cursor still advances over suppressed lines, so a long run of non-matching output
+is never re-scanned on every poll tick. And because the identical filter runs on the node agent's
+live reader, on the control plane's own log, and inside Muninn's shipped history, a filtered read of
+a node that has since died returns exactly what the same read against its live agent would have.
