@@ -74,5 +74,10 @@ if defined JAVA_HOME (
   if not defined java_bin set "java_bin=java"
 )
 
-"%java_bin%" -cp "%classpath%" com.gimle.cli.GimleCli %*
+rem --enable-native-access=ALL-UNNAMED is needed by exactly one verb, `gimle top`: JLine's terminal
+rem provider reaches termios through the Foreign Function and Memory API, and without the grant it
+rem quietly degrades to a terminal that cannot be put into raw mode rather than failing. Granted
+rem unconditionally here because these jars all load into the unnamed module anyway, so scoping it
+rem any more narrowly would not restrict anything. Keep in sync with the bin/gimle sh script.
+"%java_bin%" --enable-native-access=ALL-UNNAMED -cp "%classpath%" com.gimle.cli.GimleCli %*
 exit /b %ERRORLEVEL%

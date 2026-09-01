@@ -77,6 +77,12 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-cli</artifactId>
     </dependency>
+    <!-- The `gimle top` extension: never referenced from any code here, only selected out of the
+         resolved dependency graph by the cli descriptors, the same way every other jar is. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-hugin</artifactId>
+    </dependency>
     <!-- The gateway hosted module: ships under modules/, never on any process's own classpath. -->
     <dependency>
       <groupId>com.gimle</groupId>

@@ -20,6 +20,12 @@
       <scope>runtime</scope>
       <includes>
         <include>com.gimle:gimle-cli</include>
+        <!-- The terminal cluster view, `gimle top`, contributed as a CliExtension provider that
+             ServiceLoader finds on this classpath. Take these three jars out and the verb goes
+             back to being an unknown one; nothing else in the archive changes. -->
+        <include>com.gimle:gimle-hugin</include>
+        <include>org.jline:jline-terminal</include>
+        <include>org.jline:jline-terminal-ffm</include>
         <include>com.gimle:gimle-core</include>
         <include>com.gimle:gimle-module</include>
         <include>com.gimle:gimle-pki</include>
