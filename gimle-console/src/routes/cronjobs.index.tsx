@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useCronJobsStore } from "@/stores/useCronJobsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { StatusBadge } from "@/components/status";
@@ -22,12 +23,14 @@ export const Route = createFileRoute("/cronjobs/")({
 });
 
 function CronJobsList() {
-  const { items, hasMore, loading, loadFirstPage, loadMore, refresh } = useCronJobsStore();
+  const { items, hasMore, loading, loadFirstPage, loadMore, refresh, poll } = useCronJobsStore();
 
   useEffect(() => {
     if (items.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll);
 
   return (
     <PageContainer>

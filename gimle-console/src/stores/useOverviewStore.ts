@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Deployment, Node } from "@/types";
 import { deploymentsRepo, nodesRepo, tenantsRepo } from "@/repositories";
+import { storeErrorMessage } from "@/lib/api-error";
 
 interface State {
   loaded: boolean;
@@ -24,6 +25,7 @@ interface State {
   allLoading: boolean;
   load(): Promise<void>;
   loadAll(): Promise<void>;
+  poll(): Promise<void>;
 }
 
 export const useOverviewStore = create<State>((set, get) => ({
@@ -83,6 +85,45 @@ export const useOverviewStore = create<State>((set, get) => ({
       });
     } catch (e) {
       set({ allLoading: false, error: (e as Error).message });
+    }
+  },
+  /**
+   * The auto-refresh read for both screens fed by this store: it re-reads exactly what has already
+   * been loaded -- the Overview's summary, and the full arrays as well once Topology has asked for
+   * them -- so neither screen pays for the other's reads, and neither shows a loading state for a
+   * refresh nobody asked for.
+   */
+  async poll() {
+    const { loaded, allLoaded, loading, allLoading } = get();
+    if (loading || allLoading) return;
+    try {
+      if (loaded) {
+        const [d, n, t] = await Promise.all([
+          deploymentsRepo.fetchSummary(),
+          nodesRepo.fetchSummary(),
+          tenantsRepo.fetchSummary(),
+        ]);
+        set({
+          deploymentsTotal: d.total,
+          unplacedInstances: d.unplacedInstances,
+          quotaViolating: d.quotaViolating,
+          recentDeployments: d.recent,
+          nodesTotal: n.total,
+          nodesStale: n.stale,
+          recentNodes: n.recent,
+          tenantsTotal: t.total,
+          error: null,
+        });
+      }
+      if (allLoaded) {
+        const [d, n] = await Promise.all([
+          deploymentsRepo.fetchPage({ cursor: null, pageSize: 10_000 }),
+          nodesRepo.fetchPage({ cursor: null, pageSize: 10_000 }),
+        ]);
+        set({ allDeployments: d.items, allNodes: n.items, error: null });
+      }
+    } catch (e) {
+      set({ error: storeErrorMessage(e) });
     }
   },
 }));

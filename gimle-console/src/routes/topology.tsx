@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useOverviewStore } from "@/stores/useOverviewStore";
 import { PageContainer, PageHeader, Panel } from "@/components/page-shell";
 import { TopologyDrawer, type TopologySelection } from "@/components/topology-drawer";
@@ -242,6 +243,8 @@ function Topology() {
     if (!s.allLoaded) s.loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(s.poll);
 
   const nodeById = useMemo(() => new Map(s.allNodes.map((n) => [n.nodeId, n])), [s.allNodes]);
 

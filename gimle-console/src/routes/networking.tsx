@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Fragment, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
+import { hasUnsavedInput } from "@/lib/form-state";
 import { ChevronDown, ChevronRight, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -182,7 +185,7 @@ const emptyServiceForm = {
 };
 
 function ServicesTab() {
-  const { items, loading, loaded, error, load, refresh, save, remove, fetchEndpoints } =
+  const { items, loading, loaded, error, load, refresh, save, remove, fetchEndpoints, poll } =
     useServicesStore();
   const tenants = useTenantsStore((s) => s.items);
   const loadTenants = useTenantsStore((s) => s.loadFirstPage);
@@ -198,6 +201,8 @@ function ServicesTab() {
     if (tenants.length === 0) loadTenants();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll, { paused: hasUnsavedInput(editing, name, form) });
 
   function reset() {
     setEditing(null);
@@ -219,7 +224,7 @@ function ServicesTab() {
       const result = await fetchEndpoints(svc.name);
       setEndpoints((prev) => ({ ...prev, [svc.name]: result }));
     } catch (err) {
-      toast.error((err as Error).message);
+      notifyApiError(err);
       setExpanded((prevExpanded) => {
         const cleared = new Set(prevExpanded);
         cleared.delete(svc.name);
@@ -267,7 +272,7 @@ function ServicesTab() {
       toast.success(`Service ${trimmed} saved`);
       reset();
     } catch (err) {
-      toast.error((err as Error).message);
+      notifyApiError(err);
     }
   }
 
@@ -422,7 +427,7 @@ function ServicesTab() {
                               await remove(s.name);
                               toast.success("Service deleted");
                             } catch (err) {
-                              toast.error((err as Error).message);
+                              notifyApiError(err);
                             }
                           }}
                         />
@@ -480,7 +485,8 @@ const emptyPolicyForm = {
 };
 
 function NetworkPoliciesTab() {
-  const { items, loading, loaded, error, load, refresh, save, remove } = useNetworkPoliciesStore();
+  const { items, loading, loaded, error, load, refresh, save, remove, poll } =
+    useNetworkPoliciesStore();
   const tenants = useTenantsStore((s) => s.items);
   const loadTenants = useTenantsStore((s) => s.loadFirstPage);
 
@@ -493,6 +499,8 @@ function NetworkPoliciesTab() {
     if (tenants.length === 0) loadTenants();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll, { paused: hasUnsavedInput(editing, name, form) });
 
   function reset() {
     setEditing(null);
@@ -522,7 +530,7 @@ function NetworkPoliciesTab() {
       toast.success(`NetworkPolicy ${trimmed} saved`);
       reset();
     } catch (err) {
-      toast.error((err as Error).message);
+      notifyApiError(err);
     }
   }
 
@@ -648,7 +656,7 @@ function NetworkPoliciesTab() {
                           await remove(p.name);
                           toast.success("Network policy deleted");
                         } catch (err) {
-                          toast.error((err as Error).message);
+                          notifyApiError(err);
                         }
                       }}
                     />

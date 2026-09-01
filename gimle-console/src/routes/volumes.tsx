@@ -2,7 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AlertTriangle, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { PageContainer, PageHeader, StatTile } from "@/components/page-shell";
 import { StatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
@@ -119,6 +121,7 @@ function VolumesPage() {
   const loading = useVolumesStore((s) => s.loading);
   const error = useVolumesStore((s) => s.error);
   const load = useVolumesStore((s) => s.load);
+  const poll = useVolumesStore((s) => s.poll);
   const destroy = useVolumesStore((s) => s.destroy);
   const [filter, setFilter] = useState("");
   const [destroying, setDestroying] = useState<string | null>(null);
@@ -127,6 +130,10 @@ function VolumesPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Destroying a volume is irreversible and re-lists on its own when it lands; a poll crossing it
+  // would either race that listing or redraw the row mid-operation.
+  useAutoRefresh(poll, { paused: destroying !== null });
 
   const shown = filterVolumes(volumes, filter);
   const orphans = reclaimableVolumes(volumes);
@@ -137,7 +144,7 @@ function VolumesPage() {
       await destroy(volume);
       toast.success(`Destroyed ${describeVolume(volume)}`);
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     } finally {
       setDestroying(null);
     }

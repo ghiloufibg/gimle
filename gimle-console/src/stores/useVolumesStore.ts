@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Volume } from "@/types";
 import { volumesRepo } from "@/repositories";
+import { storeErrorMessage } from "@/lib/api-error";
 
 interface State {
   volumes: Volume[];
@@ -9,6 +10,7 @@ interface State {
   loading: boolean;
   error: string | null;
   load(): Promise<void>;
+  poll(): Promise<void>;
   destroy(volume: Volume): Promise<void>;
 }
 
@@ -31,6 +33,21 @@ export const useVolumesStore = create<State>((set, get) => ({
       // Keep whatever was last listed rather than blanking the table: an empty table alongside an
       // error reads as "nothing to reclaim", the opposite of what a failed refresh means.
       set({ loading: false, error: (e as Error).message });
+    }
+  },
+  /** The screen's auto-refresh read: no `loading` flag, so the Refresh button never flickers
+   * disabled under the pointer and the table it guards is not replaced mid-glance. */
+  async poll() {
+    if (get().loading) return;
+    try {
+      const listing = await volumesRepo.fetchAll();
+      set({
+        volumes: listing.volumes,
+        unreachableNodes: listing.unreachableNodes ?? [],
+        error: null,
+      });
+    } catch (e) {
+      set({ error: storeErrorMessage(e) });
     }
   },
   async destroy(volume) {

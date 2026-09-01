@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useJobsStore } from "@/stores/useJobsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { StatusBadge } from "@/components/status";
@@ -19,12 +20,14 @@ export const Route = createFileRoute("/jobs/")({
 });
 
 function JobsList() {
-  const { items, hasMore, loading, loadFirstPage, loadMore, refresh } = useJobsStore();
+  const { items, hasMore, loading, loadFirstPage, loadMore, refresh, poll } = useJobsStore();
 
   useEffect(() => {
     if (items.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll);
 
   return (
     <PageContainer>

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useInstancesStore } from "@/stores/useInstancesStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { InstancesTable, type InstancesTableFilters } from "@/components/instances-table";
@@ -19,7 +20,7 @@ export const Route = createFileRoute("/instances/")({
 });
 
 function InstancesList() {
-  const { items, hasMore, loading, loadFirstPage, loadMore, refresh, setFilter } =
+  const { items, hasMore, loading, loadFirstPage, loadMore, refresh, setFilter, poll } =
     useInstancesStore();
   const [filters, setFilters] = useState<InstancesTableFilters>({});
 
@@ -30,6 +31,10 @@ function InstancesList() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // poll() re-reads under whatever filter is currently set, so an auto-refresh never widens or
+  // narrows the table the operator is looking at.
+  useAutoRefresh(poll);
 
   function onFiltersChange(next: InstancesTableFilters) {
     setFilters(next);

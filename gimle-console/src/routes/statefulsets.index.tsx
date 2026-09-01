@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useStatefulSetsStore } from "@/stores/useStatefulSetsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { StatusBadge } from "@/components/status";
@@ -23,12 +24,15 @@ export const Route = createFileRoute("/statefulsets/")({
 // No "New statefulset" button here, matching Job/CronJob/DaemonSet's own reasoning: `gimle apply -f
 // <manifest.yaml>` is the supported creation path for now.
 function StatefulSetsList() {
-  const { items, hasMore, loading, loadFirstPage, loadMore, refresh } = useStatefulSetsStore();
+  const { items, hasMore, loading, loadFirstPage, loadMore, refresh, poll } =
+    useStatefulSetsStore();
 
   useEffect(() => {
     if (items.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll);
 
   return (
     <PageContainer>

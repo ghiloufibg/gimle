@@ -60,6 +60,39 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Logs | Live log tailing, level/text filtering, and crash-dump listing, below. |
 | Control plane | Scheduler, quota enforcer, and heartbeat-worker status at a glance, plus a link into the control plane's own log. In its own sidebar group since it reports on the control plane process itself rather than on a workload. |
 
+## Auto-refresh
+
+A dashboard whose job is showing what a cluster is doing right now is wrong the moment it stops
+keeping up: a rollout started from the CLI, a cordon applied from another browser tab, or any
+reconciler-driven change would otherwise stay invisible until someone pressed Refresh. So the
+console re-reads the screen you are on **every 10 seconds, on by default**, with a single global
+switch under the header's **Display** control (beside the layout, density, and theme preferences,
+and persisted the same way).
+
+That switch governs *every* automatic read the console makes — the list and topology screens'
+polling and the Metrics/Traces "go live" and Logs "Follow" tails alike, which are the same idea at
+a faster, incremental cadence rather than a competing mechanism. Turning it off stops a running
+tail and disables those buttons, with the reason on the button itself, so "the console is not
+polling" means exactly that on every screen.
+
+The screens that poll are the ones showing cluster state that changes on its own: Overview,
+Topology, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances, Nodes, Tenants,
+Volumes, and Networking. Configuration and key-management screens (Config, ConfigMaps, Secrets,
+SecretMaps, Seal Keys, LimitRanges, Access Control, Custom Resources, Artifacts) deliberately do
+not: their contents change only when a person changes them, they are edit surfaces where a re-read
+under a half-finished form is a hazard rather than a service, and Seal Keys in particular is a
+destructive-operation surface that should do nothing an operator did not ask for.
+
+A poll is deliberately not the Refresh button's action. It never blanks the table first, never
+raises the loading flag (nothing flickers or disables under the pointer), asks for as many rows as
+are already on screen so pages loaded via "Load more" are not silently dropped, and keeps the last
+good data — with the reason — when a read fails. Polling is suspended, without losing the interval,
+while a screen holds something a re-read would disturb: an inline create/edit form with unsaved
+input, an irreversible action already in flight, or a browser tab nobody is looking at (a hidden
+tab re-reads once, immediately, when it comes back). No two reads from the same poller are ever in
+flight at once — a tick that comes due while its predecessor is still running is skipped, not
+queued, so a slow control plane cannot accumulate a backlog of identical requests.
+
 ## Per-deployment metrics rollup
 
 `GET /metrics` is the control plane's own aggregation of the per-instance request/error rates that
@@ -191,7 +224,9 @@ with a "follow" toggle for genuine live tailing — backed by a real `/logs/*` A
 polling a static file. The same data is available from the CLI
 (`gimle logs <target> --follow`) — running both side by side against the same target is the real
 proof that one backend mechanism serves both consumers identically, not two independent
-implementations that happen to agree.
+implementations that happen to agree. Following is one of the tails the global auto-refresh switch
+governs (above): with auto-refresh off, the console makes no reads of its own here either, and the
+Follow button says so.
 
 The screen also carries a content filter, so hunting one line in a high-volume log doesn't mean
 paging through raw NDJSON by hand. A level dropdown applies a **threshold** (`WARN` keeps `WARN` and
@@ -223,6 +258,15 @@ poor UX) — a `/login` route, a root-level redirect guard, and a "log out" cont
 footer. A 401 from any endpoint clears local session state and redirects to `/login`; a 403 surfaces
 in place as "you don't have permission" instead, since the user is legitimately logged in and just
 lacks that specific permission.
+
+An expired session gets exactly one explanation, on the screen the operator is sent to. The 401
+never surfaces as an error of its own — no toast, and no `control plane responded 401` anywhere;
+instead `/login` says the session timed out and that signing in again picks up where they left off.
+That notice is shown only for a session that genuinely lapsed under a signed-in operator: a first
+visit, a wrong password, and a deliberate sign-out all reach the same screen without being
+described as an expiry. Everything else keeps surfacing where the operator's action was, which is
+why a 403 still appears in place — the caller is signed in and staying on the screen, so the
+explanation belongs there.
 
 `Role`/`RoleBinding`/`Account` objects are managed from the Access Control screen (three tabs,
 below) as well as the CLI (see the [CLI reference](../reference/cli-reference.md)) — both read and

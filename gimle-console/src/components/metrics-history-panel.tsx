@@ -13,6 +13,7 @@ import { AXIS, ChartTooltip } from "@/components/chart-kit";
 import { Panel } from "@/components/page-shell";
 import { fmtBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useDisplayStore } from "@/stores/useDisplayStore";
 import { useMetricsHistoryStore } from "@/stores/useMetricsHistoryStore";
 import type { MetricsHistoryLine, ProcessTarget } from "@/types";
 
@@ -57,6 +58,7 @@ export function MetricsHistoryPanel({ target }: { target: ProcessTarget }) {
   const loadOlder = store((s) => s.loadOlder);
   const startLive = store((s) => s.startLive);
   const stopLive = store((s) => s.stopLive);
+  const autoRefresh = useDisplayStore((s) => s.autoRefresh);
 
   useEffect(() => {
     if (target.processId && lines.length === 0) loadFirstPage();
@@ -64,6 +66,12 @@ export function MetricsHistoryPanel({ target }: { target: ProcessTarget }) {
   }, [target.processKind, target.processId]);
 
   useEffect(() => () => stopLive(), [stopLive]);
+
+  // "Go live" is this screen's form of auto-refresh -- a faster, incremental one -- so the global
+  // switch governs it too rather than leaving the console with two unrelated ideas of "live".
+  useEffect(() => {
+    if (!autoRefresh && live) stopLive();
+  }, [autoRefresh, live, stopLive]);
 
   const series: Series[] = useMemo(() => {
     const byName = new Map<string, MetricsHistoryLine[]>();
@@ -129,14 +137,19 @@ export function MetricsHistoryPanel({ target }: { target: ProcessTarget }) {
           <button
             type="button"
             onClick={() => (live ? stopLive() : startLive())}
+            disabled={!autoRefresh}
+            title={
+              autoRefresh ? undefined : "Auto-refresh is off — turn it on under Display to go live"
+            }
             className={cn(
               "rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-widest transition-colors",
               live
                 ? "border-status-ok/40 bg-status-ok/10 text-status-ok"
                 : "border-primary/20 bg-primary/10 text-primary hover:bg-primary/20",
+              !autoRefresh && "cursor-not-allowed opacity-50",
             )}
           >
-            {live ? "live · polling" : "go live"}
+            {live ? "live · polling" : autoRefresh ? "go live" : "live off"}
           </button>
         </div>
       </div>
