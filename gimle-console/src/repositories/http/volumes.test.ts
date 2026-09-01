@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpVolumesRepository } from "./volumes";
-import { jsonResponse, okResponse, stubFetchSequence } from "./testUtil";
+import { jsonResponse, okResponse, stubFetchSequence, textResponse } from "./testUtil";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -56,6 +56,27 @@ describe("HttpVolumesRepository", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/volumes/node-b/ledger/3");
     expect(init.method).toBe("DELETE");
+  });
+
+  it("destroy sends no tenant query for an explicitly untenanted volume", async () => {
+    const fetchMock = stubFetchSequence([() => okResponse()]);
+    const repo = new HttpVolumesRepository();
+
+    await repo.destroy("node-b", "ledger", 3, null);
+
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe("/volumes/node-b/ledger/3");
+  });
+
+  it("destroy surfaces the control plane's own refusal rather than reporting success", async () => {
+    stubFetchSequence([
+      () => textResponse("volume orders-store[0] is still attached on node node-a", 409),
+    ]);
+    const repo = new HttpVolumesRepository();
+
+    await expect(repo.destroy("node-a", "orders-store", 0, "acme")).rejects.toThrow(
+      "still attached",
+    );
   });
 
   it("destroy appends ?tenant= for a tenanted volume and url-encodes each segment", async () => {

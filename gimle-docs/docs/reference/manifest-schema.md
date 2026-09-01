@@ -625,7 +625,10 @@ across every node's agent) inventories each volume with its node, current on-dis
 whether the store still attaches it — `attached: false` marks a retained orphan the default
 `Retain` reclaim policy left behind. `gimle volume destroy <set> <index> --node <nodeId>` reclaims
 one explicitly; both the control plane (store attachment) and the owning agent (a live supervised
-instance) independently refuse to destroy a volume that is still in use. Each instance's heartbeat
+instance) independently refuse to destroy a volume that is still in use. The console's
+[Volumes screen](../architecture/web-console.md#screens) is the same surface with the same refusals,
+and additionally names the owning tenant on a destroy and reports which nodes went unanswered.
+Each instance's heartbeat
 also samples its volume's on-disk size on a coarse interval, surfaced as `volumeUsageBytes` in its
 observation — a soft reading for operators, never an enforced ceiling.
 
