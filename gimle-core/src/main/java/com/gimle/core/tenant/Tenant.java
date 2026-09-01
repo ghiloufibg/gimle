@@ -7,8 +7,13 @@ import java.util.Optional;
  * codebase already uses "namespace" for two other, unrelated concepts (JPMS {@code ModuleLayer}
  * namespacing, Linux namespace isolation); reusing the word here would invite exactly the ambiguity
  * this project's naming conventions elsewhere try to avoid.
+ *
+ * <p>{@code isolationPosture} is the tenant's baseline stance on cross-tenant fabric traffic when
+ * no {@code NetworkPolicySpec} covers a call -- see {@link TenantIsolationPosture}. It lives on the
+ * tenant rather than on a policy because it has to mean something before the tenant's first policy
+ * exists, which is exactly the window a policy-shaped answer cannot cover.
  */
-public record Tenant(String id, ResourceQuota quota) {
+public record Tenant(String id, ResourceQuota quota, TenantIsolationPosture isolationPosture) {
 
   /**
    * The platform's own reserved tenant, the {@code kube-system} equivalent -- where self-hosted
@@ -53,5 +58,22 @@ public record Tenant(String id, ResourceQuota quota) {
     if (quota == null) {
       throw new IllegalArgumentException("quota must not be null");
     }
+    if (isolationPosture == null) {
+      throw new IllegalArgumentException("isolationPosture must not be null");
+    }
+  }
+
+  /**
+   * A tenant with the default {@link TenantIsolationPosture#OPEN} posture -- the shape every
+   * caller that has no opinion about cross-tenant traffic uses, so an operator has to ask for a
+   * closed tenant explicitly rather than inherit one by accident.
+   */
+  public Tenant(String id, ResourceQuota quota) {
+    this(id, quota, TenantIsolationPosture.OPEN);
+  }
+
+  /** Whether an uncovered cross-tenant call into or out of this tenant is denied by default. */
+  public boolean deniesByDefault() {
+    return isolationPosture == TenantIsolationPosture.DENY_BY_DEFAULT;
   }
 }

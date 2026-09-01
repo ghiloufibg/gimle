@@ -83,6 +83,93 @@ public final class NetworkPolicySteps {
         "expected " + name + "'s allowedCallerTenantIds to contain " + allowedCallerTenantId);
   }
 
+  @When(
+      "network policy {string} for tenant {string} adds caller tenant {string} via control-plane"
+          + " replica {int}")
+  public void networkPolicyAddsCallerTenantViaReplica(
+      final String name,
+      final String tenantId,
+      final String addedCallerTenantId,
+      final int replica) {
+    final int version = versionOf(replica, name, tenantId);
+    world.networkPolicyVersions.put(name, version);
+    final Map<String, Object> body = new LinkedHashMap<>();
+    body.put("expectedVersion", version);
+    body.put("addAllowedCallerTenantIds", List.of(addedCallerTenantId));
+    final int status = patchNetworkPolicy(replica, name, tenantId, body);
+    if (status != 200) {
+      throw new HolmgangException("network policy edit failed with status " + status);
+    }
+  }
+
+  @Then(
+      "a second edit of network policy {string} for tenant {string} against the version it started"
+          + " from is rejected with status {int}")
+  public void aStaleEditIsRejected(
+      final String name, final String tenantId, final int expectedStatus) {
+    final Integer staleVersion = world.networkPolicyVersions.get(name);
+    if (staleVersion == null) {
+      throw new HolmgangException("no recorded starting version for network policy " + name);
+    }
+    final Map<String, Object> body = new LinkedHashMap<>();
+    body.put("expectedVersion", staleVersion);
+    // An already-allowed tenant: this edit is refused for its stale version, not its content.
+    body.put("addAllowedCallerTenantIds", List.of("partner-one"));
+    assertEquals(expectedStatus, patchNetworkPolicy(0, name, tenantId, body));
+  }
+
+  @Then(
+      "creating network policy {string} for tenant {string} allowing caller tenant {string} via"
+          + " control-plane replica {int} is rejected with status {int}")
+  public void creatingANetworkPolicyIsRejected(
+      final String name,
+      final String tenantId,
+      final String allowedCallerTenantId,
+      final int replica,
+      final int expectedStatus) {
+    final Map<String, Object> body = new LinkedHashMap<>();
+    body.put("name", name);
+    body.put("tenantId", tenantId);
+    body.put("allowedCallerTenantIds", List.of(allowedCallerTenantId));
+    assertEquals(expectedStatus, send(replica, "POST", "/networkpolicies", body).statusCode());
+  }
+
+  private int versionOf(final int replica, final String name, final String tenantId) {
+    world.networkPolicyTenants.putIfAbsent(name, tenantId);
+    final Map<String, Object> policy =
+        getNetworkPolicy(replica, name)
+            .orElseThrow(
+                () -> new HolmgangException("network policy " + name + " is not visible yet"));
+    return ((Number) policy.get("version")).intValue();
+  }
+
+  private int patchNetworkPolicy(
+      final int replica,
+      final String name,
+      final String tenantId,
+      final Map<String, Object> body) {
+    return send(replica, "PATCH", "/networkpolicies/" + name + "?tenant=" + tenantId, body)
+        .statusCode();
+  }
+
+  private HttpResponse<String> send(
+      final int replica, final String method, final String path, final Map<String, Object> body) {
+    final String url = world.cluster().api(replica).baseUrl() + path;
+    try {
+      return httpClient()
+          .send(
+              HttpRequest.newBuilder(URI.create(url))
+                  .method(
+                      method,
+                      HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8))
+                  .header("Content-Type", "application/json")
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    } catch (final IOException | InterruptedException e) {
+      throw new HolmgangException("network policy request failed against " + url, e);
+    }
+  }
+
   private void postNetworkPolicy(
       final int replica,
       final String name,

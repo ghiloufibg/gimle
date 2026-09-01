@@ -2,7 +2,6 @@ package com.gimle.agent.networkpolicy;
 
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.IOException;
-import java.util.List;
 
 /**
  * Where {@link NetworkPolicyRelay} learns the control plane's currently-declared {@code
@@ -18,7 +17,7 @@ public interface NetworkPolicySource {
    * alike, already projected down to the wire-friendly shape a {@link
    * com.gimle.core.protocol.ControlMessage.NetworkPoliciesUpdated} can carry -- see {@link
    * NetworkPolicyRule#deploymentNames()} for how a scoped rule is distinguished on the receiving
-   * end.
+   * end -- together with the tenants whose declared posture closes them to traffic no rule covers.
    */
-  List<NetworkPolicyRule> fetchPolicies() throws IOException, InterruptedException;
+  NetworkPolicySnapshot fetchPolicies() throws IOException, InterruptedException;
 }

@@ -128,7 +128,10 @@ public final class ControlMessageCodec {
       case ControlMessage.RelayControlPlaneResult m ->
           line("RELAY_RESULT", m.correlationId(), Integer.toString(m.status()), escape(m.body()));
       case ControlMessage.NetworkPoliciesUpdated m ->
-          line("NETWORK_POLICIES", escape(encodeNetworkPolicies(m.rules())));
+          line(
+              "NETWORK_POLICIES",
+              escape(encodeNetworkPolicies(m.rules())),
+              escape(Json.write(List.copyOf(m.denyByDefaultTenantIds()))));
     };
   }
 
@@ -241,7 +244,8 @@ public final class ControlMessageCodec {
               field(fields, 1), Integer.parseInt(field(fields, 2)), unescape(field(fields, 3)));
       case "NETWORK_POLICIES" ->
           new ControlMessage.NetworkPoliciesUpdated(
-              decodeNetworkPolicies(unescape(field(fields, 1))));
+              decodeNetworkPolicies(unescape(field(fields, 1))),
+              stringSet(Json.parse(unescape(field(fields, 2)))));
       default -> throw new IllegalArgumentException("unknown control message type: " + type);
     };
   }
@@ -315,8 +319,9 @@ public final class ControlMessageCodec {
    * variable-length tenant set, unlike {@link ServiceExport}'s single optional set -- rather than
    * inventing another bespoke {@code @}/comma nesting scheme, this reuses {@link Json} (already a
    * {@code gimle-core} dependency every control-plane/agent JSON exchange shares) to write a
-   * compact JSON array, then escapes the whole result as this line's one field the same way {@link
-   * ControlMessage.MetricsSnapshot}'s NDJSON payload already does.
+   * compact JSON array, then escapes the whole result as one field of this line the same way
+   * {@link ControlMessage.MetricsSnapshot}'s NDJSON payload already does. The message's
+   * deny-by-default tenant set travels as a second such field, written the same way.
    */
   private static String encodeNetworkPolicies(List<NetworkPolicyRule> rules) {
     List<Object> array = new ArrayList<>(rules.size());

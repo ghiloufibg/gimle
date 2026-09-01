@@ -1,5 +1,6 @@
 package com.gimle.agent.bifrost;
 
+import com.gimle.agent.networkpolicy.NetworkPolicySnapshot;
 import com.gimle.agent.networkpolicy.NetworkPolicySource;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.IOException;
@@ -44,7 +45,7 @@ public final class BifrostProxy implements AutoCloseable {
 
   /** Convenience: no {@link NetworkPolicySource} means every service is always unrestricted. */
   public BifrostProxy(ServiceSource source, Duration pollInterval) {
-    this(source, () -> List.of(), new BifrostSettings(pollInterval));
+    this(source, NetworkPolicySnapshot::empty, new BifrostSettings(pollInterval));
   }
 
   public BifrostProxy(
@@ -110,7 +111,7 @@ public final class BifrostProxy implements AutoCloseable {
     // level-triggered posture the service list itself already has. A failed fetch skips this
     // whole tick (services included) rather than proceeding with a stale-but-unknown policy set --
     // proceeding could silently unrestrict a listener that should stay restricted.
-    List<NetworkPolicyRule> policies;
+    NetworkPolicySnapshot policies;
     try {
       policies = networkPolicySource.fetchPolicies();
     } catch (IOException | InterruptedException e) {
@@ -187,15 +188,21 @@ public final class BifrostProxy implements AutoCloseable {
    * covered workloads may dial out to, not who may reach them. What {@link ServiceListener#forward}
    * does with a non-empty result depends on whether it can identify callers at all -- see {@link
    * ServiceListener#setApplicableRules}.
+   *
+   * <p>A tenant whose declared posture denies uncovered traffic contributes a synthesized
+   * tenant-wide, allow-nobody rule when no real ingress rule already covers this service, so a
+   * closed tenant behaves here exactly as if an explicit deny-all policy had been written for it
+   * -- rather than staying wide open through this proxy simply because nobody has written that
+   * policy yet.
    */
   private static List<NetworkPolicyRule> applicableRules(
-      ServiceSummary service, List<NetworkPolicyRule> policies) {
+      ServiceSummary service, NetworkPolicySnapshot snapshot) {
     if (service.tenantId().isEmpty()) {
       return List.of();
     }
     String tenantId = service.tenantId().get();
     List<NetworkPolicyRule> applicable = new ArrayList<>();
-    for (NetworkPolicyRule rule : policies) {
+    for (NetworkPolicyRule rule : snapshot.rules()) {
       if (!rule.restrictsIngress()) {
         continue;
       }
@@ -212,6 +219,9 @@ public final class BifrostProxy implements AutoCloseable {
           break;
         }
       }
+    }
+    if (applicable.isEmpty() && snapshot.denyByDefaultTenantIds().contains(tenantId)) {
+      applicable.add(new NetworkPolicyRule("gimle:deny-by-default", tenantId, Set.of()));
     }
     return applicable;
   }

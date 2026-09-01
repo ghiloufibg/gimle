@@ -41,6 +41,13 @@ public final class ScenarioWorld {
    */
   final Map<String, String> networkPolicyTenants = new LinkedHashMap<>();
 
+  /**
+   * The version a step last read for a NetworkPolicy before editing it, remembered so a later step
+   * can replay that same now-stale version and prove the write is refused rather than silently
+   * overwriting the edit that landed in between.
+   */
+  final Map<String, Integer> networkPolicyVersions = new LinkedHashMap<>();
+
   /** One custom resource a scenario applied, remembered so cleanup can delete it. */
   public record AppliedCustomResource(String kindName, String name, Optional<String> tenantId) {}
 

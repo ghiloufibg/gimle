@@ -68,7 +68,7 @@ class HttpNetworkPolicySourceTest {
     HttpNetworkPolicySource source =
         new HttpNetworkPolicySource(HttpClient.newHttpClient(), baseUrl);
 
-    List<NetworkPolicyRule> rules = source.fetchPolicies();
+    List<NetworkPolicyRule> rules = source.fetchPolicies().rules();
 
     assertEquals(1, rules.size());
     assertEquals(Optional.empty(), rules.get(0).deploymentNames());
@@ -87,7 +87,7 @@ class HttpNetworkPolicySourceTest {
     HttpNetworkPolicySource source =
         new HttpNetworkPolicySource(HttpClient.newHttpClient(), baseUrl);
 
-    List<NetworkPolicyRule> rules = source.fetchPolicies();
+    List<NetworkPolicyRule> rules = source.fetchPolicies().rules();
 
     assertEquals(1, rules.size());
     NetworkPolicyRule rule = rules.get(0);

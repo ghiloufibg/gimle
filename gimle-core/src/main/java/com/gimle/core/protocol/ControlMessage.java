@@ -5,6 +5,7 @@ import com.gimle.core.module.ServiceExport;
 import com.gimle.core.tenant.NetworkPolicyRule;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Agent&harr;worker control-channel frames: install/start/stop commands and periodic
@@ -260,14 +261,25 @@ public sealed interface ControlMessage {
    * leaving stale policy state behind. Carries both tenant-wide and per-deployment-scoped policies
    * -- {@link NetworkPolicyRule#deploymentNames()} distinguishes them; the receiving {@code
    * FabricServer} resolves each inbound call's own target deployment to decide which apply.
+   *
+   * <p>{@code denyByDefaultTenantIds} carries the tenants whose declared isolation posture closes
+   * them to uncovered cross-tenant traffic. It rides here rather than on its own message because a
+   * worker can only decide an uncovered call correctly when it holds both halves at once: a
+   * posture that arrived without the rules it defers to would deny calls a policy actually permits.
    */
-  record NetworkPoliciesUpdated(List<NetworkPolicyRule> rules) implements ControlMessage {
+  record NetworkPoliciesUpdated(
+      List<NetworkPolicyRule> rules, Set<String> denyByDefaultTenantIds)
+      implements ControlMessage {
 
     public NetworkPoliciesUpdated {
       if (rules == null) {
         throw new IllegalArgumentException("rules must not be null");
       }
+      if (denyByDefaultTenantIds == null) {
+        throw new IllegalArgumentException("denyByDefaultTenantIds must not be null");
+      }
       rules = List.copyOf(rules);
+      denyByDefaultTenantIds = Set.copyOf(denyByDefaultTenantIds);
     }
   }
 

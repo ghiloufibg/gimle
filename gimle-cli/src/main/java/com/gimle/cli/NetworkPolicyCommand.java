@@ -24,6 +24,15 @@ import java.util.Set;
  * sibling network-model resource. Unlike a Service's {@code tenantId}, a NetworkPolicy's {@code
  * tenantId} is never optional -- it restricts exactly one tenant's own traffic, so {@code --tenant}
  * is required, not optional.
+ *
+ * <p>{@code set} also accepts {@code --add-allowed-caller-tenant}/{@code
+ * --remove-allowed-caller-tenant} (and the callee equivalents), which edit one entry of an existing
+ * policy's allow list instead of redeclaring the whole policy -- the difference between "let this
+ * one more tenant in" and "here is the complete list of everyone allowed in," where a forgotten
+ * field in the latter silently widens or narrows the policy. Either way the version guard is
+ * supplied by this command from a {@code GET} it performs first, never typed by hand, so a
+ * concurrent edit surfaces as a plain 409 rather than quietly overwriting the other operator's
+ * change.
  */
 public final class NetworkPolicyCommand {
 
@@ -67,7 +76,11 @@ public final class NetworkPolicyCommand {
     String usage =
         "set networkpolicy requires <name> --tenant <id> [--deployment <name>...]"
             + " [--service-interface <fqcn>...] [--allowed-caller-tenant <id>... |"
-            + " --deny-all-callers] [--allowed-callee-tenant <id>... | --deny-all-callees]";
+            + " --deny-all-callers] [--allowed-callee-tenant <id>... | --deny-all-callees],"
+            + " or <name> --tenant <id> with only"
+            + " --add-allowed-caller-tenant/--remove-allowed-caller-tenant/"
+            + "--add-allowed-callee-tenant/--remove-allowed-callee-tenant to edit an existing"
+            + " policy's allow list in place";
     if (args.isEmpty()) {
       throw new CliException(usage);
     }
@@ -80,11 +93,19 @@ public final class NetworkPolicyCommand {
                 "--deployment",
                 "--service-interface",
                 "--allowed-caller-tenant",
-                "--allowed-callee-tenant"),
+                "--allowed-callee-tenant",
+                "--add-allowed-caller-tenant",
+                "--remove-allowed-caller-tenant",
+                "--add-allowed-callee-tenant",
+                "--remove-allowed-callee-tenant"),
             usage);
     String tenantId = flags.getOrDefault("--tenant", null);
     if (tenantId == null || tenantId.isBlank()) {
       throw new CliException(usage);
+    }
+    if (hasIncrementalEdit(flags)) {
+      patch(name, tenantId, flags, usage);
+      return;
     }
     List<String> deploymentNames = flags.getAll("--deployment");
     List<String> serviceInterfaceNames = flags.getAll("--service-interface");
@@ -125,9 +146,79 @@ public final class NetworkPolicyCommand {
       body.put("allowedCalleeTenantIds", List.copyOf(new LinkedHashSet<>(allowedCalleeTenantIds)));
     }
 
+    // The version guard comes from a read this command performs itself, so a full redeclaration
+    // racing another operator's edit is refused rather than silently winning.
+    body.put("expectedVersion", currentVersion(tenantId, name));
     client.expectSuccess(client.post("/networkpolicies", Json.write(body)));
     OutputFormat.printResult(
         output, resultBody("configured", name), "networkpolicy/" + name + " configured", out);
+  }
+
+  private static boolean hasIncrementalEdit(Flags flags) {
+    return !flags.getAll("--add-allowed-caller-tenant").isEmpty()
+        || !flags.getAll("--remove-allowed-caller-tenant").isEmpty()
+        || !flags.getAll("--add-allowed-callee-tenant").isEmpty()
+        || !flags.getAll("--remove-allowed-callee-tenant").isEmpty();
+  }
+
+  /**
+   * The in-place edit path: only the named allow-list entries move, everything else the policy
+   * declares is left exactly as stored. Refuses to mix with the whole-policy flags, which would
+   * make the resulting policy depend on which of the two the server applied first.
+   */
+  private void patch(String name, String tenantId, Flags flags, String usage) {
+    if (!flags.getAll("--allowed-caller-tenant").isEmpty()
+        || !flags.getAll("--allowed-callee-tenant").isEmpty()
+        || !flags.getAll("--deployment").isEmpty()
+        || !flags.getAll("--service-interface").isEmpty()
+        || flags.isSet("--deny-all-callers")
+        || flags.isSet("--deny-all-callees")) {
+      throw new CliException(
+          "--add-/--remove-allowed-*-tenant edit an existing policy in place and cannot be"
+              + " combined with the flags that redeclare the whole policy;\n"
+              + usage);
+    }
+    int expectedVersion = currentVersion(tenantId, name);
+    if (expectedVersion == 0) {
+      throw new CliException(
+          "no such networkpolicy '"
+              + name
+              + "' under tenant "
+              + tenantId
+              + " to edit; declare it first with --allowed-caller-tenant/--deny-all-callers");
+    }
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("expectedVersion", expectedVersion);
+    putIfAny(body, "addAllowedCallerTenantIds", flags.getAll("--add-allowed-caller-tenant"));
+    putIfAny(body, "removeAllowedCallerTenantIds", flags.getAll("--remove-allowed-caller-tenant"));
+    putIfAny(body, "addAllowedCalleeTenantIds", flags.getAll("--add-allowed-callee-tenant"));
+    putIfAny(body, "removeAllowedCalleeTenantIds", flags.getAll("--remove-allowed-callee-tenant"));
+
+    String response =
+        client.expectSuccess(
+            client.patch(
+                "/networkpolicies/" + name + "?tenant=" + tenantId, Json.write(body)));
+    Object version = Json.asObject(Json.parse(response)).get("version");
+    Map<String, Object> resultBody = resultBody("updated", name);
+    resultBody.put("version", version);
+    OutputFormat.printResult(
+        output, resultBody, "networkpolicy/" + name + " updated (version " + version + ")", out);
+  }
+
+  private static void putIfAny(Map<String, Object> body, String field, List<String> values) {
+    if (!values.isEmpty()) {
+      body.put(field, List.copyOf(new LinkedHashSet<>(values)));
+    }
+  }
+
+  /** {@code 0} when no such policy exists yet -- the create case, as the API reads it. */
+  private int currentVersion(String tenantId, String name) {
+    ApiResponse response = client.get("/networkpolicies/" + name + "?tenant=" + tenantId);
+    if (response.statusCode() == 404) {
+      return 0;
+    }
+    Map<String, Object> body = Json.asObject(Json.parse(client.expectSuccess(response)));
+    return ((Number) body.get("version")).intValue();
   }
 
   /**

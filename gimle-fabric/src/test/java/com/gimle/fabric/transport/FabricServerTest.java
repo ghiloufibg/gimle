@@ -454,7 +454,7 @@ class FabricServerTest {
 
     server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
     server.updateNetworkPolicies(
-        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())));
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -477,7 +477,7 @@ class FabricServerTest {
 
     server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
     server.updateNetworkPolicies(
-        List.of(new NetworkPolicyRule("allow-partner", "tenant-a", Set.of("tenant-b"))));
+        List.of(new NetworkPolicyRule("allow-partner", "tenant-a", Set.of("tenant-b"))), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -501,7 +501,7 @@ class FabricServerTest {
 
     server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
     server.updateNetworkPolicies(
-        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())));
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -520,7 +520,7 @@ class FabricServerTest {
 
     server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
     server.updateNetworkPolicies(
-        List.of(new NetworkPolicyRule("deny-by-default", "tenant-z", Set.of())));
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-z", Set.of())), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -547,7 +547,7 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.of(Set.of("com.example.SomeOtherService")),
                 Optional.of(Set.of()),
-                Optional.empty())));
+                Optional.empty())), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -564,7 +564,7 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.of(Set.of(Greeter.class.getName())),
                 Optional.of(Set.of()),
-                Optional.empty())));
+                Optional.empty())), Set.of());
 
     assertInstanceOf(
         FabricFrame.InvokeError.class,
@@ -590,7 +590,7 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(Set.of()))));
+                Optional.of(Set.of()))), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -620,7 +620,7 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(Set.of("tenant-a")))));
+                Optional.of(Set.of("tenant-a")))), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -646,7 +646,7 @@ class FabricServerTest {
                 Optional.of(Set.of("some-deployment")),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(Set.of()))));
+                Optional.of(Set.of()))), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -670,7 +670,7 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(Set.of()))));
+                Optional.of(Set.of()))), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -689,7 +689,7 @@ class FabricServerTest {
 
     server = serverWithSelfTenant(registry, Optional.empty());
     server.updateNetworkPolicies(
-        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())));
+        List.of(new NetworkPolicyRule("deny-by-default", "tenant-a", Set.of())), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -730,7 +730,7 @@ class FabricServerTest {
                 "deny-by-default",
                 "tenant-a",
                 Optional.of(Set.of("greeter-deployment")),
-                Set.of())));
+                Set.of())), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -756,7 +756,7 @@ class FabricServerTest {
                 "deny-by-default",
                 "tenant-a",
                 Optional.of(Set.of("greeter-deployment")),
-                Set.of())));
+                Set.of())), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -784,7 +784,7 @@ class FabricServerTest {
                 "deny-by-default",
                 "tenant-a",
                 Optional.of(Set.of("greeter-deployment")),
-                Set.of())));
+                Set.of())), Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -932,5 +932,132 @@ class FabricServerTest {
     // is exactly what proves the release happens on every path serve() can exit through.
     FabricFrame response = FabricClient.call(address, invokeGreet("world"));
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  /**
+   * The gap a policy-shaped answer cannot close: a brand-new tenant's policy list is necessarily
+   * empty, so a loop over it denies nothing. A tenant that declared a deny-by-default posture is
+   * closed to cross-tenant callers from the moment it exists, before its first policy is written.
+   */
+  @Test
+  @Timeout(10)
+  void a_cross_tenant_call_into_a_deny_by_default_tenant_with_no_policies_is_denied()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(List.of(), Set.of("tenant-a"));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+    assertInstanceOf(
+        GimleFabricAuthorizationException.class,
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeError) response).serializedThrowable(),
+            getClass().getClassLoader()));
+  }
+
+  @Test
+  @Timeout(10)
+  void an_untenanted_caller_into_a_deny_by_default_tenant_with_no_policies_is_denied()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(List.of(), Set.of("tenant-a"));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response = FabricClient.call(address, invokeGreet("world", Optional.empty()));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
+  }
+
+  @Test
+  @Timeout(10)
+  void a_cross_tenant_call_into_an_open_tenant_with_no_policies_is_still_permitted()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(List.of(), Set.of());
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+    assertEquals(
+        "hello:world",
+        ObjectMarshalling.deserialize(
+            ((FabricFrame.InvokeResponse) response).serializedReturn(),
+            getClass().getClassLoader()));
+  }
+
+  @Test
+  @Timeout(10)
+  void same_tenant_traffic_into_a_deny_by_default_tenant_is_still_permitted() throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(List.of(), Set.of("tenant-a"));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-a")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  /** A policy covering the call decides it; the posture is only the fallback for uncovered calls. */
+  @Test
+  @Timeout(10)
+  void a_policy_that_permits_a_caller_still_wins_over_the_tenants_deny_by_default_posture()
+      throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(
+        List.of(new NetworkPolicyRule("allow-partner", "tenant-a", Set.of("tenant-b"))),
+        Set.of("tenant-a"));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeResponse.class, response);
+  }
+
+  /**
+   * The egress half of the same posture: a closed tenant's own workloads may not dial out across a
+   * tenant boundary until a policy says which boundaries they may cross.
+   */
+  @Test
+  @Timeout(10)
+  void a_caller_from_a_deny_by_default_tenant_may_not_call_out_to_another_tenant() throws Exception {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    registry.register(OWNER, Greeter.class, name -> "hello:" + name);
+
+    server = serverWithSelfTenant(registry, Optional.of("tenant-a"));
+    server.updateNetworkPolicies(List.of(), Set.of("tenant-b"));
+    InetSocketAddress address =
+        (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
+
+    FabricFrame response =
+        FabricClient.call(address, invokeGreet("world", Optional.of("tenant-b")));
+
+    assertInstanceOf(FabricFrame.InvokeError.class, response);
   }
 }

@@ -23,6 +23,7 @@ import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.core.tenant.TenantIsolationPosture;
 import com.gimle.mimir.galdr.CustomResource;
 import com.gimle.mimir.galdr.KindDefinitionSpec;
 import com.gimle.mimir.galdr.KindNames;
@@ -394,7 +395,11 @@ class RaftCodecTest {
             Map.of("greeter", Set.of(1)),
             Map.of("greeter", Map.of(3, 1)),
             Map.of("greeter", 3),
-            List.of(new Tenant("tenant-1", new ResourceQuota(2048, 1000, 20))),
+            List.of(
+                new Tenant(
+                    "tenant-1",
+                    new ResourceQuota(2048, 1000, 20),
+                    TenantIsolationPosture.DENY_BY_DEFAULT)),
             Set.of("greeter"),
             List.of(new ConfigEntry("tenant-1", "api.key", new byte[] {5, 6, 7}, false)),
             List.of(
@@ -430,7 +435,10 @@ class RaftCodecTest {
                     "greeter-policy",
                     "tenant-1",
                     Optional.of(Set.of("greeter")),
-                    Set.of("tenant-2"))),
+                    Optional.empty(),
+                    Optional.of(Set.of("tenant-2")),
+                    Optional.empty(),
+                    7)),
             List.of(
                 new ControllerRevision(
                     "Deployment", "greeter", 1, deploymentSpec(), 1_000L, OptionalInt.empty())),

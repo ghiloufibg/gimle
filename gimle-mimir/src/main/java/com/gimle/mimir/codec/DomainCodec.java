@@ -24,6 +24,7 @@ import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.core.tenant.TenantIsolationPosture;
 import com.gimle.core.vessel.VesselEnvValue;
 import com.gimle.core.vessel.VesselFileMount;
 import com.gimle.core.vessel.VesselProbeSpec;
@@ -204,6 +205,7 @@ public final class DomainCodec {
     writeOptionalStringSet(out, spec.serviceInterfaceNames());
     writeOptionalStringSet(out, spec.allowedCallerTenantIds());
     writeOptionalStringSet(out, spec.allowedCalleeTenantIds());
+    out.writeInt(spec.version());
   }
 
   public static NetworkPolicySpec readNetworkPolicySpec(DataInputStream in) throws IOException {
@@ -213,13 +215,15 @@ public final class DomainCodec {
     Optional<Set<String>> serviceInterfaceNames = readOptionalStringSet(in);
     Optional<Set<String>> allowedCallerTenantIds = readOptionalStringSet(in);
     Optional<Set<String>> allowedCalleeTenantIds = readOptionalStringSet(in);
+    int version = in.readInt();
     return new NetworkPolicySpec(
         name,
         tenantId,
         deploymentNames,
         serviceInterfaceNames,
         allowedCallerTenantIds,
-        allowedCalleeTenantIds);
+        allowedCalleeTenantIds,
+        version);
   }
 
   public static void writeAlertRuleSpec(DataOutputStream out, AlertRuleSpec spec)
@@ -962,6 +966,7 @@ public final class DomainCodec {
     out.writeLong(tenant.quota().maxMemoryBytes());
     out.writeLong(tenant.quota().maxCpuMillicores());
     out.writeInt(tenant.quota().maxInstances());
+    out.writeUTF(tenant.isolationPosture().name());
   }
 
   public static Tenant readTenant(DataInputStream in) throws IOException {
@@ -969,7 +974,9 @@ public final class DomainCodec {
     long maxMemoryBytes = in.readLong();
     long maxCpuMillicores = in.readLong();
     int maxInstances = in.readInt();
-    return new Tenant(id, new ResourceQuota(maxMemoryBytes, maxCpuMillicores, maxInstances));
+    TenantIsolationPosture isolationPosture = TenantIsolationPosture.valueOf(in.readUTF());
+    return new Tenant(
+        id, new ResourceQuota(maxMemoryBytes, maxCpuMillicores, maxInstances), isolationPosture);
   }
 
   public static void writeConfigEntry(DataOutputStream out, ConfigEntry entry) throws IOException {
