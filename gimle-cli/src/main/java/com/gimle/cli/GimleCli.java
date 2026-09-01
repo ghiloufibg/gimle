@@ -56,6 +56,16 @@ import java.util.Map;
  *   gimle taint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle untaint &lt;nodeId&gt; &lt;tenantId&gt;
  *   gimle events &lt;deploymentName&gt; &lt;instanceIndex&gt; [--tenant &lt;id&gt;] [--limit N]
+ *   gimle metrics
+ *   gimle metrics-history &lt;CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER&gt; &lt;processId&gt;
+ *                          [--since &lt;cursor&gt;] [--limit N]
+ *   gimle traces-history &lt;CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER&gt; &lt;processId&gt;
+ *                         [--since &lt;cursor&gt;] [--limit N]
+ *   gimle context list
+ *   gimle context show [name]
+ *   gimle context use &lt;name&gt;
+ *   gimle context set &lt;name&gt; --server host:port
+ *   gimle context delete &lt;name&gt;
  *   gimle get services [name]
  *   gimle set service &lt;name&gt; (--deployment &lt;name&gt; [--deployment ...] | --external-name &lt;host&gt;) --port N [--target-port N] [--session-affinity]
  *                             [--tenant &lt;id&gt;]
@@ -133,9 +143,13 @@ import java.util.Map;
  *   gimle can-i &lt;verb&gt; &lt;resource&gt; [--tenant &lt;id&gt;] [--target &lt;id&gt;]
  * </pre>
  *
- * Global flags (any order, anywhere): {@code --server host:port} (or the {@code GIMLE_SERVER} env
- * var), {@code -o|--output table|json|manifest} (default {@code table}, kubectl's own flag; {@code
- * manifest} is honored only by {@code get <workload-kind> <name>} -- see {@link ManifestExport}).
+ * Global flags (any order, anywhere): {@code --server host:port}, {@code -o|--output
+ * table|json|manifest} (default {@code table}, kubectl's own flag; {@code manifest} is honored only
+ * by {@code get <workload-kind> <name>} -- see {@link ManifestExport}).
+ *
+ * <p>The control plane an invocation talks to comes from {@code --server}, else the {@code
+ * GIMLE_SERVER} environment variable, else the current context in the CLI's own config file -- in
+ * that order, always (see {@link ServerResolver} and {@link ContextCommand}).
  */
 public final class GimleCli {
 
@@ -178,14 +192,14 @@ public final class GimleCli {
 
   private static void dispatch(String[] args, PrintStream out, PrintStream err) {
     Deque<String> tokens = new ArrayDeque<>(List.of(args));
-    String server = System.getenv("GIMLE_SERVER");
+    String serverFlag = null;
     OutputFormat.Kind output = OutputFormat.Kind.TABLE;
     List<String> positional = new ArrayList<>();
 
     while (!tokens.isEmpty()) {
       String token = tokens.poll();
       switch (token) {
-        case "--server" -> server = requireValue(tokens, "--server");
+        case "--server" -> serverFlag = requireValue(tokens, "--server");
         case "-o", "--output" -> output = parseOutputKind(requireValue(tokens, "-o"));
         default -> positional.add(token);
       }
@@ -211,10 +225,14 @@ public final class GimleCli {
       return;
     }
 
-    if (server == null || server.isBlank()) {
-      throw new CliException(
-          "no control-plane server configured (pass --server host:port or set GIMLE_SERVER)");
+    // Local-only, like help above: naming the control planes this CLI talks to is precisely what
+    // an operator does before any server is resolvable at all.
+    if (verb.equals("context") || verb.equals("contexts")) {
+      new ContextCommand(output, out).run(rest, serverFlag);
+      return;
     }
+
+    String server = ServerResolver.resolve(serverFlag, System.getenv("GIMLE_SERVER"), err);
 
     // Handled before the shared client below: `cert request`/`cert status` deliberately run
     // before any client certificate exists yet, so CertCommand builds exactly the client each of
@@ -242,6 +260,11 @@ public final class GimleCli {
       case "taint" -> handleTaint(rest, client, output, out, true);
       case "untaint" -> handleTaint(rest, client, output, out, false);
       case "events" -> handleEvents(rest, client, output, out);
+      case "metrics" -> new MetricsCommand(client, output, out).run(rest);
+      case "metrics-history" ->
+          new HistoryCommand(client, output, out).run(HistoryCommand.Surface.METRICS, rest);
+      case "traces-history" ->
+          new HistoryCommand(client, output, out).run(HistoryCommand.Surface.TRACES, rest);
       case "secret", "secrets" -> new SecretCommand(client, output, out).run(rest);
       case "configmap", "configmaps" -> new ConfigMapCommand(client, output, out).run(rest);
       case "secretmap", "secretmaps" -> new SecretMapCommand(client, output, out).run(rest);
@@ -622,6 +645,10 @@ public final class GimleCli {
       case "daemonset", "daemonsets" -> DAEMONSET_VERB_USAGE;
       case "logs" -> LogsCommand.usage();
       case "events" -> EVENTS_USAGE;
+      case "metrics" -> MetricsCommand.usage();
+      case "metrics-history" -> HistoryCommand.usage(HistoryCommand.Surface.METRICS);
+      case "traces-history" -> HistoryCommand.usage(HistoryCommand.Surface.TRACES);
+      case "context", "contexts" -> ContextCommand.usage();
       case "cordon" -> "usage: gimle cordon <nodeId>";
       case "uncordon" -> "usage: gimle uncordon <nodeId>";
       case "taint" -> "usage: gimle taint <nodeId> <tenantId>";
@@ -932,6 +959,14 @@ public final class GimleCli {
           volume list
           volume destroy <statefulSet> <instanceIndex> --node <nodeId>
           events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
+          metrics
+          metrics-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId> [--since <cursor>] [--limit N]
+          traces-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId> [--since <cursor>] [--limit N]
+          context list
+          context show [name]
+          context use <name>
+          context set <name> --server host:port
+          context delete <name>
           get services [name]
           set service <name> (--deployment <name> [--deployment ...] | --external-name <host>) --port N [--target-port N] [--session-affinity]
                               [--tenant <id>]

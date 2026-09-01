@@ -45,11 +45,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Exercises {@link GimleCli} against a real {@link ApiServer}, the same "real server, not mocked"
  * convention {@code ApiServerTest} establishes.
+ *
+ * <p>The read lock covers the "no server configured" case below: server resolution falls through to
+ * the CLI's own config file, whose location another test class repoints while it runs.
  */
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class GimleCliTest {
 
   @TempDir(cleanup = CleanupMode.NEVER)
