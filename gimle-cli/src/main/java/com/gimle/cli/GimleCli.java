@@ -1,5 +1,6 @@
 package com.gimle.cli;
 
+import com.gimle.cli.spi.CliExtension;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.net.DnsCacheTtl;
 import java.io.FileDescriptor;
@@ -300,8 +301,17 @@ public final class GimleCli {
       case "deployment", "deployments" -> handleDeploymentVerb(rest, client, output, out);
       case "statefulset", "statefulsets" -> handleStatefulSetVerb(rest, client, output, out);
       case "daemonset", "daemonsets" -> handleDaemonSetVerb(rest, client, output, out);
-      default -> throw new CliException(usage());
+      // The extension seam: a verb this class doesn't implement may still be provided by another
+      // jar on the path. With no provider for it, the unknown-verb error below is reached exactly
+      // as it was before the seam existed.
+      default -> dispatchExtension(verb, rest, client, server, out);
     }
+  }
+
+  private static void dispatchExtension(
+      String verb, List<String> args, ControlPlaneClient client, String server, PrintStream out) {
+    CliExtension extension = CliExtensions.find(verb).orElseThrow(() -> new CliException(usage()));
+    extension.run(args, new ControlPlaneClusterReader(client, server), out);
   }
 
   /**
@@ -1060,7 +1070,24 @@ public final class GimleCli {
     };
   }
 
+  /**
+   * The built-in verb list, plus one line per discovered {@link CliExtension} -- so a verb
+   * contributed by another jar on the path is documented in {@code gimle --help} the same way the
+   * built-in ones are, and vanishes from it again the moment that jar leaves the path.
+   */
   private static String usage() {
+    List<String> extensionLines = CliExtensions.usageLines();
+    if (extensionLines.isEmpty()) {
+      return builtinUsage();
+    }
+    StringBuilder text = new StringBuilder(builtinUsage());
+    for (String line : extensionLines) {
+      text.append("\n  ").append(line);
+    }
+    return text.toString();
+  }
+
+  private static String builtinUsage() {
     return """
         usage: gimle <verb> <resource> [args] [--server host:port] [-o table|json|manifest]
 
