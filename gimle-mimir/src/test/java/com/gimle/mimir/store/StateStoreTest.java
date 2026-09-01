@@ -552,6 +552,108 @@ class StateStoreTest {
     assertEquals(List.of(event), target.listInstanceEvents(Optional.empty(), "orders-service", 0));
   }
 
+  private static InstanceEvent instanceEvent(String id, String workloadName, int instanceIndex) {
+    return new InstanceEvent(
+        id, workloadName, instanceIndex, InstanceEventKind.ACTIVE, "module active", 1_000L);
+  }
+
+  @Test
+  void removing_a_deployment_clears_every_instance_index_timeline_it_owned() {
+    StateStore store = new StateStore();
+    store.putDeployment(sampleDeployment("orders-service", 2));
+    store.putInstanceEvent(Optional.empty(), instanceEvent("evt-0", "orders-service", 0));
+    store.putInstanceEvent(Optional.empty(), instanceEvent("evt-1", "orders-service", 1));
+
+    store.removeDeployment(Optional.empty(), "orders-service");
+
+    assertTrue(store.listInstanceEvents(Optional.empty(), "orders-service", 0).isEmpty());
+    assertTrue(store.listInstanceEvents(Optional.empty(), "orders-service", 1).isEmpty());
+  }
+
+  @Test
+  void a_deployment_recreated_under_a_deleted_ones_name_starts_with_an_empty_timeline() {
+    StateStore store = new StateStore();
+    store.putDeployment(sampleDeployment("orders-service", 1));
+    store.putInstanceEvent(Optional.empty(), instanceEvent("evt-old", "orders-service", 0));
+    store.removeDeployment(Optional.empty(), "orders-service");
+
+    store.putDeployment(sampleDeployment("orders-service", 1));
+    InstanceEvent fresh = instanceEvent("evt-new", "orders-service", 0);
+    store.putInstanceEvent(Optional.empty(), fresh);
+
+    assertEquals(List.of(fresh), store.listInstanceEvents(Optional.empty(), "orders-service", 0));
+  }
+
+  @Test
+  void a_daemonset_recreated_under_a_deleted_ones_name_starts_with_an_empty_timeline() {
+    StateStore store = new StateStore();
+    store.putDaemonSetSpec(sampleDaemonSet("log-shipper"));
+    store.putInstanceEvent(Optional.empty(), instanceEvent("evt-old", "log-shipper", 0));
+    store.removeDaemonSetSpec(Optional.empty(), "log-shipper");
+
+    store.putDaemonSetSpec(sampleDaemonSet("log-shipper"));
+
+    assertTrue(store.listInstanceEvents(Optional.empty(), "log-shipper", 0).isEmpty());
+  }
+
+  @Test
+  void a_statefulset_recreated_under_a_deleted_ones_name_starts_with_an_empty_timeline() {
+    StateStore store = new StateStore();
+    store.putStatefulSetSpec(sampleStatefulSet("ledger", 2));
+    store.putInstanceEvent(Optional.empty(), instanceEvent("evt-old", "ledger", 1));
+    store.removeStatefulSetSpec(Optional.empty(), "ledger");
+
+    store.putStatefulSetSpec(sampleStatefulSet("ledger", 2));
+
+    assertTrue(store.listInstanceEvents(Optional.empty(), "ledger", 1).isEmpty());
+  }
+
+  @Test
+  void removing_a_deployment_leaves_another_tenants_same_named_timeline_alone() {
+    StateStore store = new StateStore();
+    store.putInstanceEvent(Optional.of("acme"), instanceEvent("evt-acme", "orders-service", 0));
+    store.putInstanceEvent(Optional.of("globex"), instanceEvent("evt-globex", "orders-service", 0));
+
+    store.removeDeployment(Optional.of("acme"), "orders-service");
+
+    assertTrue(store.listInstanceEvents(Optional.of("acme"), "orders-service", 0).isEmpty());
+    assertEquals(1, store.listInstanceEvents(Optional.of("globex"), "orders-service", 0).size());
+  }
+
+  /**
+   * The instance-events key is the scoped key plus {@code '#'} plus the index, so a name that is
+   * itself a prefix of another name up to a {@code '#'} must not sweep that other name's timeline.
+   */
+  @Test
+  void removing_a_deployment_leaves_a_similarly_named_workloads_timeline_alone() {
+    StateStore store = new StateStore();
+    store.putInstanceEvent(Optional.empty(), instanceEvent("evt-plain", "orders", 0));
+    store.putInstanceEvent(Optional.empty(), instanceEvent("evt-hashed", "orders#eu", 0));
+
+    store.removeDeployment(Optional.empty(), "orders");
+
+    assertTrue(store.listInstanceEvents(Optional.empty(), "orders", 0).isEmpty());
+    assertEquals(1, store.listInstanceEvents(Optional.empty(), "orders#eu", 0).size());
+  }
+
+  /**
+   * The cleared timelines must be gone from the snapshot a follower installs too, not merely from
+   * the replica that applied the removal -- otherwise a snapshot restore resurrects exactly the
+   * history the removal was there to drop.
+   */
+  @Test
+  void timelines_cleared_by_a_removal_do_not_come_back_through_a_snapshot_restore() {
+    StateStore store = new StateStore();
+    store.putDeployment(sampleDeployment("orders-service", 1));
+    store.putInstanceEvent(Optional.empty(), instanceEvent("evt-old", "orders-service", 0));
+    store.removeDeployment(Optional.empty(), "orders-service");
+
+    StateStore reloaded = new StateStore();
+    reloaded.restoreFromSnapshot(store.snapshot());
+
+    assertTrue(reloaded.listInstanceEvents(Optional.empty(), "orders-service", 0).isEmpty());
+  }
+
   private static AuditEvent auditEvent(
       String id,
       String principal,

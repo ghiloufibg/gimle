@@ -96,5 +96,7 @@ same drain-then-dispose mechanics above apply to the rollback exactly as they wo
 StatefulSet and DaemonSet accept the identical two verbs. Deleting a Deployment/StatefulSet/DaemonSet
 clears its revision history along with it: a later `apply` that reuses the same name starts a brand
 new history at revision 1 rather than inheriting the deleted workload's revisions, and its own old
-revision numbers are no longer valid `--to-revision` targets. See the
+revision numbers are no longer valid `--to-revision` targets. The same delete drops every instance
+event timeline recorded under that name, so a recreated workload's `gimle events` output
+starts empty rather than opening with the deleted workload's lifecycle history. See the
 [CLI reference](./cli-reference.md) for the full flag shape.
