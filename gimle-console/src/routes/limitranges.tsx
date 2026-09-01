@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 import { Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
 import { PageContainer, PageHeader } from "@/components/page-shell";
@@ -296,7 +297,7 @@ function LimitRangesPage() {
       setEditing(tenantId);
       setForm(limitRangeToForm(range));
     } catch (err) {
-      toast.error((err as Error).message);
+      notifyApiError(err);
     }
   }
 
@@ -313,7 +314,7 @@ function LimitRangesPage() {
       toast.success(`Limit range for ${spec.tenantId} saved`);
       reset();
     } catch (err) {
-      toast.error((err as Error).message);
+      notifyApiError(err);
     }
   }
 
@@ -415,7 +416,7 @@ function LimitRangesPage() {
                           toast.success("Limit range deleted");
                           if (editing === r.tenantId) reset();
                         } catch (err) {
-                          toast.error((err as Error).message);
+                          notifyApiError(err);
                         }
                       }}
                     />

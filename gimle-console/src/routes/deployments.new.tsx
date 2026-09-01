@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 import type { AutoscalePolicy, DisruptionBudget } from "@/types";
 
 export const Route = createFileRoute("/deployments/new")({
@@ -122,7 +123,7 @@ function NewDeployment() {
       toast.success(`Created ${form.name}`);
       navigate({ to: "/deployments/$name", params: { name: form.name } });
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
       setSaving(false);
     }
   }

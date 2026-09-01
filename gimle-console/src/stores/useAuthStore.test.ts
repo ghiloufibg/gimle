@@ -13,6 +13,7 @@ describe("useAuthStore", () => {
       status: "unknown",
       principal: null,
       error: null,
+      sessionExpired: false,
       initialized: false,
     });
   });
@@ -73,5 +74,55 @@ describe("useAuthStore", () => {
     const state = useAuthStore.getState();
     expect(state.status).toBe("unauthenticated");
     expect(state.principal).toBeNull();
+  });
+
+  it("a 401 under a signed-in operator records the session as expired", () => {
+    useAuthStore.setState({
+      status: "authenticated",
+      principal: { username: "admin", groups: [] },
+    });
+
+    useAuthStore.getState().handleUnauthorized();
+
+    expect(useAuthStore.getState().sessionExpired).toBe(true);
+  });
+
+  it("a 401 with no session yet is a first visit, not an expiry", () => {
+    useAuthStore.getState().handleUnauthorized();
+
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+
+  it("a 401 under plaintext mode's anonymous principal is not an expiry either", () => {
+    useAuthStore.setState({
+      status: "authenticated",
+      principal: { username: "anonymous", groups: [], anonymous: true },
+    });
+
+    useAuthStore.getState().handleUnauthorized();
+
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+
+  it("signing back in clears the expiry notice", async () => {
+    useAuthStore.setState({ sessionExpired: true });
+    vi.mocked(authRepo.login).mockResolvedValueOnce({ username: "admin", groups: [] });
+
+    await useAuthStore.getState().login("admin", "correct-password");
+
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+
+  it("a deliberate sign-out is not reported as an expiry", async () => {
+    useAuthStore.setState({
+      status: "authenticated",
+      principal: { username: "admin", groups: [] },
+      sessionExpired: true,
+    });
+    vi.mocked(authRepo.logout).mockResolvedValueOnce(undefined);
+
+    await useAuthStore.getState().logout();
+
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
   });
 });

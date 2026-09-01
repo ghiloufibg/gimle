@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 
 export const Route = createFileRoute("/cronjobs/$name")({
   head: ({ params }) => ({
@@ -68,7 +69,7 @@ function CronJobDetail() {
       toast.success(`Deleted ${name}`);
       navigate({ to: "/cronjobs" });
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
       setDeleting(false);
     }
   }
@@ -79,7 +80,7 @@ function CronJobDetail() {
       const jobName = await trigger(name);
       toast.success(`Triggered ${name} -> job ${jobName}`);
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     } finally {
       setTriggering(false);
     }

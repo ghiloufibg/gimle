@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useNodesStore } from "@/stores/useNodesStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { StatusBadge, StatusDot } from "@/components/status";
@@ -19,12 +20,14 @@ export const Route = createFileRoute("/nodes/")({
 });
 
 function NodesList() {
-  const { items, loading, hasMore, loadFirstPage, loadMore, refresh } = useNodesStore();
+  const { items, loading, hasMore, loadFirstPage, loadMore, refresh, poll } = useNodesStore();
 
   useEffect(() => {
     if (items.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll);
 
   return (
     <PageContainer>

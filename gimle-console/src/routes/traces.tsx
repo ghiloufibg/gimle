@@ -6,6 +6,7 @@ import { PageContainer, PageHeader, Panel, StatTile } from "@/components/page-sh
 import { ProcessPicker, defaultProcessTarget } from "@/components/process-picker";
 import { cn } from "@/lib/utils";
 import { tracesRepo } from "@/repositories";
+import { useDisplayStore } from "@/stores/useDisplayStore";
 import { useInstancesStore } from "@/stores/useInstancesStore";
 import { useTracesStore } from "@/stores/useTracesStore";
 import type { ProcessTarget, TraceSpanLine } from "@/types";
@@ -81,6 +82,7 @@ function TraceTable({
   const loadOlder = store((s) => s.loadOlder);
   const startLive = store((s) => s.startLive);
   const stopLive = store((s) => s.stopLive);
+  const autoRefresh = useDisplayStore((s) => s.autoRefresh);
 
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
     key: "timestamp",
@@ -95,6 +97,12 @@ function TraceTable({
   }, [target.processKind, target.processId]);
 
   useEffect(() => () => stopLive(), [stopLive]);
+
+  // "Go live" is this screen's form of auto-refresh -- a faster, incremental one -- so the global
+  // switch governs it too rather than leaving the console with two unrelated ideas of "live".
+  useEffect(() => {
+    if (!autoRefresh && live) stopLive();
+  }, [autoRefresh, live, stopLive]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -175,14 +183,19 @@ function TraceTable({
           <button
             type="button"
             onClick={() => (live ? stopLive() : startLive())}
+            disabled={!autoRefresh}
+            title={
+              autoRefresh ? undefined : "Auto-refresh is off — turn it on under Display to go live"
+            }
             className={cn(
               "h-8 rounded-sm border px-2 font-mono text-[10px] uppercase tracking-widest",
               live
                 ? "border-status-ok/40 bg-status-ok/10 text-status-ok"
                 : "border-primary/20 bg-primary/10 text-primary hover:bg-primary/20",
+              !autoRefresh && "cursor-not-allowed opacity-50",
             )}
           >
-            {live ? "live · polling" : "go live"}
+            {live ? "live · polling" : autoRefresh ? "go live" : "live off"}
           </button>
         </div>
 
@@ -254,20 +267,13 @@ function TraceTable({
   );
 }
 
-
 /**
  * Assembling one trace from the several per-process histories it is scattered across. There is no
  * server-side trace search: this fans the same GET /traces-history/{kind}/{id} call out over every
  * worker the console can currently name, so what it shows is bounded by that list and by how far
  * back each process' own history is walked -- stated plainly in the panel rather than left implied.
  */
-function TraceFollowPanel({
-  traceId,
-  onClose,
-}: {
-  traceId: string;
-  onClose: () => void;
-}) {
+function TraceFollowPanel({ traceId, onClose }: { traceId: string; onClose: () => void }) {
   const instances = useInstancesStore((s) => s.items);
   const loadInstances = useInstancesStore((s) => s.loadFirstPage);
   const [result, setResult] = useState<TraceFollowResult | null>(null);

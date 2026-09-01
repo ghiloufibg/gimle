@@ -353,6 +353,13 @@ user is legitimately logged in, just lacks that permission) — it surfaces as a
 what `requireAuthorized` introduces at the API layer, in place of the single-status-code
 `requireClientCertificate` it replaced.
 
+The two also differ in *where* the operator is told. A 403 is explained in place, because that is
+where they still are. A 401 is explained once, on `/login` — "your session timed out, sign in again
+to pick up where you left off" — and nowhere else: the redirect is never accompanied by an error of
+its own, and the raw status line is never shown. `/login` says that only for a session that
+actually lapsed under a signed-in operator, so a first visit, a rejected password, and a deliberate
+sign-out all land on the same screen without being mislabelled as an expiry.
+
 **Managing `Role`/`RoleBinding`/`Account` objects** is available both from the CLI and from the
 console's own Access Control screen — see [Web console](./web-console.md).
 

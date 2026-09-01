@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useOverviewStore } from "@/stores/useOverviewStore";
 import { PageContainer, PageHeader, Panel, StatTile } from "@/components/page-shell";
 import { fmtRelativeTime, isStale } from "@/lib/format";
@@ -30,6 +31,8 @@ function Overview() {
     s.load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(s.poll);
 
   if (mode === "signal") return <OverviewSignal />;
 

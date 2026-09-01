@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, requestJson, requestOk } from "./apiClient";
+import {
+  ApiError,
+  SESSION_EXPIRED_MESSAGE,
+  SessionExpiredError,
+  requestJson,
+  requestOk,
+  setUnauthorizedHandler,
+} from "./apiClient";
 import { jsonResponse, okResponse, stubFetchSequence, textResponse } from "./testUtil";
 
 afterEach(() => {
@@ -63,5 +70,33 @@ describe("requestOk", () => {
     await expect(requestOk("DELETE", "/tenants/acme")).rejects.toMatchObject(
       new ApiError(403, "forbidden"),
     );
+  });
+});
+
+describe("401 handling", () => {
+  it("throws SessionExpiredError, whose message never shows the raw status line", async () => {
+    stubFetchSequence([() => textResponse("not authenticated", 401)]);
+
+    const failure = await requestJson("GET", "/deployments").catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(SessionExpiredError);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as SessionExpiredError).status).toBe(401);
+    expect((failure as SessionExpiredError).message).toBe(SESSION_EXPIRED_MESSAGE);
+    expect((failure as SessionExpiredError).message).not.toMatch(/401/);
+  });
+
+  it("notifies the registered unauthorized handler exactly once, on write calls too", async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    try {
+      stubFetchSequence([() => textResponse("not authenticated", 401)]);
+      await expect(requestOk("DELETE", "/tenants/acme")).rejects.toBeInstanceOf(
+        SessionExpiredError,
+      );
+      expect(handler).toHaveBeenCalledTimes(1);
+    } finally {
+      setUnauthorizedHandler(() => {});
+    }
   });
 });

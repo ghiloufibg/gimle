@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Node } from "@/types";
 import { nodesRepo } from "@/repositories";
+import { storeErrorMessage } from "@/lib/api-error";
 
 const PAGE = 20;
 
@@ -13,6 +14,7 @@ interface State {
   loadFirstPage(): Promise<void>;
   loadMore(): Promise<void>;
   refresh(): Promise<void>;
+  poll(): Promise<void>;
   getOrFetch(nodeId: string): Promise<Node>;
   setCordoned(nodeId: string, cordoned: boolean): Promise<void>;
   setTaint(nodeId: string, tenantId: string, tainted: boolean): Promise<void>;
@@ -59,6 +61,28 @@ export const useNodesStore = create<State>((set, get) => ({
     set({ items: [], nextCursor: null, hasMore: true });
     await get().loadFirstPage();
   },
+  /** A background re-read for the screen's auto-refresh, deliberately not `refresh()`: it never
+   * blanks the table first, never touches `loading` (so no control flickers disabled under the
+   * pointer and no "Loading…" placeholder replaces rows that are already there), and asks for as
+   * many rows as are already on screen so pages the operator paged in are not silently dropped
+   * every tick. */
+  async poll() {
+    if (get().loading) return;
+    try {
+      const p = await nodesRepo.fetchPage({
+        cursor: null,
+        pageSize: Math.max(PAGE, get().items.length),
+      });
+      set({
+        items: p.items,
+        nextCursor: p.nextCursor,
+        hasMore: p.nextCursor !== null,
+        error: null,
+      });
+    } catch (e) {
+      set({ error: storeErrorMessage(e) });
+    }
+  },
   async getOrFetch(nodeId) {
     const existing = get().items.find((n) => n.nodeId === nodeId);
     if (existing) return existing;
@@ -73,7 +97,7 @@ export const useNodesStore = create<State>((set, get) => ({
         items: get().items.map((n) => (n.nodeId === nodeId ? { ...n, cordoned } : n)),
       });
     } catch (e) {
-      set({ error: (e as Error).message });
+      set({ error: storeErrorMessage(e) });
     }
   },
   async setTaint(nodeId, tenantId, tainted) {
@@ -92,7 +116,7 @@ export const useNodesStore = create<State>((set, get) => ({
         ),
       });
     } catch (e) {
-      set({ error: (e as Error).message });
+      set({ error: storeErrorMessage(e) });
     }
   },
 }));

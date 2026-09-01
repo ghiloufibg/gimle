@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import type { CrashDump, LogCategory, LogFilter, LogLevel, LogLine, LogTarget } from "@/types";
+import { useDisplayStore } from "@/stores/useDisplayStore";
 import { useLogStore } from "@/stores/useLogStore";
 import { logsRepo } from "@/repositories";
 import { PageContainer, PageHeader } from "@/components/page-shell";
@@ -117,6 +118,7 @@ function LogsPage() {
   const store = useLogStore(target, filter);
   const state = store();
   const { lines, loading, following, error } = state;
+  const autoRefresh = useDisplayStore((s) => s.autoRefresh);
 
   const [containsDraft, setContainsDraft] = useState(search.contains ?? "");
   useEffect(() => {
@@ -150,6 +152,13 @@ function LogsPage() {
       store.getState().unfollow();
     };
   }, [store]);
+
+  // Following a tail is this screen's form of auto-refresh, so the global switch governs it too:
+  // switching auto-refresh off means the console makes no reads of its own, on any screen.
+  useEffect(() => {
+    if (!autoRefresh && following) state.unfollow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh, following]);
 
   // handle new lines: scroll or count them
   useEffect(() => {
@@ -239,6 +248,12 @@ function LogsPage() {
             <Button
               size="sm"
               variant={following ? "secondary" : "default"}
+              disabled={!autoRefresh}
+              title={
+                autoRefresh
+                  ? undefined
+                  : "Auto-refresh is off — turn it on under Display to follow the tail"
+              }
               onClick={() => (following ? state.unfollow() : state.follow())}
             >
               {following ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}

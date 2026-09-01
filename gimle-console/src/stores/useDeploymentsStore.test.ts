@@ -13,7 +13,25 @@ vi.mock("@/repositories", () => ({
 }));
 
 import { deploymentsRepo } from "@/repositories";
+import { SessionExpiredError } from "@/repositories/http/apiClient";
+import type { Deployment } from "@/types";
 import { useDeploymentsStore } from "./useDeploymentsStore";
+
+function deployment(name: string): Deployment {
+  return {
+    spec: {
+      name,
+      moduleId: { name: "m", version: "1.0.0" },
+      artifactPath: "",
+      replicas: 1,
+      tenantId: null,
+    },
+    instances: [],
+    unplacedCount: 0,
+    quotaViolating: false,
+    limitRangeViolating: false,
+  };
+}
 
 describe("useDeploymentsStore error surfacing", () => {
   beforeEach(() => {
@@ -146,5 +164,96 @@ describe("useDeploymentsStore error surfacing", () => {
     await useDeploymentsStore.getState().rollback("checkout-service", 99);
 
     expect(useDeploymentsStore.getState().error).toBe("no such revision");
+  });
+});
+
+// poll() is what the screens' auto-refresh calls; the whole point of it being separate from
+// refresh() is what it must NOT do to a screen someone is looking at.
+describe("useDeploymentsStore.poll", () => {
+  beforeEach(() => {
+    useDeploymentsStore.setState({
+      items: [],
+      nextCursor: null,
+      hasMore: true,
+      loading: false,
+      error: null,
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("re-reads at least as many rows as are already on screen, so paged-in rows survive", async () => {
+    const loaded = Array.from({ length: 45 }, (_, i) => deployment(`d-${i}`));
+    useDeploymentsStore.setState({ items: loaded });
+    vi.mocked(deploymentsRepo.fetchPage).mockResolvedValueOnce({
+      items: loaded,
+      nextCursor: null,
+    });
+
+    await useDeploymentsStore.getState().poll();
+
+    expect(deploymentsRepo.fetchPage).toHaveBeenCalledWith({ cursor: null, pageSize: 45 });
+  });
+
+  it("never raises the loading flag, so nothing on the screen flickers or disables", async () => {
+    vi.mocked(deploymentsRepo.fetchPage).mockResolvedValueOnce({
+      items: [deployment("a")],
+      nextCursor: null,
+    });
+
+    const inFlight = useDeploymentsStore.getState().poll();
+    expect(useDeploymentsStore.getState().loading).toBe(false);
+    await inFlight;
+    expect(useDeploymentsStore.getState().loading).toBe(false);
+  });
+
+  it("keeps the last good rows when a poll fails, and says why", async () => {
+    useDeploymentsStore.setState({ items: [deployment("a")] });
+    vi.mocked(deploymentsRepo.fetchPage).mockRejectedValueOnce(
+      new Error("control plane unreachable"),
+    );
+
+    await useDeploymentsStore.getState().poll();
+
+    const state = useDeploymentsStore.getState();
+    expect(state.items).toHaveLength(1);
+    expect(state.error).toBe("control plane unreachable");
+  });
+
+  it("shows no error banner when the failure is an expired session", async () => {
+    useDeploymentsStore.setState({ items: [deployment("a")] });
+    vi.mocked(deploymentsRepo.fetchPage).mockRejectedValueOnce(
+      new SessionExpiredError("not authenticated"),
+    );
+
+    await useDeploymentsStore.getState().poll();
+
+    const state = useDeploymentsStore.getState();
+    expect(state.error).toBeNull();
+    expect(state.items).toHaveLength(1);
+  });
+
+  it("stands aside while a manual load is already in flight", async () => {
+    useDeploymentsStore.setState({ loading: true });
+
+    await useDeploymentsStore.getState().poll();
+
+    expect(deploymentsRepo.fetchPage).not.toHaveBeenCalled();
+  });
+
+  it("clears a stale error once a poll succeeds again", async () => {
+    useDeploymentsStore.setState({ error: "control plane unreachable" });
+    vi.mocked(deploymentsRepo.fetchPage).mockResolvedValueOnce({
+      items: [deployment("a")],
+      nextCursor: "next",
+    });
+
+    await useDeploymentsStore.getState().poll();
+
+    const state = useDeploymentsStore.getState();
+    expect(state.error).toBeNull();
+    expect(state.hasMore).toBe(true);
   });
 });

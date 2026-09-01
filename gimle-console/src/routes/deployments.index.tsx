@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useDeploymentsStore } from "@/stores/useDeploymentsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { StatusBadge } from "@/components/status";
@@ -20,12 +21,14 @@ export const Route = createFileRoute("/deployments/")({
 });
 
 function DeploymentsList() {
-  const { items, hasMore, loading, loadFirstPage, loadMore, refresh } = useDeploymentsStore();
+  const { items, hasMore, loading, loadFirstPage, loadMore, refresh, poll } = useDeploymentsStore();
 
   useEffect(() => {
     if (items.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll);
 
   return (
     <PageContainer>

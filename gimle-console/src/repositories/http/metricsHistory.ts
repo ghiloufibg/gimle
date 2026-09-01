@@ -4,6 +4,7 @@ import type {
   HistorySinceArgs,
   MetricsHistoryRepository,
 } from "../metricsHistory";
+import { createPoller } from "@/lib/polling";
 import { fetchHistoryEnvelope } from "./historyAvailability";
 
 function pathFor(target: ProcessTarget): string {
@@ -44,26 +45,26 @@ export class HttpMetricsHistoryRepository implements MetricsHistoryRepository {
   ): () => void {
     let stopped = false;
     let since = new Date(Date.now() - intervalMs).toISOString();
-    let inFlight = false;
-    const tick = async () => {
-      if (stopped || inFlight) return;
-      inFlight = true;
-      try {
-        const env = await this.fetchSince({ target, since });
-        if (!stopped && env.lines.length > 0) {
-          since = env.lines[env.lines.length - 1].timestamp;
-          onLines(env.lines);
+    // The same poller the screens' own auto-refresh runs on: one place decides what "polling"
+    // means here (no overlapping ticks, a failed read costs nothing but that tick).
+    const poller = createPoller({
+      intervalMs,
+      tick: async () => {
+        try {
+          const env = await this.fetchSince({ target, since });
+          if (!stopped && env.lines.length > 0) {
+            since = env.lines[env.lines.length - 1].timestamp;
+            onLines(env.lines);
+          }
+        } catch {
+          // transient poll failure -- just retry on the next tick
         }
-      } catch {
-        // transient poll failure -- just retry on the next tick
-      } finally {
-        inFlight = false;
-      }
-    };
-    const timer = setInterval(tick, intervalMs);
+      },
+    });
+    poller.start();
     return () => {
       stopped = true;
-      clearInterval(timer);
+      poller.stop();
     };
   }
 }

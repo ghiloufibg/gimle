@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 import type { ConcurrencyPolicy, CronJobSpecInput } from "@/types";
 
 export const Route = createFileRoute("/cronjobs/new")({
@@ -119,7 +120,7 @@ function NewCronJob() {
       toast.success(`Created ${form.name}`);
       navigate({ to: "/cronjobs/$name", params: { name: form.name } });
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
       setSaving(false);
     }
   }

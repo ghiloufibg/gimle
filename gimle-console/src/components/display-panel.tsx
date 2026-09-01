@@ -1,8 +1,9 @@
 import { useEffect } from "react";
-import { LayoutGrid, Moon, Rows3, SlidersHorizontal, Sun } from "lucide-react";
+import { LayoutGrid, Moon, Pause, RefreshCw, Rows3, SlidersHorizontal, Sun } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { AUTO_REFRESH_INTERVAL_MS } from "@/lib/polling";
 import { cn } from "@/lib/utils";
 import { useDisplayStore } from "@/stores/useDisplayStore";
 import { useThemeStore } from "@/stores/useThemeStore";
@@ -51,8 +52,10 @@ export function DisplayPanel() {
 
   const mode = useDisplayStore((s) => s.mode);
   const density = useDisplayStore((s) => s.density);
+  const autoRefresh = useDisplayStore((s) => s.autoRefresh);
   const setMode = useDisplayStore((s) => s.setMode);
   const setDensity = useDisplayStore((s) => s.setDensity);
+  const setAutoRefresh = useDisplayStore((s) => s.setAutoRefresh);
   const initDisplay = useDisplayStore((s) => s.init);
 
   useEffect(() => {
@@ -106,6 +109,32 @@ export function DisplayPanel() {
               { value: "roomy", label: "Roomy", hint: "More breathing room" },
             ]}
           />
+        </div>
+
+        <div>
+          <p className="hud-label mb-1.5">Auto-refresh</p>
+          <Segmented
+            value={autoRefresh ? "on" : "off"}
+            onChange={(v) => setAutoRefresh(v === "on")}
+            options={[
+              {
+                value: "on",
+                label: "On",
+                icon: <RefreshCw className="h-3 w-3" />,
+                hint: `Re-read every ${Math.round(AUTO_REFRESH_INTERVAL_MS / 1000)}s`,
+              },
+              {
+                value: "off",
+                label: "Off",
+                icon: <Pause className="h-3 w-3" />,
+                hint: "Manual refresh only",
+              },
+            ]}
+          />
+          <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
+            Covers every automatic read the console makes, including the live tails on Logs,
+            Metrics, and Traces.
+          </p>
         </div>
 
         <div>

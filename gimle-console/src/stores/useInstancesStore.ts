@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ModuleInstance } from "@/types";
 import { instancesRepo } from "@/repositories";
+import { storeErrorMessage } from "@/lib/api-error";
 import type { InstancesFilter } from "@/repositories/instances";
 
 const PAGE = 30;
@@ -15,6 +16,7 @@ interface State {
   loadFirstPage(): Promise<void>;
   loadMore(): Promise<void>;
   refresh(): Promise<void>;
+  poll(): Promise<void>;
   setFilter(filter: InstancesFilter): Promise<void>;
   getOrFetch(deploymentName: string, instanceIndex: number): Promise<ModuleInstance>;
 }
@@ -73,6 +75,29 @@ export const useInstancesStore = create<State>((set, get) => ({
   async refresh() {
     set({ items: [], nextCursor: null, hasMore: true });
     await get().loadFirstPage();
+  },
+  /** A background re-read for the screen's auto-refresh, deliberately not `refresh()`: it never
+   * blanks the table first, never touches `loading` (so no control flickers disabled under the
+   * pointer and no "Loading…" placeholder replaces rows that are already there), and asks for as
+   * many rows as are already on screen so pages the operator paged in are not silently dropped
+   * every tick. */
+  async poll() {
+    if (get().loading) return;
+    try {
+      const p = await instancesRepo.fetchPage({
+        cursor: null,
+        pageSize: Math.max(PAGE, get().items.length),
+        filter: get().filter,
+      });
+      set({
+        items: p.items,
+        nextCursor: p.nextCursor,
+        hasMore: p.nextCursor !== null,
+        error: null,
+      });
+    } catch (e) {
+      set({ error: storeErrorMessage(e) });
+    }
   },
   async setFilter(filter) {
     if (sameFilter(get().filter, filter)) return;

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { NetworkPolicy } from "@/types";
 import { networkPoliciesRepo } from "@/repositories";
+import { storeErrorMessage } from "@/lib/api-error";
 
 interface State {
   items: NetworkPolicy[];
@@ -9,6 +10,7 @@ interface State {
   error: string | null;
   load(): Promise<void>;
   refresh(): Promise<void>;
+  poll(): Promise<void>;
   save(spec: NetworkPolicy): Promise<void>;
   remove(name: string): Promise<void>;
 }
@@ -31,6 +33,17 @@ export const useNetworkPoliciesStore = create<State>((set, get) => ({
   async refresh() {
     set({ loaded: false });
     await get().load();
+  },
+  /** The screen's auto-refresh read: no `loading` flag, so nothing on the screen flickers or
+   * disables while a poll is out, and the last good list stays visible if one fails. */
+  async poll() {
+    if (get().loading) return;
+    try {
+      const items = await networkPoliciesRepo.fetchAll();
+      set({ items, loaded: true, error: null });
+    } catch (e) {
+      set({ error: storeErrorMessage(e) });
+    }
   },
   async save(spec) {
     set({ loading: true, error: null });

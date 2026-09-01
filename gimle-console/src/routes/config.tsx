@@ -17,6 +17,7 @@ import {
 import { StatusBadge } from "@/components/status";
 import { Eye, EyeOff, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { notifyApiError } from "@/lib/api-error";
 
 export const Route = createFileRoute("/config")({
   head: () => ({
@@ -70,7 +71,7 @@ function ConfigPage() {
       setNewEntry({ key: "", value: "", encrypted: false });
       toast.success("Saved");
     } catch (e) {
-      toast.error((e as Error).message);
+      notifyApiError(e);
     }
   }
 

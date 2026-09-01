@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useTenantsStore } from "@/stores/useTenantsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { StatusBadge } from "@/components/status";
@@ -19,11 +20,13 @@ export const Route = createFileRoute("/tenants/")({
 });
 
 function TenantsList() {
-  const { items, hasMore, loading, loadFirstPage, loadMore, refresh } = useTenantsStore();
+  const { items, hasMore, loading, loadFirstPage, loadMore, refresh, poll } = useTenantsStore();
   useEffect(() => {
     if (items.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll);
   return (
     <PageContainer>
       <PageHeader

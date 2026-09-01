@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
 import { useDaemonSetsStore } from "@/stores/useDaemonSetsStore";
 import { PageContainer, PageHeader } from "@/components/page-shell";
 import { Button } from "@/components/ui/button";
@@ -22,12 +23,14 @@ export const Route = createFileRoute("/daemonsets/")({
 // No "New daemonset" button here, matching JobsList/CronJobsList's own reasoning: `gimle apply -f
 // <manifest.yaml>` is the supported creation path for now.
 function DaemonSetsList() {
-  const { items, hasMore, loading, loadFirstPage, loadMore, refresh } = useDaemonSetsStore();
+  const { items, hasMore, loading, loadFirstPage, loadMore, refresh, poll } = useDaemonSetsStore();
 
   useEffect(() => {
     if (items.length === 0) loadFirstPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useAutoRefresh(poll);
 
   return (
     <PageContainer>
