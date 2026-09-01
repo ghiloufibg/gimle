@@ -532,7 +532,7 @@ PASSED	rbac	the calling identity may WRITE DEPLOYMENT in tenant acme
 PASSED	manifest	kind and name match the addressed route
 PASSED	artifact	resolved, sha256 3f7c…
 FAILED	admission	workload orders would push tenant acme past its resource quota: …
-SKIPPED	placement	not evaluated: the submission would be rejected first
+SKIPPED	placement	not evaluated: the submission would be rejected at the 'admission' stage
 verdict: would be rejected (the real request would answer 409)
 ```
 

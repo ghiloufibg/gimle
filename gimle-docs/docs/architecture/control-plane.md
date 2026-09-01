@@ -117,10 +117,13 @@ proposing anything:
     {"name": "manifest",  "outcome": "PASSED",  "detail": "kind and name match the addressed route"},
     {"name": "artifact",  "outcome": "PASSED",  "detail": "resolved, sha256 …"},
     {"name": "admission", "outcome": "FAILED",  "detail": "workload orders would push tenant acme past its resource quota: …"},
-    {"name": "placement", "outcome": "SKIPPED", "detail": "…"}
+    {"name": "placement", "outcome": "SKIPPED", "detail": "not evaluated: the submission would be rejected at the 'admission' stage"}
   ]
 }
 ```
+
+A rejected verdict always lists all five stages, the ones after the failure marked `SKIPPED`, so a
+caller parsing it sees one shape whatever went wrong rather than a list that silently ends early.
 
 `wouldRespondStatus` is the status the identical non-dry-run request would have answered with, so a
 client maps a predicted rejection onto the real outcome rather than inventing a second
