@@ -196,8 +196,7 @@ public final class NetworkPolicyCommand {
 
     String response =
         client.expectSuccess(
-            client.patch(
-                "/networkpolicies/" + name + "?tenant=" + tenantId, Json.write(body)));
+            client.patch("/networkpolicies/" + name + "?tenant=" + tenantId, Json.write(body)));
     Object version = Json.asObject(Json.parse(response)).get("version");
     Map<String, Object> resultBody = resultBody("updated", name);
     resultBody.put("version", version);

@@ -86,8 +86,10 @@ class NetworkPolicyRegistryTest {
   @Test
   void putting_the_same_name_again_replaces_the_prior_spec() {
     NetworkPolicyRegistry registry = registry();
-    registry.put(new NetworkPolicySpec("deny-by-default", "acme", Set.of("partner-a")), OptionalInt.empty());
-    registry.put(new NetworkPolicySpec("deny-by-default", "acme", Set.of("partner-b")), OptionalInt.empty());
+    registry.put(
+        new NetworkPolicySpec("deny-by-default", "acme", Set.of("partner-a")), OptionalInt.empty());
+    registry.put(
+        new NetworkPolicySpec("deny-by-default", "acme", Set.of("partner-b")), OptionalInt.empty());
 
     assertEquals(1, registry.list().size());
     assertEquals(
@@ -118,7 +120,9 @@ class NetworkPolicyRegistryTest {
     try (StoreClient secondClient = inProcessStore.newClient()) {
       NetworkPolicyRegistry replicaB = new NetworkPolicyRegistry(secondClient);
 
-      replicaA.put(new NetworkPolicySpec("deny-by-default", "acme", Set.of("partner-tenant")), OptionalInt.empty());
+      replicaA.put(
+          new NetworkPolicySpec("deny-by-default", "acme", Set.of("partner-tenant")),
+          OptionalInt.empty());
 
       assertEquals(
           Optional.of(Set.of("partner-tenant")),
@@ -324,8 +328,7 @@ class NetworkPolicyRegistryTest {
   /** The caller-side read-patch-retry-on-conflict loop the version guard pushes onto callers. */
   private static void addCallerWithRetry(NetworkPolicyRegistry registry, String tenantId) {
     for (int attempt = 0; attempt < 50; attempt++) {
-      int currentVersion =
-          registry.get("acme", "policy").map(NetworkPolicySpec::version).orElse(0);
+      int currentVersion = registry.get("acme", "policy").map(NetworkPolicySpec::version).orElse(0);
       if (registry.patch("acme", "policy", currentVersion, addCaller(tenantId))
           instanceof NetworkPolicyWriteResult.Written) {
         return;

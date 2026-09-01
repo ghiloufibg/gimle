@@ -64,9 +64,9 @@ public record Tenant(String id, ResourceQuota quota, TenantIsolationPosture isol
   }
 
   /**
-   * A tenant with the default {@link TenantIsolationPosture#OPEN} posture -- the shape every
-   * caller that has no opinion about cross-tenant traffic uses, so an operator has to ask for a
-   * closed tenant explicitly rather than inherit one by accident.
+   * A tenant with the default {@link TenantIsolationPosture#OPEN} posture -- the shape every caller
+   * that has no opinion about cross-tenant traffic uses, so an operator has to ask for a closed
+   * tenant explicitly rather than inherit one by accident.
    */
   public Tenant(String id, ResourceQuota quota) {
     this(id, quota, TenantIsolationPosture.OPEN);

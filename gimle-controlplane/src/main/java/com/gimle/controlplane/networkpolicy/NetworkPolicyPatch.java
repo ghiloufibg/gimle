@@ -6,9 +6,9 @@ import java.util.Set;
 
 /**
  * A partial update to one stored {@code NetworkPolicySpec}: only what it names is touched,
- * everything else survives exactly as stored. This is what keeps adding or dropping a single
- * caller tenant from being a client-side get-rebuild-replace of the whole spec, where a field the
- * client forgot to carry over silently widens the policy.
+ * everything else survives exactly as stored. This is what keeps adding or dropping a single caller
+ * tenant from being a client-side get-rebuild-replace of the whole spec, where a field the client
+ * forgot to carry over silently widens the policy.
  *
  * <p>The two direction sets are edited by {@code add}/{@code remove} rather than replaced, so two
  * operators editing the same policy's allow list concurrently do not have to serialize on a full
@@ -30,10 +30,12 @@ public record NetworkPolicyPatch(
     Optional<Set<String>> serviceInterfaceNames) {
 
   public NetworkPolicyPatch {
-    addAllowedCallerTenantIds = Set.copyOf(requireNonNull(addAllowedCallerTenantIds, "add callers"));
+    addAllowedCallerTenantIds =
+        Set.copyOf(requireNonNull(addAllowedCallerTenantIds, "add callers"));
     removeAllowedCallerTenantIds =
         Set.copyOf(requireNonNull(removeAllowedCallerTenantIds, "remove callers"));
-    addAllowedCalleeTenantIds = Set.copyOf(requireNonNull(addAllowedCalleeTenantIds, "add callees"));
+    addAllowedCalleeTenantIds =
+        Set.copyOf(requireNonNull(addAllowedCalleeTenantIds, "add callees"));
     removeAllowedCalleeTenantIds =
         Set.copyOf(requireNonNull(removeAllowedCalleeTenantIds, "remove callees"));
     if (deploymentNames == null) {

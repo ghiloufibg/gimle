@@ -42,8 +42,7 @@ public final class HttpNetworkPolicySource implements NetworkPolicySource {
   }
 
   private List<NetworkPolicyRule> fetchRules() throws IOException, InterruptedException {
-    List<Object> raw =
-        Json.asArray(Json.parse(get("/networkpolicies", "list network policies")));
+    List<Object> raw = Json.asArray(Json.parse(get("/networkpolicies", "list network policies")));
     List<NetworkPolicyRule> rules = new ArrayList<>(raw.size());
     for (Object entryValue : raw) {
       Map<String, Object> entry = Json.asObject(entryValue);

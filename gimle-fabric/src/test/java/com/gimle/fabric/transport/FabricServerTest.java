@@ -547,7 +547,8 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.of(Set.of("com.example.SomeOtherService")),
                 Optional.of(Set.of()),
-                Optional.empty())), Set.of());
+                Optional.empty())),
+        Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -564,7 +565,8 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.of(Set.of(Greeter.class.getName())),
                 Optional.of(Set.of()),
-                Optional.empty())), Set.of());
+                Optional.empty())),
+        Set.of());
 
     assertInstanceOf(
         FabricFrame.InvokeError.class,
@@ -590,7 +592,8 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(Set.of()))), Set.of());
+                Optional.of(Set.of()))),
+        Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -620,7 +623,8 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(Set.of("tenant-a")))), Set.of());
+                Optional.of(Set.of("tenant-a")))),
+        Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -646,7 +650,8 @@ class FabricServerTest {
                 Optional.of(Set.of("some-deployment")),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(Set.of()))), Set.of());
+                Optional.of(Set.of()))),
+        Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -670,7 +675,8 @@ class FabricServerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(Set.of()))), Set.of());
+                Optional.of(Set.of()))),
+        Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -730,7 +736,8 @@ class FabricServerTest {
                 "deny-by-default",
                 "tenant-a",
                 Optional.of(Set.of("greeter-deployment")),
-                Set.of())), Set.of());
+                Set.of())),
+        Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -756,7 +763,8 @@ class FabricServerTest {
                 "deny-by-default",
                 "tenant-a",
                 Optional.of(Set.of("greeter-deployment")),
-                Set.of())), Set.of());
+                Set.of())),
+        Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -784,7 +792,8 @@ class FabricServerTest {
                 "deny-by-default",
                 "tenant-a",
                 Optional.of(Set.of("greeter-deployment")),
-                Set.of())), Set.of());
+                Set.of())),
+        Set.of());
     InetSocketAddress address =
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
@@ -1019,7 +1028,9 @@ class FabricServerTest {
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
   }
 
-  /** A policy covering the call decides it; the posture is only the fallback for uncovered calls. */
+  /**
+   * A policy covering the call decides it; the posture is only the fallback for uncovered calls.
+   */
   @Test
   @Timeout(10)
   void a_policy_that_permits_a_caller_still_wins_over_the_tenants_deny_by_default_posture()
@@ -1046,7 +1057,8 @@ class FabricServerTest {
    */
   @Test
   @Timeout(10)
-  void a_caller_from_a_deny_by_default_tenant_may_not_call_out_to_another_tenant() throws Exception {
+  void a_caller_from_a_deny_by_default_tenant_may_not_call_out_to_another_tenant()
+      throws Exception {
     SimpleServiceRegistry registry = new SimpleServiceRegistry();
     registry.register(OWNER, Greeter.class, name -> "hello:" + name);
 

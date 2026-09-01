@@ -17,8 +17,8 @@ public sealed interface NetworkPolicyWriteResult {
 
   /**
    * The caller's {@code expectedVersion} was stale -- carries the policy as it currently stands so
-   * a caller can decide whether to retry against it without a second round trip. {@code current}
-   * is absent when nothing is stored under the name at all, which is version {@code 0}.
+   * a caller can decide whether to retry against it without a second round trip. {@code current} is
+   * absent when nothing is stored under the name at all, which is version {@code 0}.
    */
   record VersionConflict(int currentVersion, Optional<NetworkPolicySpec> current)
       implements NetworkPolicyWriteResult {}

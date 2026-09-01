@@ -194,7 +194,8 @@ class SecretCommandTest {
         errBuffer::toString);
     outBuffer.reset();
     assertEquals(
-        0, run("secret", "get", "acme-copy", "db-password", "--server", serverAddress),
+        0,
+        run("secret", "get", "acme-copy", "db-password", "--server", serverAddress),
         errBuffer::toString);
     assertTrue(outBuffer.toString(StandardCharsets.UTF_8).contains("hunter2"));
   }
@@ -281,8 +282,7 @@ class SecretCommandTest {
 
     if (exportFile.getFileSystem().supportedFileAttributeViews().contains("posix")) {
       assertEquals(
-          PosixFilePermissions.fromString("rw-------"),
-          Files.getPosixFilePermissions(exportFile));
+          PosixFilePermissions.fromString("rw-------"), Files.getPosixFilePermissions(exportFile));
     }
     assertNotEquals(
         0,

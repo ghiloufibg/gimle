@@ -22,10 +22,10 @@ import org.slf4j.LoggerFactory;
  * which relayed rules actually apply to which locally-hosted module is the receiving {@code
  * FabricServer}'s job, not this relay's -- it always ships the full set unfiltered. Each relayed
  * message also carries the tenants whose declared posture closes them to traffic no rule covers,
- * since a worker can only decide an uncovered call correctly while holding both halves at once. Level-triggered
- * like {@code BifrostProxy}: each poll relays whatever the source reports right now in full, not a
- * diff against a remembered previous poll, so a missed or failed tick self-heals on the next one
- * instead of leaving a worker's cached policy set stale.
+ * since a worker can only decide an uncovered call correctly while holding both halves at once.
+ * Level-triggered like {@code BifrostProxy}: each poll relays whatever the source reports right now
+ * in full, not a diff against a remembered previous poll, so a missed or failed tick self-heals on
+ * the next one instead of leaving a worker's cached policy set stale.
  *
  * <p>Lives directly in {@code com.gimle.agent} (unlike Bifrost's own poller, which sits in its own
  * {@code bifrost} subpackage) because relaying requires reading {@link

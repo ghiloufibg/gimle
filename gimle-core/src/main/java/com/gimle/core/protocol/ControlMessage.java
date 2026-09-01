@@ -289,11 +289,10 @@ public sealed interface ControlMessage {
    *
    * <p>{@code denyByDefaultTenantIds} carries the tenants whose declared isolation posture closes
    * them to uncovered cross-tenant traffic. It rides here rather than on its own message because a
-   * worker can only decide an uncovered call correctly when it holds both halves at once: a
-   * posture that arrived without the rules it defers to would deny calls a policy actually permits.
+   * worker can only decide an uncovered call correctly when it holds both halves at once: a posture
+   * that arrived without the rules it defers to would deny calls a policy actually permits.
    */
-  record NetworkPoliciesUpdated(
-      List<NetworkPolicyRule> rules, Set<String> denyByDefaultTenantIds)
+  record NetworkPoliciesUpdated(List<NetworkPolicyRule> rules, Set<String> denyByDefaultTenantIds)
       implements ControlMessage {
 
     public NetworkPoliciesUpdated {
