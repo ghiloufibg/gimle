@@ -1,0 +1,77 @@
+package com.gimle.hugin.model;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+
+/**
+ * One immutable read of the whole cluster. The poller publishes these; the render loop reads
+ * whichever is current and never blocks on I/O of its own -- the same read-a-snapshot,
+ * return-a-result discipline the platform's reconcilers follow, and what lets every renderer be
+ * tested as a pure function.
+ *
+ * <p>{@code fetchedAt} empty means no poll has ever succeeded. {@code staleReason} present means
+ * the most recent poll failed and these rows are the last good ones, from {@code fetchedAt}: a
+ * failed poll never clears the screen, it ages the data and says why.
+ */
+public record ClusterSnapshot(
+    String serverAddress,
+    Optional<Instant> fetchedAt,
+    List<NodeRow> nodes,
+    List<InstanceRow> instances,
+    Optional<String> staleReason) {
+
+  public ClusterSnapshot {
+    if (serverAddress == null || serverAddress.isBlank()) {
+      throw new IllegalArgumentException("serverAddress must not be blank");
+    }
+    if (fetchedAt == null || staleReason == null) {
+      throw new IllegalArgumentException("optional fields must not be null; use Optional.empty()");
+    }
+    nodes = List.copyOf(nodes);
+    instances = List.copyOf(instances);
+  }
+
+  /** The starting state: connected to nothing yet, showing nothing. */
+  public static ClusterSnapshot connecting(final String serverAddress) {
+    return new ClusterSnapshot(
+        serverAddress, Optional.empty(), List.of(), List.of(), Optional.of("connecting"));
+  }
+
+  /** This snapshot's rows, re-labelled as the last good data behind a now-failing poll. */
+  public ClusterSnapshot stale(final String reason) {
+    return new ClusterSnapshot(serverAddress, fetchedAt, nodes, instances, Optional.of(reason));
+  }
+
+  public boolean connected() {
+    return fetchedAt.isPresent() && staleReason.isEmpty();
+  }
+
+  public Optional<Duration> age(final Instant now) {
+    return fetchedAt.map(at -> Duration.between(at, now));
+  }
+
+  public List<InstanceRow> instancesMatching(final String filter) {
+    if (filter == null || filter.isBlank()) {
+      return instances;
+    }
+    String needle = filter.toLowerCase(Locale.ROOT);
+    return instances.stream().filter(row -> row.searchText().contains(needle)).toList();
+  }
+
+  public List<NodeRow> nodesMatching(final String filter) {
+    if (filter == null || filter.isBlank()) {
+      return nodes;
+    }
+    String needle = filter.toLowerCase(Locale.ROOT);
+    return nodes.stream()
+        .filter(node -> node.nodeId().toLowerCase(Locale.ROOT).contains(needle))
+        .toList();
+  }
+
+  public Optional<InstanceRow> find(final InstanceKey key) {
+    return instances.stream().filter(row -> row.key().equals(key)).findFirst();
+  }
+}
