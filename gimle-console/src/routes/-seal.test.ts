@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkRetireTarget, retirementConfirmed } from "./seal";
+import { checkRetireTarget, retirementConfirmed } from "./-seal";
 
 // Pure retire-target validation and confirmation-gate logic only -- this project's vitest config is
 // deliberately node-environment (see vitest.config.ts); the JSX half of this screen is exercised

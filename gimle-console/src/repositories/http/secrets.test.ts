@@ -160,6 +160,34 @@ describe("HttpSecretsRepository", () => {
     expect(activeKeyId).toBe(4);
   });
 
+  it("retireKey POSTs the key id to /secrets/retire-key and reads the retired id back", async () => {
+    const fetchMock = stubFetchSequence([() => jsonResponse({ retiredKeyId: 2 })]);
+    const repo = new HttpSecretsRepository();
+
+    expect(await repo.retireKey(2)).toBe(2);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/secrets/retire-key");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ keyId: 2 });
+  });
+
+  it("surfaces Fafnir's own refusal to retire the active master key", async () => {
+    stubFetchSequence([
+      () => new Response("cannot retire the active secrets key 4", { status: 400 }),
+    ]);
+    const repo = new HttpSecretsRepository();
+
+    await expect(repo.retireKey(4)).rejects.toThrow("cannot retire the active secrets key 4");
+  });
+
+  it("surfaces an unauthorized retirement rather than reporting one that never happened", async () => {
+    stubFetchSequence([() => new Response("forbidden", { status: 403 })]);
+    const repo = new HttpSecretsRepository();
+
+    await expect(repo.retireKey(2)).rejects.toThrow("403");
+  });
+
   it("upsert sends an explicitly declared type so the server validates the value's shape", async () => {
     const fetchMock = stubFetchSequence([() => jsonResponse({ version: 1 })]);
     const repo = new HttpSecretsRepository();

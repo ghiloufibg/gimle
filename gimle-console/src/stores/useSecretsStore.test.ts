@@ -8,6 +8,7 @@ vi.mock("@/repositories", () => ({
     upsert: vi.fn(),
     remove: vi.fn(),
     rotateKey: vi.fn(),
+    retireKey: vi.fn(),
   },
 }));
 
@@ -38,6 +39,7 @@ describe("useSecretsStore", () => {
       error: null,
       revealed: {},
       versions: {},
+      activeKeyId: null,
     });
   });
 
@@ -102,9 +104,7 @@ describe("useSecretsStore", () => {
     useSecretsStore.setState({
       revealed: { "db.password": revealedValue("db.password", "old") },
       versions: {
-        "db.password": [
-          { version: 1, author: "alice", writtenAtEpochMilli: 100, type: "opaque" },
-        ],
+        "db.password": [{ version: 1, author: "alice", writtenAtEpochMilli: 100, type: "opaque" }],
       },
     });
     vi.mocked(secretsRepo.upsert).mockResolvedValueOnce({
@@ -178,5 +178,28 @@ describe("useSecretsStore", () => {
     await useSecretsStore.getState().remove("db.password", true);
 
     expect(useSecretsStore.getState().items).toHaveLength(0);
+  });
+
+  it("rotateKey remembers the new active key id so the retire gate can refuse it", async () => {
+    vi.mocked(secretsRepo.rotateKey).mockResolvedValueOnce(5);
+
+    expect(await useSecretsStore.getState().rotateKey()).toBe(5);
+    expect(useSecretsStore.getState().activeKeyId).toBe(5);
+  });
+
+  it("retireKey returns the id Fafnir actually retired", async () => {
+    vi.mocked(secretsRepo.retireKey).mockResolvedValueOnce(3);
+
+    expect(await useSecretsStore.getState().retireKey(3)).toBe(3);
+  });
+
+  it("retireKey propagates a rejection so the screen can report it instead of claiming success", async () => {
+    vi.mocked(secretsRepo.retireKey).mockRejectedValueOnce(
+      new Error("cannot retire the active secrets key 5"),
+    );
+
+    await expect(useSecretsStore.getState().retireKey(5)).rejects.toThrow(
+      "cannot retire the active secrets key 5",
+    );
   });
 });
