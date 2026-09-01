@@ -121,6 +121,7 @@ import java.util.Map;
  *   gimle backup create [--to &lt;path&gt;]
  *   gimle backup restore &lt;path&gt;
  *   gimle logs &lt;target&gt; [--category=CAT] [--follow|-f] [--since=&lt;cursor&gt;]
+ *                       [--level=LEVEL] [--contains=TEXT]
  *   gimle get roles [name]
  *   gimle set role &lt;name&gt; --permission &lt;resource&gt;:&lt;verb&gt;[:&lt;tenant&gt;[:&lt;qualifier&gt;]] [--permission ...]
  *   gimle delete role &lt;name&gt;
@@ -136,6 +137,11 @@ import java.util.Map;
  * Global flags (any order, anywhere): {@code --server host:port} (or the {@code GIMLE_SERVER} env
  * var), {@code -o|--output table|json|manifest} (default {@code table}, kubectl's own flag; {@code
  * manifest} is honored only by {@code get <workload-kind> <name>} -- see {@link ManifestExport}).
+ *
+ * <p>A failed invocation exits with the failure's own {@link CliExitCode}, so a script can branch
+ * on why it failed without parsing stderr: {@code 1} unclassified (including a usage or argument
+ * mistake), {@code 2} invalid input, {@code 3} not found, {@code 4} forbidden, {@code 5} conflict,
+ * {@code 6} unreachable or retryable.
  */
 public final class GimleCli {
 
@@ -156,23 +162,28 @@ public final class GimleCli {
     }
   }
 
-  /** Testable entry point: returns an exit code instead of calling {@code System.exit}. */
+  /**
+   * Testable entry point: returns an exit code instead of calling {@code System.exit}.
+   *
+   * <p>The exit code is the failure's own {@link CliExitCode}, so a script can branch on why a
+   * command failed without parsing the message it printed to stderr.
+   */
   public static int run(String[] args, PrintStream out, PrintStream err) {
     try {
       dispatch(args, out, err);
       return 0;
     } catch (CliException e) {
       err.println("error: " + e.getMessage());
-      return 1;
+      return e.exitCode().code();
     } catch (GimleManifestException e) {
       // Client-side manifest parsing/validation (apply -f reads the file before any HTTP call)
       // throws the platform's own manifest exception, not CliException -- a user's own YAML
       // mistake, reported as such rather than through the unexpected-failure catch-all below.
       err.println("error: invalid manifest: " + e.getMessage());
-      return 1;
+      return CliExitCode.INVALID_INPUT.code();
     } catch (RuntimeException e) {
       err.println("error: unexpected failure: " + e.getMessage());
-      return 1;
+      return CliExitCode.GENERIC.code();
     }
   }
 
@@ -235,7 +246,7 @@ public final class GimleCli {
       case "get" -> handleGet(rest, client, output, out);
       case "set" -> handleSet(rest, client, output, out, err);
       case "delete" -> handleDelete(rest, client, output, out);
-      case "logs" -> new LogsCommand(client, out).run(rest);
+      case "logs" -> new LogsCommand(client, output, out).run(rest);
       case "cordon" -> new NodesCommand(client, output, out).cordon(requireOne(rest, "cordon"));
       case "uncordon" ->
           new NodesCommand(client, output, out).uncordon(requireOne(rest, "uncordon"));
@@ -248,7 +259,7 @@ public final class GimleCli {
       case "seal", "seals" -> new SealCommand(client, output, out).run(rest);
       case "artifact", "artifacts" -> new ArtifactCommand(client, output, out).run(rest);
       case "backup" -> new BackupCommand(client, output, out).run(rest);
-      case "volume", "volumes" -> new VolumesCommand(client, output, out).run(rest);
+      case "volume", "volumes" -> new VolumesCommand(client, output, out, err).run(rest);
       case "cronjob", "cronjobs" -> handleCronJobVerb(rest, client, output, out);
       case "config", "configs" -> handleConfigVerb(rest, client, output, out);
       case "audit" -> new AuditCommand(client, output, out).run(rest);
@@ -898,6 +909,9 @@ public final class GimleCli {
     return """
         usage: gimle <verb> <resource> [args] [--server host:port] [-o table|json|manifest]
 
+        exit codes: 0 ok | 1 unclassified (incl. usage errors) | 2 invalid input | 3 not found
+                    | 4 forbidden | 5 conflict | 6 unreachable or retryable
+
         verbs:
           get deployments [name]
           get jobs [name]
@@ -992,7 +1006,7 @@ public final class GimleCli {
           backup restore <path>
           audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                      [--since <epochMillis>] [--limit N]
-          logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
+          logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>] [--level=LEVEL] [--contains=TEXT]
           get roles [name]
           set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] [--permission ...]
           delete role <name>

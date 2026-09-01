@@ -286,7 +286,7 @@ class DeploymentsCommandTest {
         """
             .formatted(jar.toAbsolutePath()));
 
-    assertEquals(1, run("apply", "-f", manifest.toString(), "--server", serverAddress));
+    assertEquals(2, run("apply", "-f", manifest.toString(), "--server", serverAddress));
 
     String err = errBuffer.toString(StandardCharsets.UTF_8);
     assertTrue(err.contains("not accepted in apiVersion v1"), err);
