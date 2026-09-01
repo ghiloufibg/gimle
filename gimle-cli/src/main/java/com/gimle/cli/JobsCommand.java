@@ -60,8 +60,12 @@ public final class JobsCommand {
     Path file = ManifestFiles.requireFileFlag(args);
     byte[] manifestBytes = ManifestFiles.readManifestBytes(file);
     String name = ManifestFiles.extractName(file, manifestBytes);
-    ApiResponse response =
-        client.put("/jobs/" + name, new String(manifestBytes, StandardCharsets.UTF_8));
+    String body = new String(manifestBytes, StandardCharsets.UTF_8);
+    if (DryRun.requested(args)) {
+      DryRun.preview(client, "/jobs/" + name, body, output, out, err);
+      return;
+    }
+    ApiResponse response = client.put("/jobs/" + name, body);
     client.expectSuccess(response);
     ManifestFiles.printWarnings(response, err);
     OutputFormat.printResult(output, resultBody("applied", name), "job/" + name + " applied", out);

@@ -2,6 +2,7 @@ package com.gimle.controlplane.reconcile;
 
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.schedule.NodeCandidate;
+import com.gimle.controlplane.schedule.NodeCandidateSource;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.ModuleArtifact;
@@ -9,7 +10,6 @@ import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.InstanceEvent;
 import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.NodeHeartbeat;
-import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
@@ -87,6 +87,7 @@ public final class DeploymentReconciler {
   private final Duration nodeDarkTimeout;
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
+  private final NodeCandidateSource candidateSource;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public DeploymentReconciler(StateStore store, Scheduler scheduler) {
@@ -120,6 +121,7 @@ public final class DeploymentReconciler {
     this.nodeDarkTimeout = nodeDarkTimeout;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
+    this.candidateSource = new NodeCandidateSource(store, nodeDarkTimeout, clock);
   }
 
   public void reconcileOnce() {
@@ -826,32 +828,7 @@ public final class DeploymentReconciler {
       }
     }
 
-    Instant now = clock.instant();
-    List<NodeCandidate> candidates = new ArrayList<>();
-    for (NodeRegistration registration : store.listNodeRegistrations()) {
-      Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(registration.nodeId());
-      if (heartbeat.isEmpty()) {
-        continue; // no capacity report yet; not a placement candidate until it heartbeats
-      }
-      if (hasGoneDark(heartbeat.get(), now)) {
-        // A node that has stopped heartbeating is not merely a neutral candidate, it is an
-        // attractive one: its last report is frozen at whatever capacity it had while alive, and
-        // ReplicaCountReconciler has just released its assignments, so it looks like the emptiest
-        // machine in the cluster. Placing here would re-place an instance onto a machine that is
-        // not answering -- and since that placement is never confirmed, the two reconcilers would
-        // trade release and re-place forever while the deployment stays down.
-        continue;
-      }
-      candidates.add(
-          new NodeCandidate(
-              registration.nodeId(),
-              registration.capabilities(),
-              heartbeat.get().heartbeat().capacity(),
-              nodesAlreadyRunningThisDeployment.contains(registration.nodeId()),
-              store.getNodeTaints(registration.nodeId()),
-              store.isNodeCordoned(registration.nodeId())));
-    }
-    return candidates;
+    return candidateSource.candidates(nodesAlreadyRunningThisDeployment);
   }
 
   private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {

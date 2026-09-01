@@ -26,7 +26,8 @@ import java.util.function.Supplier;
  *   gimle get statefulsets [name]
  *   gimle get &lt;deployments|jobs|cronjobs|daemonsets|statefulsets|nodes|node-assignments&gt; [name]
  *                       [--watch|-w] [--watch-interval=SECS] [--watch-ticks=N]
- *   gimle apply -f &lt;manifest.yaml&gt;|-  (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
+ *   gimle apply -f &lt;manifest.yaml&gt;|- [--dry-run]
+ *                                     (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet,
  *                                      ArtifactSet, KindDefinition, Service, NetworkPolicy, Tenant,
  *                                      LimitRange, Role, RoleBinding, Account, or any defined
  *                                      custom kind, read from the manifest itself; {@code -f -}
@@ -320,7 +321,9 @@ public final class GimleCli {
       PrintStream err) {
     ManifestFiles.resetStdinCache();
     Path file = ManifestFiles.requireFileFlag(args);
-    switch (ManifestFiles.extractKind(file)) {
+    String kind = ManifestFiles.extractKind(file);
+    rejectUnsupportedDryRun(args, kind);
+    switch (kind) {
       case "Deployment" -> new DeploymentsCommand(client, output, out).apply(args, err);
       case "Job" -> new JobsCommand(client, output, out).apply(args, err);
       case "CronJob" -> new CronJobsCommand(client, output, out).apply(args, err);
@@ -342,6 +345,25 @@ public final class GimleCli {
       // carrying that catalog.
       case String other -> new CustomResourceCommand(client, output, out).apply(other, args, err);
     }
+  }
+
+  /**
+   * Only the placeable workload kinds have a preview to give: those are the ones the control
+   * plane's admission chain and scheduler actually reason about, so a dry-run of anything else
+   * could only re-check the JSON shape the real PUT is about to check anyway. Refused outright
+   * rather than silently ignored -- a flag that quietly does nothing on some kinds is exactly how
+   * an operator ends up believing a manifest was previewed when it never was.
+   */
+  private static void rejectUnsupportedDryRun(List<String> args, String kind) {
+    if (!DryRun.requested(args) || DRY_RUN_KINDS.contains(kind)) {
+      return;
+    }
+    throw new CliException(
+        "--dry-run is not supported for kind "
+            + kind
+            + " (supported: "
+            + String.join(", ", DRY_RUN_KINDS)
+            + ")");
   }
 
   /**
@@ -930,12 +952,21 @@ public final class GimleCli {
           Map.entry("kinddefinition", "usage: gimle delete kinddefinition <kind>"),
           Map.entry("kinddefinitions", "usage: gimle delete kinddefinition <kind>"));
 
+  /** The manifest kinds {@code apply --dry-run} can preview -- see {@link DryRun}. */
+  private static final List<String> DRY_RUN_KINDS =
+      List.of("Deployment", "Job", "CronJob", "DaemonSet", "StatefulSet");
+
   private static final String APPLY_USAGE =
       """
-      usage: gimle apply -f <file.yaml>|-
+      usage: gimle apply -f <file.yaml>|- [--dry-run]
 
       kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any
-      defined custom kind (see 'gimle kinds'), read from the manifest file's own 'kind:' field""";
+      defined custom kind (see 'gimle kinds'), read from the manifest file's own 'kind:' field
+
+      --dry-run  preview the submission without applying it: authorization, manifest validation,
+                 artifact resolution, quota/limit-range admission and a placement forecast.
+                 Exits with the status the real apply would have exited with. Supported for
+                 Deployment, Job, CronJob, DaemonSet and StatefulSet manifests only.""";
 
   private static final String KINDS_USAGE =
       "usage: gimle kinds   (lists every KindDefinition: name, scope, declared names, instance"
@@ -1044,7 +1075,7 @@ public final class GimleCli {
           get cronjobs [name]
           get daemonsets [name]
           get statefulsets [name]
-          apply -f <file.yaml>   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any defined custom kind, read from the file itself)
+          apply -f <file.yaml> [--dry-run]   (kind: Deployment, Job, CronJob, DaemonSet, StatefulSet, ArtifactSet, KindDefinition, or any defined custom kind, read from the file itself)
           kinds
           get <custom-kind|plural|shortName> [name] [--tenant <id>]
           delete <custom-kind|plural|shortName> <name> [--tenant <id>]

@@ -2,13 +2,13 @@ package com.gimle.controlplane.reconcile;
 
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.schedule.NodeCandidate;
+import com.gimle.controlplane.schedule.NodeCandidateSource;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeHeartbeat;
-import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.raft.MutationSink;
 import com.gimle.mimir.raft.StateMutation;
@@ -123,6 +123,7 @@ public final class JobReconciler {
   private final Clock clock;
   private final ArtifactResolver artifactResolver;
   private final WorkloadCrashLoopBackoff crashLoopBackoff;
+  private final NodeCandidateSource candidateSource;
 
   /** Test-only convenience: applies mutations directly, bypassing Raft replication entirely. */
   public JobReconciler(StateStore store, Scheduler scheduler) {
@@ -172,6 +173,7 @@ public final class JobReconciler {
     this.placementGracePeriod = placementGracePeriod;
     this.clock = clock;
     this.artifactResolver = artifactResolver;
+    this.candidateSource = new NodeCandidateSource(store, nodeDarkTimeout, clock);
     this.crashLoopBackoff =
         new WorkloadCrashLoopBackoff(
             store,
@@ -462,10 +464,7 @@ public final class JobReconciler {
         .findFirst();
   }
 
-  /**
-   * Mirrors {@link DeploymentReconciler#buildCandidates} exactly, built from {@link JobRun}s
-   * instead of {@link InstanceAssignment}s.
-   */
+  /** The nodes this Job already occupies, read off its own {@link JobRun}s. */
   private List<NodeCandidate> buildCandidates(Optional<String> tenantId, String jobName) {
     Set<String> nodesAlreadyRunningThisJob = new HashSet<>();
     for (JobRun run : store.listJobRuns()) {
@@ -474,26 +473,7 @@ public final class JobReconciler {
       }
     }
 
-    Instant now = clock.instant();
-    List<NodeCandidate> candidates = new ArrayList<>();
-    for (NodeRegistration registration : store.listNodeRegistrations()) {
-      Optional<ObservedHeartbeat> heartbeat = store.getNodeHeartbeat(registration.nodeId());
-      if (heartbeat.isEmpty()) {
-        continue; // no capacity report yet; not a placement candidate until it heartbeats
-      }
-      if (hasGoneDark(heartbeat.get(), now)) {
-        continue; // see DeploymentReconciler.buildCandidates's own identical comment
-      }
-      candidates.add(
-          new NodeCandidate(
-              registration.nodeId(),
-              registration.capabilities(),
-              heartbeat.get().heartbeat().capacity(),
-              nodesAlreadyRunningThisJob.contains(registration.nodeId()),
-              store.getNodeTaints(registration.nodeId()),
-              store.isNodeCordoned(registration.nodeId())));
-    }
-    return candidates;
+    return candidateSource.candidates(nodesAlreadyRunningThisJob);
   }
 
   private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {
