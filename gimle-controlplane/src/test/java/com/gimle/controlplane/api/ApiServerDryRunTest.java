@@ -101,6 +101,12 @@ class ApiServerDryRunTest {
     Map<String, Object> verdict = Json.asObject(Json.parse(preview.body()));
     assertEquals(false, verdict.get("admitted"));
     assertEquals(409L, ((Number) verdict.get("wouldRespondStatus")).longValue());
+    // A rejected verdict still reports every stage, so a caller parsing it sees one shape whatever
+    // went wrong -- the stages after the failure are SKIPPED, not simply absent.
+    assertEquals(
+        List.of("rbac", "manifest", "artifact", "admission", "placement"),
+        Json.asObjectList(verdict.get("checks")).stream().map(c -> c.get("name")).toList());
+    assertEquals("SKIPPED", checkOutcome(verdict, "placement"));
     String predictedReason = failedCheckDetail(verdict, "admission");
     assertTrue(
         predictedReason.contains("past its resource quota"),

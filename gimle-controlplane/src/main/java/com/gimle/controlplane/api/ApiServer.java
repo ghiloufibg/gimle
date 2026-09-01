@@ -39,6 +39,7 @@ import com.gimle.controlplane.pki.PendingCsrStore;
 import com.gimle.controlplane.preview.DryRunVerdict;
 import com.gimle.controlplane.preview.PlacementForecast;
 import com.gimle.controlplane.preview.PreviewCheck;
+import com.gimle.controlplane.preview.PreviewOutcome;
 import com.gimle.controlplane.preview.WorkloadPlacementPreview;
 import com.gimle.controlplane.reconcile.CronJobReconciler;
 import com.gimle.controlplane.schedule.Scheduler;
@@ -1474,8 +1475,7 @@ public final class ApiServer implements AutoCloseable {
       checks.add(
           PreviewCheck.failed(
               "rbac", "gimle-system is reserved for gimle:operators-group callers only"));
-      respondPreview(
-          exchange, DryRunVerdict.rejected(manifestKind, name, submitted.tenantId(), 403, checks));
+      respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 403, checks);
       return;
     }
     checks.add(
@@ -1497,8 +1497,7 @@ public final class ApiServer implements AutoCloseable {
                   + "s route (expected kind: "
                   + manifestKind
                   + ")"));
-      respondPreview(
-          exchange, DryRunVerdict.rejected(manifestKind, name, submitted.tenantId(), 400, checks));
+      respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 400, checks);
       return;
     }
     if (!submitted.name().equals(name)) {
@@ -1506,8 +1505,7 @@ public final class ApiServer implements AutoCloseable {
           PreviewCheck.failed(
               "manifest",
               "manifest name '" + submitted.name() + "' does not match URL path '" + name + "'"));
-      respondPreview(
-          exchange, DryRunVerdict.rejected(manifestKind, name, submitted.tenantId(), 400, checks));
+      respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 400, checks);
       return;
     }
     checks.add(PreviewCheck.passed("manifest", "kind and name match the addressed route"));
@@ -1531,9 +1529,7 @@ public final class ApiServer implements AutoCloseable {
               submitted.tenantId());
       if (artifact.rejection().isPresent()) {
         checks.add(PreviewCheck.failed("artifact", artifact.rejection().get()));
-        respondPreview(
-            exchange,
-            DryRunVerdict.rejected(manifestKind, name, submitted.tenantId(), 400, checks));
+        respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 400, checks);
         return;
       }
       checks.add(
@@ -1551,9 +1547,7 @@ public final class ApiServer implements AutoCloseable {
         kind, Verb.WRITE, spec, storeClient, artifact.artifact())) {
       case AdmissionDecision.Reject<WorkloadSpec> reject -> {
         checks.add(PreviewCheck.failed("admission", reject.reason()));
-        respondPreview(
-            exchange,
-            DryRunVerdict.rejected(manifestKind, name, submitted.tenantId(), 409, checks));
+        respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 409, checks);
         return;
       }
       case AdmissionDecision.Allow<WorkloadSpec> allow -> admittedSpec = allow.spec();
@@ -1563,9 +1557,7 @@ public final class ApiServer implements AutoCloseable {
           kind, Verb.WRITE, deploymentSpec, storeClient, artifact.artifact())) {
         case AdmissionDecision.Reject<DeploymentSpec> reject -> {
           checks.add(PreviewCheck.failed("admission", reject.reason()));
-          respondPreview(
-              exchange,
-              DryRunVerdict.rejected(manifestKind, name, submitted.tenantId(), 409, checks));
+          respondRejectedPreview(exchange, manifestKind, name, submitted.tenantId(), 409, checks);
           return;
         }
         case AdmissionDecision.Allow<DeploymentSpec> allow -> admittedSpec = allow.spec();
@@ -1624,6 +1616,46 @@ public final class ApiServer implements AutoCloseable {
 
   private void respondPreview(HttpExchange exchange, DryRunVerdict verdict) throws IOException {
     respondJson(exchange, 200, verdict.toJson());
+  }
+
+  /**
+   * Every stage a preview knows about, in the order a real submission runs them. A rejected verdict
+   * lists all of them regardless of how early it stopped, the stages after the failure marked
+   * {@link com.gimle.controlplane.preview.PreviewOutcome#SKIPPED} -- so a caller reading the
+   * verdict gets the same shape whatever went wrong, rather than a list that silently ends at the
+   * failure.
+   */
+  private static final List<String> PREVIEW_STAGES =
+      List.of("rbac", "manifest", "artifact", "admission", "placement");
+
+  private void respondRejectedPreview(
+      HttpExchange exchange,
+      String manifestKind,
+      String name,
+      Optional<String> tenantId,
+      int wouldRespondStatus,
+      List<PreviewCheck> checks)
+      throws IOException {
+    String failedStage =
+        checks.stream()
+            .filter(check -> check.outcome() == PreviewOutcome.FAILED)
+            .map(PreviewCheck::name)
+            .findFirst()
+            .orElse("an earlier");
+    List<PreviewCheck> complete = new ArrayList<>(checks);
+    for (String stage : PREVIEW_STAGES) {
+      if (complete.stream().noneMatch(check -> check.name().equals(stage))) {
+        complete.add(
+            PreviewCheck.skipped(
+                stage,
+                "not evaluated: the submission would be rejected at the '"
+                    + failedStage
+                    + "' stage"));
+      }
+    }
+    respondPreview(
+        exchange,
+        DryRunVerdict.rejected(manifestKind, name, tenantId, wouldRespondStatus, complete));
   }
 
   private static boolean isDryRun(HttpExchange exchange) {
