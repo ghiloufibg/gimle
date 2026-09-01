@@ -61,6 +61,7 @@ final class ServiceListener implements AutoCloseable {
   private final Optional<String> localNodeId;
   private final boolean tls;
   private final AtomicInteger cursor = new AtomicInteger();
+  private final Thread acceptThread;
   private volatile List<ServiceEndpoint> endpoints = List.of();
   private volatile boolean sessionAffinity;
   private volatile List<NetworkPolicyRule> applicableRules = List.of();
@@ -101,7 +102,8 @@ final class ServiceListener implements AutoCloseable {
     }
     serverSocket.bind(bindAddress);
     this.boundAddress = (InetSocketAddress) serverSocket.getLocalSocketAddress();
-    Thread.ofVirtual().name("gimle-bifrost-listener-" + serviceName).start(this::acceptLoop);
+    this.acceptThread =
+        Thread.ofVirtual().name("gimle-bifrost-listener-" + serviceName).start(this::acceptLoop);
   }
 
   InetSocketAddress boundAddress() {
@@ -168,6 +170,13 @@ final class ServiceListener implements AutoCloseable {
         }
         log.warn("bifrost accept loop for service {} failed: {}", serviceName, e.getMessage());
         continue;
+      }
+      if (closed) {
+        // The kernel completed this connection before the listening socket went away, so accept
+        // handed it back despite the close. Proxying it would carry traffic to a service this
+        // listener has already been told to stop fronting.
+        closeQuietly(inbound);
+        return;
       }
       Thread.ofVirtual()
           .name("gimle-bifrost-connection-" + serviceName)
@@ -349,6 +358,14 @@ final class ServiceListener implements AutoCloseable {
     }
   }
 
+  /**
+   * Closes the listening socket and does not return until the accept loop has actually stopped. The
+   * join is what makes "this listener is closed" true the moment this returns: closing a {@link
+   * ServerSocket} out from under a thread blocked in {@code accept()} does not retract a connection
+   * the kernel already completed, so without waiting, a listener {@code BifrostProxy} dropped --
+   * because the Service disappeared, or because the proxy itself is shutting down -- could still
+   * serve one more caller after the call that removed it returned.
+   */
   @Override
   public void close() {
     closed = true;
@@ -357,5 +374,6 @@ final class ServiceListener implements AutoCloseable {
     } catch (IOException e) {
       log.warn("bifrost failed to close listener for service {}: {}", serviceName, e.getMessage());
     }
+    joinQuietly(acceptThread);
   }
 }
