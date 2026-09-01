@@ -563,8 +563,9 @@ export interface AuditFilter {
   principal?: string;
   resource?: string;
   tenant?: string;
-  /** ISO-8601 instant. */
+  /** ISO-8601 instant; the wire parameter is epoch millis, converted at the repository boundary. */
   since?: string;
+  /** Page size. Every page of one query must use the same one for its cursors to stay valid. */
   limit?: number;
 }
 
@@ -580,9 +581,27 @@ export interface AuditTrailStatus {
   truncated: boolean;
 }
 
-/** {@code GET /audit}'s actual wire shape -- {@link AuditTrailStatus}'s fields sit flat alongside
- * {@code events}, not nested, matching {@code ApiServer#handleAudit}'s own response body. */
-export type AuditQueryResult = AuditTrailStatus & { events: AuditEvent[] };
+/**
+ * The paging half of `GET /audit`'s envelope, describing this one query rather than the trail's own
+ * retention state. `matchedCount` counts every retained event matching the filters, so a screen can
+ * say "showing 100 of 412" instead of only "100 rows"; `nextCursor` is an opaque marker for the
+ * page immediately older than the last event returned, absent once there is nothing older left.
+ *
+ * `cursorExpired` is the ring buffer showing through: the event a cursor anchored on can itself be
+ * discarded while an operator pages towards it. Eviction only ever discards from the oldest end, so
+ * everything the page would have held went with the anchor -- the page is genuinely empty, and this
+ * flag is what separates that from having simply reached the end of the trail.
+ */
+export interface AuditPageStatus {
+  matchedCount: number;
+  nextCursor?: string;
+  cursorExpired: boolean;
+}
+
+/** {@code GET /audit}'s actual wire shape -- {@link AuditTrailStatus}'s and {@link AuditPageStatus}'s
+ * fields sit flat alongside {@code events}, not nested, matching {@code ApiServer#handleAudit}'s own
+ * response body. */
+export type AuditQueryResult = AuditTrailStatus & AuditPageStatus & { events: AuditEvent[] };
 
 /* ---------------------------------------------------------------------------
  * Autoscale policy -- optional field on DeploymentSpec/DeploymentSpecInput above

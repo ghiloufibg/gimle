@@ -5,6 +5,7 @@ import { PageContainer, PageHeader, Panel, StatTile } from "@/components/page-sh
 import { fmtRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuditStore } from "@/stores/useAuditStore";
+import { describeAuditCoverage } from "./-audit";
 
 export const Route = createFileRoute("/audit")({
   head: () => ({
@@ -45,12 +46,15 @@ const VERB_TONE: Record<string, string> = {
 function Audit() {
   const items = useAuditStore((s) => s.items);
   const status = useAuditStore((s) => s.status);
+  const page = useAuditStore((s) => s.page);
   const filter = useAuditStore((s) => s.filter);
   const loading = useAuditStore((s) => s.loading);
+  const loadingMore = useAuditStore((s) => s.loadingMore);
   const loaded = useAuditStore((s) => s.loaded);
   const error = useAuditStore((s) => s.error);
   const setFilter = useAuditStore((s) => s.setFilter);
   const search = useAuditStore((s) => s.search);
+  const loadMore = useAuditStore((s) => s.loadMore);
   const reset = useAuditStore((s) => s.reset);
 
   useEffect(() => {
@@ -60,6 +64,7 @@ function Audit() {
 
   const denied = items.filter((e) => !e.allowed).length;
   const principals = new Set(items.map((e) => e.principal)).size;
+  const coverage = describeAuditCoverage(items.length, page, status);
 
   const inputCls =
     "h-8 w-full rounded-sm border border-primary/20 bg-background px-2 font-mono text-xs text-foreground";
@@ -84,14 +89,18 @@ function Audit() {
         <StatTile label="Events" value={items.length} tone="primary" />
         <StatTile label="Denied" value={denied} tone={denied > 0 ? "alarm" : "default"} />
         <StatTile label="Principals" value={principals} />
-        <StatTile label="Limit" value={filter.limit ?? 100} tone="muted" />
+        <StatTile label="Matching" value={page?.matchedCount ?? items.length} tone="muted" />
       </div>
 
-      {status?.truncated && (
+      {coverage.pagingGapNotice && (
+        <div className="mb-6 rounded-sm border border-status-bad/30 bg-status-bad-bg/20 px-3 py-2 font-mono text-[11px] text-status-bad">
+          {coverage.pagingGapNotice}
+        </div>
+      )}
+
+      {coverage.retentionNotice && (
         <div className="mb-6 rounded-sm border border-status-warn/30 bg-status-warn/10 px-3 py-2 font-mono text-[11px] text-status-warn">
-          The audit trail has exceeded its retention cap — {status.evictedTotal.toLocaleString()}{" "}
-          older event(s) have been discarded, retaining {status.retainedCount.toLocaleString()}.
-          This is the trail&apos;s own retention state, independent of the filters below.
+          {coverage.retentionNotice}
         </div>
       )}
 
@@ -173,7 +182,7 @@ function Audit() {
 
       <Panel
         title="Events"
-        aside={<span className="hud-label text-muted-foreground">{items.length} rows</span>}
+        aside={<span className="hud-label text-muted-foreground">{coverage.summary}</span>}
       >
         <div className="max-h-[600px] overflow-auto">
           <table className="w-full border-collapse text-left">
@@ -243,6 +252,19 @@ function Audit() {
             </tbody>
           </table>
         </div>
+        {coverage.canLoadMore && (
+          <div className="flex items-center gap-3 border-t border-primary/10 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => loadMore()}
+              disabled={loadingMore}
+              className="rounded-sm border border-primary/20 bg-primary/10 px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-primary hover:bg-primary/20 disabled:opacity-50"
+            >
+              {loadingMore ? "loading…" : "load older"}
+            </button>
+            <span className="font-mono text-[11px] text-muted-foreground">{coverage.summary}</span>
+          </div>
+        )}
       </Panel>
     </PageContainer>
   );

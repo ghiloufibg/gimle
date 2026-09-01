@@ -56,7 +56,7 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Seal Keys | Fafnir's asymmetric sealing key pair — the active key id, its algorithm, and the base64 X.509 SubjectPublicKeyInfo public key with a copy action, plus rotation and retirement. The UI equivalent of `gimle seal public-key/rotate-key/retire-key`. See [Multi-tenancy](./multi-tenancy.md#the-sealing-key-lifecycle-in-the-console). |
 | Artifacts | Module jars pushed to the [Andvari](./node-topology.md#andvari) artifact registry — push/list/copy-checksum/delete against the real `/artifacts/*` proxy, the UI equivalent of `gimle artifact push/list/get/delete`. |
 | Access Control | `Role`/`RoleBinding`/`Account` management (tabs, below) — the UI equivalent of `gimle get/set/delete role/rolebinding/accounts`. |
-| Audit | Filterable audit trail (principal, resource kind, verb, tenant, allow/deny), below. |
+| Audit | Filterable, cursor-paged audit trail (principal, resource kind, verb, tenant, allow/deny), below. |
 | Logs | Live log tailing, level/text filtering, and crash-dump listing, below. |
 | Control plane | Scheduler, quota enforcer, and heartbeat-worker status at a glance, plus a link into the control plane's own log. In its own sidebar group since it reports on the control plane process itself rather than on a workload. |
 
@@ -157,12 +157,32 @@ before the UI did:
   worker's history is walked only a few pages back, any process that failed to answer is named,
   and a parent span that no searched process produced is reported as making the trace provably
   incomplete.
-- **Audit trail** (`GET /audit?principal=&resource=&tenant=&since=&limit=`): a filterable table,
-  most recent first, allowed/denied visually distinguished. Only ever populated in TLS mode — see
-  [Authentication and authorization](./authn-authz.md) — since `requireAuthorized` only resolves a
-  real principal (and therefore only ever records an audit event) when the transport is TLS, via
-  either a verified mTLS client certificate or a verified console session cookie — plaintext mode
-  has neither.
+- **Audit trail** (`GET /audit?principal=&resource=&tenant=&since=&limit=&cursor=`): a filterable
+  table, most recent first, allowed/denied visually distinguished. Only ever populated in TLS mode
+  — see [Authentication and authorization](./authn-authz.md) — since `requireAuthorized` only
+  resolves a real principal (and therefore only ever records an audit event) when the transport is
+  TLS, via either a verified mTLS client certificate or a verified console session cookie —
+  plaintext mode has neither.
+
+  The screen pages the trail rather than truncating it. `limit` is a page size, the response reports
+  `matchedCount` (every retained event matching the filters, not just this page), and `nextCursor`
+  is an opaque marker for the page immediately older than the last row returned — a **load older**
+  control follows it and appends. The header always reads *showing N of M matching*, so a query cut
+  short by the page size is never mistaken for the whole answer.
+
+  The trail is a fixed-size ring, so the cursor names an **event**, not an offset: an offset shifts
+  by one for every decision recorded while an operator reads (skipping rows) and shifts back for
+  every event evicted from the oldest end (repeating them). Anchoring on the event's own id survives
+  both. A cursor also carries the filter set it was issued under; the control plane rejects one
+  presented with different filters (`400`) rather than silently answering a different question, and
+  the console drops its cursor whenever a filter changes.
+
+  Two distinct incompleteness signals are surfaced separately, because they have opposite remedies:
+  `truncated`/`evictedTotal` say the cluster's whole trail has crossed its retention cap (a warning
+  banner naming how many decisions were discarded and the oldest still retained), while
+  `cursorExpired` says the page this operator asked for was itself evicted mid-walk — eviction only
+  ever discards from the oldest end, so everything older than the last visible row is gone from the
+  cluster and re-running the query is the only honest next step.
 - **Access Control** (`GET/PUT/DELETE /roles/*`, `/rolebindings/*`, `/accounts/*`): three tabs —
   Roles (a repeatable permission-row editor: resource kind, verb, optional tenant scope — both
   pickers filled from [`GET /authz/vocabulary`](./authn-authz.md), the control plane's own live
