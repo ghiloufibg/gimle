@@ -94,11 +94,28 @@ class AgentLogServerTest {
   }
 
   /** The four levels the filtering tests below span, one line each, oldest first. */
+  private static final List<String> MIXED_LEVEL_MESSAGES =
+      List.of(
+          "cache warmed",
+          "agent registered with control plane",
+          "heartbeat delayed by 4s",
+          "downstream call timed out");
+
   private void writeMixedLevelPlatformLines() {
-    writePlatformLine(Level.DEBUG, "cache warmed");
-    writePlatformLine(Level.INFO, "agent registered with control plane");
-    writePlatformLine(Level.WARN, "heartbeat delayed by 4s");
-    writePlatformLine(Level.ERROR, "downstream call timed out");
+    writePlatformLine(Level.DEBUG, MIXED_LEVEL_MESSAGES.get(0));
+    writePlatformLine(Level.INFO, MIXED_LEVEL_MESSAGES.get(1));
+    writePlatformLine(Level.WARN, MIXED_LEVEL_MESSAGES.get(2));
+    writePlatformLine(Level.ERROR, MIXED_LEVEL_MESSAGES.get(3));
+  }
+
+  /**
+   * These lines are written through the real root logger, which every other test class in this JVM
+   * also logs into, so a concurrently-running class's own output lands in the same capture. Keeping
+   * only this fixture's own messages makes the level assertions depend on the filter under test
+   * rather than on what else happened to log at the same moment.
+   */
+  private static List<String> onlyFixtureLines(List<String> messages) {
+    return messages.stream().filter(MIXED_LEVEL_MESSAGES::contains).toList();
   }
 
   private static List<String> messagesOf(Map<String, Object> page) {
@@ -357,7 +374,9 @@ class AgentLogServerTest {
 
     List<String> messages = messagesOf(get("/logs/nodes/node-a?category=PLATFORM&level=WARN"));
 
-    assertEquals(List.of("heartbeat delayed by 4s", "downstream call timed out"), messages);
+    assertEquals(
+        List.of("heartbeat delayed by 4s", "downstream call timed out"),
+        onlyFixtureLines(messages));
   }
 
   @Test
@@ -367,7 +386,10 @@ class AgentLogServerTest {
 
     List<String> messages = messagesOf(get("/logs/nodes/node-a?category=PLATFORM&level=trace"));
 
-    assertEquals(4, messages.size(), "TRACE is the floor -- nothing structured ranks below it");
+    assertEquals(
+        MIXED_LEVEL_MESSAGES,
+        onlyFixtureLines(messages),
+        "TRACE is the floor -- nothing structured ranks below it");
   }
 
   @Test
