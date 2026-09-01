@@ -1009,15 +1009,18 @@ public final class DomainCodec {
 
   public static void writePermission(DataOutputStream out, Permission permission)
       throws IOException {
-    out.writeUTF(permission.resource().name());
-    out.writeUTF(permission.verb().name());
+    // Both positions carry a wildcard as Permission's own token spelling rather than an enum name,
+    // so a wildcard grant is one string here exactly like a named one -- the widening happens when
+    // a request is matched, never at rest.
+    out.writeUTF(permission.resourceToken());
+    out.writeUTF(permission.verbToken());
     writeOptionalString(out, permission.tenantScope());
     writeOptionalString(out, permission.qualifier());
   }
 
   public static Permission readPermission(DataInputStream in) throws IOException {
-    ResourceKind resource = ResourceKind.valueOf(in.readUTF());
-    Verb verb = Verb.valueOf(in.readUTF());
+    Optional<ResourceKind> resource = Permission.parseResource(in.readUTF());
+    Optional<Verb> verb = Permission.parseVerb(in.readUTF());
     Optional<String> tenantScope = readOptionalString(in);
     Optional<String> qualifier = readOptionalString(in);
     return new Permission(resource, verb, tenantScope, qualifier);

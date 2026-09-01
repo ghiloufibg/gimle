@@ -848,6 +848,83 @@ class GimleCliTest {
   }
 
   @Test
+  void set_role_stores_a_wildcard_permission_position_as_a_wildcard() throws Exception {
+    int setExit =
+        run(
+            "set",
+            "role",
+            "everything-reader",
+            "--permission",
+            "*:read",
+            "--permission",
+            "deployment:*:acme",
+            "--permission",
+            // The wildcard tenant segment is the explicit spelling of the cluster-wide grant an
+            // omitted segment has always meant, so it is stored the same way: no tenantScope.
+            "config:read:*");
+    assertEquals(0, setExit, this::stderr);
+
+    outBuffer.reset();
+    int getExit = run("-o", "json", "get", "role", "everything-reader");
+    assertEquals(0, getExit);
+    String stored = stdout();
+    assertTrue(stored.contains("\"resource\":\"*\""), stored);
+    assertTrue(stored.contains("\"verb\":\"*\""), stored);
+    assertTrue(stored.contains("\"tenantScope\":\"acme\""), stored);
+    // Nothing was enumerated into the stored role: three grants in, three grants out.
+    assertEquals(3, stored.split("\"resource\"", -1).length - 1, stored);
+
+    run("delete", "role", "everything-reader");
+  }
+
+  @Test
+  void apply_role_accepts_a_wildcard_permission_position_in_a_manifest() throws Exception {
+    Path manifest = tempDir.resolve("wildcard-role.yaml");
+    Files.writeString(
+        manifest,
+        """
+        kind: Role
+        name: applied-wildcard
+        permissions:
+          - resource: "*"
+            verb: read
+        """);
+
+    assertEquals(0, run("apply", "-f", manifest.toString()), this::stderr);
+
+    outBuffer.reset();
+    assertEquals(0, run("-o", "json", "get", "role", "applied-wildcard"));
+    assertTrue(stdout().contains("\"resource\":\"*\""), stdout());
+
+    run("delete", "role", "applied-wildcard");
+  }
+
+  @Test
+  void set_role_rejects_a_malformed_permission_before_reaching_the_server() throws Exception {
+    assertEquals(1, run("set", "role", "broken", "--permission", "deployment"));
+    assertTrue(stderr().contains("expected resource:verb"), stderr());
+
+    errBuffer.reset();
+    assertEquals(1, run("set", "role", "broken", "--permission", "nonesuch:read"));
+    assertTrue(stderr().contains("unknown permission resource"), stderr());
+
+    errBuffer.reset();
+    assertEquals(1, run("set", "role", "broken", "--permission", "deployment:peek"));
+    assertTrue(stderr().contains("unknown permission verb"), stderr());
+
+    errBuffer.reset();
+    assertEquals(1, run("set", "role", "broken", "--permission", ":read"));
+    assertTrue(stderr().contains("must not be blank"), stderr());
+
+    errBuffer.reset();
+    // A bare wildcard qualifier would be a grant matching nothing -- refused, not silently stored.
+    assertEquals(1, run("set", "role", "broken", "--permission", "custom_resource:read:acme:*"));
+    assertTrue(stderr().contains("qualifier"), stderr());
+
+    assertEquals(1, run("get", "role", "broken"));
+  }
+
+  @Test
   void deleting_a_role_cascades_to_every_rolebinding_that_named_it() throws Exception {
     // FUNC-24 regression: roleName is a plain string resolved by name at authorize-time, not an
     // immutable ID -- a binding left behind after its Role is deleted would silently reactivate

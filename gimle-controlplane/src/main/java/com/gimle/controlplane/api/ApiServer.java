@@ -5693,8 +5693,8 @@ public final class ApiServer implements AutoCloseable {
     List<Map<String, Object>> permissions = new ArrayList<>();
     for (Permission p : role.permissions()) {
       Map<String, Object> pm = new LinkedHashMap<>();
-      pm.put("resource", p.resource().name());
-      pm.put("verb", p.verb().name());
+      pm.put("resource", p.resourceToken());
+      pm.put("verb", p.verbToken());
       p.tenantScope().ifPresent(t -> pm.put("tenantScope", t));
       p.qualifier().ifPresent(q -> pm.put("qualifier", q));
       permissions.add(pm);
@@ -5709,16 +5709,12 @@ public final class ApiServer implements AutoCloseable {
     if (permissionsList != null) {
       for (Object o : permissionsList) {
         Map<?, ?> pm = (Map<?, ?>) o;
-        ResourceKind resource = ResourceKind.valueOf((String) pm.get("resource"));
-        Verb verb = Verb.valueOf((String) pm.get("verb"));
-        Object tenantScope = pm.get("tenantScope");
-        Object qualifier = pm.get("qualifier");
         permissions.add(
             new Permission(
-                resource,
-                verb,
-                tenantScope == null ? Optional.empty() : Optional.of((String) tenantScope),
-                qualifier == null ? Optional.empty() : Optional.of((String) qualifier)));
+                Permission.parseResource((String) pm.get("resource")),
+                Permission.parseVerb((String) pm.get("verb")),
+                Permission.parseTenantScope((String) pm.get("tenantScope")),
+                Permission.parseQualifier((String) pm.get("qualifier"))));
       }
     }
     return new Role(name, permissions);

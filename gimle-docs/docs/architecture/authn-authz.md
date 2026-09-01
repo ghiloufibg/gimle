@@ -38,6 +38,23 @@ tenant. A `Role` is a named set of permissions; a `RoleBinding` grants a `Role` 
 `user:<name>` or `group:<name>`, additive across every binding that matches a given principal, never
 subtractive.
 
+Any of a permission's three positions — resource kind, verb, tenant scope — may be the wildcard
+`*` instead of a name. `*:read` is read on every resource kind, `deployment:*` every verb on
+deployments, `*:*:acme` everything within one tenant. The wildcard is **stored as a wildcard and
+widened at authorize time**, never expanded into an enumerated permission set when the role is
+written: a role granting `*` resource kinds automatically covers a `ResourceKind` the platform gains
+later, with the stored role untouched. That is what closes the gap between the fixed built-in
+templates below and hand-enumerating every resource-by-verb-by-tenant combination — an operator
+needing "read everything except secrets" composes a `*:read` grant plus narrower ones rather than
+re-editing a role every time the enum grows. `*` in the tenant position is the explicit spelling of
+the cluster-wide grant an omitted scope has always meant, so the three positions read alike.
+
+The qualifier position deliberately takes no wildcard: "every custom kind's specs" is already what
+an absent qualifier means, and "every kind including its status writes" is not expressible on
+purpose — a status grant is exactly the authority a spec grant must never imply. A bare `*` there is
+rejected rather than stored as a grant that would match nothing. For the same reason a wildcard
+resource grant reaches every kind's spec operations but still never a `{kind}/status` write.
+
 One resource kind, `CUSTOM_RESOURCE`, additionally takes an optional **qualifier** on the
 permission, giving per-kind granularity over [cluster-defined custom kinds](./custom-kinds.md)
 without a `ResourceKind` value per kind: an absent qualifier covers every kind's specs (never
@@ -286,6 +303,7 @@ CA trust, so the two escalations (mTLS trust vs. console access) stay visibly se
 ```text
 gimle get roles [name]
 gimle set role <name> --permission <resource>:<verb>[:<tenant>] [--permission ...]
+                       (any of the three positions may be "*" — quote it, most shells expand it)
 gimle delete role <name>
 gimle get rolebindings [id]
 gimle set rolebinding <id> --subject user:<name>|group:<name> --role <name>

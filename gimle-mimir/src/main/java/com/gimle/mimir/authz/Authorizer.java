@@ -106,11 +106,14 @@ public final class Authorizer {
 
   /**
    * Whether {@code principal} holds any {@link Verb#READ} grant at all for {@code resource} --
-   * unscoped or scoped to any tenant. The collection-list gate: a caller with only tenant-scoped
-   * read grants is entitled to a *filtered* listing (each surviving item re-checked through {@link
-   * #authorize} with its own tenant), while a caller with no read grant for the kind whatsoever
-   * gets the same 403 a single-resource read would -- and this answers which of those two a caller
-   * is without having to enumerate every tenant in the cluster.
+   * unscoped, scoped to any tenant, or reaching it through a wildcard resource/verb position. The
+   * widening is delegated to {@link Permission#coversResource}/{@link Permission#coversVerb} rather
+   * than comparing the permission's own positions here, so this gate can never admit a narrower set
+   * of callers than {@link #authorize} itself would. The collection-list gate: a caller with only
+   * tenant-scoped read grants is entitled to a *filtered* listing (each surviving item re-checked
+   * through {@link #authorize} with its own tenant), while a caller with no read grant for the kind
+   * whatsoever gets the same 403 a single-resource read would -- and this answers which of those
+   * two a caller is without having to enumerate every tenant in the cluster.
    */
   public boolean hasAnyReadGrant(Principal principal, ResourceKind resource) {
     if (isNodeSelfService(principal, resource, Verb.READ, Optional.empty())) {
@@ -133,7 +136,7 @@ public final class Authorizer {
         continue;
       }
       for (Permission permission : role.get().permissions()) {
-        if (permission.resource() == resource && permission.verb() == Verb.READ) {
+        if (permission.coversResource(resource) && permission.coversVerb(Verb.READ)) {
           return true;
         }
       }
