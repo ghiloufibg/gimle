@@ -16,6 +16,7 @@ import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.module.lifecycle.SimpleServiceRegistry;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.channels.ServerSocketChannel;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -39,10 +40,38 @@ class FabricServiceRegistryTest {
   private final MemberId selfNode =
       new MemberId("node-a", new InetSocketAddress("127.0.0.1", 7946));
   private final List<FabricServer> servers = new ArrayList<>();
+  private final List<ServerSocketChannel> hangUpListeners = new ArrayList<>();
 
   @AfterEach
-  void tearDown() {
+  void tearDown() throws IOException {
     servers.forEach(FabricServer::close);
+    for (ServerSocketChannel listener : hangUpListeners) {
+      listener.close();
+    }
+  }
+
+  /**
+   * An endpoint that accepts and immediately hangs up, so the caller's failure lands after the
+   * request was written rather than before the connection existed. That matters here because a
+   * connect-time failure is retried against another endpoint automatically -- which would mask the
+   * breaker behavior these tests are about by making the call succeed anyway.
+   */
+  private InetSocketAddress startHangUpEndpoint() throws IOException {
+    ServerSocketChannel listener = ServerSocketChannel.open();
+    listener.bind(new InetSocketAddress("127.0.0.1", 0));
+    hangUpListeners.add(listener);
+    Thread.ofVirtual()
+        .start(
+            () -> {
+              while (listener.isOpen()) {
+                try {
+                  listener.accept().close();
+                } catch (IOException e) {
+                  return; // teardown closed the listener; nothing to report
+                }
+              }
+            });
+    return (InetSocketAddress) listener.getLocalAddress();
   }
 
   private FabricServiceRegistry newRegistry(ServiceRegistry localRegistry, ServiceCatalog catalog) {
@@ -269,11 +298,13 @@ class FabricServiceRegistryTest {
   @Timeout(15)
   void an_open_breaker_on_every_same_machine_endpoint_spills_over_to_a_healthy_remote_endpoint()
       throws Exception {
-    // A same-machine endpoint nothing listens on: raw outstanding-request count alone makes it
-    // look like the least-loaded same-machine candidate (every call fails instantly, so its
+    // A same-machine endpoint that accepts and hangs up: raw outstanding-request count alone makes
+    // it look like the least-loaded same-machine candidate (every call fails instantly, so its
     // outstanding count is always back near zero) -- exactly the failure mode this test guards
-    // against, since a healthy remote endpoint sits idle the whole time.
-    InetSocketAddress deadSameMachineAddress = new InetSocketAddress("127.0.0.1", 1);
+    // against, since a healthy remote endpoint sits idle the whole time. Hanging up mid-call
+    // rather than refusing the connection keeps the failure one the caller may not retry, so what
+    // is asserted below is genuinely the breaker steering selection, not a failover masking it.
+    InetSocketAddress deadSameMachineAddress = startHangUpEndpoint();
     InetSocketAddress healthyRemoteAddress = startBackend(name -> "remote:" + name);
 
     ServiceCatalog catalog = new ServiceCatalog();

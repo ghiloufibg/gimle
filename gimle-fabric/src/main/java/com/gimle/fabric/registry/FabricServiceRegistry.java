@@ -12,9 +12,11 @@ import com.gimle.fabric.catalog.ServiceEndpoint;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.fabric.trace.TraceContext;
 import com.gimle.fabric.transport.FabricClient;
+import com.gimle.fabric.transport.FabricConnectException;
 import com.gimle.fabric.transport.FabricFrame;
 import com.gimle.fabric.transport.ObjectMarshalling;
 import com.gimle.fabric.transport.ReflectiveDispatch;
+import com.gimle.module.lifecycle.Idempotent;
 import com.gimle.module.lifecycle.ServiceRegistry;
 import com.gimle.observability.WorkerMetrics;
 import io.opentelemetry.api.GlobalOpenTelemetry;
@@ -28,6 +30,7 @@ import io.opentelemetry.api.trace.TraceState;
 import io.opentelemetry.context.Scope;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -35,11 +38,13 @@ import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
 import java.net.UnixDomainSocketAddress;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -312,17 +317,63 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       return local;
     }
 
-    List<ServiceEndpoint> allKnown = catalog.endpointsForInterface(iface.getName());
-    if (allKnown.isEmpty()) {
+    if (catalog.endpointsForInterface(iface.getName()).isEmpty()) {
       throw GimleClusterException.noExportingMember(iface.getName());
     }
 
+    EndpointChooser chooser = chooserByInterface(iface.getName());
+    ServiceEndpoint chosen = chooser.choose(Set.of());
+    if (chosen == null) {
+      return Optional.empty();
+    }
+    return Optional.of(castProxy(createProxy(iface, chosen, chooser)));
+  }
+
+  /**
+   * Picks an endpoint for one attempt of a call, given the endpoints earlier attempts already tried
+   * and failed against. Every attempt re-reads the catalog and re-runs the full
+   * tier/version/breaker selection rather than working from a list captured at lookup time -- a
+   * failover is only worth making against whatever is actually reachable now, and the endpoint that
+   * just failed has by then scored a breaker failure that selection should account for.
+   */
+  @FunctionalInterface
+  private interface EndpointChooser {
+    ServiceEndpoint choose(Set<ServiceEndpoint> alreadyTried);
+  }
+
+  private EndpointChooser chooserByInterface(String interfaceName) {
+    return tried ->
+        selectAllowedCandidate(
+            tieredCandidates(catalog.endpointsForInterface(interfaceName), true, tried));
+  }
+
+  private EndpointChooser chooserByNameAndVersion(String interfaceName, int majorVersion) {
+    return tried ->
+        selectAllowedCandidate(
+            tieredCandidates(
+                endpointsForNameAndVersion(interfaceName, majorVersion), false, tried));
+  }
+
+  /**
+   * Splits {@code allKnown} into the same-machine and remote tiers, dropping this worker's own
+   * entry, anything this tenant may not consume, and anything {@code alreadyTried} names, then
+   * applies the locality preference. {@code applyVersionCutover} narrows to a single export version
+   * first -- wanted for the {@code Class<T>} path, which has no version to filter by up front, and
+   * redundant for the name-keyed path, which already filtered to one major version.
+   */
+  private List<ServiceEndpoint> tieredCandidates(
+      List<ServiceEndpoint> allKnown,
+      boolean applyVersionCutover,
+      Set<ServiceEndpoint> alreadyTried) {
     List<ServiceEndpoint> sameMachine = new ArrayList<>();
     List<ServiceEndpoint> remote = new ArrayList<>();
     for (ServiceEndpoint endpoint : allKnown) {
+      if (alreadyTried.contains(endpoint)) {
+        continue; // an earlier attempt of this same call already failed against it
+      }
       boolean isSameMachine = endpoint.node().nodeId().equals(selfNode.nodeId());
       if (isSameMachine && endpoint.workerId().equals(workerId)) {
-        continue; // this worker's own entry: already covered by the local-registry tier above
+        continue; // this worker's own entry: already covered by the local-registry tier
       }
       if (!permitsUnderTenantPolicy(endpoint.export())) {
         continue; // this tenant isn't on the export's allow-list
@@ -332,19 +383,14 @@ public final class FabricServiceRegistry implements ServiceRegistry {
       // denominator instead of endpoints having already vanished before it can see them.
       (isSameMachine ? sameMachine : remote).add(endpoint);
     }
-
-    Version cutoverVersion = highestVersionWithAnAvailableCandidate(sameMachine, remote);
-    if (cutoverVersion != null) {
-      sameMachine = filterByVersion(sameMachine, cutoverVersion);
-      remote = filterByVersion(remote, cutoverVersion);
+    if (applyVersionCutover) {
+      Version cutoverVersion = highestVersionWithAnAvailableCandidate(sameMachine, remote);
+      if (cutoverVersion != null) {
+        sameMachine = filterByVersion(sameMachine, cutoverVersion);
+        remote = filterByVersion(remote, cutoverVersion);
+      }
     }
-
-    List<ServiceEndpoint> candidates = localityAwareCandidates(sameMachine, remote);
-    ServiceEndpoint chosen = selectAllowedCandidate(candidates);
-    if (chosen == null) {
-      return Optional.empty();
-    }
-    return Optional.of(castProxy(createProxy(iface, chosen)));
+    return localityAwareCandidates(sameMachine, remote);
   }
 
   /**
@@ -461,31 +507,22 @@ public final class FabricServiceRegistry implements ServiceRegistry {
           localInstance.get(), interfaceName, methodName, paramTypeNames, args);
     }
 
-    List<ServiceEndpoint> allKnown = endpointsForNameAndVersion(interfaceName, majorVersion);
-    if (allKnown.isEmpty()) {
+    if (endpointsForNameAndVersion(interfaceName, majorVersion).isEmpty()) {
       return Optional.empty();
     }
 
-    List<ServiceEndpoint> sameMachine = new ArrayList<>();
-    List<ServiceEndpoint> remote = new ArrayList<>();
-    for (ServiceEndpoint endpoint : allKnown) {
-      boolean isSameMachine = endpoint.node().nodeId().equals(selfNode.nodeId());
-      if (isSameMachine && endpoint.workerId().equals(workerId)) {
-        continue; // this worker's own entry: already covered by the local-registry tier above
-      }
-      if (!permitsUnderTenantPolicy(endpoint.export())) {
-        continue; // this tenant isn't on the export's allow-list
-      }
-      (isSameMachine ? sameMachine : remote).add(endpoint);
-    }
-
-    List<ServiceEndpoint> candidates = localityAwareCandidates(sameMachine, remote);
-    ServiceEndpoint chosen = selectAllowedCandidate(candidates);
+    EndpointChooser chooser = chooserByNameAndVersion(interfaceName, majorVersion);
+    ServiceEndpoint chosen = chooser.choose(Set.of());
     if (chosen == null) {
       return Optional.empty();
     }
-    return Optional.ofNullable(
-        invokeOverWire(interfaceName, chosen, methodName, paramTypeNames, args, interfaceLoader));
+    // Never retried after the request has been sent: a name-keyed call has no resolved Method to
+    // read an @Idempotent declaration off, and "unknown" has to mean "not safe to repeat". A
+    // connect-time failure still fails over, since nothing ran for a retry to repeat.
+    RemoteCall call =
+        new RemoteCall(
+            interfaceName, methodName, paramTypeNames, args, interfaceLoader, false, chooser);
+    return Optional.ofNullable(invokeOverWire(call, chosen));
   }
 
   private List<ServiceEndpoint> endpointsForNameAndVersion(String interfaceName, int majorVersion) {
@@ -663,24 +700,92 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   private CircuitBreaker breakerFor(ServiceEndpoint endpoint) {
-    CircuitBreaker breaker =
-        breakers.computeIfAbsent(
-            endpoint,
-            key ->
-                new CircuitBreaker(breakerWindowSize, breakerErrorRateThreshold, breakerCooldown));
+    CircuitBreaker breaker = breakers.computeIfAbsent(endpoint, this::newBreaker);
     if (breakers.size() > MAX_BREAKER_ENTRIES) {
       Iterator<ServiceEndpoint> it = breakers.keySet().iterator();
       if (it.hasNext()) {
-        it.next();
+        ServiceEndpoint evicted = it.next();
         it.remove();
+        metrics.ifPresent(
+            m -> m.evictCircuitBreaker(evicted.export().interfaceName(), endpointTag(evicted)));
       }
     }
     return breaker;
   }
 
-  private <T> T createProxy(Class<T> iface, ServiceEndpoint endpoint) {
+  private CircuitBreaker newBreaker(ServiceEndpoint endpoint) {
+    // Published immediately, not only once something transitions: an operator asking "is a breaker
+    // why traffic isn't reaching this endpoint" needs to see a closed breaker's own gauge, not an
+    // absent meter they have to interpret.
+    metrics.ifPresent(
+        m ->
+            m.recordCircuitBreakerState(
+                endpoint.export().interfaceName(),
+                endpointTag(endpoint),
+                stateLevel(CircuitBreaker.State.CLOSED)));
+    return new CircuitBreaker(
+        breakerWindowSize,
+        breakerErrorRateThreshold,
+        breakerCooldown,
+        Clock.systemUTC(),
+        (from, to) -> onBreakerTransition(endpoint, from, to));
+  }
+
+  /**
+   * Every per-endpoint breaker transition, logged and metered. Before this, the only externally
+   * visible trace a breaker ever left was the cluster-wide panic-mode warning in {@link
+   * #selectAllowedCandidate} -- one endpoint's breaker opening produced no log line, no meter, and
+   * no queryable state, so "traffic isn't reaching instance X" was indistinguishable from a catalog
+   * that never learned about X or an instance that never became ready.
+   */
+  private void onBreakerTransition(
+      ServiceEndpoint endpoint, CircuitBreaker.State from, CircuitBreaker.State to) {
+    String interfaceName = endpoint.export().interfaceName();
+    String target = endpointTag(endpoint);
+    switch (to) {
+      case OPEN ->
+          log.warn(
+              "circuit breaker for {} at {} opened ({} -> OPEN): ejecting it from candidate"
+                  + " selection until its cooldown elapses",
+              interfaceName,
+              target,
+              from);
+      case HALF_OPEN ->
+          log.info(
+              "circuit breaker for {} at {} half-opened after its cooldown: admitting a single"
+                  + " trial call",
+              interfaceName,
+              target);
+      case CLOSED ->
+          log.info(
+              "circuit breaker for {} at {} closed ({} -> CLOSED): routing to it normally again",
+              interfaceName,
+              target,
+              from);
+    }
+    metrics.ifPresent(
+        m -> m.recordCircuitBreakerTransition(interfaceName, target, to.name(), stateLevel(to)));
+  }
+
+  /**
+   * The numeric encoding behind the {@code gimle.fabric.circuitbreaker.state} gauge, ordered by how
+   * bad the state is so a max-over-endpoints query answers "is anything ejected right now".
+   */
+  private static long stateLevel(CircuitBreaker.State state) {
+    return switch (state) {
+      case CLOSED -> 0L;
+      case HALF_OPEN -> 1L;
+      case OPEN -> 2L;
+    };
+  }
+
+  private static String endpointTag(ServiceEndpoint endpoint) {
+    return endpoint.node().nodeId() + "/" + endpoint.workerId();
+  }
+
+  private <T> T createProxy(Class<T> iface, ServiceEndpoint endpoint, EndpointChooser chooser) {
     InvocationHandler handler =
-        (proxy, method, args) -> invokeRemote(iface, endpoint, method, args);
+        (proxy, method, args) -> invokeRemote(iface, endpoint, chooser, method, args);
     // iface's own classloader, not the fixed worker-wide interfaceLoader: iface may be a type
     // private to one hosted module's own layer (the common case for a module-defined service
     // contract, since gimle-api doesn't exist yet to host such contracts on a shared platform
@@ -691,7 +796,12 @@ public final class FabricServiceRegistry implements ServiceRegistry {
   }
 
   private Object invokeRemote(
-      Class<?> iface, ServiceEndpoint endpoint, Method method, Object[] args) throws Throwable {
+      Class<?> iface,
+      ServiceEndpoint endpoint,
+      EndpointChooser chooser,
+      Method method,
+      Object[] args)
+      throws Throwable {
     String[] paramTypeNames =
         Arrays.stream(method.getParameterTypes()).map(Class::getName).toArray(String[]::new);
     // iface's own classloader, the same one createProxy already trusts to see iface itself: a
@@ -699,20 +809,67 @@ public final class FabricServiceRegistry implements ServiceRegistry {
     // module's own layer as the interface is (see ObjectMarshalling.deserialize's own rationale),
     // and iface's loader -- not the fixed worker-wide interfaceLoader -- is the one guaranteed to
     // resolve it, since the caller module bundles its own literal copy of that contract's types.
-    return invokeOverWire(
-        iface.getName(), endpoint, method.getName(), paramTypeNames, args, iface.getClassLoader());
+    RemoteCall call =
+        new RemoteCall(
+            iface.getName(),
+            method.getName(),
+            paramTypeNames,
+            args,
+            iface.getClassLoader(),
+            declaresIdempotent(method),
+            chooser);
+    return invokeOverWire(call, endpoint);
   }
 
   /**
-   * The actual wire mechanics behind both {@link #invokeRemote} (a {@link Method}-driven caller,
-   * reduced to these same plain strings) and {@link #invokeByName}'s own same-machine/remote tiers
-   * (which never had a {@link Method} to begin with) -- builds and sends one {@code
-   * FabricFrame.InvokeRequest}, then applies the identical breaker-scoring and error-unwrapping
-   * rules to whatever comes back, regardless of which caller shape produced the request. {@code
-   * returnClassLoader} resolves the response payload's classes: {@link #invokeRemote} passes the
-   * calling interface's own loader (the one guaranteed to see its contract's types); {@link
+   * Matched by annotation type <em>name</em> rather than by {@code isAnnotationPresent}: a hosted
+   * module can carry its own copy of the platform's annotation classes inside its own layer, in
+   * which case the {@code Idempotent} on its interface is a different {@code Class} object from the
+   * one this code holds and an identity-based check would silently miss every declaration.
+   */
+  private static boolean declaresIdempotent(Method method) {
+    for (Annotation annotation : method.getAnnotations()) {
+      if (annotation.annotationType().getName().equals(Idempotent.class.getName())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * One logical cross-hop call, independent of which endpoint any individual attempt of it goes to.
+   * {@code returnClassLoader} resolves the response payload's classes: {@link #invokeRemote} passes
+   * the calling interface's own loader (the one guaranteed to see its contract's types); {@link
    * #invokeByName} has no {@link Class} to draw one from, so it falls back to the fixed worker-wide
-   * {@code interfaceLoader}.
+   * {@code interfaceLoader}. {@code idempotent} is the method author's own declaration that
+   * repeating this call is safe; {@code chooser} supplies a different endpoint when an attempt
+   * fails in a way that permits another one.
+   */
+  private record RemoteCall(
+      String interfaceName,
+      String methodName,
+      String[] paramTypeNames,
+      Object[] args,
+      ClassLoader returnClassLoader,
+      boolean idempotent,
+      EndpointChooser chooser) {}
+
+  /**
+   * Bound on how many endpoints one logical call may be attempted against. Three is enough for the
+   * case that motivates retrying at all -- the chosen endpoint's worker died between the catalog
+   * entry being gossiped and the call being placed, and one or two other replicas are live -- while
+   * keeping a caller's worst-case latency a small multiple of {@link FabricClient#DEFAULT_TIMEOUT}
+   * rather than proportional to how many stale endpoints the catalog happens to hold.
+   */
+  private static final int MAX_CALL_ATTEMPTS = 3;
+
+  /**
+   * The actual wire mechanics behind both {@link #invokeRemote} (a {@link Method}-driven caller,
+   * reduced to plain strings) and {@link #invokeByName}'s own same-machine/remote tiers (which
+   * never had a {@link Method} to begin with) -- sends one {@code FabricFrame.InvokeRequest},
+   * retrying against a different endpoint where that is safe, and applies the identical
+   * error-unwrapping rules to whatever comes back regardless of which caller shape produced the
+   * request.
    *
    * <p>Wraps the whole call in a fresh {@link SpanKind#CLIENT} span -- the counterpart of {@code
    * FabricServer#startChildSpanContext}'s {@code SERVER} span on the receiving end -- made current
@@ -720,83 +877,133 @@ public final class FabricServiceRegistry implements ServiceRegistry {
    * identify this client span, not whatever ambient span (if any) was already active. Without this,
    * a caller with no ambient span captures the all-zero "no active span" marker and the callee
    * always starts a fresh root, even though a real call just happened; with it, the callee's {@code
-   * SERVER} span is always parented under this one, real caller activity or not.
+   * SERVER} span is always parented under this one, real caller activity or not. Retries stay
+   * inside that one span, since they are attempts at one logical call, not separate calls.
    */
-  private Object invokeOverWire(
-      String interfaceName,
-      ServiceEndpoint endpoint,
-      String methodName,
-      String[] paramTypeNames,
-      Object[] args,
-      ClassLoader returnClassLoader)
-      throws Throwable {
-    CircuitBreaker breaker = breakerFor(endpoint);
-    selector.begin(endpoint);
+  private Object invokeOverWire(RemoteCall call, ServiceEndpoint firstEndpoint) throws Throwable {
     Span span =
         GlobalOpenTelemetry.getTracer("com.gimle.fabric")
-            .spanBuilder(interfaceName + "#" + methodName)
+            .spanBuilder(call.interfaceName() + "#" + call.methodName())
             .setSpanKind(SpanKind.CLIENT)
             .startSpan();
     long startNanos = System.nanoTime();
     boolean error = false;
     try (Scope scope = span.makeCurrent()) {
-      SocketAddress address = resolveAddress(endpoint);
-      byte[] serializedArgs = ObjectMarshalling.serialize(args == null ? new Object[0] : args);
-      FabricFrame.InvokeRequest request =
-          new FabricFrame.InvokeRequest(
-              ThreadLocalRandom.current().nextLong(),
-              captureTrace(),
-              interfaceName,
-              methodName,
-              paramTypeNames,
-              serializedArgs,
-              selfTenantId);
-      FabricFrame response;
-      try {
-        response = FabricClient.call(address, request);
-      } catch (IOException e) {
-        breaker.recordFailure();
-        error = true;
-        span.recordException(e);
-        span.setStatus(StatusCode.ERROR);
-        throw new UncheckedIOException(
-            "fabric call to " + endpoint.node().nodeId() + "/" + endpoint.workerId() + " failed",
-            e);
-      }
-      return switch (response) {
-        case FabricFrame.InvokeResponse resp -> {
-          breaker.recordSuccess();
-          span.setStatus(StatusCode.OK);
-          yield ObjectMarshalling.deserialize(resp.serializedReturn(), returnClassLoader);
-        }
-        case FabricFrame.InvokeError err -> {
-          // The remote method itself threw -- proof the endpoint was reachable and answered, not a
-          // transport failure. Scoring this against the breaker would open it on a validation
-          // exception exactly as readily as on a dead socket; only the IOException branch above
-          // (a genuine dispatch failure) should count against it.
-          breaker.recordSuccess();
-          Object deserialized =
-              ObjectMarshalling.deserialize(err.serializedThrowable(), returnClassLoader);
-          if (deserialized instanceof Throwable throwable) {
-            error = true;
-            span.recordException(throwable);
-            span.setStatus(StatusCode.ERROR);
-            throw throwable;
-          }
-          throw new IllegalStateException(
-              "fabric endpoint returned a non-Throwable error payload: " + deserialized);
-        }
-        case FabricFrame.InvokeRequest ignored ->
-            throw new IllegalStateException("fabric endpoint echoed back a request frame");
-      };
+      Object result = attemptUntilExhausted(call, firstEndpoint);
+      span.setStatus(StatusCode.OK);
+      return result;
+    } catch (Throwable t) {
+      error = true;
+      span.recordException(t);
+      span.setStatus(StatusCode.ERROR);
+      throw t;
     } finally {
       span.end();
-      selector.end(endpoint);
       long elapsedNanos = System.nanoTime() - startNanos;
       boolean recordedError = error;
       metrics.ifPresent(
-          m -> m.recordClientRequest(interfaceName, Duration.ofNanos(elapsedNanos), recordedError));
+          m ->
+              m.recordClientRequest(
+                  call.interfaceName(), Duration.ofNanos(elapsedNanos), recordedError));
     }
+  }
+
+  /**
+   * The retry boundary, and the one place the difference between the two kinds of transport failure
+   * is acted on.
+   *
+   * <p>A {@link FabricConnectException} means the connection was never established, so the target
+   * provably never saw this request: retrying it against a different endpoint cannot duplicate
+   * anything, whatever the method does. Any other {@link IOException} means the request was written
+   * and its outcome is unknown -- the target may have executed it and the answer been lost -- so
+   * only a method whose author declared it {@link Idempotent} is retried. Both kinds fail over to a
+   * <em>different</em> endpoint rather than re-dialing the one that just failed, which is also why
+   * the whole loop shares one {@code correlationId}: a target that did execute an earlier attempt
+   * answers the retry from its own duplicate-suppression window instead of running it twice.
+   */
+  private Object attemptUntilExhausted(RemoteCall call, ServiceEndpoint firstEndpoint)
+      throws Throwable {
+    FabricFrame.InvokeRequest request =
+        new FabricFrame.InvokeRequest(
+            ThreadLocalRandom.current().nextLong(),
+            captureTrace(),
+            call.interfaceName(),
+            call.methodName(),
+            call.paramTypeNames(),
+            ObjectMarshalling.serialize(call.args() == null ? new Object[0] : call.args()),
+            selfTenantId);
+
+    Set<ServiceEndpoint> tried = new LinkedHashSet<>();
+    ServiceEndpoint endpoint = firstEndpoint;
+    ServiceEndpoint lastEndpoint = firstEndpoint;
+    IOException lastFailure = null;
+    for (int attempt = 1; attempt <= MAX_CALL_ATTEMPTS && endpoint != null; attempt++) {
+      tried.add(endpoint);
+      lastEndpoint = endpoint;
+      FabricFrame response;
+      try {
+        response = attemptOnce(endpoint, request);
+      } catch (FabricConnectException e) {
+        lastFailure = e;
+        endpoint = call.chooser().choose(tried);
+        continue;
+      } catch (IOException e) {
+        lastFailure = e;
+        if (!call.idempotent()) {
+          break;
+        }
+        endpoint = call.chooser().choose(tried);
+        continue;
+      }
+      // Decoded outside the catch blocks above on purpose: the callee's own exception is rethrown
+      // from here and can perfectly well be an IOException itself, which must never be mistaken for
+      // a transport failure and retried.
+      return decodeResponse(response, call.returnClassLoader());
+    }
+    throw new UncheckedIOException(
+        "fabric call to " + endpointTag(lastEndpoint) + " failed", lastFailure);
+  }
+
+  /**
+   * One attempt against one endpoint: load accounting, breaker scoring, and the wire round trip.
+   */
+  private FabricFrame attemptOnce(ServiceEndpoint endpoint, FabricFrame.InvokeRequest request)
+      throws IOException {
+    CircuitBreaker breaker = breakerFor(endpoint);
+    selector.begin(endpoint);
+    try {
+      FabricFrame response = FabricClient.call(resolveAddress(endpoint), request);
+      // Any answered frame counts as a success, an InvokeError included: the remote method throwing
+      // is proof the endpoint was reachable and dispatched, not a transport failure. Scoring it
+      // against the breaker would open it on a validation exception exactly as readily as on a dead
+      // socket.
+      breaker.recordSuccess();
+      return response;
+    } catch (IOException e) {
+      breaker.recordFailure();
+      throw e;
+    } finally {
+      selector.end(endpoint);
+    }
+  }
+
+  private static Object decodeResponse(FabricFrame response, ClassLoader returnClassLoader)
+      throws Throwable {
+    return switch (response) {
+      case FabricFrame.InvokeResponse resp ->
+          ObjectMarshalling.deserialize(resp.serializedReturn(), returnClassLoader);
+      case FabricFrame.InvokeError err -> {
+        Object deserialized =
+            ObjectMarshalling.deserialize(err.serializedThrowable(), returnClassLoader);
+        if (deserialized instanceof Throwable throwable) {
+          throw throwable;
+        }
+        throw new IllegalStateException(
+            "fabric endpoint returned a non-Throwable error payload: " + deserialized);
+      }
+      case FabricFrame.InvokeRequest ignored ->
+          throw new IllegalStateException("fabric endpoint echoed back a request frame");
+    };
   }
 
   private SocketAddress resolveAddress(ServiceEndpoint endpoint) {

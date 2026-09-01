@@ -21,6 +21,7 @@ import java.security.KeyPairGenerator;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicLong;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -134,12 +135,15 @@ class FabricTransportTlsTest {
     assertThrows(IOException.class, () -> FabricClient.call(address, invokeGreet("world")));
   }
 
+  /** A fresh id per request -- see {@code FabricServerTest}'s own counter for why. */
+  private static final AtomicLong CORRELATION_IDS = new AtomicLong();
+
   private static final ModuleId OWNER =
       new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
 
   private FabricFrame.InvokeRequest invokeGreet(String arg) {
     return new FabricFrame.InvokeRequest(
-        1L,
+        CORRELATION_IDS.incrementAndGet(),
         TRACE,
         Greeter.class.getName(),
         "greet",

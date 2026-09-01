@@ -67,6 +67,38 @@ the same-worker shortcut — it genuinely goes over the wire.
   underlying channel/socket to unblock the caller and surfacing a `SocketTimeoutException` if it
   elapses. Before this, only an outright refused or reset connection failed fast; a wedged peer
   left a caller hanging indefinitely with nothing to trip the breaker at all.
+- Every per-endpoint breaker transition is logged by `FabricServiceRegistry` (`WARN` on open, `INFO`
+  on half-open and close, naming the interface and the `nodeId/workerId` endpoint) and published as
+  Micrometer meters in the worker's own registry — a `gimle.fabric.circuitbreaker.state` gauge
+  (`0` CLOSED, `1` HALF_OPEN, `2` OPEN) and a `gimle.fabric.circuitbreaker.transitions` counter
+  tagged by the state entered. Both ride the existing worker → agent → Muninn shipping path, so they
+  are queryable through `GET /metrics-history/*` without any new control-plane wire field. See
+  [Observability](./observability.md).
+
+## Retries: connect-time failover, and opt-in idempotency
+
+`FabricClient` opens one connection per attempt, and how a failure is handled depends entirely on
+whether the request had already been written when it happened.
+
+- A failure while the connection was still being established surfaces as `FabricConnectException`:
+  the target provably never saw the request, so `FabricServiceRegistry` fails the call over to a
+  *different* endpoint through the same tier/version/breaker selection path any first attempt uses —
+  safe whatever the invoked method does, since nothing ran.
+- Any other `IOException` (the overall deadline included — one timeout bounds connect, write and read
+  together, so which phase it interrupted isn't knowable) means the request was written and the
+  outcome is unknown. Only a method annotated `@Idempotent` (`com.gimle.module.lifecycle`, alongside
+  `ModuleLifecycleHooks` and the probe interfaces a hosted module already sees) is retried on those
+  terms. A name-keyed `invokeByName` call has no resolved `Method` to read the declaration off and is
+  therefore never retried past the write.
+
+Attempts are bounded at three endpoints, and all of them carry one `correlationId` — the id
+`FabricFrame.InvokeRequest` has always had on the wire but nothing acted on. `FabricServer` now runs
+every inbound request through an `InvocationDeduplicator` keyed by it: a bounded, time-windowed table
+of already-answered ids, so a retry of a request the target did execute gets that original answer
+replayed (an `InvokeError` included — a target that threw has already run) rather than executing
+twice, and a duplicate arriving while the original is still in flight waits for it instead of racing
+it. The window is finite by design, which is why `@Idempotent` stays an author's declaration rather
+than something inferred: a retry arriving after it expires genuinely does execute again.
 
 ## The Service abstraction: a stable name in front of a Deployment
 

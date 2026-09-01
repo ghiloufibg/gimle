@@ -24,6 +24,7 @@ import java.security.KeyPairGenerator;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.concurrent.atomic.AtomicLong;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -56,6 +57,14 @@ class FabricServerTlsWatcherTest {
   private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
   private static final TraceContext TRACE = new TraceContext(1L, 2L, 3L, (byte) 1);
+
+  /**
+   * A fresh id per request: the listener suppresses a duplicate correlation id as a retry of the
+   * request that first carried it, so the repeated pings below need distinct ids to each be served
+   * for real rather than replayed from the first one's answer.
+   */
+  private static final AtomicLong CORRELATION_IDS = new AtomicLong();
+
   private static final ModuleId OWNER =
       new ModuleId("com.gimle.example.watcher-test", Version.parse("1.0.0"));
 
@@ -149,7 +158,7 @@ class FabricServerTlsWatcherTest {
 
   private static FabricFrame.InvokeRequest invokePing(String arg) {
     return new FabricFrame.InvokeRequest(
-        1L,
+        CORRELATION_IDS.incrementAndGet(),
         TRACE,
         Ping.class.getName(),
         "ping",

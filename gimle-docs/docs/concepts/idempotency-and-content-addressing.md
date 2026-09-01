@@ -103,6 +103,22 @@ Files.move(tempFile, versionDir.resolve(JAR_FILE),
 — with a startup sweep that deletes any temp file still sitting around from a process that crashed
 mid-upload, since anything found there at construction time is provably an orphan.
 
+## The service fabric: a declaration plus a dedup window
+
+Cross-hop service calls take a third approach, because a hosted module's method can be anything at
+all and the platform cannot infer whether repeating it is safe. So the fabric asks two separate
+questions. First, did the request actually reach the target? A connection that was never established
+proves it didn't, and that call is failed over to another endpoint regardless of what the method
+does. Second, if the request *was* written and the answer was lost, did the method's author annotate
+it `@Idempotent`? Only then is it retried.
+
+Every attempt of one logical call reuses a single `correlationId`, and the receiving `FabricServer`
+keeps a bounded, time-windowed table of ids it has already answered — so a retry of a request the
+target really did execute gets that first outcome replayed instead of running a second time. It's
+the client-generated idempotency key described below as "real design work" for the store, applied
+where the risk actually justified it: the window is finite, so the annotation still matters, but
+inside it a retry is genuinely a repeat observation rather than a repeat effect.
+
 ## An honest limit: not every retry in Gimlé is this safe
 
 It would be a nicer story if every write in the system got this treatment, but `StoreClient`'s own
