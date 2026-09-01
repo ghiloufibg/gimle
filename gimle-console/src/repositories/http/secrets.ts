@@ -1,4 +1,4 @@
-import type { SecretMetadata, SecretValue, Page } from "@/types";
+import type { SecretMetadata, SecretType, SecretValue, SecretVersion, Page } from "@/types";
 import type { SecretsRepository } from "@/repositories/secrets";
 import { requestJson, requestJsonWithBody, requestOk } from "./apiClient";
 
@@ -40,26 +40,42 @@ export class HttpSecretsRepository implements SecretsRepository {
 
   async fetchValue(tenantId: string, key: string, version?: number): Promise<SecretValue> {
     const query = version === undefined ? "" : `?version=${version}`;
-    const raw = await requestJson<{ value: string; version: number }>(
-      "GET",
-      `/secrets/${encodeURIComponent(tenantId)}/${encodeURIComponent(key)}${query}`,
-    );
-    return { tenantId, key, version: raw.version, value: decodeBase64(raw.value) };
+    const raw = await requestJson<{
+      value: string;
+      version: number;
+      type: SecretType;
+      author: string;
+      writtenAtEpochMilli: number;
+    }>("GET", `/secrets/${encodeURIComponent(tenantId)}/${encodeURIComponent(key)}${query}`);
+    return {
+      tenantId,
+      key,
+      version: raw.version,
+      value: decodeBase64(raw.value),
+      type: raw.type,
+      author: raw.author,
+      writtenAtEpochMilli: raw.writtenAtEpochMilli,
+    };
   }
 
-  async fetchVersions(tenantId: string, key: string): Promise<number[]> {
-    const raw = await requestJson<{ versions: number[] }>(
+  async fetchVersions(tenantId: string, key: string): Promise<SecretVersion[]> {
+    const raw = await requestJson<{ versions: SecretVersion[] }>(
       "GET",
       `/secrets/${encodeURIComponent(tenantId)}/${encodeURIComponent(key)}/versions`,
     );
     return raw.versions;
   }
 
-  async upsert(tenantId: string, key: string, value: string): Promise<SecretMetadata> {
+  async upsert(
+    tenantId: string,
+    key: string,
+    value: string,
+    type: SecretType = "opaque",
+  ): Promise<SecretMetadata> {
     const raw = await requestJsonWithBody<{ version: number }>(
       "PUT",
       `/secrets/${encodeURIComponent(tenantId)}/${encodeURIComponent(key)}`,
-      { value: encodeBase64(value) },
+      { value: encodeBase64(value), type },
     );
     return { tenantId, key, latestVersion: raw.version, deleted: false };
   }

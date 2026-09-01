@@ -51,6 +51,7 @@ import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
+import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
@@ -5380,6 +5381,8 @@ public final class ApiServer implements AutoCloseable {
       }
     } catch (GimleRaftException e) {
       respondStoreUnavailable(exchange);
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -5422,8 +5425,21 @@ public final class ApiServer implements AutoCloseable {
   private void handlePutConfig(
       HttpExchange exchange, String tenantId, String key, String value, boolean encrypted)
       throws IOException {
+    byte[] plaintext = value == null ? new byte[0] : value.getBytes(StandardCharsets.UTF_8);
+    if (plaintext.length > MAX_CONFIG_VALUE_BYTES) {
+      respond(
+          exchange,
+          413,
+          "config value for "
+              + key
+              + " is "
+              + plaintext.length
+              + " bytes, exceeding the maximum of "
+              + MAX_CONFIG_VALUE_BYTES);
+      return;
+    }
     if (encrypted) {
-      byte[] stored = fafnirClient.encrypt(value.getBytes(StandardCharsets.UTF_8));
+      byte[] stored = fafnirClient.encrypt(plaintext);
       storeClient.propose(
           new StateMutation.PutConfigEntry(new ConfigEntry(tenantId, key, stored, true)));
       respond(exchange, 200, "ok");
@@ -6268,6 +6284,8 @@ public final class ApiServer implements AutoCloseable {
       }
     } catch (GimleRaftException e) {
       respondStoreUnavailable(exchange);
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("secrets proxy request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -6335,6 +6353,8 @@ public final class ApiServer implements AutoCloseable {
       }
     } catch (GimleRaftException e) {
       respondStoreUnavailable(exchange);
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("secretmaps proxy request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -8702,8 +8722,38 @@ public final class ApiServer implements AutoCloseable {
     return path.substring(prefix.length());
   }
 
+  /**
+   * The cap on any request body this class buffers in memory. Enforced on the bytes as they stream
+   * rather than by trusting {@code Content-Length}, which a caller is free to understate or omit
+   * entirely. Deliberately not applied to the artifact proxy, which streams jars straight through
+   * without ever buffering one (see {@link #handleArtifactsProxy}) and is bounded by Andvari's own
+   * upload limit instead.
+   */
+  private static final long MAX_REQUEST_BODY_BYTES = 4L * 1024 * 1024;
+
+  /**
+   * The cap on a single {@code /config/*} value's plaintext. Well below {@link
+   * ConfigEntry#MAX_VALUE_BYTES}, the storage row's own ceiling: an encrypted write stores this
+   * value's *ciphertext*, so leaving room for that framing here means a value accepted by this
+   * check can always actually be persisted, rather than passing it and then failing deeper down
+   * with a message about a size the caller never sent. The same reasoning, and the same number, as
+   * {@code SecretStore#MAX_VALUE_BYTES}.
+   */
+  private static final int MAX_CONFIG_VALUE_BYTES = ConfigEntry.MAX_VALUE_BYTES / 2;
+
+  /** Thrown by {@link #readBody} once a request body has streamed past the cap; mapped to 413. */
+  private static final class BodyTooLargeException extends RuntimeException {
+    BodyTooLargeException(long maxBytes) {
+      super("request body exceeds the maximum allowed size of " + maxBytes + " bytes");
+    }
+  }
+
   private static String readBody(HttpExchange exchange) throws IOException {
-    try (InputStream body = exchange.getRequestBody()) {
+    try (InputStream body =
+        new SizeLimitedInputStream(
+            exchange.getRequestBody(),
+            MAX_REQUEST_BODY_BYTES,
+            exceeded -> new BodyTooLargeException(MAX_REQUEST_BODY_BYTES))) {
       return new String(body.readAllBytes(), StandardCharsets.UTF_8);
     }
   }

@@ -318,11 +318,31 @@ export interface SecretMetadata {
   deleted: boolean;
 }
 
+// The shapes Fafnir validates a secret's plaintext against at write time. "opaque" is the default
+// and is never validated; the two PEM types are checked structurally when the value is written, so
+// a malformed certificate or key fails at the write rather than at a later module launch.
+export type SecretType = "opaque" | "pem-certificate" | "pem-private-key";
+
+export const SECRET_TYPES: SecretType[] = ["opaque", "pem-certificate", "pem-private-key"];
+
+// One stored version of a secret, described: Fafnir records who wrote each version, when, and what
+// type it was declared as, so "who wrote version 3, and when" is answerable from the version list
+// itself rather than by correlating against the audit trail.
+export interface SecretVersion {
+  version: number;
+  author: string;
+  writtenAtEpochMilli: number;
+  type: SecretType;
+}
+
 export interface SecretValue {
   tenantId: string;
   key: string;
   version: number;
   value: string;
+  type: SecretType;
+  author: string;
+  writtenAtEpochMilli: number;
 }
 
 // A named, multi-key bundle a deployment attaches by `configMapRefs` instead of receiving its

@@ -47,9 +47,16 @@ describe("HttpSecretsRepository", () => {
     expect(page.nextCursor).toBe("2");
   });
 
-  it("fetchValue GETs /secrets/{tenantId}/{key} and decodes the base64 value", async () => {
+  it("fetchValue GETs /secrets/{tenantId}/{key}, decodes base64, and keeps the version record", async () => {
     const fetchMock = stubFetchSequence([
-      () => jsonResponse({ value: btoa("hunter2"), version: 3 }),
+      () =>
+        jsonResponse({
+          value: btoa("hunter2"),
+          version: 3,
+          type: "opaque",
+          author: "alice",
+          writtenAtEpochMilli: 1700,
+        }),
     ]);
     const repo = new HttpSecretsRepository();
 
@@ -57,7 +64,15 @@ describe("HttpSecretsRepository", () => {
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe("/secrets/acme/db.password");
-    expect(result).toEqual({ tenantId: "acme", key: "db.password", version: 3, value: "hunter2" });
+    expect(result).toEqual({
+      tenantId: "acme",
+      key: "db.password",
+      version: 3,
+      value: "hunter2",
+      type: "opaque",
+      author: "alice",
+      writtenAtEpochMilli: 1700,
+    });
   });
 
   it("fetchValue with an explicit version appends ?version=N", async () => {
@@ -72,15 +87,26 @@ describe("HttpSecretsRepository", () => {
     expect(url).toBe("/secrets/acme/db.password?version=1");
   });
 
-  it("fetchVersions GETs /secrets/{tenantId}/{key}/versions", async () => {
-    const fetchMock = stubFetchSequence([() => jsonResponse({ versions: [1, 2, 3] })]);
+  it("fetchVersions GETs /secrets/{tenantId}/{key}/versions with each version's author and type", async () => {
+    const fetchMock = stubFetchSequence([
+      () =>
+        jsonResponse({
+          versions: [
+            { version: 1, author: "alice", writtenAtEpochMilli: 100, type: "opaque" },
+            { version: 2, author: "bob", writtenAtEpochMilli: 200, type: "pem-certificate" },
+          ],
+        }),
+    ]);
     const repo = new HttpSecretsRepository();
 
     const versions = await repo.fetchVersions("acme", "db.password");
 
     const [url] = fetchMock.mock.calls[0] as [string];
     expect(url).toBe("/secrets/acme/db.password/versions");
-    expect(versions).toEqual([1, 2, 3]);
+    expect(versions.map((v) => [v.version, v.author, v.type])).toEqual([
+      [1, "alice", "opaque"],
+      [2, "bob", "pem-certificate"],
+    ]);
   });
 
   it("upsert PUTs a base64-encoded value and returns metadata reflecting the returned version", async () => {
@@ -92,7 +118,7 @@ describe("HttpSecretsRepository", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/secrets/acme/db.password");
     expect(init.method).toBe("PUT");
-    expect(JSON.parse(init.body as string)).toEqual({ value: btoa("hunter2") });
+    expect(JSON.parse(init.body as string)).toEqual({ value: btoa("hunter2"), type: "opaque" });
     expect(result).toEqual({
       tenantId: "acme",
       key: "db.password",
@@ -132,5 +158,15 @@ describe("HttpSecretsRepository", () => {
     expect(url).toBe("/secrets/rotate-key");
     expect(init.method).toBe("POST");
     expect(activeKeyId).toBe(4);
+  });
+
+  it("upsert sends an explicitly declared type so the server validates the value's shape", async () => {
+    const fetchMock = stubFetchSequence([() => jsonResponse({ version: 1 })]);
+    const repo = new HttpSecretsRepository();
+
+    await repo.upsert("acme", "tls.cert", "-----BEGIN CERTIFICATE-----", "pem-certificate");
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string).type).toBe("pem-certificate");
   });
 });

@@ -1,8 +1,15 @@
 package com.gimle.cli;
 
 import com.gimle.core.protocol.Json;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,6 +36,17 @@ import java.util.Set;
  * {@code /config/*}'s plain-string {@code value} field) -- this class is the one place that
  * encoding is visible at all: {@code set}/{@code get} take and print the plaintext string a caller
  * actually typed or expects to read.
+ *
+ * <p>{@code set} takes an optional {@code --type}: with none, the value is stored exactly as
+ * before, unexamined. Declaring one ({@code pem-certificate}, {@code pem-private-key}) validates
+ * the value's shape at write time, so a truncated or wrongly-encoded PEM fails at the call that
+ * wrote it rather than at the module launch that later tries to parse it. The type is remembered
+ * per version and shown by {@code get}/{@code versions}.
+ *
+ * <p>{@code export}/{@code import} are the bulk pair, for moving a tenant's whole secret set to a
+ * freshly-bootstrapped cluster whose master key can't open the old cluster's ciphertext. The export
+ * file holds plaintext secret material -- see {@code #export}'s own javadoc for what this command
+ * does about that, and what it leaves to the operator.
  *
  * <p>{@code retire-key <keyId>} actually stops trusting a key id -- unlike {@code rotate-key}, this
  * is destructive: any value still encrypted under that id becomes permanently unrecoverable through
@@ -60,6 +78,8 @@ public final class SecretCommand {
       case "delete" -> delete(rest);
       case "undelete" -> undelete(rest);
       case "versions" -> versions(rest);
+      case "export" -> export(rest);
+      case "import" -> importSecrets(rest);
       case "rotate-key" -> rotateKey();
       case "retire-key" -> retireKey(rest);
       default -> throw new CliException(usage());
@@ -93,28 +113,58 @@ public final class SecretCommand {
   }
 
   private void set(List<String> args) {
-    String usage = "secret set requires <tenantId> <key> --value <v>";
+    String usage =
+        "secret set requires <tenantId> <key> (--value <v> | --from-file <path>) [--type <t>]";
     if (args.size() < 2) {
       throw new CliException(usage);
     }
     String tenantId = args.get(0);
     String key = args.get(1);
     Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage);
-    String value = flags.get("--value");
+    String value = readValue(flags, usage);
 
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("value", encode(value));
+    // Omitted entirely rather than sent as "opaque": an absent type is exactly what the server
+    // reads as the untyped default, so there is nothing for the caller to spell out.
+    String type = flags.getOrDefault("--type", null);
+    if (type != null) {
+      body.put("type", type);
+    }
     String response =
         client.expectSuccess(client.put("/secrets/" + tenantId + "/" + key, Json.write(body)));
-    Object version = Json.asObject(Json.parse(response)).get("version");
+    Map<String, Object> parsed = Json.asObject(Json.parse(response));
+    Object version = parsed.get("version");
 
     Map<String, Object> resultBody = resultBody("set", tenantId, key);
     resultBody.put("version", version);
+    resultBody.put("type", parsed.get("type"));
     OutputFormat.printResult(
         output,
         resultBody,
         "secrets/" + tenantId + "/" + key + " set (version " + version + ")",
         out);
+  }
+
+  /**
+   * {@code --from-file} exists for the typed values: a PEM certificate or private key is multi-line
+   * material nobody can reasonably paste into {@code --value}, and shell-quoting it is exactly the
+   * step that mangles it into the malformed value {@code --type} then rejects.
+   */
+  private static String readValue(Flags flags, String usage) {
+    String inline = flags.getOrDefault("--value", null);
+    String fromFile = flags.getOrDefault("--from-file", null);
+    if ((inline == null) == (fromFile == null)) {
+      throw new CliException("exactly one of --value or --from-file is required" + "\n\n" + usage);
+    }
+    if (inline != null) {
+      return inline;
+    }
+    try {
+      return Files.readString(Path.of(fromFile), StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      throw new UncheckedIOException("could not read --from-file path: " + fromFile, e);
+    }
   }
 
   private void delete(List<String> args) {
@@ -173,9 +223,141 @@ public final class SecretCommand {
     String key = args.get(1);
     Map<String, Object> response =
         client.getObject("/secrets/" + tenantId + "/" + key + "/versions");
-    List<Object> versions = Json.asArray(response.get("versions"));
-    List<Map<String, Object>> rows = versions.stream().map(v -> Map.of("version", v)).toList();
+    List<Map<String, Object>> rows = new ArrayList<>();
+    for (Map<String, Object> version : Json.asObjectList(response.get("versions"))) {
+      Map<String, Object> row = new LinkedHashMap<>();
+      row.put("version", version.get("version"));
+      row.put("author", version.get("author"));
+      row.put("writtenAt", formatTimestamp(version.get("writtenAtEpochMilli")));
+      row.put("type", version.get("type"));
+      rows.add(row);
+    }
     OutputFormat.printList(output, rows, out);
+  }
+
+  private static String formatTimestamp(Object epochMilli) {
+    return epochMilli instanceof Number number
+        ? Instant.ofEpochMilli(number.longValue()).toString()
+        : "-";
+  }
+
+  /**
+   * {@code secret export <tenantId> --out <file>} -- every live secret the tenant owns, values
+   * included, in one authorized and audited round trip, so migrating a tenant to a freshly
+   * bootstrapped cluster (whose master key can't open the old cluster's ciphertext) doesn't mean
+   * scripting a get-then-set loop per key.
+   *
+   * <p>The file it writes holds plaintext secret material, base64-encoded but not encrypted, and
+   * that is deliberate rather than an oversight: the whole purpose of the export is to carry values
+   * to a cluster with a different master key, so ciphertext under the source cluster's key would be
+   * useless at the destination. Three things follow, all enforced here rather than left to the
+   * operator: the destination is a file, never stdout, so secret material never lands in a terminal
+   * scrollback or a shell pipeline by accident; the file is created with owner-only permissions
+   * wherever the filesystem supports POSIX ones; and an existing path is refused outright rather
+   * than silently overwritten. It remains the operator's job to delete it once imported -- treat it
+   * exactly like the key file itself.
+   */
+  private void export(List<String> args) {
+    String usage = "secret export requires <tenantId> --out <file>";
+    if (args.isEmpty()) {
+      throw new CliException(usage);
+    }
+    String tenantId = args.get(0);
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
+    Path destination = Path.of(flags.get("--out"));
+
+    Map<String, Object> listed = client.getObject("/secrets/" + tenantId);
+    List<String> keys =
+        Json.asObjectList(listed.get("secrets")).stream().map(s -> (String) s.get("key")).toList();
+    Map<String, Object> secrets = new LinkedHashMap<>();
+    if (!keys.isEmpty()) {
+      Map<String, Object> fetched =
+          client.getObject("/secrets/" + tenantId + "?names=" + String.join(",", keys));
+      secrets.putAll(Json.asObject(fetched.get("secrets")));
+    }
+
+    Map<String, Object> document = new LinkedHashMap<>();
+    document.put("tenantId", tenantId);
+    document.put("exportedAtEpochMilli", System.currentTimeMillis());
+    document.put("secrets", secrets);
+    writeExportFile(destination, Json.write(document));
+
+    Map<String, Object> resultBody = new LinkedHashMap<>();
+    resultBody.put("result", "exported");
+    resultBody.put("kind", "secret");
+    resultBody.put("tenantId", tenantId);
+    resultBody.put("count", secrets.size());
+    resultBody.put("file", destination.toString());
+    OutputFormat.printResult(
+        output,
+        resultBody,
+        secrets.size()
+            + " secret(s) exported to "
+            + destination
+            + " -- this file holds plaintext secret material; delete it once imported",
+        out);
+  }
+
+  private static void writeExportFile(Path destination, String contents) {
+    try {
+      if (Files.exists(destination)) {
+        throw new CliException(
+            "refusing to overwrite an existing export file: "
+                + destination
+                + " (secret material is never silently replaced)");
+      }
+      if (destination.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+        Files.createFile(
+            destination,
+            PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+      }
+      Files.writeString(destination, contents, StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      throw new UncheckedIOException("could not write export file: " + destination, e);
+    }
+  }
+
+  /**
+   * {@code secret import <tenantId> --in <file>} -- the other half of {@link #export}. Each key is
+   * written through the ordinary single-key write path, so every one is separately authorized and
+   * separately audited (and lands as a new version at the destination rather than pretending to
+   * restore the source's version numbers, which mean nothing in another cluster's ledger). Each
+   * key's declared type travels with it and is re-validated on arrival.
+   */
+  private void importSecrets(List<String> args) {
+    String usage = "secret import requires <tenantId> --in <file>";
+    if (args.isEmpty()) {
+      throw new CliException(usage);
+    }
+    String tenantId = args.get(0);
+    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
+    Path source = Path.of(flags.get("--in"));
+
+    Map<String, Object> document = readExportFile(source);
+    Map<String, Object> secrets = Json.asObject(document.get("secrets"));
+    List<Map<String, Object>> rows = new ArrayList<>();
+    for (Map.Entry<String, Object> entry : secrets.entrySet()) {
+      Map<String, Object> exported = Json.asObject(entry.getValue());
+      Map<String, Object> body = new LinkedHashMap<>();
+      body.put("value", exported.get("value"));
+      body.put("type", exported.get("type"));
+      String response =
+          client.expectSuccess(
+              client.put("/secrets/" + tenantId + "/" + entry.getKey(), Json.write(body)));
+      Map<String, Object> row = new LinkedHashMap<>();
+      row.put("key", entry.getKey());
+      row.put("version", Json.asObject(Json.parse(response)).get("version"));
+      rows.add(row);
+    }
+    OutputFormat.printList(output, rows, out);
+  }
+
+  private static Map<String, Object> readExportFile(Path source) {
+    try {
+      return Json.asObject(Json.parse(Files.readString(source, StandardCharsets.UTF_8)));
+    } catch (IOException e) {
+      throw new UncheckedIOException("could not read export file: " + source, e);
+    }
   }
 
   private void rotateKey() {
@@ -244,12 +426,17 @@ public final class SecretCommand {
         verbs:
           list <tenantId>
           get <tenantId> <key> [--version N]
-          set <tenantId> <key> --value <v>
+          set <tenantId> <key> (--value <v> | --from-file <path>) [--type <t>]
           delete <tenantId> <key> [--destroy]
           undelete <tenantId> <key> [--version N]
           versions <tenantId> <key>
+          export <tenantId> --out <file>
+          import <tenantId> --in <file>
           rotate-key
           retire-key <keyId>
+
+        secret types (--type, default opaque):
+          opaque, pem-certificate, pem-private-key
         """;
   }
 }

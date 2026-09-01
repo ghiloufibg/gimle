@@ -42,6 +42,12 @@ public final class SecretStore {
   // javadoc for why a lease is needed there at all, despite the write path otherwise being
   // lock-free.
   private static final Duration META_LEASE_TTL = Duration.ofSeconds(5);
+  // Deliberately well below ConfigEntry.MAX_VALUE_BYTES: what lands in the store is the
+  // *ciphertext* of this plaintext plus its framing, so capping the plaintext at half the storage
+  // ceiling guarantees a value accepted here can always actually be persisted, rather than passing
+  // this check and then failing deeper down with a confusing message about a size the caller never
+  // sent. Generous for everything a secret legitimately holds -- a full PEM chain is a few KiB.
+  public static final int MAX_VALUE_BYTES = ConfigEntry.MAX_VALUE_BYTES / 2;
 
   private final StoreClient storeClient;
   private final FafnirCrypto crypto;
@@ -90,15 +96,24 @@ public final class SecretStore {
     return result;
   }
 
-  /** {@code key@1 .. key@highestVersion} -- every version always exists once claimed. */
-  public List<Integer> versions(String tenantId, String key) {
+  /**
+   * {@code key@1 .. key@highestVersion} -- every version always exists once claimed -- each
+   * described by the {@link SecretWrite} that created it: the author principal, the write
+   * timestamp, and the declared type. That per-version record is kept on the same single {@code
+   * @meta} pointer entry every read path already fetches, so answering "who wrote version 3, and
+   * when" costs no extra round trip and needs no correlation against the audit trail.
+   */
+  public List<SecretVersionInfo> versions(String tenantId, String key) {
     validateKey(key);
-    Meta meta = readMeta(tenantId, key).orElse(Meta.EMPTY);
-    List<Integer> versions = new ArrayList<>();
-    for (int v = 1; v <= meta.highestVersion(); v++) {
-      versions.add(v);
-    }
-    return versions;
+    return readMeta(tenantId, key).orElse(Meta.EMPTY).versions();
+  }
+
+  /** One version's own metadata, or empty for a key or version number that doesn't exist. */
+  public Optional<SecretVersionInfo> versionInfo(String tenantId, String key, int version) {
+    validateKey(key);
+    return readMeta(tenantId, key).orElse(Meta.EMPTY).versions().stream()
+        .filter(info -> info.version() == version)
+        .findFirst();
   }
 
   /**
@@ -144,6 +159,50 @@ public final class SecretStore {
   }
 
   /**
+   * The value-bearing batch read behind a whole-tenant export: every named key's current version,
+   * decrypted, with the version metadata it was written under. One store listing serves the whole
+   * batch rather than {@link #get}'s own listing per key, so exporting a tenant with a hundred
+   * secrets is one round trip instead of a hundred.
+   *
+   * <p>A key that doesn't exist, is soft-deleted, or has no value entry for its current version is
+   * simply absent from the result rather than throwing -- a caller asking for many keys at once
+   * shouldn't have one missing name abort the other ninety-nine, and the absence is itself the
+   * answer. The caller has already been authorized for this tenant's secrets as a whole; this
+   * method performs no authorization of its own, exactly like every other read here.
+   */
+  public Map<String, SecretValue> getMany(String tenantId, List<String> keys) {
+    Map<String, ConfigEntry> byKey = new LinkedHashMap<>();
+    for (ConfigEntry entry : storeClient.listConfigEntriesFor(tenantId)) {
+      byKey.put(entry.key(), entry);
+    }
+    Map<String, SecretValue> result = new LinkedHashMap<>();
+    for (String key : keys) {
+      validateKey(key);
+      ConfigEntry metaEntry = byKey.get(metaKey(key));
+      if (metaEntry == null) {
+        continue;
+      }
+      Meta meta = decodeMeta(tenantId, key, Optional.of(metaEntry)).orElseThrow();
+      if (meta.deleted() || meta.latestVersion() == 0) {
+        continue;
+      }
+      ConfigEntry valueEntry = byKey.get(versionKey(key, meta.latestVersion()));
+      if (valueEntry == null) {
+        continue;
+      }
+      SecretVersionInfo info =
+          meta.versions().stream()
+              .filter(v -> v.version() == meta.latestVersion())
+              .findFirst()
+              .orElseThrow(
+                  () -> GimleSecretsException.versionNotRecoverable(
+                      tenantId, key, meta.latestVersion()));
+      result.put(key, new SecretValue(crypto.decrypt(valueEntry.value()), info));
+    }
+    return result;
+  }
+
+  /**
    * The write path here: optimistic insert, not a lock -- claiming a candidate {@code key@N} value
    * entry (steps 1-2) is fully lock-free: two writers racing to write the same {@code key@N} slot
    * is a harmless uniqueness collision, since whichever one's write to {@code key@N} lands last
@@ -178,8 +237,9 @@ public final class SecretStore {
    * new one -- a real, durable corruption, not just a slow-to-converge read, since the write that
    * follows commits under that wrong version number too.
    */
-  public int put(String tenantId, String key, byte[] plaintext) {
+  public int put(String tenantId, String key, byte[] plaintext, SecretWrite write) {
     validateKey(key);
+    validateValue(tenantId, key, plaintext, write.type());
     requireTenantExists(tenantId);
     String leaseName = "fafnir-secret-meta:" + tenantId + ":" + key;
     // Fresh per call (not a shared field): two concurrent #put callers -- the exact case this
@@ -202,7 +262,9 @@ public final class SecretStore {
       try {
         Meta after = readMetaLinearizable(tenantId, key).orElse(Meta.EMPTY);
         if (after.highestVersion() == before.highestVersion()) {
-          writeMeta(tenantId, key, new Meta(next, next, false));
+          SecretVersionInfo info =
+              new SecretVersionInfo(next, write.author(), System.currentTimeMillis(), write.type());
+          writeMeta(tenantId, key, after.withNewVersion(info));
           return next;
         }
         // Lost the race to a writer that already finished before this one even acquired the
@@ -221,8 +283,7 @@ public final class SecretStore {
     if (meta.isEmpty()) {
       return false;
     }
-    writeMeta(
-        tenantId, key, new Meta(meta.get().latestVersion(), meta.get().highestVersion(), true));
+    writeMeta(tenantId, key, meta.get().withDeleted(true));
     return true;
   }
 
@@ -257,7 +318,7 @@ public final class SecretStore {
     if (targetVersion < 1 || findEntry(tenantId, versionKey(key, targetVersion)).isEmpty()) {
       throw GimleSecretsException.versionNotRecoverable(tenantId, key, targetVersion);
     }
-    writeMeta(tenantId, key, new Meta(targetVersion, meta.get().highestVersion(), false));
+    writeMeta(tenantId, key, meta.get().withCurrentVersion(targetVersion));
     return OptionalInt.of(targetVersion);
   }
 
@@ -340,6 +401,24 @@ public final class SecretStore {
    * key containing it could collide with a synthetic {@code @meta}/{@code @N} suffix and break the
    * split back apart.
    */
+  /**
+   * The two checks a plaintext must clear before anything is encrypted: it fits, and it actually
+   * has the shape it claims. Both run before the first store round trip of {@link #put} -- a value
+   * that will be refused must never leave a half-claimed {@code key@N} entry behind, and must never
+   * be encrypted at all.
+   */
+  private static void validateValue(
+      String tenantId, String key, byte[] plaintext, SecretType type) {
+    if (plaintext == null) {
+      throw new IllegalArgumentException("value must not be null");
+    }
+    if (plaintext.length > MAX_VALUE_BYTES) {
+      throw GimleSecretsException.valueTooLarge(
+          tenantId, key, plaintext.length, MAX_VALUE_BYTES);
+    }
+    type.validate(tenantId, key, plaintext);
+  }
+
   private static void validateKey(String key) {
     if (key == null || key.isBlank()) {
       throw new IllegalArgumentException("key must not be blank");
@@ -364,10 +443,38 @@ public final class SecretStore {
    * {@link #put} needs it too when computing the next version number -- computing "next" from the
    * current pointer instead would silently overwrite an existing newer version's data after a
    * rewind.
+   *
+   * <p>{@code versions} is the append-only record of how each {@code key@N} came to exist -- author,
+   * write timestamp, declared type -- and lives here, on the one mutable pointer entry, rather than
+   * beside each immutable {@code key@N} value entry: it is read on every listing, so keeping it here
+   * answers "who wrote version 3, and when" from the single entry the read path already fetches
+   * instead of one extra round trip per version. Nothing in it is secret material, which is why it
+   * can sit on the unencrypted pointer entry at all.
    */
-  private record Meta(int latestVersion, int highestVersion, boolean deleted) {
+  private record Meta(
+      int latestVersion, int highestVersion, boolean deleted, List<SecretVersionInfo> versions) {
 
-    static final Meta EMPTY = new Meta(0, 0, false);
+    static final Meta EMPTY = new Meta(0, 0, false, List.of());
+
+    Meta {
+      versions = List.copyOf(versions);
+    }
+
+    /** The pointer after a {@link #put} claimed {@code info}'s version -- appended, never edited. */
+    Meta withNewVersion(SecretVersionInfo info) {
+      List<SecretVersionInfo> appended = new ArrayList<>(versions);
+      appended.add(info);
+      return new Meta(info.version(), info.version(), false, appended);
+    }
+
+    Meta withDeleted(boolean nowDeleted) {
+      return new Meta(latestVersion, highestVersion, nowDeleted, versions);
+    }
+
+    /** {@link #undelete}'s rewind: moves the current pointer, never the recorded write history. */
+    Meta withCurrentVersion(int version) {
+      return new Meta(version, highestVersion, false, versions);
+    }
 
     static Meta fromBytes(byte[] bytes) {
       Map<String, Object> map =
@@ -375,7 +482,16 @@ public final class SecretStore {
       int latestVersion = ((Number) map.get("latestVersion")).intValue();
       int highestVersion = ((Number) map.get("highestVersion")).intValue();
       boolean deleted = Boolean.TRUE.equals(map.get("deleted"));
-      return new Meta(latestVersion, highestVersion, deleted);
+      List<SecretVersionInfo> versions = new ArrayList<>();
+      for (Map<String, Object> raw : Json.asObjectList(map.get("versions"))) {
+        versions.add(
+            new SecretVersionInfo(
+                ((Number) raw.get("version")).intValue(),
+                (String) raw.get("author"),
+                ((Number) raw.get("writtenAtEpochMilli")).longValue(),
+                SecretType.fromWire((String) raw.get("type"))));
+      }
+      return new Meta(latestVersion, highestVersion, deleted, versions);
     }
 
     byte[] toBytes() {
@@ -383,6 +499,16 @@ public final class SecretStore {
       map.put("latestVersion", latestVersion);
       map.put("highestVersion", highestVersion);
       map.put("deleted", deleted);
+      List<Map<String, Object>> encoded = new ArrayList<>();
+      for (SecretVersionInfo info : versions) {
+        Map<String, Object> one = new LinkedHashMap<>();
+        one.put("version", info.version());
+        one.put("author", info.author());
+        one.put("writtenAtEpochMilli", info.writtenAtEpochMilli());
+        one.put("type", info.type().name());
+        encoded.add(one);
+      }
+      map.put("versions", encoded);
       return Json.write(map).getBytes(StandardCharsets.UTF_8);
     }
   }

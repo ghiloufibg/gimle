@@ -44,7 +44,10 @@ describe("MockSecretsRepository", () => {
     expect(historical.version).toBe(1);
     expect(historical.value).toBe("v1");
 
-    expect(await repo.fetchVersions(tenantA.id, "vitest-temp-key")).toEqual([1, 2]);
+    const versions = await repo.fetchVersions(tenantA.id, "vitest-temp-key");
+    expect(versions.map((v) => v.version)).toEqual([1, 2]);
+    expect(versions.every((v) => v.author.length > 0)).toBe(true);
+    expect(versions.every((v) => v.writtenAtEpochMilli > 0)).toBe(true);
 
     await repo.remove(tenantA.id, "vitest-temp-key", true);
   });
@@ -77,5 +80,21 @@ describe("MockSecretsRepository", () => {
     const first = await repo.rotateKey();
     const second = await repo.rotateKey();
     expect(second).toBe(first + 1);
+  });
+
+  it("a declared type is remembered per version and reported by fetchValue and fetchVersions", async () => {
+    await repo.upsert(tenantA.id, "vitest-typed-key", "cert-body", "pem-certificate");
+    await repo.upsert(tenantA.id, "vitest-typed-key", "opaque-body");
+
+    const versions = await repo.fetchVersions(tenantA.id, "vitest-typed-key");
+    expect(versions.map((v) => v.type)).toEqual(["pem-certificate", "opaque"]);
+    expect((await repo.fetchValue(tenantA.id, "vitest-typed-key", 1)).type).toBe("pem-certificate");
+    expect((await repo.fetchValue(tenantA.id, "vitest-typed-key")).type).toBe("opaque");
+
+    await repo.remove(tenantA.id, "vitest-typed-key", true);
+  });
+
+  it("fetchVersions for an unknown key rejects rather than returning an empty list", async () => {
+    await expect(repo.fetchVersions(tenantA.id, "no-such-key")).rejects.toThrow("no such secret");
   });
 });

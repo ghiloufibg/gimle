@@ -7,7 +7,9 @@ import com.gimle.core.authz.Principal;
 import com.gimle.core.authz.ResourceKind;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.exception.GimleSecretsException;
+import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditOutcome;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.session.SessionKeyFileManager;
 import com.gimle.core.session.SessionTokens;
@@ -97,6 +99,11 @@ public final class FafnirServer implements AutoCloseable {
   // "gimle_session", even though the two never collide in a browser regardless (different origin
   // per process/port): a developer inspecting cookies in devtools with both consoles open should
   // still be able to tell which is which at a glance.
+  // What a bulk-read audit entry names in place of a single key: the request covers many keys at
+  // once, and listing all of them in one entry's target would make the trail unreadable while
+  // telling an auditor nothing the request's own tenant scope doesn't already say.
+  private static final String BULK_READ_AUDIT_TARGET = "*";
+
   private static final String SESSION_COOKIE_NAME = "gimle_fafnir_session";
   private static final Duration SESSION_TTL = Duration.ofHours(12);
 
@@ -491,6 +498,18 @@ public final class FafnirServer implements AutoCloseable {
           respond(exchange, 405, "method not allowed");
           return;
         }
+        // ?names=a,b,c switches this route from the metadata-only listing to the value-bearing
+        // batch read a whole-tenant export needs -- the same shape /secretmaps/{tenantId} already
+        // uses for the agent's own batch fetch, but authorized separately (see
+        // #authorizeSecretsBulkRead): a bulk value read has a different node-identity rule than a
+        // single-key one.
+        String namesParam = parseQuery(exchange).get("names");
+        if (namesParam != null && !namesParam.isBlank()) {
+          if (authorizeSecretsBulkRead(exchange, tenantId)) {
+            handleExportSecrets(exchange, tenantId, List.of(namesParam.split(",")));
+          }
+          return;
+        }
         if (authorizeSecrets(
             exchange, ResourceKind.SECRET, Verb.READ, tenantId, Optional.empty())) {
           handleListSecrets(exchange, tenantId);
@@ -548,8 +567,10 @@ public final class FafnirServer implements AutoCloseable {
             respond(exchange, 400, "key is reserved for a SecretMap; use /secretmaps/* instead");
             return;
           }
+          // Audits deferred to the handler: a write's audit entry names the version it produced,
+          // and that number doesn't exist yet at the point authorization is decided.
           if (authorizeSecrets(
-              exchange, ResourceKind.SECRET, Verb.WRITE, tenantId, Optional.of(key))) {
+              exchange, ResourceKind.SECRET, Verb.WRITE, tenantId, Optional.of(key), true)) {
             handlePutSecret(exchange, tenantId, key);
           }
         }
@@ -565,6 +586,8 @@ public final class FafnirServer implements AutoCloseable {
         }
         default -> respond(exchange, 405, "method not allowed");
       }
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (IllegalArgumentException | GimleSecretsException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -598,7 +621,11 @@ public final class FafnirServer implements AutoCloseable {
       respond(exchange, 404, "no such secret: " + key);
       return;
     }
-    respondJson(exchange, 200, Map.of("versions", secretStore.versions(tenantId, key)));
+    List<Map<String, Object>> versions =
+        secretStore.versions(tenantId, key).stream()
+            .map(FafnirServer::versionInfoToJson)
+            .toList();
+    respondJson(exchange, 200, Map.of("versions", versions));
   }
 
   private void handleGetSecret(HttpExchange exchange, String tenantId, String key)
@@ -611,16 +638,89 @@ public final class FafnirServer implements AutoCloseable {
     }
     int effectiveVersion =
         version.orElseGet(() -> secretStore.currentVersion(tenantId, key).orElseThrow());
-    respondJson(
-        exchange, 200, Map.of("value", encodeBase64(value.get()), "version", effectiveVersion));
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("value", encodeBase64(value.get()));
+    response.put("version", effectiveVersion);
+    // Every field the version listing carries, repeated here, so a single-key read answers "what
+    // is this and who put it here" without a second round trip to .../versions.
+    secretStore
+        .versionInfo(tenantId, key, effectiveVersion)
+        .ifPresent(
+            info -> {
+              response.put("author", info.author());
+              response.put("writtenAtEpochMilli", info.writtenAtEpochMilli());
+              response.put("type", info.type().wireName());
+            });
+    respondJson(exchange, 200, response);
   }
 
+  /**
+   * The write path, and the one handler that records its own audit entry rather than leaving it to
+   * {@link #authorizeSecrets}: the entry names the version this write produced, which doesn't exist
+   * yet when authorization is decided. A write that fails after authorization passed is still
+   * recorded -- {@code allowed} true, {@link AuditOutcome#REJECTED}, no version -- so a rejected
+   * oversized or malformed value leaves a trail rather than vanishing from it.
+   */
   private void handlePutSecret(HttpExchange exchange, String tenantId, String key)
       throws IOException {
     Map<String, Object> body = Json.asObject(Json.parse(readBody(exchange)));
     byte[] plaintext = decodeBase64((String) body.get("value"));
-    int version = secretStore.put(tenantId, key, plaintext);
-    respondJson(exchange, 200, Map.of("version", version));
+    SecretWrite write =
+        new SecretWrite(
+            auditPrincipal(exchange).name(), SecretType.fromWire((String) body.get("type")));
+    int version;
+    try {
+      version = secretStore.put(tenantId, key, plaintext, write);
+    } catch (RuntimeException e) {
+      recordAudit(
+          ResourceKind.SECRET,
+          auditPrincipal(exchange),
+          Verb.WRITE,
+          Optional.of(tenantId),
+          Optional.of(key),
+          true,
+          AuditOutcome.REJECTED,
+          OptionalInt.empty());
+      throw e;
+    }
+    recordAudit(
+        ResourceKind.SECRET,
+        auditPrincipal(exchange),
+        Verb.WRITE,
+        Optional.of(tenantId),
+        Optional.of(key),
+        true,
+        AuditOutcome.APPLIED,
+        OptionalInt.of(version));
+    respondJson(
+        exchange, 200, Map.of("version", version, "type", write.type().wireName()));
+  }
+
+  /**
+   * The value-bearing batch read a whole-tenant export is built on: one response carrying every
+   * named key's current value, version, author, and declared type, so migrating a tenant to a
+   * freshly-bootstrapped cluster (whose master key can't open the old cluster's ciphertext) is one
+   * authorized, audited call rather than a scripted loop of single-key reads.
+   */
+  private void handleExportSecrets(HttpExchange exchange, String tenantId, List<String> keys)
+      throws IOException {
+    Map<String, SecretValue> values = secretStore.getMany(tenantId, keys);
+    Map<String, Object> secrets = new LinkedHashMap<>();
+    for (Map.Entry<String, SecretValue> entry : values.entrySet()) {
+      Map<String, Object> one = versionInfoToJson(entry.getValue().info());
+      one.put("value", encodeBase64(entry.getValue().value()));
+      secrets.put(entry.getKey(), one);
+    }
+    respondJson(exchange, 200, Map.of("secrets", secrets));
+  }
+
+  private static Map<String, Object> versionInfoToJson(SecretVersionInfo info) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("version", info.version());
+    map.put("author", info.author());
+    map.put("writtenAtEpochMilli", info.writtenAtEpochMilli());
+    map.put("type", info.type().wireName());
+    return map;
   }
 
   private void handleDeleteSecret(HttpExchange exchange, String tenantId, String key)
@@ -766,6 +866,8 @@ public final class FafnirServer implements AutoCloseable {
         }
         default -> respond(exchange, 405, "method not allowed");
       }
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
     } catch (IllegalArgumentException | GimleSecretsException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -821,7 +923,7 @@ public final class FafnirServer implements AutoCloseable {
       values.put(entry.getKey(), decodeBase64((String) entry.getValue()));
     }
     List<SecretMapStore.SecretMapKeyResult> results =
-        secretMapStore.setMany(tenantId, name, values);
+        secretMapStore.setMany(tenantId, name, values, secretMapWrite(exchange));
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
     respondJson(exchange, secretMapBatchStatus(results), Map.of("results", resultsJson));
@@ -844,7 +946,7 @@ public final class FafnirServer implements AutoCloseable {
       values.put(entry.getKey(), decodeBase64((String) entry.getValue()));
     }
     List<SecretMapStore.SecretMapKeyResult> results =
-        secretMapStore.replaceAll(tenantId, name, values);
+        secretMapStore.replaceAll(tenantId, name, values, secretMapWrite(exchange));
     List<Map<String, Object>> resultsJson =
         results.stream().map(FafnirServer::secretMapKeyResultToJson).toList();
     respondJson(exchange, secretMapBatchStatus(results), Map.of("results", resultsJson));
@@ -884,7 +986,7 @@ public final class FafnirServer implements AutoCloseable {
       return;
     }
     SecretMapStore.RollbackOutcome outcome =
-        secretMapStore.rollback(tenantId, name, number.intValue());
+        secretMapStore.rollback(tenantId, name, number.intValue(), secretMapWrite(exchange));
     switch (outcome) {
       case SecretMapStore.RollbackOutcome.TargetNotFound ignored ->
           respond(
@@ -950,7 +1052,7 @@ public final class FafnirServer implements AutoCloseable {
     }
     List<SecretMapStore.SecretMapKeyResult> results = new ArrayList<>();
     if (!recovered.isEmpty()) {
-      results.addAll(secretMapStore.setMany(tenantId, name, recovered));
+      results.addAll(secretMapStore.setMany(tenantId, name, recovered, secretMapWrite(exchange)));
     }
     results.addAll(failures);
     List<Map<String, Object>> resultsJson =
@@ -1038,14 +1140,33 @@ public final class FafnirServer implements AutoCloseable {
    */
   private boolean authorizeSecrets(
       HttpExchange exchange, ResourceKind kind, Verb verb, String tenantId, Optional<String> key) {
+    return authorizeSecrets(exchange, kind, verb, tenantId, key, false);
+  }
+
+  /**
+   * As above, with {@code deferAllowAudit} for the one caller whose audit entry can't be written
+   * here: a secret write's entry names the version the write produced (see {@link
+   * #handlePutSecret}), and that number doesn't exist yet at the moment authorization is decided.
+   * Only the allow path is deferred -- a denial has no version to wait for and is always recorded
+   * here, so no refused request can slip past the trail by way of this flag.
+   */
+  private boolean authorizeSecrets(
+      HttpExchange exchange,
+      ResourceKind kind,
+      Verb verb,
+      String tenantId,
+      Optional<String> key,
+      boolean deferAllowAudit) {
     if (!(exchange instanceof HttpsExchange)) {
       // Plaintext mode has no identity to check -- fully open, matching the documented design --
       // but the audit trail must still say a secret operation happened rather than showing
       // nothing at all for every request this process ever received in this mode. Attributed to
       // the same synthetic "anonymous" principal the console's own session endpoint already
       // reports for this mode (see handleAuthSession above).
-      recordAudit(
-          kind, new Principal("anonymous", Set.of()), verb, Optional.of(tenantId), key, true);
+      if (!deferAllowAudit) {
+        recordAudit(
+            kind, new Principal("anonymous", Set.of()), verb, Optional.of(tenantId), key, true);
+      }
       return true;
     }
     Optional<Principal> resolved = resolvePrincipal(exchange);
@@ -1061,7 +1182,9 @@ public final class FafnirServer implements AutoCloseable {
       return false;
     }
     boolean allowed = decideAllowed(kind, principal, verb, tenantId);
-    recordAudit(kind, principal, verb, Optional.of(tenantId), key, allowed);
+    if (!allowed || !deferAllowAudit) {
+      recordAudit(kind, principal, verb, Optional.of(tenantId), key, allowed);
+    }
     if (!allowed) {
       authzThrottle.recordFailure(throttleKey);
       metrics.recordAuthzFailure(verb.name());
@@ -1070,6 +1193,85 @@ public final class FafnirServer implements AutoCloseable {
     }
     authzThrottle.recordSuccess(throttleKey);
     return true;
+  }
+
+  /**
+   * The bulk-value sibling of {@link #authorizeSecrets}, used only by the {@code ?names=} form of
+   * {@code GET /secrets/{tenantId}}: the identical plaintext-open / principal-resolve / throttle /
+   * audit shape, and the same independent {@link Authorizer} re-check every other read here goes
+   * through, but deliberately *not* routed through {@link #decideAllowed}'s node self-service
+   * short-circuit. A {@code gimle:nodes} identity legitimately reads the individual secrets its own
+   * assigned instances need, one key or one SecretMap at a time; "hand me every named secret this
+   * tenant owns in one response" is an operator migration tool, not something a node ever needs, so
+   * a node certificate is refused here rather than being handed a single-call export of a tenant's
+   * whole secret set. Denials are audited and throttled exactly like any other, so the refusal is
+   * visible in the trail rather than silent.
+   */
+  private boolean authorizeSecretsBulkRead(HttpExchange exchange, String tenantId) {
+    if (!(exchange instanceof HttpsExchange)) {
+      recordAudit(
+          ResourceKind.SECRET,
+          new Principal("anonymous", Set.of()),
+          Verb.READ,
+          Optional.of(tenantId),
+          Optional.of(BULK_READ_AUDIT_TARGET),
+          true);
+      return true;
+    }
+    Optional<Principal> resolved = resolvePrincipal(exchange);
+    if (resolved.isEmpty()) {
+      respondQuietly(exchange, 401, "authentication required");
+      return false;
+    }
+    Principal principal = resolved.get();
+    String throttleKey = principal.name();
+    Optional<Instant> throttledUntil = authzThrottle.throttledUntil(throttleKey);
+    if (throttledUntil.isPresent()) {
+      respondThrottled(exchange, throttledUntil.get());
+      return false;
+    }
+    boolean allowed =
+        !principal.groups().contains(BuiltinRoles.GROUP_NODES)
+            && authorizer.authorize(
+                principal,
+                ResourceKind.SECRET,
+                Verb.READ,
+                Optional.of(tenantId),
+                Optional.empty());
+    recordAudit(
+        ResourceKind.SECRET,
+        principal,
+        Verb.READ,
+        Optional.of(tenantId),
+        Optional.of(BULK_READ_AUDIT_TARGET),
+        allowed);
+    if (!allowed) {
+      authzThrottle.recordFailure(throttleKey);
+      metrics.recordAuthzFailure(Verb.READ.name());
+      respondQuietly(exchange, 403, "forbidden");
+      return false;
+    }
+    authzThrottle.recordSuccess(throttleKey);
+    return true;
+  }
+
+  /**
+   * The principal an audit entry is attributed to outside {@link #authorizeSecrets} itself --
+   * whoever the request resolves to, or the same synthetic {@code anonymous} identity plaintext
+   * mode already uses everywhere else here, so a handler recording its own entry can never produce
+   * one with no principal at all.
+   */
+  private Principal auditPrincipal(HttpExchange exchange) {
+    return resolvePrincipal(exchange).orElseGet(() -> new Principal("anonymous", Set.of()));
+  }
+
+  /**
+   * Every SecretMap member key is written on behalf of whoever made the request, and always as
+   * {@link SecretType#OPAQUE}: a SecretMap groups arbitrary related values under one name, and its
+   * wire shape carries no per-key type for this to honour.
+   */
+  private SecretWrite secretMapWrite(HttpExchange exchange) {
+    return SecretWrite.opaqueBy(auditPrincipal(exchange).name());
   }
 
   /**
@@ -1149,13 +1351,41 @@ public final class FafnirServer implements AutoCloseable {
       Optional<String> tenantId,
       Optional<String> key,
       boolean allowed) {
+    recordAudit(
+        kind,
+        principal,
+        verb,
+        tenantId,
+        key,
+        allowed,
+        allowed ? AuditOutcome.APPLIED : AuditOutcome.REJECTED,
+        OptionalInt.empty());
+  }
+
+  /**
+   * As above, for the one caller that knows more than the authorization decision alone: a secret
+   * write records the version it actually produced ({@code version}), and whether the write landed
+   * at all ({@code outcome}) -- an authorized write can still be refused for an oversized or
+   * malformed value, and that refusal belongs in the trail exactly as much as the successful case.
+   */
+  private void recordAudit(
+      ResourceKind kind,
+      Principal principal,
+      Verb verb,
+      Optional<String> tenantId,
+      Optional<String> key,
+      boolean allowed,
+      AuditOutcome outcome,
+      OptionalInt version) {
     auditLog.info(
-        "principal={} tenant={} key={} verb={} allow={}",
+        "principal={} tenant={} key={} verb={} allow={} outcome={} version={}",
         principal.name(),
         tenantId.orElse("-"),
         key.orElse("-"),
         verb,
-        allowed);
+        allowed,
+        outcome,
+        version.isPresent() ? version.getAsInt() : "-");
     crypto
         .storeClient()
         .propose(
@@ -1169,7 +1399,9 @@ public final class FafnirServer implements AutoCloseable {
                     tenantId,
                     key,
                     allowed,
-                    System.currentTimeMillis())));
+                    outcome,
+                    System.currentTimeMillis(),
+                    version)));
   }
 
   // isTenantAssignedToNode lives on Authorizer now (gimle-mimir.authz) -- both this class and
@@ -1495,8 +1727,30 @@ public final class FafnirServer implements AutoCloseable {
     return Base64.getEncoder().encodeToString(value);
   }
 
+  /**
+   * Every request body this process accepts, capped as it streams rather than buffered whole and
+   * measured afterwards -- a caller can always understate or omit {@code Content-Length}, so the
+   * only cap that actually holds is one enforced on the bytes as they arrive. Sized well above the
+   * largest legitimate write ({@link SecretStore#MAX_VALUE_BYTES} of plaintext, base64-expanded,
+   * inside a JSON envelope -- and a multi-key SecretMap batch of several of those), so nothing real
+   * is refused, while an unbounded blob is cut off long before it can be encrypted and replicated
+   * through Raft consensus.
+   */
+  private static final long MAX_REQUEST_BODY_BYTES = 4L * 1024 * 1024;
+
+  /** Thrown by {@link #readBody} once a request body has streamed past the cap; mapped to 413. */
+  private static final class BodyTooLargeException extends RuntimeException {
+    BodyTooLargeException(long maxBytes) {
+      super("request body exceeds the maximum allowed size of " + maxBytes + " bytes");
+    }
+  }
+
   private static String readBody(HttpExchange exchange) throws IOException {
-    try (InputStream body = exchange.getRequestBody()) {
+    try (InputStream body =
+        new SizeLimitedInputStream(
+            exchange.getRequestBody(),
+            MAX_REQUEST_BODY_BYTES,
+            exceeded -> new BodyTooLargeException(MAX_REQUEST_BODY_BYTES))) {
       return new String(body.readAllBytes(), StandardCharsets.UTF_8);
     }
   }

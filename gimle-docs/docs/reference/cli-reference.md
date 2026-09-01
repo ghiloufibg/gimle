@@ -88,10 +88,12 @@ gimle config versions <tenantId> <key>
 gimle config rollback <tenantId> <key> <version>
 gimle secret list <tenantId>
 gimle secret get <tenantId> <key> [--version N]
-gimle secret set <tenantId> <key> --value <v>
+gimle secret set <tenantId> <key> (--value <v> | --from-file <path>) [--type <t>]
 gimle secret delete <tenantId> <key> [--destroy]
 gimle secret undelete <tenantId> <key> [--version N]
 gimle secret versions <tenantId> <key>
+gimle secret export <tenantId> --out <file>
+gimle secret import <tenantId> --in <file>
 gimle secret rotate-key
 gimle secret retire-key <keyId>
 gimle configmap list <tenantId>
@@ -183,7 +185,34 @@ recoverable via `undelete`), `--destroy` hard-deletes irreversibly and has no wa
 clears the soft-delete flag in place rather than minting a new version: with no `--version` it
 restores whatever version was current at the moment of `delete`, with one it restores that specific
 earlier version's data as current instead, leaving every other version's own stored data untouched
-either way. `rotate-key` generates a new master encryption
+either way.
+
+`versions` prints each version's author, write timestamp, and declared type — not just the version
+numbers — so "who wrote version 3, and when" is answerable directly; `get` repeats the same three
+fields for whichever version it returned.
+
+`set` takes an optional `--type`: `opaque` (the default — stored unexamined, exactly as before),
+`pem-certificate`, or `pem-private-key`. A declared type is validated structurally at write time, so
+a truncated or wrongly-encoded PEM is refused here rather than accepted and only failing later at
+module launch. `--from-file <path>` is the companion for those types: a PEM is multi-line material
+that shell-quoting into `--value` tends to mangle into exactly the malformed value `--type` then
+rejects. Exactly one of `--value` or `--from-file` is required. A secret's plaintext is capped at
+512 KiB (see [Multi-tenancy](../architecture/multi-tenancy.md#secrets)); an oversized value is
+refused rather than stored.
+
+`export`/`import` are the bulk pair, for moving a tenant's whole secret set to a
+freshly-bootstrapped cluster whose master key cannot open the old cluster's ciphertext. `export`
+fetches every live secret in one authorized, audited call and writes it to `--out`; `import` writes
+each key back through the ordinary single-key write path, so every key is separately authorized,
+separately audited, and lands as a new version at the destination (source version *numbers* are not
+recreated — they mean nothing in another cluster's ledger, but each key's declared type does travel
+with it and is re-validated on arrival). The export file holds **plaintext secret material**,
+unavoidably: that is the whole point of carrying values to a cluster with a different master key. It
+is written only to a file, never stdout; created with owner-only permissions where the filesystem
+supports POSIX ones; and an existing path is refused rather than silently overwritten. Deleting it
+once imported is the operator's job — treat it like the master key file itself.
+
+`rotate-key` generates a new master encryption
 key and re-encrypts every existing secret under it, cluster-wide. `retire-key <keyId>` is
 destructive in a different, sharper way than `delete`: it stops Fafnir from trusting that key id at
 all, so any value still encrypted under it — one `rotate-key` alone never re-encrypts — becomes

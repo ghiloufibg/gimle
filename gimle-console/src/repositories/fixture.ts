@@ -17,6 +17,7 @@ import type {
   SecretMapKeyResult,
   SecretMapRollbackResult,
   SecretMetadata,
+  SecretType,
   StatefulSet,
   StatefulSetInstance,
   Tenant,
@@ -580,12 +581,20 @@ export function removeConfig(tenantId: string, key: string) {
 
 const SECRET_KEYS = ["db.password", "api.key", "jwt.signingKey", "s3.secretKey", "smtp.password"];
 
-/** Mock-only internal shape -- every claimed version's plaintext, index 0 = version 1, never
- * dropped even after a soft delete (mirrors Fafnir's own "@N entries stay on disk" semantics). */
+/** Mock-only internal shape -- every claimed version, index 0 = version 1, never dropped even
+ * after a soft delete (mirrors Fafnir's own "@N entries stay on disk" semantics). Each version
+ * carries the same author/timestamp/type record Fafnir keeps on its own `@meta` pointer entry. */
+interface MockSecretVersion {
+  value: string;
+  author: string;
+  writtenAtEpochMilli: number;
+  type: SecretType;
+}
+
 interface MockSecret {
   tenantId: string;
   key: string;
-  versions: string[];
+  versions: MockSecretVersion[];
   deleted: boolean;
 }
 
@@ -595,7 +604,14 @@ export const secretsByTenant: Record<string, MockSecret[]> = Object.fromEntries(
     SECRET_KEYS.slice(0, intBetween(2, SECRET_KEYS.length)).map((key) => ({
       tenantId: t.id,
       key,
-      versions: [`s3cr3t-${Math.random().toString(36).slice(2, 10)}`],
+      versions: [
+        {
+          value: `s3cr3t-${Math.random().toString(36).slice(2, 10)}`,
+          author: "operator",
+          writtenAtEpochMilli: Date.now(),
+          type: "opaque" as SecretType,
+        },
+      ],
       deleted: false,
     })),
   ]),
@@ -612,15 +628,26 @@ export function secretMetadata(secret: MockSecret): SecretMetadata {
 
 /** Upserts by appending a new version -- a write always claims a new version, never overwrites an
  * existing one -- so a previously soft-deleted key becomes live again. */
-export function upsertSecret(tenantId: string, key: string, value: string): MockSecret {
+export function upsertSecret(
+  tenantId: string,
+  key: string,
+  value: string,
+  type: SecretType = "opaque",
+): MockSecret {
   const list = (secretsByTenant[tenantId] ??= []);
+  const version: MockSecretVersion = {
+    value,
+    author: "operator",
+    writtenAtEpochMilli: Date.now(),
+    type,
+  };
   const existing = list.find((s) => s.key === key);
   if (existing) {
-    existing.versions.push(value);
+    existing.versions.push(version);
     existing.deleted = false;
     return existing;
   }
-  const created: MockSecret = { tenantId, key, versions: [value], deleted: false };
+  const created: MockSecret = { tenantId, key, versions: [version], deleted: false };
   list.push(created);
   return created;
 }

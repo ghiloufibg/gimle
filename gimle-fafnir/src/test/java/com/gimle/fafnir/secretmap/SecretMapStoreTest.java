@@ -10,6 +10,7 @@ import com.gimle.core.tenant.Tenant;
 import com.gimle.fafnir.FafnirCrypto;
 import com.gimle.fafnir.SecretMetadata;
 import com.gimle.fafnir.SecretStore;
+import com.gimle.fafnir.SecretWrite;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -39,6 +40,8 @@ import org.junit.jupiter.api.parallel.Isolated;
 @Isolated
 class SecretMapStoreTest {
 
+  private static final SecretWrite WRITE = SecretWrite.opaqueBy("operator");
+
   @TempDir Path tempDir;
 
   private InProcessStore store;
@@ -61,7 +64,7 @@ class SecretMapStoreTest {
   @Test
   void set_many_writes_every_key_and_each_starts_at_version_1() {
     List<SecretMapStore.SecretMapKeyResult> results =
-        secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+        secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
 
     assertEquals(2, results.size());
     for (SecretMapStore.SecretMapKeyResult result : results) {
@@ -72,8 +75,8 @@ class SecretMapStoreTest {
 
   @Test
   void get_metadata_returns_per_key_metadata_scoped_to_one_name_only() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin"));
-    secretMaps.setMany("acme", "api-keys", values("primary", "abc123"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
+    secretMaps.setMany("acme", "api-keys", values("primary", "abc123"), WRITE);
 
     List<SecretMetadata> dbCreds = secretMaps.getMetadata("acme", "db-creds");
 
@@ -85,24 +88,24 @@ class SecretMapStoreTest {
 
   @Test
   void list_names_returns_every_distinct_secret_map_name_for_the_tenant() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin"));
-    secretMaps.setMany("acme", "api-keys", values("primary", "abc123"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
+    secretMaps.setMany("acme", "api-keys", values("primary", "abc123"), WRITE);
 
     assertEquals(Set.of("db-creds", "api-keys"), Set.copyOf(secretMaps.listNames("acme")));
   }
 
   @Test
   void list_names_is_scoped_per_tenant() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin"));
-    secretMaps.setMany("globex", "db-creds", values("username", "root"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
+    secretMaps.setMany("globex", "db-creds", values("username", "root"), WRITE);
 
     assertEquals(List.of("db-creds"), secretMaps.listNames("acme"));
   }
 
   @Test
   void get_values_returns_decrypted_values_for_exactly_the_requested_names() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
-    secretMaps.setMany("acme", "api-keys", values("primary", "abc123"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
+    secretMaps.setMany("acme", "api-keys", values("primary", "abc123"), WRITE);
 
     Map<String, Map<String, byte[]>> values = secretMaps.getValues("acme", List.of("db-creds"));
 
@@ -122,7 +125,7 @@ class SecretMapStoreTest {
 
   @Test
   void delete_all_soft_deletes_every_key_under_the_name() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
 
     boolean existed = secretMaps.deleteAll("acme", "db-creds", false);
 
@@ -138,7 +141,7 @@ class SecretMapStoreTest {
 
   @Test
   void delete_key_removes_only_the_named_key_leaving_siblings_untouched() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
 
     boolean existed = secretMaps.deleteKey("acme", "db-creds", "password", true);
 
@@ -150,15 +153,15 @@ class SecretMapStoreTest {
 
   @Test
   void delete_key_on_a_key_that_does_not_exist_returns_false() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
 
     assertFalse(secretMaps.deleteKey("acme", "db-creds", "no-such-key", false));
   }
 
   @Test
   void set_many_stamps_an_incrementing_group_version_recording_every_member_key() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin"));
-    secretMaps.setMany("acme", "db-creds", values("password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
+    secretMaps.setMany("acme", "db-creds", values("password", "hunter2"), WRITE);
 
     List<SecretMapStore.SecretMapGroupVersion> versions =
         secretMaps.listGroupVersions("acme", "db-creds");
@@ -175,7 +178,7 @@ class SecretMapStoreTest {
   @Test
   void set_many_does_not_stamp_a_group_version_when_every_key_fails() {
     List<SecretMapStore.SecretMapKeyResult> results =
-        secretMaps.setMany("acme", "db-creds", values("bad:key", "x"));
+        secretMaps.setMany("acme", "db-creds", values("bad:key", "x"), WRITE);
 
     assertTrue(results.get(0).error().isPresent());
     assertTrue(secretMaps.listGroupVersions("acme", "db-creds").isEmpty());
@@ -183,9 +186,9 @@ class SecretMapStoreTest {
 
   @Test
   void replace_all_removes_every_live_key_not_named_in_the_new_values() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
 
-    secretMaps.replaceAll("acme", "db-creds", values("username", "root"));
+    secretMaps.replaceAll("acme", "db-creds", values("username", "root"), WRITE);
 
     List<SecretMetadata> live =
         secretMaps.getMetadata("acme", "db-creds").stream()
@@ -201,9 +204,9 @@ class SecretMapStoreTest {
 
   @Test
   void replace_all_with_an_empty_map_clears_every_live_key() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
 
-    secretMaps.replaceAll("acme", "db-creds", Map.of());
+    secretMaps.replaceAll("acme", "db-creds", Map.of(), WRITE);
 
     assertTrue(
         secretMaps.getMetadata("acme", "db-creds").stream().allMatch(SecretMetadata::deleted));
@@ -211,9 +214,9 @@ class SecretMapStoreTest {
 
   @Test
   void replace_all_stamps_one_group_version_recording_the_final_state() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
 
-    secretMaps.replaceAll("acme", "db-creds", values("username", "root"));
+    secretMaps.replaceAll("acme", "db-creds", values("username", "root"), WRITE);
 
     List<SecretMapStore.SecretMapGroupVersion> versions =
         secretMaps.listGroupVersions("acme", "db-creds");
@@ -226,10 +229,10 @@ class SecretMapStoreTest {
 
   @Test
   void replace_all_reports_an_outcome_for_every_written_or_removed_key() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
 
     List<SecretMapStore.SecretMapKeyResult> results =
-        secretMaps.replaceAll("acme", "db-creds", values("username", "root"));
+        secretMaps.replaceAll("acme", "db-creds", values("username", "root"), WRITE);
 
     assertTrue(results.stream().noneMatch(r -> r.error().isPresent()));
     assertEquals(
@@ -239,7 +242,7 @@ class SecretMapStoreTest {
 
   @Test
   void delete_all_stamps_a_group_version_recording_every_key_as_deleted() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
 
     secretMaps.deleteAll("acme", "db-creds", false);
 
@@ -258,7 +261,7 @@ class SecretMapStoreTest {
 
   @Test
   void delete_key_stamps_a_group_version_recording_just_that_key_as_deleted() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
 
     secretMaps.deleteKey("acme", "db-creds", "password", false);
 
@@ -271,7 +274,7 @@ class SecretMapStoreTest {
 
   @Test
   void delete_key_on_an_unknown_key_does_not_stamp_a_group_version() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
 
     secretMaps.deleteKey("acme", "db-creds", "no-such-key", false);
 
@@ -280,10 +283,10 @@ class SecretMapStoreTest {
 
   @Test
   void rollback_restores_a_changed_keys_old_content_as_a_brand_new_version() {
-    secretMaps.setMany("acme", "db-creds", values("password", "hunter2")); // group version 1
-    secretMaps.setMany("acme", "db-creds", values("password", "hunter3")); // group version 2
+    secretMaps.setMany("acme", "db-creds", values("password", "hunter2"), WRITE); // group version 1
+    secretMaps.setMany("acme", "db-creds", values("password", "hunter3"), WRITE); // group version 2
 
-    SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 1);
+    SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 1, WRITE);
 
     assertTrue(outcome instanceof SecretMapStore.RollbackOutcome.Applied);
     SecretMapStore.RollbackOutcome.Applied applied =
@@ -303,11 +306,11 @@ class SecretMapStoreTest {
 
   @Test
   void rollback_target_recording_a_deleted_key_re_applies_that_delete() {
-    secretMaps.setMany("acme", "db-creds", values("password", "hunter2")); // v1: live
+    secretMaps.setMany("acme", "db-creds", values("password", "hunter2"), WRITE); // v1: live
     secretMaps.deleteKey("acme", "db-creds", "password", false); // v2: deleted
-    secretMaps.setMany("acme", "db-creds", values("password", "hunter3")); // v3: live again
+    secretMaps.setMany("acme", "db-creds", values("password", "hunter3"), WRITE); // v3: live again
 
-    secretMaps.rollback("acme", "db-creds", 2);
+    secretMaps.rollback("acme", "db-creds", 2, WRITE);
 
     List<SecretMetadata> metadata = secretMaps.getMetadata("acme", "db-creds");
     assertEquals(1, metadata.size());
@@ -317,10 +320,10 @@ class SecretMapStoreTest {
 
   @Test
   void rollback_removes_a_key_added_after_the_target_group_version() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin")); // v1
-    secretMaps.setMany("acme", "db-creds", values("password", "hunter2")); // v2: password added
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE); // v1
+    secretMaps.setMany("acme", "db-creds", values("password", "hunter2"), WRITE); // v2: password added
 
-    SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 1);
+    SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 1, WRITE);
 
     SecretMapStore.RollbackOutcome.Applied applied =
         (SecretMapStore.RollbackOutcome.Applied) outcome;
@@ -339,10 +342,10 @@ class SecretMapStoreTest {
 
   @Test
   void rollback_reports_a_per_key_failure_for_a_since_hard_deleted_key_without_failing_siblings() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin", "password", "hunter2"), WRITE);
     secretMaps.deleteKey("acme", "db-creds", "password", true); // hard delete -- history gone
 
-    SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 1);
+    SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 1, WRITE);
 
     SecretMapStore.RollbackOutcome.Applied applied =
         (SecretMapStore.RollbackOutcome.Applied) outcome;
@@ -355,9 +358,9 @@ class SecretMapStoreTest {
 
   @Test
   void rollback_to_an_unknown_group_version_returns_target_not_found() {
-    secretMaps.setMany("acme", "db-creds", values("username", "admin"));
+    secretMaps.setMany("acme", "db-creds", values("username", "admin"), WRITE);
 
-    SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 99);
+    SecretMapStore.RollbackOutcome outcome = secretMaps.rollback("acme", "db-creds", 99, WRITE);
 
     assertTrue(outcome instanceof SecretMapStore.RollbackOutcome.TargetNotFound);
   }
@@ -372,7 +375,7 @@ class SecretMapStoreTest {
   @Timeout(20)
   void concurrent_writers_and_rollbacks_on_the_same_name_never_corrupt_the_group_version_sequence()
       throws Exception {
-    secretMaps.setMany("acme", "contended", values("seed", "v0")); // group version 1
+    secretMaps.setMany("acme", "contended", values("seed", "v0"), WRITE); // group version 1
     int writers = 4;
     int rollbackers = 2;
     int total = writers + rollbackers;
@@ -433,7 +436,7 @@ class SecretMapStoreTest {
   private void rollbackWithRetry(String name, int targetGroupVersion) {
     for (int attempt = 0; attempt < 50; attempt++) {
       try {
-        secretMaps.rollback("acme", name, targetGroupVersion);
+        secretMaps.rollback("acme", name, targetGroupVersion, WRITE);
         return;
       } catch (GimleSecretsException e) {
         // Lease contended for this attempt's whole 50-try budget; retry, same as setManyWithRetry.
@@ -496,7 +499,7 @@ class SecretMapStoreTest {
     for (int attempt = 0; attempt < 50; attempt++) {
       try {
         List<SecretMapStore.SecretMapKeyResult> results =
-            secretMaps.setMany("acme", name, values(key, value));
+            secretMaps.setMany("acme", name, values(key, value), WRITE);
         for (SecretMapStore.SecretMapKeyResult result : results) {
           assertTrue(result.error().isEmpty(), () -> "unexpected failure: " + result);
         }

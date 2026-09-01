@@ -1,6 +1,7 @@
 package com.gimle.core.protocol;
 
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /**
@@ -19,6 +20,12 @@ import java.util.Set;
  * AuditOutcome#REJECTED} by admission (a tenant quota, a LimitRange, a name/kind mismatch) after
  * authorization already said yes. See {@link AuditOutcome}'s own javadoc for why both fields need
  * to exist.
+ *
+ * <p>{@code version} names the immutable version a versioned write actually produced -- a secret's
+ * own {@code key@N}. Without it the trail could say who wrote a secret and when, but never which
+ * version that write became, so answering "who wrote version 3 of this key" meant eyeballing
+ * timestamps against a separate version listing. Empty for every read, every delete, and every
+ * resource kind whose writes aren't versioned.
  */
 public record AuditEvent(
     String id,
@@ -30,7 +37,8 @@ public record AuditEvent(
     Optional<String> targetId,
     boolean allowed,
     AuditOutcome outcome,
-    long occurredAtEpochMilli) {
+    long occurredAtEpochMilli,
+    OptionalInt version) {
 
   public AuditEvent {
     if (id == null || id.isBlank()) {
@@ -51,6 +59,38 @@ public record AuditEvent(
     if (outcome == null) {
       throw new IllegalArgumentException("outcome must not be null");
     }
+    version = version == null ? OptionalInt.empty() : version;
+  }
+
+  /**
+   * The canonical constructor minus {@code version}, for the resource kinds whose writes aren't
+   * versioned at all -- {@code version} is only ever set by a write against a kind that mints one
+   * (a secret's own {@code key@N}), so an event recorded for anything else carries no number to
+   * report rather than a placeholder zero.
+   */
+  public AuditEvent(
+      String id,
+      String principal,
+      Set<String> groups,
+      String resourceKind,
+      String verb,
+      Optional<String> tenantId,
+      Optional<String> targetId,
+      boolean allowed,
+      AuditOutcome outcome,
+      long occurredAtEpochMilli) {
+    this(
+        id,
+        principal,
+        groups,
+        resourceKind,
+        verb,
+        tenantId,
+        targetId,
+        allowed,
+        outcome,
+        occurredAtEpochMilli,
+        OptionalInt.empty());
   }
 
   /**

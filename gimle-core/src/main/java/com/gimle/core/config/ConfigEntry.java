@@ -19,6 +19,17 @@ package com.gimle.core.config;
  */
 public record ConfigEntry(String tenantId, String key, byte[] value, boolean encrypted) {
 
+  /**
+   * The largest a single stored value may be. Every row here is replicated through Raft consensus,
+   * held whole in every store replica's own in-memory state, and written into every snapshot, so an
+   * unbounded entry is a cluster-wide memory and replication cost rather than one process's
+   * problem. 1 MiB is the same ceiling Kubernetes places on a Secret/ConfigMap for the same reason.
+   * A caller writing plaintext this class only ever sees after encryption (see {@code
+   * com.gimle.fafnir.SecretStore}) caps its own input lower, so the ciphertext's framing overhead
+   * still fits inside this.
+   */
+  public static final int MAX_VALUE_BYTES = 1024 * 1024;
+
   public ConfigEntry {
     if (tenantId == null || tenantId.isBlank()) {
       throw new IllegalArgumentException("tenantId must not be blank");
@@ -28,6 +39,17 @@ public record ConfigEntry(String tenantId, String key, byte[] value, boolean enc
     }
     if (value == null) {
       throw new IllegalArgumentException("value must not be null");
+    }
+    if (value.length > MAX_VALUE_BYTES) {
+      throw new IllegalArgumentException(
+          "value for "
+              + tenantId
+              + "/"
+              + key
+              + " is "
+              + value.length
+              + " bytes, exceeding the maximum of "
+              + MAX_VALUE_BYTES);
     }
     value = value.clone();
   }

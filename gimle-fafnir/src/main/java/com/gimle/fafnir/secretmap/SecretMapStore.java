@@ -5,6 +5,7 @@ import com.gimle.core.exception.GimleSecretsException;
 import com.gimle.core.protocol.Json;
 import com.gimle.fafnir.SecretMetadata;
 import com.gimle.fafnir.SecretStore;
+import com.gimle.fafnir.SecretWrite;
 import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.store.LeaseGrant;
@@ -154,9 +155,13 @@ public final class SecretMapStore {
    * failure, and the caller sees exactly what landed. A group version is stamped once at the end
    * (see {@link #stampGroupVersion}) recording every member key's resulting state -- skipped if
    * every key in this batch failed, since nothing actually changed.
+   *
+   * <p>{@code write} is relayed straight through to each member key's own {@link SecretStore#put},
+   * so a SecretMap member records who wrote it exactly like a flat secret does; a member key has no
+   * declared shape of its own, so callers pass {@link SecretWrite#opaqueBy}.
    */
   public List<SecretMapKeyResult> setMany(
-      String tenantId, String name, Map<String, byte[]> values) {
+      String tenantId, String name, Map<String, byte[]> values, SecretWrite write) {
     return withWriteLease(
         tenantId,
         name,
@@ -166,7 +171,10 @@ public final class SecretMapStore {
             try {
               int version =
                   secretStore.put(
-                      tenantId, SecretMapCodec.rawKey(name, entry.getKey()), entry.getValue());
+                      tenantId,
+                      SecretMapCodec.rawKey(name, entry.getKey()),
+                      entry.getValue(),
+                      write);
               results.add(SecretMapKeyResult.ok(entry.getKey(), version));
             } catch (RuntimeException e) {
               results.add(
@@ -193,7 +201,7 @@ public final class SecretMapStore {
    * (an empty {@code values} against an already-empty SecretMap).
    */
   public List<SecretMapKeyResult> replaceAll(
-      String tenantId, String name, Map<String, byte[]> values) {
+      String tenantId, String name, Map<String, byte[]> values, SecretWrite write) {
     return withWriteLease(
         tenantId,
         name,
@@ -203,7 +211,10 @@ public final class SecretMapStore {
             try {
               int version =
                   secretStore.put(
-                      tenantId, SecretMapCodec.rawKey(name, entry.getKey()), entry.getValue());
+                      tenantId,
+                      SecretMapCodec.rawKey(name, entry.getKey()),
+                      entry.getValue(),
+                      write);
               results.add(SecretMapKeyResult.ok(entry.getKey(), version));
             } catch (RuntimeException e) {
               results.add(
@@ -320,7 +331,8 @@ public final class SecretMapStore {
    * unrecoverable (only possible if it was hard-deleted since) is reported as that key's own
    * failure, not a thrown exception, so it never blocks its siblings' restore.
    */
-  public RollbackOutcome rollback(String tenantId, String name, int targetGroupVersion) {
+  public RollbackOutcome rollback(
+      String tenantId, String name, int targetGroupVersion, SecretWrite write) {
     return withWriteLease(
         tenantId,
         name,
@@ -358,7 +370,7 @@ public final class SecretMapStore {
                             () ->
                                 new IllegalStateException(
                                     "version " + snapshot.version() + " no longer recoverable"));
-                int newVersion = secretStore.put(tenantId, rawKey, oldValue);
+                int newVersion = secretStore.put(tenantId, rawKey, oldValue, write);
                 results.add(SecretMapKeyResult.ok(key, newVersion));
               }
             } catch (RuntimeException e) {

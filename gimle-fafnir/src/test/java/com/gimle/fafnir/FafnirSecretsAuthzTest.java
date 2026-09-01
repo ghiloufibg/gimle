@@ -332,6 +332,109 @@ class FafnirSecretsAuthzTest {
     }
   }
 
+  @Test
+  @Timeout(10)
+  void the_bulk_value_read_runs_its_own_authorizer_check_and_forbids_an_ungranted_caller()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      // No Role/RoleBinding at all -- the same "authenticated but ungranted" caller the
+      // single-key read is refused for, refused identically on the bulk route.
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create(
+                            "https://localhost:" + server.port() + "/secrets/acme?names=a,b"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(403, response.statusCode());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void the_bulk_value_read_is_allowed_for_a_caller_holding_secret_read() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create(
+                            "https://localhost:" + server.port() + "/secrets/acme?names=a,b"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(200, response.statusCode());
+      }
+    }
+  }
+
+  /**
+   * The bulk route must never widen what a node identity can do: a node with a live assignment for
+   * the tenant is allowed to read its secrets one key at a time (see the test above), and that
+   * self-service path deliberately does not extend to "hand me every named secret this tenant owns
+   * in one response," which is an operator migration tool rather than anything a node needs.
+   */
+  @Test
+  @Timeout(10)
+  void a_node_is_forbidden_from_the_bulk_value_read_even_with_an_active_assignment()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      assignDeploymentToNode(inProcessStore.store(), "node-1", "acme");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.nodeClientWithLeaf(ca, "node-1");
+
+        HttpResponse<String> singleKey =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpResponse<String> bulk =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create(
+                            "https://localhost:"
+                                + server.port()
+                                + "/secrets/acme?names=db-password"))
+                    .GET()
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        assertEquals(200, singleKey.statusCode());
+        assertEquals(403, bulk.statusCode());
+      }
+    }
+  }
+
   /**
    * Allowed and denied {@code /secrets/*} decisions both land in the durable audit trail alongside
    * Fafnir's own existing SLF4J log line.
