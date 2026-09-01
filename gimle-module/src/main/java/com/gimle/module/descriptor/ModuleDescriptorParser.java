@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -172,9 +173,13 @@ public final class ModuleDescriptorParser {
     }
     Optional<String> liveness = className(health, "liveness");
     Optional<String> readiness = className(health, "readiness");
-    Optional<Duration> initialDelay = parseInitialDelay(health);
+    Optional<Duration> initialDelay = parseNonNegativeSeconds(health, "initialDelaySeconds");
+    Optional<Duration> interval = parsePositiveSeconds(health, "intervalSeconds");
+    Optional<Duration> timeout = parsePositiveSeconds(health, "timeoutSeconds");
+    OptionalInt failureThreshold = parseFailureThreshold(health);
     try {
-      return new HealthProbes(liveness, readiness, initialDelay);
+      return new HealthProbes(
+          liveness, readiness, initialDelay, interval, timeout, failureThreshold);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid health probes: " + e.getMessage(), e);
     }
@@ -183,18 +188,51 @@ public final class ModuleDescriptorParser {
   /**
    * {@code initialDelaySeconds}: how long after ACTIVE before the first probe tick, so a module's
    * own post-start warmup (lazy init, cache fill, JIT) doesn't get torn down by an eager first
-   * tick.
+   * tick. Zero is meaningful here -- "probe immediately" -- so unlike {@link #parsePositiveSeconds}
+   * it is accepted.
    */
-  private static Optional<Duration> parseInitialDelay(Map<?, ?> health) {
-    Object value = health.get("initialDelaySeconds");
+  private static Optional<Duration> parseNonNegativeSeconds(Map<?, ?> health, String key) {
+    Object value = health.get(key);
     if (value == null) {
       return Optional.empty();
     }
     if (!(value instanceof Number number) || number.longValue() < 0) {
-      throw new GimleManifestException(
-          "'health.initialDelaySeconds' must be a non-negative number");
+      throw new GimleManifestException("'health." + key + "' must be a non-negative number");
     }
     return Optional.of(Duration.ofSeconds(number.longValue()));
+  }
+
+  /**
+   * {@code intervalSeconds}/{@code timeoutSeconds}: this module's own probe cadence and per-check
+   * deadline, overriding the worker-wide defaults it would otherwise share with every other module
+   * on the same worker. Zero is rejected rather than silently normalized -- a zero interval ticks
+   * without pause and a zero timeout fails every check before it can run, so either one is a
+   * manifest mistake, not an aggressive-but-valid setting.
+   */
+  private static Optional<Duration> parsePositiveSeconds(Map<?, ?> health, String key) {
+    Object value = health.get(key);
+    if (value == null) {
+      return Optional.empty();
+    }
+    if (!(value instanceof Number number) || number.longValue() <= 0) {
+      throw new GimleManifestException("'health." + key + "' must be a positive number");
+    }
+    return Optional.of(Duration.ofSeconds(number.longValue()));
+  }
+
+  /**
+   * {@code failureThreshold}: how many consecutive liveness failures this module tolerates before
+   * the worker restarts it. One is the lowest meaningful value ("restart on the first failure").
+   */
+  private static OptionalInt parseFailureThreshold(Map<?, ?> health) {
+    Object value = health.get("failureThreshold");
+    if (value == null) {
+      return OptionalInt.empty();
+    }
+    if (!(value instanceof Number number) || number.intValue() < 1) {
+      throw new GimleManifestException("'health.failureThreshold' must be a number of at least 1");
+    }
+    return OptionalInt.of(number.intValue());
   }
 
   private static Optional<String> parseLifecycleHooks(Map<?, ?> root) {

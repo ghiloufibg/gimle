@@ -1,6 +1,7 @@
 package com.gimle.worker;
 
 import com.gimle.core.logging.InstanceMdcContext;
+import com.gimle.core.module.HealthProbes;
 import com.gimle.core.module.ModuleArtifact;
 import com.gimle.core.module.ModuleDescriptor;
 import com.gimle.core.module.ModuleId;
@@ -55,9 +56,9 @@ public final class WorkerRuntime {
   private final ModuleRegistry registry;
   private final ServiceRegistry serviceRegistry;
   private final int defaultMaxConcurrency;
-  private final Duration probeInterval;
-  private final Duration probeTimeout;
-  private final int livenessFailureThreshold;
+  private final Duration defaultProbeInterval;
+  private final Duration defaultProbeTimeout;
+  private final int defaultLivenessFailureThreshold;
   private final Consumer<ModuleId> onModuleRestartBudgetExhausted;
   private final Duration stableUptimeThreshold;
   private final InstanceIdentityRegistry identityRegistry;
@@ -67,6 +68,12 @@ public final class WorkerRuntime {
   private final Map<ModuleId, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
   private final Map<ModuleId, AtomicInteger> consecutiveLivenessFailures =
       new ConcurrentHashMap<>();
+
+  // The threshold actually in force for each currently-ACTIVE module: its own manifest's
+  // health.failureThreshold, or this worker's default where it declares none. Recorded at ACTIVE
+  // rather than re-read on every failure so onLivenessResult never has to reach back into the
+  // registry for an artifact a concurrent uninstall may already have removed.
+  private final Map<ModuleId, Integer> effectiveLivenessThresholds = new ConcurrentHashMap<>();
   private final Set<ModuleId> restartsInFlight = ConcurrentHashMap.newKeySet();
   private final ProbeLoop probeLoop = new ProbeLoop();
 
@@ -75,18 +82,18 @@ public final class WorkerRuntime {
       ModuleRegistry registry,
       ServiceRegistry serviceRegistry,
       int defaultMaxConcurrency,
-      Duration probeInterval,
-      Duration probeTimeout,
-      int livenessFailureThreshold,
+      Duration defaultProbeInterval,
+      Duration defaultProbeTimeout,
+      int defaultLivenessFailureThreshold,
       Consumer<ModuleId> onModuleRestartBudgetExhausted) {
     this(
         controller,
         registry,
         serviceRegistry,
         defaultMaxConcurrency,
-        probeInterval,
-        probeTimeout,
-        livenessFailureThreshold,
+        defaultProbeInterval,
+        defaultProbeTimeout,
+        defaultLivenessFailureThreshold,
         onModuleRestartBudgetExhausted,
         DEFAULT_STABLE_UPTIME_THRESHOLD,
         new InstanceIdentityRegistry(),
@@ -104,9 +111,9 @@ public final class WorkerRuntime {
       ModuleRegistry registry,
       ServiceRegistry serviceRegistry,
       int defaultMaxConcurrency,
-      Duration probeInterval,
-      Duration probeTimeout,
-      int livenessFailureThreshold,
+      Duration defaultProbeInterval,
+      Duration defaultProbeTimeout,
+      int defaultLivenessFailureThreshold,
       Consumer<ModuleId> onModuleRestartBudgetExhausted,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled) {
@@ -115,9 +122,9 @@ public final class WorkerRuntime {
         registry,
         serviceRegistry,
         defaultMaxConcurrency,
-        probeInterval,
-        probeTimeout,
-        livenessFailureThreshold,
+        defaultProbeInterval,
+        defaultProbeTimeout,
+        defaultLivenessFailureThreshold,
         onModuleRestartBudgetExhausted,
         DEFAULT_STABLE_UPTIME_THRESHOLD,
         identityRegistry,
@@ -134,9 +141,9 @@ public final class WorkerRuntime {
       ModuleRegistry registry,
       ServiceRegistry serviceRegistry,
       int defaultMaxConcurrency,
-      Duration probeInterval,
-      Duration probeTimeout,
-      int livenessFailureThreshold,
+      Duration defaultProbeInterval,
+      Duration defaultProbeTimeout,
+      int defaultLivenessFailureThreshold,
       Consumer<ModuleId> onModuleRestartBudgetExhausted,
       Duration stableUptimeThreshold,
       InstanceIdentityRegistry identityRegistry,
@@ -145,9 +152,9 @@ public final class WorkerRuntime {
     this.registry = registry;
     this.serviceRegistry = serviceRegistry;
     this.defaultMaxConcurrency = defaultMaxConcurrency;
-    this.probeInterval = probeInterval;
-    this.probeTimeout = probeTimeout;
-    this.livenessFailureThreshold = livenessFailureThreshold;
+    this.defaultProbeInterval = defaultProbeInterval;
+    this.defaultProbeTimeout = defaultProbeTimeout;
+    this.defaultLivenessFailureThreshold = defaultLivenessFailureThreshold;
     this.onModuleRestartBudgetExhausted = onModuleRestartBudgetExhausted;
     this.stableUptimeThreshold = stableUptimeThreshold;
     this.identityRegistry = identityRegistry;
@@ -205,6 +212,10 @@ public final class WorkerRuntime {
     consecutiveLivenessFailures.computeIfAbsent(id, key -> new AtomicInteger());
 
     ModuleDescriptor descriptor = registry.artifact(id).descriptor();
+    HealthProbes probes = descriptor.healthProbes();
+    effectiveLivenessThresholds.put(
+        id, probes.livenessFailureThreshold().orElse(defaultLivenessFailureThreshold));
+
     Optional<ModuleLayerHandle> handleOpt = registry.layerHandle(id);
     if (handleOpt.isEmpty()) {
       log.warn("module {} is ACTIVE but has no layer handle; skipping probe setup", id);
@@ -212,12 +223,15 @@ public final class WorkerRuntime {
     }
     ModuleLayerHandle handle = handleOpt.get();
 
-    // Absent means the no-initial-delay default: first tick fires one probeInterval after ACTIVE,
-    // same as every interval after it -- ProbeLoop's own back-compat overload handles that when
-    // passed probeInterval unchanged here.
-    Duration initialDelay = descriptor.healthProbes().initialDelay().orElse(probeInterval);
+    // Each timing falls back to this worker's own default, so a module that declares none is
+    // checked exactly as before.
+    Duration interval = probes.interval().orElse(defaultProbeInterval);
+    Duration timeout = probes.timeout().orElse(defaultProbeTimeout);
+    // Absent means the no-initial-delay default: first tick fires one interval after ACTIVE, same
+    // as every interval after it.
+    Duration initialDelay = probes.initialDelay().orElse(interval);
 
-    Optional<String> livenessClassName = descriptor.healthProbes().livenessClass();
+    Optional<String> livenessClassName = probes.livenessClass();
     if (livenessClassName.isPresent()) {
       Optional<LivenessProbe> probe =
           instantiateProbeOrFail(
@@ -231,13 +245,13 @@ public final class WorkerRuntime {
           probeKey(id, "liveness"),
           scheduler,
           probe.get()::isAlive,
-          probeInterval,
-          probeTimeout,
+          interval,
+          timeout,
           initialDelay,
           alive -> onLivenessResult(id, alive));
     }
 
-    Optional<String> readinessClassName = descriptor.healthProbes().readinessClass();
+    Optional<String> readinessClassName = probes.readinessClass();
     if (readinessClassName.isPresent()) {
       Optional<ReadinessProbe> probe =
           instantiateProbeOrFail(
@@ -249,8 +263,8 @@ public final class WorkerRuntime {
           probeKey(id, "readiness"),
           scheduler,
           probe.get()::isReady,
-          probeInterval,
-          probeTimeout,
+          interval,
+          timeout,
           initialDelay,
           ready -> onReadinessResult(id, ready));
     }
@@ -381,6 +395,7 @@ public final class WorkerRuntime {
     }
     restartTrackers.remove(id);
     consecutiveLivenessFailures.remove(id);
+    effectiveLivenessThresholds.remove(id);
     serviceRegistry.remove(id);
   }
 
@@ -401,7 +416,7 @@ public final class WorkerRuntime {
         consecutiveLivenessFailures
             .computeIfAbsent(id, key -> new AtomicInteger())
             .incrementAndGet();
-    if (failures < livenessFailureThreshold) {
+    if (failures < effectiveLivenessThresholds.getOrDefault(id, defaultLivenessFailureThreshold)) {
       return;
     }
     consecutiveLivenessFailures.get(id).set(0);
