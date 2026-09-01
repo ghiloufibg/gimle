@@ -43,7 +43,9 @@ own Instances/Metrics screens surface both figures per instance and per deployme
 column on the Instances table, a total-error-rate stat tile and a ranked "instances with errors"
 panel on the Metrics screen derived per instance, plus a "per-deployment rollup" panel reading
 `GET /metrics` itself — see [Web console](./web-console.md#per-deployment-metrics-rollup),
-including the endpoint's own tenant-keying limitation). `WorkerMetrics`' own request-latency `Timer` is built with
+including the endpoint's own tenant-keying limitation). `gimle metrics` reads that same rollup from
+a terminal, marking the rows that limitation makes indistinguishable rather than merging them — see
+the [CLI reference](../reference/cli-reference.md). `WorkerMetrics`' own request-latency `Timer` is built with
 `publishPercentiles(0.5, 0.95, 0.99)` too, for parity with the three process-tier registries below.
 
 The same registry also carries the fabric's own circuit-breaker state, which used to be invisible
@@ -178,7 +180,9 @@ collector. `install(SpanExporter)` generalizes this to an arbitrary exporter ove
 `BatchSpanProcessor` (a real network-bound exporter shouldn't block on every single span the way
 the default's `SimpleSpanProcessor` does); `installWithMuninnShipping(MuninnShipper)` is the common
 case, wrapping a `MuninnSpanExporter` that ships every batch to Muninn, readable back through `GET
-/traces-history/{processKind}/{processId}`. `gimle-controlplane`, `gimle-fafnir`, `gimle-mimir`, and
+/traces-history/{processKind}/{processId}` — from the console's Traces screen or from
+`gimle traces-history <processKind> <processId>`, which reads that identical route (and
+`gimle metrics-history` its metrics counterpart). `gimle-controlplane`, `gimle-fafnir`, `gimle-mimir`, and
 `gimle-andvari` each install tracing this way — Muninn-backed when a Muninn endpoint is configured,
 falling back to the logging default otherwise — the same "genuine RPC-serving process" set that
 ships its own metrics. `gimle-worker` installs it a third way, `install(new RelayingSpanExporter(workerId, sink))`

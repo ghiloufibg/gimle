@@ -11,8 +11,11 @@ compatibility. Mirrors `GimleCli`'s own usage text directly.
 
 Any order, anywhere on the command line:
 
-- `--server host:port` — control-plane address (or set the `GIMLE_SERVER` environment variable
-  instead, so you don't have to pass it on every invocation).
+- `--server host:port` — control-plane address. One of three sources, consulted in a fixed order
+  that never varies: `--server`, then the `GIMLE_SERVER` environment variable, then the current
+  context in the config file (see [Contexts](#contexts-talking-to-more-than-one-cluster) below).
+  Each is read only when every earlier one is absent, so an explicit flag always wins and a command
+  that carries one never even opens the config file.
 - `-o`/`--output table|json|manifest` — output format, default `table`. `manifest` is honored only
   by `get <deployment|job|cronjob|daemonset|statefulset> <name>`: it re-projects the status
   response back into a manifest that `apply -f` accepts unchanged, closing the round-trip gap where
@@ -58,6 +61,16 @@ gimle untaint <nodeId> <tenantId>
 gimle volume list
 gimle volume destroy <statefulSet> <instanceIndex> --node <nodeId>
 gimle events <deploymentName> <instanceIndex> [--tenant <id>] [--limit N]
+gimle metrics
+gimle metrics-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId>
+                       [--since <cursor>] [--limit N]
+gimle traces-history <CONTROLPLANE|FAFNIR|STORE|AGENT|WORKER> <processId>
+                      [--since <cursor>] [--limit N]
+gimle context list
+gimle context show [name]
+gimle context use <name>
+gimle context set <name> --server host:port
+gimle context delete <name>
 gimle get services [name] [--tenant <id>]
 gimle set service <name> (--deployment <name> [--deployment ...] | --external-name <host>)
                           --port N [--target-port N] [--tenant <id>] [--session-affinity]
@@ -315,6 +328,34 @@ those entries print, applied client-side (the underlying `GET /events` call has 
 `limit` parameter of its own, unlike `audit list` below) — useful against a crash-looping instance
 whose timeline would otherwise be hundreds of lines.
 
+`metrics` prints the control plane's per-deployment rollup of the same live request/error-rate
+readings `get deployments` surfaces per instance: one row per deployment with its average request
+rate, average error rate, and how many instances actually contributed a reading (a deployment whose
+instances have never reported shows `0`, which is why that count is worth reading alongside the
+averages). The same rollup backs the console's Metrics screen.
+
+The response keys each row by deployment name alone and **carries no tenant id**, while the
+authorization filter behind it is per-tenant — so a caller who may read two tenants that each run a
+deployment of the same name gets two rows nothing in the payload distinguishes. Every row is kept
+exactly as the server sent it, and both sides of such a collision carry `ambiguous: true`; under
+the default table format a `note:` line names the deployments affected. Nothing is merged (that
+would invent an average across tenants the server never computed) and nothing is dropped — there is
+no client-side join available to do better, since the response never names a tenant.
+
+`metrics-history` and `traces-history` read a *process's* own shipped observability history back out
+of [Muninn](../architecture/node-topology.md#muninn) through the control plane's own proxy — the
+terminal equivalent of the console's Metrics and Traces screens, so an investigation can be scripted
+instead of clicked. There is no discovery API for which process ids exist: every non-agent id is the
+`host:port` that process chose for itself at startup, an agent's is its node id, and a worker's is
+the composite `{nodeId}:{workerId}` (a worker has no listening address of its own). An unrecognized
+process kind is rejected locally, listing the five that exist. `--since <cursor>` (a line timestamp)
+reads forward from that point and is the one filter the proxy forwards; `--limit N` is therefore
+applied client-side, keeping the most recent N of an oldest-first response, the same treatment
+`events` gives its own `--limit`. Under the table format the last line's own timestamp is printed as
+the cursor to resume from. A cluster with no Muninn configured answers `not found: no muninn
+endpoint configured` — history is the only place a process's metrics or traces ever live, so there
+is no live-process fallback the way `logs` has one.
+
 `service`/`networkpolicy` manage the [Service abstraction](../architecture/service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment)
 — a stable name in front of a Deployment's live, ephemeral endpoints, the ClusterIP analogue named
 in the platform's own network-model design. `set service` POSTs to the `/services` collection
@@ -402,6 +443,42 @@ would be authorized for that action, without performing it, and prints `yes`/`no
 as JSON under `-o json`). Verb and resource are matched case-insensitively, `-` is accepted for
 `_` (`network-policy` works), and a plural `s` is tolerated so the nouns the other verbs use spell
 valid questions here too.
+
+## Contexts: talking to more than one cluster
+
+`gimle context` names the control planes this CLI talks to, so moving between dev/staging/prod is
+`gimle context use staging` rather than a re-typed `--server` on every command. `set` creates or
+updates a named endpoint (the first one set also becomes the current one, since a config holding
+exactly one endpoint and no selection would otherwise still need a separate `use`); `use` switches
+the selection; `list`/`show` report what is configured and which is current; `delete` removes one,
+clearing the selection if it was the current one. Every one of these is purely local — nothing
+contacts a control plane, so they are the only verbs that work with no server resolvable at all,
+which is exactly the state you are in before the first `set`. `set` takes the endpoint through the
+same global `--server` flag every other verb uses — it is the one subcommand that reads it as a
+value to *store* rather than an address to dial.
+
+The file is `~/.gimle/config` (the same `~/.gimle` directory the rest of the tooling's local state
+lives under); `-Dgimle.cli.configFile=<path>` selects a different one. It is optional in the
+strongest sense: a CLI that has never run `context set` never creates it, and every command still
+works off `--server`/`GIMLE_SERVER` exactly as before. It is written through a temp file and an
+atomic rename, with owner-only permissions (`0600`, and `0700` on the directory) where the
+filesystem supports POSIX ones, and holds **endpoints only** — no credential ever lands here, since
+a client certificate and key still come from `gimle.tls.certFile`/`keyFile`.
+
+```yaml
+currentContext: "prod"
+contexts:
+  - name: "prod"
+    server: "cp.prod.internal:8080"
+  - name: "dev"
+    server: "127.0.0.1:8080"
+```
+
+A file that is unreadable or malformed never breaks unrelated commands: it is consulted only when
+neither `--server` nor `GIMLE_SERVER` is set, and when it is consulted and cannot be used, the CLI
+warns on stderr naming the file and the problem, then reports that no server is configured — rather
+than failing with a parse error. The `context` verbs themselves do report it as a hard error, since
+that is precisely the file you asked them to operate on.
 
 ## Custom kinds
 
@@ -521,6 +598,26 @@ gimle untaint node-1 tenant-a --server 127.0.0.1:8080
 gimle events orders-service-deployment 0 --server 127.0.0.1:8080
 gimle events orders-service-deployment 0 --tenant acme --server 127.0.0.1:8080
 gimle events orders-service-deployment 0 --limit 20 --server 127.0.0.1:8080
+
+# Which deployments are actually taking traffic, and which are erroring -- rows carrying
+# ambiguous: true are same-named deployments in different tenants the rollup cannot tell apart
+gimle metrics --server 127.0.0.1:8080
+gimle -o json metrics --server 127.0.0.1:8080
+
+# A process's own shipped metrics and traces, without opening the console. The processId is that
+# process's own self-reported host:port -- a node agent's is its nodeId, a worker's is
+# {nodeId}:{workerId}. --since resumes from the cursor the previous read printed.
+gimle metrics-history CONTROLPLANE 127.0.0.1:8080 --limit 50 --server 127.0.0.1:8080
+gimle metrics-history WORKER node-1:worker-2 --since 2026-08-30T10:00:00Z --server 127.0.0.1:8080
+gimle -o json traces-history AGENT node-1 --server 127.0.0.1:8080
+
+# Name each cluster once instead of retyping --server; the selection lives in ~/.gimle/config
+gimle context set dev --server 127.0.0.1:8080
+gimle context set prod --server cp.prod.internal:8080
+gimle context use prod
+gimle context list
+gimle get deployments                      # dials cp.prod.internal:8080
+gimle get deployments --server 127.0.0.1:8080   # ...unless a flag says otherwise
 
 # A stable name in front of a Deployment's live endpoints, and who else may call it
 gimle set service orders-web --deployment orders-service-deployment --port 8080 --server 127.0.0.1:8080
