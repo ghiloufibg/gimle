@@ -49,7 +49,10 @@ hilmir pki init -f <topology.yaml>
 
 `pki init` mints the cluster's shared secret material once, locally, before any machine is bootstrapped:
 for an mtls topology, the cluster CA and one leaf certificate per (role, machine hostname) via
-`PkiBootstrapMain`; and, whenever `fafnir.keyFile` is configured and no file already exists there, a
+`PkiBootstrapMain` — whose one-time bootstrap console password is written to
+`bootstrap-password.txt` inside `tls.materialDir` (owner-only; this command captures its
+subprocess's output to a log file, so the password is never printed into it) and whose path the
+command reports; and, whenever `fafnir.keyFile` is configured and no file already exists there, a
 fresh Fafnir key — the only thing it does at all for a plaintext topology, and only when Fafnir spans
 more than one machine (a single-machine Fafnir still just generates its own key at first start, same
 as ever). `--remote up` distributes exactly the subset of this material each machine's own role

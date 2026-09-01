@@ -191,6 +191,24 @@ class PkiInitTest {
     assertEquals("h2", command.get(command.size() - 1));
   }
 
+  /**
+   * This command's output is captured into a log file, so the one-time bootstrap password must be
+   * routed to its own owner-only file rather than printed where the log would keep it.
+   */
+  @Test
+  void build_command_routes_the_bootstrap_password_to_a_file_beside_the_tls_material() {
+    final Path materialDir = tempDir.resolve("tls");
+    final Topology topology = mtlsTopology(materialDir, false);
+    final ResolvedRuntime runtime = new ResolvedRuntime("real-java", "cp", tempDir);
+
+    final List<String> command =
+        PkiInit.buildCommand(topology, runtime, null, materialDir, "cluster-ca", List.of("h1"));
+
+    final int flagIndex = command.indexOf("--password-file");
+    assertTrue(flagIndex > 0, "expected a --password-file flag in " + command);
+    assertEquals(PkiInit.bootstrapPasswordFile(materialDir).toString(), command.get(flagIndex + 1));
+  }
+
   @Test
   void build_command_resolves_the_bundled_pki_java_when_use_bundled_jre_is_true()
       throws IOException {

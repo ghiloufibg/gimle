@@ -320,11 +320,20 @@ public final class BootstrapMojo extends AbstractMojo {
     command.add("-cp");
     command.add(resolveClasspath("gimle-pki"));
     command.add("com.gimle.pki.PkiBootstrapMain");
+    // Always to a file, never to this goal's own console output: runToCompletion inherits Maven's
+    // stdout, so a printed password would land in the build log of any non-interactive run. The
+    // file sits beside ca.key/operator.key with the same owner-only permissions those already get.
+    command.add("--password-file");
+    command.add(bootstrapPasswordFile(tlsDir).toString());
     command.add(tlsDir.toString());
     command.add(CA_COMMON_NAME);
     command.add(TLS_HOSTNAME);
     getLog().info("generating cluster CA and leaf certificates in " + tlsDir);
     runToCompletion(command);
+  }
+
+  private static Path bootstrapPasswordFile(Path tlsDir) {
+    return tlsDir.resolve("bootstrap-password.txt");
   }
 
   private Process spawnStore(Path base, boolean tls, Path tlsDir, Path logsDir)
@@ -801,8 +810,9 @@ public final class BootstrapMojo extends AbstractMojo {
       getLog().info("  operator cert : " + base.resolve("tls").resolve("operator.crt"));
       getLog()
           .info(
-              "  bootstrap console admin account: see the 'generating cluster CA' output above"
-                  + " for the one-time password");
+              "  bootstrap admin password: "
+                  + bootstrapPasswordFile(base.resolve("tls"))
+                  + " (username 'admin'; read it, then delete the file)");
     }
     getLog().info("");
   }

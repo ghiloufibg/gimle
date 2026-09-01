@@ -2,7 +2,10 @@ package com.gimle.pki;
 
 import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.authz.PasswordHashes;
+import com.gimle.core.exception.GimleSecretsException;
+import java.io.Console;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,8 +16,10 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
 import org.slf4j.Logger;
@@ -30,6 +35,13 @@ import org.slf4j.LoggerFactory;
  * CertificateSigningRequests}/{@link OwnCertificateRotator}), the same reason {@code gimle-worker}
  * never depends on this module at all.
  *
+ * <p>The run also mints the cluster's one-time bootstrap console password. It is never printed into
+ * output that could be captured: a terminal gets it directly, and any non-interactive run (a build,
+ * a pipeline, anything with its output redirected) must name a {@code --password-file} to write it
+ * to instead, or the run is refused before it generates anything at all. Silently printing it into
+ * an inherited or redirected stream would put the cluster's initial administrator credential into a
+ * build log, which is the one place this design exists to keep it out of.
+ *
  * <p>Known limitation: every leaf's SAN only carries DNS names (this module's {@link
  * CertificateSigningRequests} has no {@code iPAddress} SAN support), so a process reached by bare
  * IP literal (e.g. {@code https://127.0.0.1:8080}) will fail hostname verification even though the
@@ -42,22 +54,46 @@ public final class PkiBootstrapMain {
   private static final Duration CA_VALIDITY = Duration.ofDays(3650);
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
   private static final SecureRandom RANDOM = new SecureRandom();
+  private static final String PASSWORD_FILE_FLAG = "--password-file";
 
   private PkiBootstrapMain() {}
 
-  public static void main(String[] args) throws IOException {
-    if (args.length < 3) {
-      System.err.println("usage: PkiBootstrapMain <outputDir> <caCommonName> <hostname>...");
+  public static void main(final String[] args) throws IOException {
+    final Options options;
+    try {
+      options = Options.parse(args);
+    } catch (final IllegalArgumentException e) {
+      System.err.println(e.getMessage());
+      System.err.println(
+          "usage: PkiBootstrapMain [--password-file <file>] <outputDir> <caCommonName>"
+              + " <hostname>...");
       System.exit(2);
       return;
     }
-    Path outputDir = Path.of(args[0]);
-    String caCommonName = args[1];
-    List<String> hostnames = List.of(args).subList(2, args.length);
+    try {
+      run(options, System.out, standardOutputIsATerminal());
+    } catch (final GimleSecretsException e) {
+      System.err.println(e.getMessage());
+      System.exit(2);
+    }
+  }
+
+  /**
+   * Everything {@link #main} does once its arguments parse, with the two things a test cannot
+   * supply for itself -- where output goes, and whether that output is a real terminal -- passed in
+   * rather than read from the JVM.
+   */
+  static void run(final Options options, final PrintStream out, final boolean interactiveTerminal)
+      throws IOException {
+    // Checked before a single file is written: a run with nowhere safe to put the password it is
+    // about to mint must fail while there is still nothing on disk to clean up.
+    requirePasswordDeliverable(options, interactiveTerminal);
+    final Path outputDir = options.outputDir();
     Files.createDirectories(outputDir);
 
-    CertificateAuthority ca =
-        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=" + caCommonName), CA_VALIDITY);
+    final CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=" + options.caCommonName()), CA_VALIDITY);
     writeCa(outputDir, ca);
 
     // One leaf per (role, hostname): every process's identity is attributable to its own
@@ -65,7 +101,7 @@ public final class PkiBootstrapMain {
     // role -- see the per-role comments below for why that matters most for Fafnir/Muninn/Andvari
     // specifically. Filenames disambiguate by hostname (<role>-<hostname>.crt/.key) since a
     // multi-machine topology mints more than one leaf per role.
-    for (String hostname : hostnames) {
+    for (final String hostname : options.hostnames()) {
       // O=gimle:controlplane (unlike Fafnir/Muninn/Andvari below, which get no O= of their own):
       // the control plane's own scheduling-time artifact pull authenticates as this leaf when it
       // calls Andvari directly, and needs BuiltinRoles.GROUP_CONTROLPLANE's implicit ARTIFACT:read
@@ -105,21 +141,107 @@ public final class PkiBootstrapMain {
         "operator",
         "O=" + BuiltinRoles.GROUP_OPERATORS + ",CN=initial-operator",
         List.of());
-    String bootstrapPassword = writeBootstrapAccount(outputDir);
+    final String bootstrapPassword = writeBootstrapAccount(outputDir);
 
-    System.out.println(
+    out.println(
         "wrote cluster CA, control-plane/fafnir/muninn/andvari material for "
-            + hostnames.size()
+            + options.hostnames().size()
             + " hostname(s), and initial-operator material to "
             + outputDir);
-    System.out.println();
-    System.out.println("bootstrap console account: username=admin password=" + bootstrapPassword);
-    System.out.println(
-        "record this password now -- it is never written to disk in plaintext and cannot be "
-            + "recovered later. Log in to the console with it, then immediately run:");
-    System.out.println(
-        "  gimle set rolebinding admin-binding --subject user:admin --role cluster-admin");
-    System.out.println("using the initial-operator certificate to grant it real access.");
+    out.println();
+    deliverBootstrapPassword(bootstrapPassword, options.passwordFile(), out);
+    out.println(
+        "Log in to the console with username 'admin' and that password, then immediately run:");
+    out.println("  gimle set rolebinding admin-binding --subject user:admin --role cluster-admin");
+    out.println("using the initial-operator certificate to grant it real access.");
+  }
+
+  /**
+   * The parsed command line: the {@code --password-file} flag in any position, then positionals.
+   */
+  record Options(
+      Path outputDir, String caCommonName, List<String> hostnames, Optional<Path> passwordFile) {
+
+    static Options parse(final String[] args) {
+      final List<String> positional = new ArrayList<>();
+      Path passwordFile = null;
+      for (int i = 0; i < args.length; i++) {
+        if (PASSWORD_FILE_FLAG.equals(args[i])) {
+          if (i + 1 >= args.length) {
+            throw new IllegalArgumentException(PASSWORD_FILE_FLAG + " needs a file path");
+          }
+          passwordFile = Path.of(args[++i]);
+        } else {
+          positional.add(args[i]);
+        }
+      }
+      if (positional.size() < 3) {
+        throw new IllegalArgumentException(
+            "expected an output directory, a CA common name, and at least one hostname");
+      }
+      return new Options(
+          Path.of(positional.get(0)),
+          positional.get(1),
+          List.copyOf(positional.subList(2, positional.size())),
+          Optional.ofNullable(passwordFile));
+    }
+  }
+
+  /**
+   * True only when this process's own standard output really is a terminal a human is watching. A
+   * redirected or inherited stream (a build spawning this as a subprocess, a pipeline capturing it,
+   * a shell redirect into a file) reports false, which is exactly the case where printing the
+   * password would persist it somewhere it was never meant to live.
+   */
+  private static boolean standardOutputIsATerminal() {
+    final Console console = System.console();
+    return console != null && console.isTerminal();
+  }
+
+  private static void requirePasswordDeliverable(
+      final Options options, final boolean interactiveTerminal) {
+    if (options.passwordFile().isPresent() || interactiveTerminal) {
+      return;
+    }
+    throw GimleSecretsException.undeliverableBootstrapPassword(
+        "refusing to generate cluster material: this run has nowhere safe to put the one-time"
+            + " bootstrap admin password. Standard output is not a terminal, so printing it would"
+            + " write the plaintext password into whatever log or file the output was redirected"
+            + " to. Re-run with "
+            + PASSWORD_FILE_FLAG
+            + " <file> to have it written to an owner-only file instead, or run this from a"
+            + " terminal.");
+  }
+
+  /**
+   * An interactive run gets the password on screen and nowhere else; a run that named a file gets
+   * it written there with owner-only permissions, and only the file's path on screen. Either way it
+   * exists in exactly one place, chosen deliberately.
+   */
+  private static void deliverBootstrapPassword(
+      final String password, final Optional<Path> passwordFile, final PrintStream out)
+      throws IOException {
+    if (passwordFile.isEmpty()) {
+      out.println("bootstrap console account: username=admin password=" + password);
+      out.println(
+          "record this password now -- it is written nowhere at all and cannot be recovered"
+              + " later.");
+      return;
+    }
+    final Path file = passwordFile.get();
+    final Path parent = file.getParent();
+    if (parent != null) {
+      Files.createDirectories(parent);
+    }
+    Files.writeString(file, password + System.lineSeparator(), StandardCharsets.US_ASCII);
+    restrictPermissions(file);
+    out.println(
+        "bootstrap console account: username=admin, one-time password written to "
+            + file
+            + " (owner-readable only).");
+    out.println(
+        "read it and delete that file -- it is the only copy, and nothing can recover the password"
+            + " once it is gone.");
   }
 
   /**
@@ -129,7 +251,7 @@ public final class PkiBootstrapMain {
    * Raft-proposes as a real {@code Account}. {@code gimle-pki} runs standalone, before any
    * control-plane process exists, so it cannot propose Raft state directly; this file is the
    * hand-off point, the same role {@code ca.key}/{@code operator.key} already play for certificate
-   * material. Returns the generated plaintext password so the caller can print it exactly once.
+   * material. Returns the generated plaintext password so the caller can deliver it exactly once.
    */
   private static String writeBootstrapAccount(Path outputDir) throws IOException {
     byte[] passwordBytes = new byte[24];

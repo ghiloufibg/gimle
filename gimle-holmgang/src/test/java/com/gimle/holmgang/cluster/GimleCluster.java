@@ -960,6 +960,10 @@ public final class GimleCluster implements AutoCloseable {
             "-cp",
             classpath,
             "com.gimle.pki.PkiBootstrapMain",
+            // Output is captured into pki.log, so the one-time bootstrap password goes to its own
+            // file instead of being printed into a log this harness keeps for forensics.
+            "--password-file",
+            tlsDir.resolve("bootstrap-password.txt").toString(),
             tlsDir.toString(),
             "holmgang-ca",
             "localhost"),

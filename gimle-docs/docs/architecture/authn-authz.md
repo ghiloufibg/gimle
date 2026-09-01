@@ -284,8 +284,24 @@ The same ceremony that already creates the cluster CA and the first operator cer
 (username + PBKDF2 hash) — `gimle-pki` runs standalone, before any control-plane process (and
 therefore no `StateStore`/Raft) exists, so it can't propose an `Account` directly. `ApiServer` reads
 that file once at startup, only while its store has zero accounts, and proposes it as a real
-`Account`. The printed password is shown exactly once, the same "capture this now" posture as an
-unrecoverable CA key.
+`Account`. The plaintext password is delivered exactly once, the same "capture this now" posture as
+an unrecoverable CA key — and never into anything that keeps it:
+
+- **Interactive run** — `PkiBootstrapMain` prints it only when its own standard output really is a
+  terminal (`Console#isTerminal`). A developer running `mvn gimle:tls-init` in a shell still just
+  reads it off the screen.
+- **Non-interactive run** — a build, a pipeline, or any run whose output is redirected or captured
+  has no terminal, and printing there would write the cluster's first administrator credential
+  straight into a build log. Such a run must name `--password-file <path>` (`mvn gimle:tls-init
+  -Dgimle.tlsInit.passwordFile=…`); the password is written there alone, restricted to its owner
+  the same way `ca.key` is, and only the file's *path* is printed. Read it, then delete the file.
+- **Neither** — the run is refused before it generates anything at all, naming the flag to use. A
+  non-interactive bootstrap never silently degrades into either printing the password or discarding
+  it.
+
+`mvn gimle:bootstrap` and `hilmir pki init` both capture their subprocess's output, so both always
+pass a password file of their own (`bootstrap-password.txt`, beside the rest of the TLS material)
+and report its path.
 
 **This bootstrap account starts with zero permissions.** Logging into the console with it proves who
 you are but authorizes nothing, until the already-`cluster-admin`-via-certificate initial operator

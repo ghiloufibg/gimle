@@ -27,6 +27,13 @@ public final class TlsInitMojo extends AbstractGimleMojo {
   @Parameter(property = "gimle.tlsInit.hostname", defaultValue = "localhost")
   private String hostname;
 
+  // Empty by default, so an interactive `mvn gimle:tls-init` still prints the one-time bootstrap
+  // password straight to the developer's terminal. A run whose output is redirected or captured (a
+  // pipeline) has no terminal to print to, and PkiBootstrapMain refuses to generate anything rather
+  // than write the plaintext password into a build log -- such a run must name a file here instead.
+  @Parameter(property = "gimle.tlsInit.passwordFile")
+  private String passwordFile;
+
   @Parameter(defaultValue = "${project.runtimeClasspathElements}", readonly = true, required = true)
   private List<String> runtimeClasspathElements;
 
@@ -42,6 +49,10 @@ public final class TlsInitMojo extends AbstractGimleMojo {
     command.add("-cp");
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));
     command.add("com.gimle.pki.PkiBootstrapMain");
+    if (passwordFile != null && !passwordFile.isBlank()) {
+      command.add("--password-file");
+      command.add(passwordFile);
+    }
     command.add(outputDir);
     command.add(caCommonName);
     command.add(hostname);

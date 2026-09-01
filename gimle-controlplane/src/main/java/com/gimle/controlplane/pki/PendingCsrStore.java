@@ -12,9 +12,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * Tracks {@link com.gimle.core.protocol.CsrPurpose#OPERATOR_CLIENT} requests submitted to {@code
  * POST /bootstrap/csr} between submission and an existing operator's later {@code approve} call.
  * In-memory only, same reasoning as {@link BootstrapTokenRegistry} -- not Raft-replicated. This
- * endpoint is deliberately reachable without a client certificate, so entries are pruned by age on
- * access rather than kept forever; that bounds unbounded growth from spam submissions without
- * needing real rate limiting for this pass.
+ * endpoint is deliberately reachable without a client certificate, so how fast submissions may
+ * arrive at all is bounded by the token buckets {@code ApiServer} charges before it reads a
+ * submission's body; pruning by age here is the separate, complementary bound on how long an
+ * admitted entry occupies memory, so a request nobody ever approves is eventually forgotten rather
+ * than retained for the process's lifetime.
  */
 public final class PendingCsrStore {
 

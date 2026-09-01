@@ -39,7 +39,10 @@ etcd-store-extraction split, mirroring how Kubernetes' own CSR API lives on `kub
 `etcd`.
 
 `mvn gimle:tls-init` generates a fresh cluster CA, the control plane's own leaf certificate, and the
-first human operator's leaf certificate in one shot (`com.gimle.pki.PkiBootstrapMain`).
+first human operator's leaf certificate in one shot (`com.gimle.pki.PkiBootstrapMain`). It also
+mints the one-time bootstrap console password — see [Bootstrap (day 0)](./authn-authz.md#bootstrap-day-0)
+for where that password is allowed to go, and why a non-interactive run must name a file for it
+rather than printing it into a build log.
 
 ## Joining a running cluster
 
@@ -61,6 +64,25 @@ chicken-and-egg problem Kubernetes' bootstrap-token/CSR flow solves. `POST /boot
 one endpoint in the system reachable without a client certificate, for exactly this reason. The
 bootstrap token is single-use and short-lived, tracked in-memory on the control-plane node that
 issued it (not Raft-replicated — the same reasoning heartbeats aren't).
+
+Being the one unauthenticated route, and the most expensive one per request (a PKCS#10 parse and
+signature verify, then an RSA signing for an auto-approved join), it is also the one route with a
+real request-rate limit rather than only the failure-backoff throttling `/auth/login` gets. Two
+in-memory token buckets are charged before the request body is even read — one keyed by remote
+address, one shared across all callers — and an over-budget submission gets a `429` with
+`Retry-After` and no CSR work done at all. Both default well above any rate a real bring-up
+reaches, since a whole fleet may join at once (all of it from one address, behind a NAT or on one
+machine) and a joining agent treats a rejection as fatal rather than retrying:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.controlplane.csr.burstPerAddress` | `200` | Submissions one remote address may spend at once. |
+| `gimle.controlplane.csr.refillMillisPerAddress` | `1000` | How often that address earns one more. |
+| `gimle.controlplane.csr.burst` | `1000` | Submissions every caller together may spend at once. |
+| `gimle.controlplane.csr.refillMillis` | `50` | How often the shared budget earns one more. |
+
+Per-replica and in-memory, like every other throttle here: a distributed attacker can spread
+attempts across control-plane replicas, but each replica still bounds what it will answer.
 
 Signing authority is opt-in per control-plane node: `-Dgimle.tls.caKeyFile` (the same `gimle.tls.*`
 namespace as the `certFile`/`keyFile`/`caFile` trio it's configured alongside) points at the

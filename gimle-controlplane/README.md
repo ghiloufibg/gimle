@@ -143,7 +143,12 @@ node/instance is gone; `/secrets/*` and `/config/*` decryption proxy to Fafnir v
 (the control plane performs no cryptography itself); `/artifacts/*` proxies a *streaming* relay to
 Andvari via `AndvariClient` (unlike the buffered byte relay used for secrets, since an artifact jar
 should never sit whole in memory). `/bootstrap/csr` signs incoming node CSRs directly via
-`CertificateAuthority`.
+`CertificateAuthority`; being the one route reachable with no credential at all, and the most
+expensive one per request, it is also the only one carrying a real request-rate limit -- two
+`RequestRateLimiter` token buckets (per remote address and cluster-wide) charged before the body is
+read, answering `429` with `Retry-After` over budget, defaulted well above what a whole fleet
+joining at once needs (`gimle.controlplane.csr.burstPerAddress`, `refillMillisPerAddress`, `burst`,
+`refillMillis`).
 
 ## Key packages
 

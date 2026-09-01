@@ -163,8 +163,10 @@ severity, and message. Only an `ERROR`-severity finding fails the command's exit
 - `hilmir pki init -f <topology.yaml>` -- generates a brand-new cluster's shared secret material,
   once, locally: for an mtls topology (`transport: mtls` with `tls.materialDir` configured), the
   cluster CA and one leaf certificate per (role, machine hostname) by spawning the platform's own
-  `PkiBootstrapMain`; and, whenever `fafnir.keyFile` is configured and no file already exists there,
-  a fresh Fafnir key -- for a plaintext topology this is the *only* thing `pki init` does, and only
+  `PkiBootstrapMain` -- whose one-time bootstrap console password is written to
+  `bootstrap-password.txt` inside `tls.materialDir` (owner-only) rather than printed, since this
+  command captures that subprocess's output into a log file; and, whenever `fafnir.keyFile` is
+  configured and no file already exists there, a fresh Fafnir key -- for a plaintext topology this is the *only* thing `pki init` does, and only
   when Fafnir spans more than one machine (a single-machine Fafnir still just generates its own key
   on first start, same as always). `--remote up` distributes exactly what each machine needs from
   this material before starting any process there.
