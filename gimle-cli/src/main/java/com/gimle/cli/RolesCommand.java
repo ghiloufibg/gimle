@@ -1,12 +1,12 @@
 package com.gimle.cli;
 
+import com.gimle.core.authz.Permission;
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -43,6 +43,12 @@ public final class RolesCommand {
    * custom_resource} grant to one kind ({@code custom.Greeting}) or one kind's status sub-document
    * ({@code custom.Greeting/status}). A cluster-wide grant that still needs a qualifier leaves the
    * tenant segment empty: {@code custom_resource:read::custom.Greeting}.
+   *
+   * <p>Any of the first three segments may be {@link Permission#ALL} instead of a name -- {@code
+   * "*:read"} is read on every resource kind, {@code "deployment:*"} every verb on deployments,
+   * {@code "*:*:acme"} everything within one tenant. Most shells expand a bare {@code *}, so quote
+   * the argument. The wildcard is stored as a wildcard, so a grant written today covers a resource
+   * kind the platform gains tomorrow with no edit to the role.
    */
   public void set(List<String> args) {
     String usage =
@@ -107,16 +113,9 @@ public final class RolesCommand {
       throw new CliException(
           "manifest " + file + "'s permissions each require a 'resource' and a 'verb'");
     }
-    Map<String, Object> permission = new LinkedHashMap<>();
-    permission.put("resource", ((String) resource).toUpperCase(Locale.ROOT));
-    permission.put("verb", ((String) verb).toUpperCase(Locale.ROOT));
-    if (raw.get("tenantScope") instanceof String tenantScope && !tenantScope.isEmpty()) {
-      permission.put("tenantScope", tenantScope);
-    }
-    if (raw.get("qualifier") instanceof String qualifier && !qualifier.isEmpty()) {
-      permission.put("qualifier", qualifier);
-    }
-    return permission;
+    String tenantScope = raw.get("tenantScope") instanceof String scope ? scope : null;
+    String qualifier = raw.get("qualifier") instanceof String q ? q : null;
+    return toWireForm((String) resource, (String) verb, tenantScope, qualifier, "manifest " + file);
   }
 
   private static String requireString(Map<String, Object> root, String field, Path file) {
@@ -158,16 +157,33 @@ public final class RolesCommand {
       throw new CliException(
           "invalid --permission " + spec + " (expected resource:verb[:tenant[:qualifier]])");
     }
-    Map<String, Object> permission = new LinkedHashMap<>();
-    permission.put("resource", parts[0].toUpperCase(Locale.ROOT));
-    permission.put("verb", parts[1].toUpperCase(Locale.ROOT));
     // An empty tenant segment (custom_resource:read::custom.Greeting) means cluster-wide with a
     // qualifier -- the grant's scope and its kind-narrowing are independent axes.
-    if (parts.length >= 3 && !parts[2].isEmpty()) {
-      permission.put("tenantScope", parts[2]);
-    }
-    if (parts.length == 4 && !parts[3].isEmpty()) {
-      permission.put("qualifier", parts[3]);
+    return toWireForm(
+        parts[0],
+        parts[1],
+        parts.length >= 3 ? parts[2] : null,
+        parts.length == 4 ? parts[3] : null,
+        "invalid --permission " + spec);
+  }
+
+  /**
+   * Resolves one grant into the wire shape, rejecting an unknown resource/verb here rather than on
+   * a server round-trip. Every position goes through {@link Permission}'s own parsing, so the
+   * wildcard's spelling and the set of legal names can't drift between what this CLI accepts and
+   * what the control plane stores.
+   */
+  private static Map<String, Object> toWireForm(
+      String resource, String verb, String tenant, String qualifier, String context) {
+    Map<String, Object> permission = new LinkedHashMap<>();
+    try {
+      permission.put(
+          "resource", Permission.parseResource(resource).map(Enum::name).orElse(Permission.ALL));
+      permission.put("verb", Permission.parseVerb(verb).map(Enum::name).orElse(Permission.ALL));
+      Permission.parseTenantScope(tenant).ifPresent(scope -> permission.put("tenantScope", scope));
+      Permission.parseQualifier(qualifier).ifPresent(q -> permission.put("qualifier", q));
+    } catch (IllegalArgumentException e) {
+      throw new CliException(context + ": " + e.getMessage());
     }
     return permission;
   }

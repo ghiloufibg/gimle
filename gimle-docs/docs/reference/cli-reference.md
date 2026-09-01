@@ -123,6 +123,8 @@ gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
 gimle get roles [name]
 gimle set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] [--permission ...]
+                       (resource, verb, and tenant each accept "*" for every value — quote it,
+                        most shells expand a bare *: "*:read", "deployment:*", "*:*:acme")
                        (qualifier narrows a custom_resource grant to one kind, e.g.
                         custom_resource:write:team-a:custom.Greeting/status; leave the tenant
                         segment empty for a cluster-wide qualified grant: custom_resource:read::custom.Greeting)
@@ -324,7 +326,11 @@ recent events cluster-wide.
 The `role`/`rolebinding`/`account` verbs manage RBAC — see
 [Authentication and authorization](../architecture/authn-authz.md). `--permission` may repeat (a
 role is a set of permissions); the optional third segment of `resource:verb:tenant` scopes a grant
-to one tenant instead of cluster-wide. `set account` doubles as create-or-reset-password, matching
+to one tenant instead of cluster-wide. Each of those three segments also accepts `*`, the wildcard
+for every value in that position — stored as a wildcard, so a `"*:read"` grant covers a resource
+kind the platform gains later without the role being re-edited. An unknown resource or verb is
+rejected by the CLI itself, before any request is sent; the qualifier segment takes no `*` (see the
+authorization page for why). `set account` doubles as create-or-reset-password, matching
 `set tenant`/`set config`'s existing create-or-update convention — the password is sent once over
 the same authenticated mTLS connection every other write already uses and is hashed server-side,
 never stored or echoed back in plaintext. `--groups` (comma-separated) is what lets a `group:`
@@ -394,6 +400,8 @@ permissions:
   - resource: config
     verb: write
     tenantScope: acme
+  - resource: "*"                    # every resource kind, including ones added later
+    verb: read
 ```
 
 `Tenant`, `LimitRange`, `RoleBinding`, and `Account` manifests use `name:` for the identifier the
