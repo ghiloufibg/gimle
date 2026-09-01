@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 718,
+  "requirementCount": 749,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -133,17 +133,20 @@
     {
       "id": "GIMLE-008",
       "module": "gimle-core",
-      "feature": "Health probe configuration with initial delay",
+      "feature": "Health probe configuration: probe classes, initial delay, and per-module interval/timeout/failure threshold",
       "category": "Module System / Health",
-      "userStory": "As a module author, I want liveness/readiness probe classes plus an initial delay before the first check.",
-      "statusDetail": "Complete",
+      "userStory": "As a module author, I want liveness/readiness probe classes plus an initial delay before the first check, and my own probe interval, per-check timeout and consecutive-liveness-failure threshold, so that a module whose check legitimately runs longer than the worker default is not reported as broken on every tick.",
+      "statusDetail": "Complete. Modified by GIMLE-725: the health: block originally carried only the probe classes and initialDelaySeconds, with interval, timeout and liveness failure threshold fixed worker-wide. It now also carries intervalSeconds, timeoutSeconds and failureThreshold; HealthProbes holds them as Optional<Duration>/OptionalInt with a compact constructor enforcing positive interval and timeout, non-negative initial delay and threshold >= 1, and the worker's own 1s/2s/3 remain the documented defaults when a manifest declares none.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/HealthProbes.java`"
       ],
-      "testCoverageDetail": "`ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws)",
+      "testCoverageDetail": "`ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws) Extended by HealthProbesTest and ModuleDescriptorParserTest for the three added fields and every validation failure.",
       "gherkinSteps": [
-        "Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s."
+        "Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s.",
+        "Given health: also declares intervalSeconds, timeoutSeconds and failureThreshold, When parsed, Then each is carried on HealthProbes.",
+        "Given health: declares none of the three, When parsed, Then each is empty and the worker's own defaults apply.",
+        "Given health: declares a zero or negative interval or timeout, or a failureThreshold below 1, When parsed, Then a GimleManifestException is thrown."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -11069,7 +11072,7 @@
       "feature": "gimle-skald: cluster DNS server resolving Service names to live endpoints",
       "category": "Service Fabric",
       "userStory": "As a module author, I want to resolve a Service's name via standard DNS (<service>[.<tenant>].svc.gimle.local) to a live backing address, so any DNS-capable client can reach a Service without depending on the control plane's HTTP API directly.",
-      "statusDetail": "Complete for v1's stated scope: only a standard A query against the svc.gimle.local zone is answered; anything else (wrong opcode, non-A type, unknown/uncached name) gets a well-formed NOTIMP/NXDOMAIN reply, not silence. Polling the control plane stays plain HTTP for this first slice, no mTLS path yet.",
+      "statusDetail": "Complete for v1's stated scope: only a standard A query against the svc.gimle.local zone is answered; anything else (wrong opcode, non-A type, unknown/uncached name) gets a well-formed NOTIMP/NXDOMAIN reply, not silence. Polling the control plane stays plain HTTP for this first slice, no mTLS path yet. Modified by GIMLE-721: a Service with no live endpoints used to be filtered out of the directory entirely, so it was indistinguishable from a name that was never declared and answered NXDOMAIN. Such a Service now stays in the directory as a known-but-empty entry and answers NOERROR with zero answer records; NXDOMAIN is reserved for a name the directory has genuinely never held.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java`",
@@ -11083,8 +11086,9 @@
       ],
       "testCoverageDetail": "`SkaldServerTest` (answers_a_tenant_scoped_hit_with_one_a_record, answers_an_untenanted_hit_and_round_robins_across_endpoints, answers_unknown_name_with_nxdomain, answers_unsupported_query_type_with_notimp, answers_unsupported_opcode_with_notimp, drops_a_malformed_datagram_instead_of_replying); `CachingServiceDirectoryTest`; `ControlPlaneServicePollerTest` (including a_tenant_scoped_service_is_cached_under_its_qualified_name_not_its_bare_one, covering the poller deriving the directory cache key from name+tenantId rather than the bare registry name); `HttpServiceCatalogClientTest` (lists_services_from_the_services_endpoint asserts tenantId travels alongside each bare name); `DnsCodecTest`; `ServiceDnsNamesTest`",
       "gherkinSteps": [
+        "Given the directory has never held an entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN.",
+        "Given the directory holds a declared Service whose endpoint list is currently empty, When queried, Then the response is NOERROR with zero answer records rather than NXDOMAIN.",
         "Given SkaldServer's directory cache holds \"orders.acme.svc.gimle.local\" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record.",
-        "Given the directory holds no entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN.",
         "Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence."
       ],
       "statusSummary": "Complete",
@@ -14326,6 +14330,720 @@
         "Given a deployment created via apply -f; When its manifest is exported via get deployment <name> -o manifest; Then the output contains a top-level module: block (not moduleId) and no status-only fields.",
         "Given that exported manifest saved to a file; When it is applied via apply -f unchanged; Then the apply succeeds -- the full round trip that previously failed with a missing-field error.",
         "Given a manifest piped to stdin; When applied via apply -f -; Then the resulting resource is created exactly as it would be from an equivalent file, with no second, empty read draining the stream."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-719",
+      "module": "gimle-fabric",
+      "feature": "Fabric calls retry only where retrying is provably safe, with server-side correlationId deduplication",
+      "category": "Service Fabric",
+      "userStory": "As a module author, I want the platform to retry a failed cross-worker service call only when retrying cannot duplicate an effect, so that a transport failure does not silently apply my non-idempotent mutation twice.",
+      "statusDetail": "Fixed: closes FUNC-33. FabricClient.call opened one connection, sent one request, and either returned or threw -- no retry anywhere -- while correlationId rode the wire frame purely to satisfy the sealed-interface shape and was never used for deduplication. A caller whose target died mid-call got an exception with no guidance on whether retrying was safe. Now a failure raised before the connection is established is wrapped as FabricConnectException and fails over to a different endpoint through the existing tier/version/breaker selection path whatever the method does (nothing ran, so nothing can duplicate); a failure after the request was written is retried only when the target method carries the new @Idempotent annotation, matched by annotation-type name so a module layer's own copy still counts. Attempts of one logical call share a correlationId, and FabricServer routes every inbound request through a bounded (4096), time-windowed (60s) InvocationDeduplicator that replays an already-answered id's response (InvokeError included) rather than re-executing, makes a duplicate arriving mid-flight wait on the original rather than race it, and deliberately does not remember an id whose dispatch threw. Bounded at MAX_CALL_ATTEMPTS=3; invokeByName has no resolved Method and is never retried past the write.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/Idempotent.java` (new)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricConnectException.java` (new)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/InvocationDeduplicator.java` (new)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/{FabricClient,FabricServer}.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java` (`attemptUntilExhausted`/`attemptOnce`/`EndpointChooser`, `MAX_CALL_ATTEMPTS`)"
+      ],
+      "testCoverageDetail": "InvocationDeduplicatorTest, FabricServerDeduplicationTest, FabricServiceRegistryRetryTest (+ RetryableGreeter fixture), FabricClientTest connect-time vs mid-call classification. FabricServiceRegistryTest's spillover test was changed from a refused port to an accept-then-hang-up endpoint so it still exercises a mid-call failure rather than being satisfied by the new connect-time failover.",
+      "gherkinSteps": [
+        "Given a service method not annotated @Idempotent",
+        "When the call fails after the request was written",
+        "Then the failure is surfaced to the caller rather than retried",
+        "And when the connection was never established, the call fails over to a different endpoint",
+        "And a duplicate correlationId replays the original response instead of executing twice"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-720",
+      "module": "gimle-fabric",
+      "feature": "Per-endpoint circuit breaker state is visible as logs and shipped Micrometer meters",
+      "category": "Observability",
+      "userStory": "As an operator debugging why traffic is not reaching an instance, I want to see whether a per-endpoint circuit breaker is the cause, so that I can distinguish an open breaker from an unknown endpoint or an unready instance.",
+      "statusDetail": "Fixed: closes FUNC-78. CircuitBreaker.state() was called from nowhere outside the breaker's own transition logic -- no metric, API field or console indicator anywhere -- and the only externally visible trace of a trip was a single log line in the cluster-wide panic-mode branch, so an individual endpoint's breaker opening produced no log, metric or queryable state at all. CircuitBreaker gained a TransitionListener (notified outside its own lock, so a slow listener cannot stall a call path), FabricServiceRegistry logs every transition (WARN on open, INFO on half-open/close, naming the callee interface and nodeId/workerId), and WorkerMetrics registers gimle.fabric.circuitbreaker.state (gauge: 0 CLOSED, 1 HALF_OPEN, 2 OPEN) and gimle.fabric.circuitbreaker.transitions (counter tagged by state entered). Both ride the existing MeterSnapshotCodec -> agent -> Muninn path and are queryable through /metrics-history/*, so no new ControlMessage or heartbeat field was needed. Initial CLOSED state is published on breaker creation and meters are evicted when a breaker leaves the bounded per-endpoint map.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fabric/src/main/java/com/gimle/fabric/breaker/CircuitBreaker.java` (`TransitionListener`)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java` (`onBreakerTransition`)",
+        "`gimle-observability/src/main/java/com/gimle/observability/WorkerMetrics.java`"
+      ],
+      "testCoverageDetail": "CircuitBreakerTest (four listener tests: full open/half-open/close cycle, no-op calls report nothing, cooldown expiry seen only by a candidacy check still reported, failed half-open trial reports the re-open); FabricServiceRegistryRetryTest asserts the gauge level, the transition counter and the logged line via a Logback ListAppender.",
+      "gherkinSteps": [
+        "Given a fabric endpoint whose calls are failing",
+        "When its circuit breaker opens",
+        "Then a WARN line names the interface and the nodeId/workerId endpoint",
+        "And gimle.fabric.circuitbreaker.state reports 2 for that endpoint",
+        "And the transition counter increments for the state entered"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-721",
+      "module": "gimle-skald",
+      "feature": "Cluster DNS answers NODATA, not NXDOMAIN, for a declared Service with no live endpoints",
+      "category": "Service Fabric",
+      "userStory": "As an operator debugging name resolution during a rollout, I want a Service that exists but currently has no endpoints to answer NOERROR with zero records, so that a deploy in flight is never indistinguishable from a typo'd or never-declared name.",
+      "statusDetail": "Fixed: closes FUNC-11. ControlPlaneServicePoller filtered a Service out of the cache entirely whenever its endpoint list was empty (.filter(endpoints -> !endpoints.endpoints().isEmpty())), so a Service mid-rollout or scaled to zero -- which ServiceReconciler's own javadoc calls a normal, valid outcome -- returned NXDOMAIN, contradicting SkaldServer's own javadoc preferring NOERROR/zero-answers for exactly this case. ServiceDirectory.resolveAll now returns Optional<List<HostPort>> so the two states are expressible at all: absent means no such name, present-but-empty means known Service with zero endpoints. The poller keeps empty Services; only a per-service 404 (the Service vanished between the catalog listing and the fetch) still drops a name. SkaldServer answers NXDOMAIN for an unknown name, NOERROR with zero answers for a known-and-empty one for both A and SRV queries, and SERVFAIL when the cached data is severely stale -- the zero-endpoint case included, since 'no endpoints' is itself a claim about current cluster state. A dashed per-endpoint name under an empty Service stays NXDOMAIN, which is correct: that specific name genuinely does not exist.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/{ServiceDirectory,CachingServiceDirectory,ControlPlaneServicePoller}.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldServer.java` (`buildResponse`)"
+      ],
+      "testCoverageDetail": "SkaldServerTest (5 new: known-empty answers NOERROR for A and for SRV, unknown stays NXDOMAIN alongside a known-empty one, dashed endpoint name under an empty Service stays NXDOMAIN, severely stale empty is SERVFAIL); ControlPlaneServicePollerTest (a_service_with_no_endpoints_stays_in_the_cache_as_a_known_empty_name replaces the old test that asserted the defect); CachingServiceDirectoryTest (absent vs present-but-empty, and a refresh that empties a name keeps it known).",
+      "gherkinSteps": [
+        "Given a declared Service whose backing deployment is scaled to zero",
+        "When a client resolves that Service name",
+        "Then the responder answers NOERROR with zero answer records",
+        "And a name that was never declared still answers NXDOMAIN"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-722",
+      "module": "gimle-gateway",
+      "feature": "Gateway TLS selects a per-virtual-host certificate from the client's SNI extension",
+      "category": "Transport Security",
+      "userStory": "As an operator running one TLS-terminating gateway in front of several hostnames, I want each hostname to present its own certificate, so that every routed host passes a client's hostname verification rather than only whichever host the single configured certificate covered.",
+      "statusDetail": "Fixed: closes FUNC-52. TLS termination built one HttpsServer from a single SslContexts.forMutualTls(...) call at startup with no per-connection certificate selection, even though GatewayRouteConfig implements virtual hosting ([HOST <hostname>] route lines) and dispatch genuinely routes by the inbound Host header -- so with TLS on and more than one hostname routed, every host except the one the configured certificate's SAN covered failed validation for any client that checks hostnames. A new optional gateway.tlsCertificates config binds <hostname> <certFile> <keyFile> per line (same line/comment shape as gateway.routes), and a custom X509ExtendedKeyManager reads ExtendedSSLSession#getRequestedServerNames in chooseServerAlias/chooseEngineServerAlias to present the right certificate per connection. No SNIMatcher is installed, deliberately: a matcher refuses an unrecognized hostname, which would take host-unconstrained fallback routes down with it -- a client sending no SNI, and one naming an unbound hostname, both fall back to the cluster-wide certificate. The JSSE plumbing lives in gimle-core's existing com.gimle.core.tls as an overload whose empty-list case delegates to the existing single-certificate method, so the degenerate case is literally the previous code path.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/tls/HostCertificate.java` (new)",
+        "`gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java` (new)",
+        "`gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java` (`forMutualTls(TlsSettings, List<HostCertificate>)`)",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayTlsConfig.java` (new), `GatewayHooks.java`"
+      ],
+      "testCoverageDetail": "GatewayTlsConfigTest and GatewayHooksTlsTest (11 new): per-host certificate presented for each SNI name, no-SNI falls back to the cluster-wide certificate, an unbound hostname falls back rather than failing the handshake, wildcards/duplicate hostnames/wrong field counts/missing files rejected at parse time.",
+      "gherkinSteps": [
+        "Given a gateway terminating TLS for two routed hostnames",
+        "When a client connects with SNI naming the second hostname",
+        "Then the gateway presents that hostname's own certificate",
+        "And a client sending no SNI receives the cluster-wide certificate"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-723",
+      "module": "gimle-mimir",
+      "feature": "Autoscale policies carry scale-up and scale-down stabilization windows backed by durable last-scale state",
+      "category": "Autoscaling",
+      "userStory": "As an operator tuning autoscaling under real noisy metrics, I want separate scale-up and scale-down stabilization windows, so that a metric oscillating around its target cannot scale a deployment up and back down on consecutive reconcile ticks.",
+      "statusDetail": "Fixed: closes FUNC-10. Scale-up/down and multiple trigger metrics with combination modes were genuinely implemented, but no cooldown/stabilization field existed anywhere in the policy and AutoscaleReconciler adjusted by exactly +/-1 replica every tick off that tick's signal alone, with no 'time since last scale event' check in the class -- so a metric oscillating around its threshold could scale up, then down, then up indefinitely. AutoscalePolicy gained scaleUpCooldown and scaleDownCooldown Durations, defaulting asymmetrically the way operators expect (DEFAULT_SCALE_UP_COOLDOWN 0, so a load spike is answered on the next tick; DEFAULT_SCALE_DOWN_COOLDOWN 5 minutes, matching HPA's own scale-down stabilization default); explicit 0 disables a window and a negative value is rejected. Critically the 'time since last scale' is durable observed state, not a reconciler field: a new deploymentLastScale map in StateStore is written by a new StateMutation.PutDeploymentLastScale riding the same batch as the PutEffectiveReplicas it accounts for, replicated through RaftCodec (mutation and snapshot), readable over StoreRpc.GetDeploymentLastScale, and cleared on removeDeployment so a recreated name does not inherit an old window -- so the window survives a control-plane restart or failover and the reconciler stays level-triggered. Clamping an out-of-range stored replica count back into [minReplicas, maxReplicas] is computed separately from the signal-driven step and is deliberately never suppressed, since that is a bounds correction rather than a scaling decision.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/{AutoscalePolicy,DeploymentManifestParser}.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/{StateStore,StateSnapshot,StoreReader}.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/{StateMutation,RaftCodec}.java`, `.../rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/autoscale/AutoscaleReconciler.java` (`withinCooldown`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`autoscaleToJson`, `deploymentStatus` `lastScaleTime`)"
+      ],
+      "testCoverageDetail": "AutoscaleReconcilerTest (8 new, including the explicit oscillation test proving a scale-up cannot be reversed inside its window, a fresh-reconciler test proving the window is read from durable store state rather than instance state, convergence from a future-dated stamp left by a clock-skewed replica, and out-of-range clamping still applied while the signal step is suppressed); AutoscalePolicyTest, DeploymentManifestParserTest, StateStoreTest, RaftCodecTest, StoreCodecTest, ApiServerTest, ManifestExportTest.",
+      "gherkinSteps": [
+        "Given a deployment with a scale-down stabilization window",
+        "When its signal crosses the target and immediately falls back",
+        "Then the replica count is not reversed until the window elapses",
+        "And the window still applies after the control plane replica restarts"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-724",
+      "module": "gimle-mimir",
+      "feature": "CronJob schedules can be suspended without deleting and recreating them",
+      "category": "Workload Kinds",
+      "userStory": "As an operator handling a maintenance window or a misbehaving schedule, I want to suspend a CronJob, so that it stops firing while keeping its firing history and identity.",
+      "statusDetail": "Fixed: closes FUNC-54. CronJobSpec had no suspend/paused field and CronJobReconciler fired every non-terminal CronJob every tick with no pause check anywhere, so the only way to stop a schedule was delete-then-recreate, which cannot preserve prior firing history across the round trip. CronJobSpec gained a suspend boolean (manifest suspend:, default false), parsed, persisted through DomainCodec, surfaced on the API read side and in the CLI. A suspended CronJob records each due instant as it passes but plans no firing, so it keeps its history, stays listed, and unsuspending resumes at the next due instant rather than back-firing every missed schedule -- and it advances at its own schedule's cadence, not the reconcile loop's. History pruning still runs. triggerNow still fires a suspended CronJob, documented as deliberate since kubectl create job --from=cronjob/x behaves the same way.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/CronJobSpec.java`, `.../CronJobManifestParser.java`, `.../codec/DomainCodec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/CronJobReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`cronJobStatus`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/ManifestExport.java`"
+      ],
+      "testCoverageDetail": "CronJobReconcilerTest (5 new: a suspended CronJob never fires from any starting tick; unsuspending resumes at the next due instant without back-firing the backlog; history is preserved across suspend/unsuspend; convergence from an arbitrary mid-schedule state; triggerNow still fires); CronJobManifestParserTest, ManifestExportTest.",
+      "gherkinSteps": [
+        "Given a CronJob with suspend true",
+        "When the reconciler ticks past several due instants",
+        "Then no Job is generated",
+        "And when suspend is set back to false, the next due instant fires exactly once"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-725",
+      "module": "gimle-module",
+      "feature": "Health probe interval, timeout and liveness failure threshold are declarable per module",
+      "category": "Module System",
+      "userStory": "As a module author whose readiness check legitimately needs longer than the worker default, I want to declare my own probe interval, timeout and failure threshold in the manifest, so that a slow but healthy module is not reported as broken on every tick.",
+      "statusDetail": "Fixed: closes FUNC-36. Probe interval (1s), timeout (2s) and liveness failure threshold (3) were literal constants applied identically to every module a worker hosts, and the manifest's health: block carried only initialDelaySeconds -- so a module whose readiness check needs more than two seconds (a cold cache fill, a slow downstream dependency) failed every readiness tick indistinguishably from a genuinely broken probe. The health: block gained intervalSeconds, timeoutSeconds and failureThreshold; HealthProbes carries them as Optional<Duration>/OptionalInt with a compact constructor enforcing positive interval and timeout, non-negative initial delay and threshold >= 1; the parser rejects zero, negative and non-numeric values with GimleManifestException. WorkerRuntime.onActive resolves each module's effective timing from its own descriptor with the worker default as fallback and records the effective liveness threshold per module at ACTIVE rather than re-reading it on failure, so a concurrent uninstall cannot strand the lookup. The three worker-wide constants are now explicitly named defaults.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/module/HealthProbes.java`",
+        "`gimle-module/src/main/java/com/gimle/module/descriptor/ModuleDescriptorParser.java`",
+        "`gimle-worker/src/main/java/com/gimle/worker/{WorkerRuntime,WorkerMain}.java`"
+      ],
+      "testCoverageDetail": "HealthProbesTest (9 new, every validation failure); ModuleDescriptorParserTest (8 added, including zero/negative/non-numeric for each field); WorkerRuntimeProbeTimingTest (5 new, real dynamically-loaded fixture modules through a real ModuleController/WorkerRuntime: a declared timeoutSeconds keeps a 400ms readiness check ready against a 100ms worker default while the same check without it is cut off; declared vs default failureThreshold; a declared long intervalSeconds suppresses fast-cadence probing).",
+      "gherkinSteps": [
+        "Given a module manifest declaring a probe timeout longer than the worker default",
+        "When its readiness check takes longer than the worker default but less than the declared timeout",
+        "Then the instance is reported ready",
+        "And a manifest declaring a zero or negative interval is rejected at parse time"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-726",
+      "module": "gimle-mimir",
+      "feature": "Instance event history is cleared when a workload is removed, so a reused name starts clean",
+      "category": "State Store",
+      "userStory": "As an operator reusing a workload name, I want a newly created Deployment, DaemonSet or StatefulSet to show only its own instance events, so that an unrelated predecessor's timeline does not bleed into it.",
+      "statusDetail": "Fixed: closes FUNC-37. removeDeployment, removeDaemonSetSpec and removeStatefulSetSpec each explicitly cleared that workload's ControllerRevision history -- with removeDeployment's own javadoc spelling out exactly why a name reuse would otherwise bleed old history into a new, unrelated resource -- but instanceEvents, keyed by the identical (name, index) composite, had no equivalent cleanup anywhere, leaving the exact bug that cleanup was written to prevent live on its sibling structure. All three removal paths now call a private clearInstanceEventsFor(tenantId, name) beside the existing controllerRevisions.remove(...). The helper drops every instanceEvents key under the scoped key plus '#' whose remainder is all digits, so a similarly-named workload (orders vs orders#eu) is untouched. Because the cleanup lives inside the removal method the corresponding StateMutation applies, it rides the replicated Raft path rather than mutating a map behind the log, and the cleared timelines are consequently absent from snapshot() too.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`removeDeployment`, `removeDaemonSetSpec`, `removeStatefulSetSpec`, `clearInstanceEventsFor`)"
+      ],
+      "testCoverageDetail": "StateStoreTest (7 new: every index cleared; delete-then-recreate starts empty for all three workload kinds; another tenant's same-named timeline survives; a similarly-named workload survives; a cleared timeline does not return through a snapshot/restore round trip); MutationBatchTest (replaying PutDeployment, AppendInstanceEvent, RemoveDeployment, PutDeployment in log order on a fresh replica leaves the recreated name empty).",
+      "gherkinSteps": [
+        "Given a Deployment with recorded instance events",
+        "When it is deleted and an unrelated Deployment is created with the same name",
+        "Then the new Deployment's event timeline is empty",
+        "And the cleared timeline does not reappear after a snapshot restore or log replay"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-727",
+      "module": "gimle-core",
+      "feature": "RBAC permissions accept a wildcard sentinel in the resource, verb and tenant-scope positions",
+      "category": "Authorization",
+      "userStory": "As an operator, I want to grant a role breadth without hand-enumerating every resource and verb combination, so that a custom role narrower than cluster-admin but broader than the fixed tenant templates is expressible and stays correct as new resource kinds are added.",
+      "statusDetail": "Fixed: closes FUNC-58. No wildcard sentinel was recognized anywhere in com.gimle.core.authz -- --permission \"*:read\" threw a loud 400 -- and the only breadth mechanism was a fixed set of built-in templates hardcoded in Java source, so a role like 'read every resource kind across every tenant except SECRET' had to be hand-enumerated and re-edited every time a ResourceKind was added. Permission's resource and verb became Optional<ResourceKind>/Optional<Verb>, empty meaning every value -- the same 'absent constraint is unconstrained' semantics tenantScope already had, so all three positions read alike -- with Permission.ALL (\"*\") as the single written spelling and covers/coversResource/coversVerb doing the widening. The sentinel is persisted as a sentinel and expanded at authorize time, never at write time, so a grant automatically covers a ResourceKind added later without the stored role being rewritten. The qualifier position deliberately rejects the wildcard, so a wildcard resource grant still never reaches a {kind}/status write. Auditing every authorize call site found one parallel matcher: Authorizer.hasAnyReadGrant compared permission.resource()/verb() directly and would have silently denied the collection-list gate to a wildcard holder; it now delegates to the shared matching, so all defense-in-depth re-checkers (gimle-controlplane, gimle-fafnir, gimle-muninn, gimle-andvari, and gimle-agent's admin fault API) behave identically.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/authz/Permission.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/Authorizer.java` (`hasAnyReadGrant`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`roleToJson`/`roleFromJson`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/RolesCommand.java`"
+      ],
+      "testCoverageDetail": "PermissionTest (10 new: wildcard in each position, wildcard combined with a named value, token round-trip, malformed/blank/unknown input, wildcard-qualifier rejection, wildcard never reaching a {kind}/status write); WildcardPermissionAuthzTest (new, 11: every ResourceKind covered by one stored grant, the stored role staying a single unexpanded permission, codec round-trip preserving the wildcard, a narrower grant alongside a wildcard grant, hasAnyReadGrant, an unbound principal unaffected); GimleCliTest (3 added).",
+      "gherkinSteps": [
+        "Given a role granting the wildcard resource with the read verb",
+        "When a bound subject reads two different resource kinds",
+        "Then both reads are allowed",
+        "And a write is still refused",
+        "And the stored role remains a single unexpanded permission"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-728",
+      "module": "gimle-controlplane",
+      "feature": "Overlapping Services are announced with a response warning rather than silently allowed",
+      "category": "Service Fabric",
+      "userStory": "As an operator, I want to be told when a Service I create fronts a Deployment another Service already fronts, so that a copy-paste mistake is visible while an intentional shared front door stays possible.",
+      "statusDetail": "Fixed: closes FUNC-34. Nothing checked a new ServiceSpec against any other Service's deploymentNames -- not the constructor, not ServiceRegistry.put, not the API handler -- so two Services naming the same Deployment each got their own live, correct-looking endpoint list pointed at the same instances, with nothing distinguishing an intentional shared front door from a typo and no console or CLI warning either. Because a shared front door is a legitimate pattern, this warns rather than rejects: the create still succeeds, and the control plane attaches an X-Gimle-Warning header naming each overlapping Service and the deployment names actually shared, which gimle set service and gimle apply -f print as a warning: line on stderr. No force or confirm flag was added.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceAdvisories.java` (new)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handlePostService`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java`, `.../GimleCli.java`"
+      ],
+      "testCoverageDetail": "ServiceAdvisoriesTest (overlap reported; one warning per overlapping Service, name-ordered; a self re-submit does not overlap itself; the same deployment name under a different tenant is not an overlap; disjoint names earn nothing); ApiServerServicesTest (4 tests); GimleCliTest asserts the warning reaches stderr without failing the command.",
+      "gherkinSteps": [
+        "Given a Service fronting a deployment",
+        "When a second Service is declared fronting the same deployment",
+        "Then the create succeeds",
+        "And the response carries a warning naming the first Service and the shared deployment"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-729",
+      "module": "gimle-controlplane",
+      "feature": "A Service's targetPort is authoritative when declared and genuinely absent when not",
+      "category": "Service Fabric",
+      "userStory": "As an operator, I want a Service's targetPort to decide which port traffic actually reaches, so that the field is not a silent no-op on a multi-port instance or a silent traffic-dropper when nothing reports it.",
+      "statusDetail": "Fixed: closes FUNC-53. targetPort was validated only for numeric range at admission and never against what any backing instance reported, and at resolution time ServiceEndpointResolver.resolve never read spec.targetPort() for the deployment-selector case at all -- solePort instead required the instance to report exactly one declared port and used it verbatim. So an operator could create a Service naming a targetPort no instance reports with no admission error, and the field had zero effect for any deployment reporting more than one port. targetPort is now OptionalInt and authoritative when declared: each backing instance contributes an endpoint on exactly that port, and an instance not reporting it is excluded with a logged reason (deduplicated per Service so a seconds-long tick does not spam) rather than quietly contributing a different port. Omitted, it is genuinely absent rather than defaulted to port: an instance reporting exactly one port contributes it, one reporting zero or several contributes nothing. Because instance ports are reported at runtime through ModuleContext.reportPort, a targetPort no instance currently reports cannot be a hard admission error -- it is level-triggered state -- so it is admitted with an X-Gimle-Warning instead. DomainCodec encodes 0 as undeclared, leaving the wire shape unchanged at one int.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`, `.../codec/DomainCodec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/{ServiceEndpointResolver,ServiceEndpointResolution,ServiceAdvisories}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ServiceReconciler.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java`; `gimle-console/src/routes/networking.tsx`; `gimle-agent` bifrost and `gimle-skald` directory types"
+      ],
+      "testCoverageDetail": "ServiceReconcilerTest (declared targetPort selects out of a multi-port instance; an instance not reporting it is excluded; no targetPort with exactly one reported port resolves; no targetPort with several stays ambiguous; a targetPort appearing and disappearing converges both ways; repeated ticks over an unchanged store keep producing the same endpoints); ApiServerServicesTest (5); ServiceAdvisoriesTest; ServiceSpecTest; GimleCliTest; console services repository tests.",
+      "gherkinSteps": [
+        "Given a deployment whose instance reports two ports",
+        "When a Service is declared fronting it with the second port as targetPort",
+        "Then the Service resolves exactly one endpoint on that port",
+        "And a Service declaring a port no instance reports resolves no endpoints and was warned about at creation"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-730",
+      "module": "gimle-controlplane",
+      "feature": "NetworkPolicy edits are version-guarded and can add or remove one allow-list entry at a time",
+      "category": "Networking",
+      "userStory": "As an operator, I want to add or remove a single caller tenant on an existing NetworkPolicy under a version guard, so that a concurrent edit is refused rather than silently overwritten and a client reconstructing the spec cannot accidentally un-scope the policy.",
+      "statusDetail": "Fixed: closes FUNC-12. NetworkPolicyRegistry exposed only whole-object put/get/list/remove -- no PATCH, no expectedVersion guard, unlike the sibling ConfigMap API's lease-guarded read-check-propose path -- and gimle set networkpolicy replaced the whole rule set too, so adding or removing one caller tenant meant GET-reconstruct-POST of the entire spec client-side: a lost-update race under any concurrent edit, and a client that omitted a field while reconstructing silently un-scoped the policy. The registry now follows the existing ConfigMap lease-guarded read-check-propose pattern rather than a new idiom, every write carries an expectedVersion guard that refuses a stale edit with 409, and the CLI gained --add-/--remove-allowed-caller-tenant and --add-/--remove-allowed-callee-tenant which read, amend and write under that guard.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/networkpolicy/{NetworkPolicyPatch,NetworkPolicyWriteResult,NetworkPolicyRegistry}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/NetworkPolicyCommand.java`"
+      ],
+      "testCoverageDetail": "NetworkPolicyRegistryTest (the actual lost-update race, not just the happy path), ApiServerNetworkPoliciesTest, GimleCliTest.",
+      "gherkinSteps": [
+        "Given a network policy allowing one caller tenant",
+        "When a second caller tenant is added through the amend flag",
+        "And a concurrent edit is attempted against the version it started from",
+        "Then the concurrent edit is rejected with status 409",
+        "And both amendments are visible through a different control-plane replica"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-731",
+      "module": "gimle-controlplane",
+      "feature": "A NetworkPolicy may only name tenants that exist",
+      "category": "Networking",
+      "userStory": "As an operator, I want a policy naming a tenant that does not exist to be refused at admission, so that a typo does not become a permanently dangling rule I never get feedback about.",
+      "statusDetail": "Fixed: closes FUNC-35. NetworkPolicySpec's compact constructor validated the blankness and shape of allowedCallerTenantIds/allowedCalleeTenantIds but never checked any listed tenant ID against a real tenant registry, and neither did the registry's put nor the API handler -- so a typo'd or since-deleted tenant ID was silently accepted as a permanently-unreachable or dangling rule. Existence is now checked at admission in the API handler, which is the only layer that can reach a tenant registry; the record's compact constructor stays a pure shape check, since a record cannot and should not reach a registry.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/NetworkPolicySpec.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`rejectUnknownAllowListTenants`)"
+      ],
+      "testCoverageDetail": "ApiServerNetworkPoliciesTest; GimleCliTest's networkpolicy round-trip tests now declare the tenants their policies name.",
+      "gherkinSteps": [
+        "Given a cluster with no tenant named partner",
+        "When a network policy allowing caller tenant partner is created",
+        "Then the create is rejected with status 400 naming the unknown tenant"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-732",
+      "module": "gimle-core",
+      "feature": "A tenant can be closed to cross-tenant fabric calls before its first NetworkPolicy exists",
+      "category": "Multi-tenancy",
+      "userStory": "As an operator provisioning a new tenant, I want to declare it deny-by-default immediately, so that it is not fully open to cross-tenant calls for however long it takes to author its first policy.",
+      "statusDetail": "Fixed: closes FUNC-77. Every enforcement check consulted only the current, possibly-empty networkPolicies list, so an empty list -- every brand-new tenant's starting state -- meant the check loop never ran and nothing was ever denied. That matches the documented deny-by-default-once-a-policy-exists design exactly; the gap was that no per-tenant posture flag or deny-all shorthand existed to flip a new tenant closed beforehand. Tenant gained an isolationPosture of OPEN (the default, so existing behavior is unchanged unless an operator opts in) or DENY_BY_DEFAULT, under which an empty policy set denies rather than permits. It is set through gimle set tenant --isolation-posture, relayed to every worker on the same NetworkPolicyRelay -> ControlMessage.NetworkPoliciesUpdated path the policies themselves ride (via a new denyByDefaultTenantIds field and a new /networkpostures endpoint the agent polls), and re-checked independently by FabricServer. BifrostProxy consumes it too, keeping its documented fail-closed posture coherent for a deny-by-default tenant.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/tenant/{TenantIsolationPosture,Tenant}.java`",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/{ControlMessage,ControlMessageCodec}.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/NetworkPolicyRelay.java`, `.../networkpolicy/{NetworkPolicySnapshot,HttpNetworkPolicySource}.java`, `.../bifrost/BifrostProxy.java`",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleNetworkPosturesList`), `gimle-cli/.../TenantsCommand.java`"
+      ],
+      "testCoverageDetail": "ControlMessageCodecTest, NetworkPolicyRelayTest, HttpNetworkPolicySourceTest (including a test asserting only tenants declaring deny-by-default are reported closed), BifrostProxyTest, FabricServerTest.",
+      "gherkinSteps": [
+        "Given a tenant declared DENY_BY_DEFAULT with no network policies",
+        "When another tenant calls one of its services over the fabric",
+        "Then the call is refused",
+        "And the same call against an OPEN tenant with no policies succeeds"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-733",
+      "module": "gimle-fafnir",
+      "feature": "Every secret version records who wrote it, when, and its declared type",
+      "category": "Secrets Management",
+      "userStory": "As an incident reviewer, I want to know who wrote version N of a secret and when, so that I do not have to correlate a bare version list against a cluster-wide audit ring buffer by eyeballing timestamps.",
+      "statusDetail": "Fixed: closes FUNC-19. secret versions returned bare version integers only -- neither the Meta pointer record nor the underlying ConfigEntry carried a timestamp or author -- and while the audit trail captured principal and timestamp at write time it never captured the resulting version number, with GET /audit offering no key filter. Each version now records the writing principal, the wall-clock write time and its declared type on the key@meta pointer's append-only versions list, returned by the version listing and by a single-key read; the write's own audit event now carries the version it produced, via a new append-only OptionalInt version field on AuditEvent encoded at the end of DomainCodec's existing encoding with no format-version constant bumped.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/{SecretVersionInfo,SecretWrite}.java` (new), `.../SecretStore.java`, `.../FafnirServer.java`, `.../secretmap/SecretMapStore.java`",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/AuditEvent.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java`; `gimle-console` secrets screen and repositories"
+      ],
+      "testCoverageDetail": "SecretStoreTest (author and timestamp on every version; soft delete and undelete leave write history intact; versionInfo for a missing version is empty); FafnirServerTest; AuditEventTest (a versioned write carries its version; an unversioned resource kind carries none; a null version coalesces to empty); SecretCommandTest; console repository and store tests.",
+      "gherkinSteps": [
+        "Given a secret written by a known principal",
+        "When its version list is read",
+        "Then each version reports its author, write time and type",
+        "And the audit event for that write carries the version it produced"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-734",
+      "module": "gimle-fafnir",
+      "feature": "A secret write may declare its value's shape, validated before anything is stored",
+      "category": "Secrets Management",
+      "userStory": "As an operator storing TLS material, I want a malformed PEM rejected at the secret set call, so that the failure surfaces where it was caused rather than much later when a module tries to parse it at launch.",
+      "statusDetail": "Fixed: closes FUNC-60. validateKey checked only the key name; the plaintext value was encrypted and stored completely unexamined, and no secret type concept existed anywhere in the platform, so a value a manifest would later mount as a TLS key or certificate was accepted with no shape validation at write time. A write may now declare a type -- opaque (the default, and the only unvalidated one), pem-certificate, or pem-private-key -- validated structurally before anything is encrypted or stored, with the type persisted per version and reported on read. The private-key type accepts every openssl-emitted label (PKCS#8, PKCS#1, SEC1, encrypted), since rejecting a valid key purely for its label would make the type useless for real material. The CLI gained --type and --from-file, the latter because a multi-line PEM cannot otherwise be supplied.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/{SecretType,SecretWrite}.java` (new), `.../SecretStore.java` (`validateValue`), `.../FafnirServer.java`",
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleSecretsException.java` (`malformedSecretValue`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java`; `gimle-console/src/routes/secrets.tsx`"
+      ],
+      "testCoverageDetail": "SecretTypeTest (new, 12: wire-name parsing, opaque accepts anything, missing/truncated/empty-body/non-base64 PEM rejection, every openssl private-key label accepted, mismatched begin/end labels rejected, a certificate refused where a private key was declared); SecretStoreTest (4); FafnirServerTest (malformed rejected with 400 and never stored; unknown type rejected); SecretCommandTest (3); console tests.",
+      "gherkinSteps": [
+        "Given a secret write declaring the pem-certificate type",
+        "When the value is a truncated PEM",
+        "Then the write is rejected and nothing is stored",
+        "And a well-formed value is stored with its type reported on read"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-735",
+      "module": "gimle-fafnir",
+      "feature": "A tenant's whole secret set can be exported and imported in one authorized, audited call",
+      "category": "Secrets Management",
+      "userStory": "As an operator migrating a tenant to a freshly bootstrapped cluster with a new master key, I want a supported bulk export and import, so that I do not have to script a per-key get and set loop.",
+      "statusDetail": "Fixed: closes FUNC-71. Every read verb was strictly one key or map at a time and list endpoints returned metadata or names only, never values; Fafnir's backend already had a bulk-value endpoint but it existed solely for gimle-agent's internal fetch and no CLI verb wrapped it. SecretStore.getMany now serves a whole batch from one store listing, exposed as GET /secrets/{tenantId}?names=a,b,c behind a dedicated authorizeSecretsBulkRead, and the CLI gained export and import. The security posture was treated as the deliverable rather than the test count: the bulk read runs Fafnir's own independent Authorizer.authorize check, is deliberately not routed through the node self-service short-circuit and refuses any gimle:nodes principal outright so the path never widens a node identity's reach, and both allow and deny are audited. A key that is unknown or soft-deleted is omitted rather than failing the whole batch. At-rest posture, deliberate and documented: the export file holds plaintext material, base64-encoded but not encrypted, because ciphertext under the source cluster's master key is useless at a destination with a different one -- which is the whole reason the command exists. Compensating constraints: the destination must be a file, never stdout; it is created rw------- where POSIX permissions exist; an existing path is refused rather than overwritten; and deleting the file after import is stated as the operator's responsibility in both the CLI output and the docs.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/{SecretValue}.java` (new), `.../SecretStore.java` (`getMany`), `.../FafnirServer.java` (`handleExportSecrets`, `authorizeSecretsBulkRead`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/SecretCommand.java` (`export`, `import`)"
+      ],
+      "testCoverageDetail": "SecretStoreTest (2); FafnirServerTest (2); FafnirSecretsAuthzTest (the bulk read runs its own authorizer check and forbids an ungranted caller; is allowed for a caller holding SECRET read; a node is forbidden the bulk read even with an active assignment while keeping its single-key read); SecretCommandTest (5, including owner-only file mode, refusal to overwrite, and a soft-deleted secret omitted).",
+      "gherkinSteps": [
+        "Given a tenant with several live secrets",
+        "When they are exported and imported into another tenant",
+        "Then every value and declared type round-trips",
+        "And a node identity is refused the bulk read while keeping its single-key read"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-736",
+      "module": "gimle-core",
+      "feature": "Secret and config payloads are bounded on both the value and the raw request body",
+      "category": "Secrets Management",
+      "userStory": "As an operator, I want an oversized secret or config write refused with a clear error, so that a multi-megabyte blob is not silently accepted, encrypted and replicated through Raft consensus.",
+      "statusDetail": "Fixed: closes FUNC-72. Neither a secret's plaintext nor a config value's byte length was checked anywhere in the write path, and the HTTP body itself was read unbounded via readAllBytes() with no Content-Length cap in both FafnirServer and ApiServer; the only nearby admission guardrails check CPU, memory and instance counts, never payload size. Limits are now enforced at both layers: ConfigEntry.MAX_VALUE_BYTES is 1 MiB (the storage row ceiling, matching Kubernetes' own Secret/ConfigMap limit), SecretStore.MAX_VALUE_BYTES and ApiServer.MAX_CONFIG_VALUE_BYTES are 512 KiB (half of it, so a value accepted at write time still fits once encrypted), and request bodies are capped at 4 MiB in both servers using the existing com.gimle.core.io.SizeLimitedInputStream on the streamed bytes rather than trusting Content-Length -- so an oversized body is refused before it is buffered whole.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/config/ConfigEntry.java`, `.../exception/GimleSecretsException.java` (`valueTooLarge`)",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/{SecretStore,FafnirServer}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`"
+      ],
+      "testCoverageDetail": "ApiServerPayloadLimitTest (new), SecretStoreTest and FafnirServerTest boundary cases on both the value-length and request-body paths.",
+      "gherkinSteps": [
+        "Given a secret value larger than the configured ceiling",
+        "When it is written",
+        "Then the write is refused with a clear error",
+        "And the oversized request body is rejected before being buffered whole"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-737",
+      "module": "gimle-core",
+      "feature": "Logs can be filtered by level threshold and text at the reader, on every surface",
+      "category": "Observability",
+      "userStory": "As an operator hunting one ERROR line during an incident, I want to filter logs by level and text on both the CLI and the console, so that I am not paging through raw unfiltered NDJSON by hand.",
+      "statusDetail": "Fixed: closes FUNC-38. LogFileReader, the shared primitive behind every log route, filtered only by timestamp cursor -- no level or text parameter existed anywhere in its signature -- so the CLI accepted only --category/--follow/--since and the console coloured a line by level after the fact but never filtered by it. A new LogFilter record in gimle-core carries both predicates and is taken by every log reader, so both surfaces get filtering from one mechanism rather than two implementations. Level is a threshold (TRACE < DEBUG < INFO < WARN < ERROR); a line with no level, or one off that scale such as a raw SYSTEM capture, cannot be ranked and is excluded rather than silently admitted, and an unrecognized level is a 400 naming the accepted values. Text is plain case-insensitive substring, deliberately not regex, matched against message/logger/stackTrace/raw only and never nodeId/thread where a short query would match every line from one node. Filtering happens server-side at the reader so a high-volume log is not shipped in full; the filter is applied before limit, so a page is the last N matching lines; and streamFollow suppresses non-matching lines while still advancing its cursor past them so a quiet run is not re-scanned every tick. The parameters thread through AgentLogServer, the ApiServer /logs/* proxy and the Muninn fallback identically, so an operator gets the same result whether or not the owning node is still alive. A zero-match query is legible on every surface rather than silent.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/logging/{LogFilter,LogFileReader}.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`respondLogFile`, `forwardedQuery`)",
+        "`gimle-muninn/src/main/java/com/gimle/muninn/{MuninnDayFileStore,MuninnServer}.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/LogsCommand.java`; `gimle-console/src/routes/logs.tsx`, `src/lib/log-filter.ts`"
+      ],
+      "testCoverageDetail": "LogFilterTest (18), LogFileReaderFilteringTest (8), AgentLogServerTest (7 new), MuninnDayFileStoreTest, MuninnLogFilterParityTest (6 -- asserts the Muninn fallback returns exactly what the live-agent reader returns for the same lines and filter), ApiServerLogsFallbackTest (7 new), LogsCommandTest (7), and 43 console Vitest cases across lib, route, Mock and Http repository tests.",
+      "gherkinSteps": [
+        "Given a log containing lines at several levels",
+        "When it is read with a level threshold of WARN and a text filter",
+        "Then only matching WARN and ERROR lines are returned",
+        "And the same query against a gone node's shipped history returns the same lines",
+        "And a query matching nothing reports that rather than returning silence"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-738",
+      "module": "gimle-agent",
+      "feature": "A deleted config or secret key is retracted from a running instance, and modules can subscribe to changes",
+      "category": "Config",
+      "userStory": "As an operator revoking a credential, I want deleting a key to take effect on already-running instances, so that a stale value does not stay live and readable until the instance happens to restart.",
+      "statusDetail": "Fixed: closes FUNC-39. Config and secret hot-reload was real and push-based, but ConfigRelay relayed only creates and updates -- its own comment confirmed a key deleted upstream was deliberately never retracted from a running instance -- so deleting a key to revoke it had no effect until restart, leaving the stale value live and readable indefinitely. Separately ModuleContext exposed only pull-based config(key)/configKeys(), documented as a snapshot rather than a live view, with no listener a module could register, so a module wanting to react to a rotated credential had only its own polling. Retraction is now real and level-triggered: the relay delivers the authoritative current key set (ControlMessage.ConfigKeysRetained) so an instance converges from any starting state rather than depending on a delete event it might have missed, and a hosted module may register a listener called on every delivery, rotation and retraction of a key it can see. The javadoc and comments that documented non-retraction and the snapshot-only view as deliberate choices were rewritten, since leaving them would make the code lie about itself.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/ConfigRelay.java`",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/{ControlMessage,ControlMessageCodec}.java` (`ConfigKeysRetained`)",
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/{ModuleContext,ModuleController,SimpleModuleContext}.java`",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java`"
+      ],
+      "testCoverageDetail": "ModuleConfigRetractionTest (new, including convergence from an arbitrary starting state rather than only a clean delete event), ConfigRelayTest, ControlMessageCodecTest.",
+      "gherkinSteps": [
+        "Given a running instance holding a config key",
+        "When that key is deleted upstream",
+        "Then the instance stops being able to read it without restarting",
+        "And a module listener is notified of the retraction"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-739",
+      "module": "gimle-observability",
+      "feature": "Trace sampling is configurable and parent-based",
+      "category": "Observability",
+      "userStory": "As an operator running a high-throughput workload, I want to dial trace volume down without a code change, so that one full span per fabric call on every hop is not the only option.",
+      "statusDetail": "Fixed: closes FUNC-59. Every SdkTracerProvider was built with no setSampler call, so the OTel SDK default of Sampler.alwaysOn() applied; no sampler configuration existed anywhere in the codebase and, unlike other deliberate defaults here, 100% sampling was never called out as an intentional choice in the observability docs. The recorded fraction is now configurable per process via -Dgimle.tracing.samplingRatio (0.0-1.0, default 1.0, so existing behavior is unchanged unless an operator opts in), honoured identically by every tracer-provider install path. The decision is parent-based, which is what keeps a trace whole across process hops -- sampling each hop independently would shred a cross-worker trace into disconnected fragments, which is precisely the trace this platform most needs to be readable.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-observability/src/main/java/com/gimle/observability/GimleTracing.java`"
+      ],
+      "testCoverageDetail": "GimleTracingSamplingTest (new): default ratio records everything, a configured ratio is honoured on every install path, an out-of-range or non-numeric ratio is rejected, and a child span follows its parent's sampling decision rather than re-deciding.",
+      "gherkinSteps": [
+        "Given a process configured with a sampling ratio below one",
+        "When a trace is started and crosses a process hop",
+        "Then the child span follows the parent's sampling decision",
+        "And the default configuration still records every trace"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-740",
+      "module": "gimle-muninn",
+      "feature": "Logs, metrics and traces each retain for their own configurable window",
+      "category": "Observability",
+      "userStory": "As an operator, I want to keep logs longer than metrics and traces, so that compliance-relevant output is not deleted on the same schedule as high-volume, low-marginal-value telemetry.",
+      "statusDetail": "Fixed: closes FUNC-82. The only retention config was one gimle.muninn.retentionDays property feeding one RetentionSweeper that walked the entire data root and deleted any day file older than the cutoff, with no branch on whether the file lived under the logs, metrics or traces subtree -- so signals with very different reasonable retention needs shared a single global knob. Each signal now has its own window (gimle.muninn.logs.retentionDays, gimle.muninn.metrics.retentionDays, gimle.muninn.traces.retentionDays), each defaulting to the existing global gimle.muninn.retentionDays when unset, with anything outside the three known signal subtrees still swept on the global window.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-muninn/src/main/java/com/gimle/muninn/{RetentionPolicy,RetentionSweeper,MuninnMain}.java`"
+      ],
+      "testCoverageDetail": "RetentionSweeperTest: each subtree swept on its own cutoff, a signal without an override follows the global window, an unknown subtree follows the global window, and sweeping twice or sweeping a missing data root stays a safe no-op.",
+      "gherkinSteps": [
+        "Given logs and traces retained for different windows",
+        "When the retention sweep runs",
+        "Then a trace day file past the traces window is deleted",
+        "And a log day file of the same age within the logs window is kept"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-741",
+      "module": "gimle-console",
+      "feature": "A trace can be followed across processes from the console's Traces screen",
+      "category": "Web Console / Frontend",
+      "userStory": "As an operator investigating a cross-worker call, I want one trace's spans assembled across processes, so that I do not have to know both workers' addresses, open two views and compare truncated id prefixes by eye.",
+      "statusDetail": "Fixed: closes FUNC-20. The Traces screen was scoped to one process at a time behind a processKind/processId picker, showing a flat span table with a 12-character truncated trace id and no link or navigation to the same trace's spans in another process -- so for the cross-worker case the platform is built around (a consumer's client span and a provider's server span sharing one trace id), the underlying propagation was real but the console fell short of a trace visible end to end. Selecting a trace id now assembles that trace's spans from every worker process the console can name, grouped by process and nested by parent span. Deliberately console-only: no new backend trace-search API was added, so the view works within what GET /traces-history/{processKind}/{processId} already returns plus the process and instance lists the console already loads -- and it states explicitly what the assembled view cannot reach, rather than implying a completeness the data cannot back.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/routes/traces.tsx`, `src/routes/-trace-follow.ts`"
+      ],
+      "testCoverageDetail": "gimle-console/src/routes/-trace-follow.test.ts: spans grouped by process and nested by parent, an unreachable process reported rather than silently omitted, a trace present in only one process rendered without implying more.",
+      "gherkinSteps": [
+        "Given a trace whose spans were created in two different worker processes",
+        "When that trace id is selected on the Traces screen",
+        "Then spans from both processes are shown grouped by process and nested by parent",
+        "And processes the view could not reach are named explicitly"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-742",
+      "module": "gimle-pki",
+      "feature": "The one-time bootstrap password never reaches a build log or any other persistent sink",
+      "category": "Transport Security",
+      "userStory": "As an operator provisioning a cluster from an automated pipeline, I want the bootstrap admin password never written into build logs or log files, so that the leak channel this design otherwise avoids by never writing it to disk stays closed.",
+      "statusDetail": "Fixed: closes BETA-15. The password was printed with a plain System.out.println, and the Maven goal shelling the bootstrap out used ProcessBuilder(...).inheritIO(), making the subprocess's stdout Maven's own stdout -- indistinguishable from an interactive human run and captured verbatim into any pipeline's persistent build log. Auditing every path the generated password reaches found five sinks, not the one originally reported: the direct println; GimleProcesses/TlsInitMojo's inheritIO into the Maven build log; BootstrapMojo's runTlsInit and printSummary into the same; PkiInit.runOneShot, which redirects the subprocess into a durable pki-init.log file (confirming the suspected log-file leak); and gimle-holmgang's GimleCluster.generateTlsMaterial, the same shape into pki.log. The mechanism is terminal-or-explicit-file, refuse otherwise: the password prints only when stdout is genuinely a terminal, which stays true for a human running the goal in a shell and is false for any redirected or captured run; otherwise the caller must name --password-file, which is written alone with owner-only permissions and only its path printed; and with neither, the run is refused up front before any material is generated, naming the flag. That makes the automated case explicit rather than silently degrading into either a logged password or a lost one. RemoteDispatch was verified to copy named files only, so the password file never ships to fleet machines.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-pki/src/main/java/com/gimle/pki/PkiBootstrapMain.java`",
+        "`gimle-maven-plugin/src/main/java/com/gimle/maven/{TlsInitMojo,BootstrapMojo}.java`, `.../GimleProcesses.java`",
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/pki/PkiInit.java`",
+        "`gimle-holmgang/src/test/java/com/gimle/holmgang/cluster/GimleCluster.java`"
+      ],
+      "testCoverageDetail": "PkiBootstrapMainTest (9): file-mode delivery, the password absent from the captured stream, the written password verifying against bootstrap-account.yaml's hash, owner-only file mode, refusal generating nothing at all, and interactive mode printing without writing a file. PkiInitTest (18) covers the hilmir path.",
+      "gherkinSteps": [
+        "Given a bootstrap run whose stdout is redirected rather than a terminal",
+        "When no password file is named",
+        "Then the run is refused before any material is generated",
+        "And when a password file is named, only its path is printed"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-743",
+      "module": "gimle-controlplane",
+      "feature": "The unauthenticated CSR bootstrap endpoint is rate limited",
+      "category": "Transport Security",
+      "userStory": "As an operator, I want the unauthenticated CSR endpoint protected from flooding, so that an endpoint doing RSA-2048 and CSR-parsing work per request with no authentication is not the cheapest denial-of-service target on the cluster.",
+      "statusDetail": "Fixed: closes BETA-16. POST /bootstrap/csr had no rate limiting by explicit design -- PendingCsrStore's own javadoc said pruning by age bounded unbounded growth without needing real rate limiting for this pass -- while doing real asymmetric-crypto and parsing work per request with zero authentication. The existing com.gimle.core.throttle idiom was followed rather than a second one invented, but LoginThrottle is failure backoff and is useless where every expensive request succeeds, so a sibling RequestRateLimiter (token bucket, same in-memory per-replica posture, same Optional<Instant> shape so it plugs into the existing throttled-response path returning 429 with Retry-After) was added beside it, with no new dependency. Two buckets are charged before the request body is read -- the only placement that actually protects the work -- one per remote address and one cluster-wide, all four parameters tunable. They are sized deliberately high on a real constraint: a joining agent treats a rejected CSR as fatal and never retries, and an entire fleet can arrive from one address behind NAT. PendingCsrStore's javadoc, which documented the absence of rate limiting as deliberate, was rewritten to describe age-pruning as the complementary memory bound.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/throttle/RequestRateLimiter.java` (new)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/pki/PendingCsrStore.java`"
+      ],
+      "testCoverageDetail": "RequestRateLimiterTest (8): burst, refusal with a retry instant, no lockout extension, refill, capacity cap, 200 distinct keys admitted while one is exhausted, exact admission count under 64 concurrent virtual threads, argument validation. BootstrapCsrRateLimitTest (4), including the explicit legitimate-fleet case: 50 simultaneous submissions from one address at shipped defaults, all accepted.",
+      "gherkinSteps": [
+        "Given a fleet of agents bootstrapping simultaneously from one address",
+        "When they submit CSRs at shipped defaults",
+        "Then every submission is accepted",
+        "And a flood past the configured burst is refused with 429 and a Retry-After"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-744",
+      "module": "gimle-controlplane",
+      "feature": "Placement and quota failures name the resource dimension, the numbers and the shortfall",
+      "category": "Scheduling",
+      "userStory": "As an operator scaling a real cluster, I want a placement or quota rejection to tell me what to change, so that I can distinguish 'add capacity' from 'no node supports this tier' from 'a taint excluded every node'.",
+      "statusDetail": "Fixed: closes BETA-18. Placement and quota failures named the cause but not the remediation -- no resource dimension, no by-how-much -- unlike the node-taint conflict message, which deliberately names the specific conflicting node and tenant and was the quality bar to match. GimleSchedulingException's single catch-all noFeasiblePlacement was replaced by cause-specific factories, each raised at the stage that actually eliminated the last candidate: insufficientNodeCapacity names the short dimension and shortfall, the roomiest candidate and per-node free capacity (capped at five nodes with the remainder counted); noNodeSupportsTier lists what each node does support and says outright that adding capacity cannot help; noNodesRegistered is distinct from a shortfall; nodeCordoned and requiredLabelsUnsatisfied name the blocking nodes and the labels each node carries; and stickyNodeUnavailable, previously a list of six maybes, now names the one check the sticky node actually failed. The case where both dimensions fit somewhere but no single node fits both is reported as itself rather than as a fabricated shortfall, so a message never claims a cause the scheduler did not observe. On the quota side TenantUsage.describeOverage names every tripped dimension with its ceiling, the overage, and the already-assigned versus this-submission split. Supporting this, ResourceQuantity gained formatMemory/formatCpu -- the inverse of the existing parsers -- so computed byte and millicore values render in manifest units and round-trip back. Note the finding's accompanying claim that LimitRange violations share this problem was verified and is false: LimitRangeSpec.violation already names the side, the dimension, the actual value, the direction and the bound, so it was deliberately left unchanged.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleSchedulingException.java`, `.../module/{ResourceQuantity,ResourceSpec}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/tenant/TenantUsage.java`, `.../admission/TenantQuotaPlugin.java`"
+      ],
+      "testCoverageDetail": "SchedulerDiagnosticsTest (new, 16 -- one per distinct elimination cause, asserting the exact wording and numbers, which is the deliverable here rather than incidental); TenantQuotaPluginTest (2 updated to the full new text, 4 added); ResourceSpecTest (new, 5, formatter/parser round trip).",
+      "gherkinSteps": [
+        "Given a deployment requesting more memory than any node has free",
+        "When placement is attempted",
+        "Then the failure names memory, the shortfall, and the roomiest candidate node",
+        "And a tier that no node supports says so instead of reporting a capacity shortfall"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-745",
+      "module": "gimle-pki",
+      "feature": "A failing certificate rotation check is durably visible with a failure streak, metrics and remaining validity",
+      "category": "Observability",
+      "userStory": "As an operator, I want a failing certificate rotation to raise a visible, alertable signal showing how much validity remains, so that a silent failure does not become a surprise expiry outage.",
+      "statusDetail": "Fixed: closes BETA-19. A failed rotation check only logged a warning and silently kept the still-valid old certificate -- no alert-worthy signal, no visible next-check schedule -- which is harmless while the old certificate remains valid and exactly the failure mode that turns into a surprise expiry later. The check now produces a result instead of swallowing failures: CertificateRotationOutcome (DISABLED/NOT_DUE/ROTATED/FAILED) and CertificateRotationStatus (outcome, the current certificate's notAfter, consecutive-failure count, failure message, next-check time and remaining validity), with CertificateRotationMonitor owning the streak counter, escalating log lines (first failure WARN, third ERROR, then re-logged at most once a minute, each naming the error, the streak length, 'still valid until X' with the runway remaining, and the next attempt) and listener fan-out that can never break the rotation loop. Two previously silent no-ops became real failures along the way: a due certificate with no CSR endpoint configured, and a 200 response carrying no certificate. Metrics register gimle.certificate.rotation.consecutive.failures and gimle.certificate.remaining.seconds as gauges at construction -- so a healthy process reads an explicit 0 rather than an absent meter, since a metric that only exists once something is broken cannot be alerted on -- plus a checks counter tagged by outcome, riding the established MeterSnapshotCodec path to Muninn and queryable via /metrics-history/*. A durable audit event is appended only at the start and the escalation point of a streak, since checks run every two seconds and auditing every failure would flood the trail. Wired into all six rotating processes rather than only the reported call site. Deliberately not wired into the AlertRule primitive, which would require a new Metric enum value, an InstanceObservation field and heartbeat/codec changes.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-pki/src/main/java/com/gimle/pki/{CertificateRotationOutcome,CertificateRotationStatus,CertificateRotationListener,CertificateRotationMonitor,OwnCertificateRotator}.java`",
+        "`gimle-observability/src/main/java/com/gimle/observability/CertificateRotationMetrics.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/authz/CertificateRotationAuditor.java`",
+        "wired in `AgentMain`, `ApiServer`, `StoreMain`, `FafnirMain`, `AndvariMain`, `MuninnMain`"
+      ],
+      "testCoverageDetail": "CertificateRotationMonitorTest (8), OwnCertificateRotatorTest (4), CertificateRotationMetricsTest (5), CertificateRotationAuditorTest (5).",
+      "gherkinSteps": [
+        "Given a certificate rotation check that fails repeatedly",
+        "When the failure streak reaches its escalation point",
+        "Then an ERROR names the streak length and how long the current certificate stays valid",
+        "And the consecutive-failure gauge and the outcome-tagged counter reflect it",
+        "And a healthy process still reports an explicit zero rather than no metric at all"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-746",
+      "module": "gimle-agent",
+      "feature": "Tier-1 worker density is an operator-configurable, validated knob",
+      "category": "Internal/Infra",
+      "userStory": "As an operator provisioning real hardware, I want to tune how many Tier-1 modules pack onto one worker JVM, so that density on a platform whose core pitch is density is not trial-and-error against a hardcoded constant.",
+      "statusDetail": "Fixed: closes BETA-17's configurability half. Tier-1 density was the hardcoded constant MAX_TIER1_DENSITY (4), whose own javadoc called it a simple constant to start, not a configurable knob yet. It became DEFAULT_MAX_TIER1_DENSITY (still 4) plus the gimle.agent.maxTier1Density property, following the same system-property convention the agent's other operator-facing settings already use, parsed and validated in main() before anything is supervised -- zero, negative or non-numeric throws at startup rather than silently reverting to the default -- and threaded through reconcileAssignments into findReusableTier1Worker. The javadoc calling it 'not a configurable knob yet' was rewritten to describe the knob and why 4 is conservative rather than measured. The accompanying documentation gap was closed with a new node-sizing reference page covering what runs on a node, where a worker's -Xmx and ActiveProcessorCount come from versus what capacity accounting uses, and the three consequences of raising density: a shared worker's ceiling is fixed at spawn time and never subdivided, density multiplies one worker's blast radius, and a leaking module hurts its neighbours. It states explicitly that it contains no measured benchmark numbers rather than inventing any.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`DEFAULT_MAX_TIER1_DENSITY`, `MAX_TIER1_DENSITY_PROPERTY`, `parseMaxTier1Density`)",
+        "`gimle-docs/docs/reference/node-sizing.md` (new)"
+      ],
+      "testCoverageDetail": "AgentMainTest (6 new: default and blank, a verbatim value, zero and negative rejected, non-numeric rejected, a cap of 1 disabling packing, a raised cap packing past the default) plus the 7 existing density tests updated.",
+      "gherkinSteps": [
+        "Given an agent configured with a Tier-1 density of one",
+        "When two Tier-1 modules are assigned to it",
+        "Then they are not packed into the same worker",
+        "And an agent configured with a zero or non-numeric density fails at startup"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-747",
+      "module": "gimle-gateway",
+      "feature": "Gateway route-table and server fields are guarded under one monitor",
+      "category": "Internal/Infra",
+      "userStory": "As a maintainer, I want the gateway's mutable route-table and server fields consistently guarded, so that a reload racing startup or shutdown cannot observe half-applied state.",
+      "statusDetail": "Fixed: found while integrating this change set, and pre-existing on master -- gimle-gateway failed spotbugs:check with two IS2_INCONSISTENT_SYNC findings, which meant mvn verify from the repo root was red on master and nothing downstream of gimle-gateway in the reactor had been verified at all. The findings were real rather than noise: appliedRoutesConfig and registeredPaths were written in onStart and in the synchronized reloadRoutesIfChanged, with the class comment asserting safety informally, but the route-reload scheduler is started by onStart and can tick before it returns -- so the happens-before rested on thread-start ordering the code never actually established. onStart now holds the same monitor across the bind, so the first tick waits for a fully-applied route table rather than reconciling contexts against a half-populated one; onStop and the port accessor take it too, since a reload tick in flight reads the very server onStop closes.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
+      ],
+      "testCoverageDetail": "Existing gimle-gateway suite (99 tests) green with spotbugs:check clean; verified against clean master that the two findings pre-existed this change set.",
+      "gherkinSteps": [
+        "Given a gateway whose route-reload scheduler starts during onStart",
+        "When a reload tick fires before onStart returns",
+        "Then it observes a fully applied route table rather than partial state"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Partial"
+    },
+    {
+      "id": "GIMLE-748",
+      "module": "gimle-agent",
+      "feature": "A closed Bifrost service listener never serves one more connection",
+      "category": "Networking",
+      "userStory": "As an operator removing a Service, I want its per-node proxy listener to stop serving immediately, so that a caller is not proxied to a backend after the Service was dropped.",
+      "statusDetail": "Fixed: found while finishing this change set's test pass. ServiceListener.close() set closed, closed the ServerSocket and returned while its accept loop could still be blocked inside accept(); closing a ServerSocket does not retract a connection the kernel has already completed, so a listener dropped by BifrostProxy -- because the Service was removed, or the proxy was shutting down -- could accept and proxy one more caller after being dropped. Reproduced with a standalone java.net-only program independent of any Gimle code at roughly 8% of iterations, some connections even reading the payload the supposedly-closed accept loop wrote; zero occurrences in 500 iterations after the fix, and twelve consecutive clean suite runs. close() now joins the accept thread and re-checks closed immediately after accept() returns, so a raced connection is dropped rather than forwarded. This does not collide with the fail-closed policy path, which refuses connections on a live listener; the join concerns only a listener being torn down.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`"
+      ],
+      "testCoverageDetail": "BifrostProxyTest.a_service_disappearing_from_the_source_closes_its_listener, verified over twelve consecutive runs with no surefire flakes.",
+      "gherkinSteps": [
+        "Given a Bifrost listener for a Service",
+        "When that Service disappears from the source",
+        "Then a subsequent connection attempt is refused rather than proxied"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-749",
+      "module": "gimle-controlplane",
+      "feature": "Proxied query parameters are URL-encoded rather than relayed decoded",
+      "category": "Internal/Infra",
+      "userStory": "As an operator, I want query parameters carrying arbitrary text to survive the control plane's proxy hop, so that a filter value containing a space is not turned into an invalid URI.",
+      "statusDetail": "Fixed: found while adding log filtering. ApiServer.forwardedQuery relayed already-decoded query values verbatim when building the upstream URI, so the first parameter able to contain a space -- the new log text filter -- produced an invalid URI and a server error. It now URL-encodes keys and values when reconstructing the forwarded query. A latent defect rather than a new one: no pre-existing proxied parameter happened to contain a character requiring encoding.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`forwardedQuery`)"
+      ],
+      "testCoverageDetail": "ApiServerLogsFallbackTest covers a text filter containing a space surviving the proxy hop to both the live-agent and Muninn-fallback paths.",
+      "gherkinSteps": [
+        "Given a proxied request whose query value contains a space",
+        "When the control plane forwards it upstream",
+        "Then the value arrives intact rather than producing an invalid URI"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

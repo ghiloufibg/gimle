@@ -6,31 +6,31 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 718
-- **Covered by automated (Holmgang Cucumber) test**: 126
-- **Not covered by automated test**: 592
-- **Release-readiness (automated coverage)**: 17.5%
+- **Total requirements**: 749
+- **Covered by automated (Holmgang Cucumber) test**: 127
+- **Not covered by automated test**: 622
+- **Release-readiness (automated coverage)**: 17.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 47 | 15 | 32 | 31.9% |
-| gimle-module | 26 | 12 | 14 | 46.2% |
+| gimle-core | 51 | 14 | 37 | 27.5% |
+| gimle-module | 27 | 12 | 15 | 44.4% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
-| gimle-pki | 10 | 6 | 4 | 60.0% |
+| gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 50 | 6 | 44 | 12.0% |
-| gimle-mimir | 66 | 36 | 30 | 54.5% |
-| gimle-fabric | 39 | 1 | 38 | 2.6% |
-| gimle-controlplane | 97 | 15 | 82 | 15.5% |
-| gimle-fafnir | 30 | 11 | 19 | 36.7% |
+| gimle-agent | 53 | 6 | 47 | 11.3% |
+| gimle-mimir | 69 | 36 | 33 | 52.2% |
+| gimle-fabric | 41 | 1 | 40 | 2.4% |
+| gimle-controlplane | 104 | 17 | 87 | 16.3% |
+| gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
-| gimle-muninn | 23 | 0 | 23 | 0.0% |
-| gimle-observability | 18 | 1 | 17 | 5.6% |
-| gimle-gateway | 18 | 0 | 18 | 0.0% |
+| gimle-muninn | 24 | 0 | 24 | 0.0% |
+| gimle-observability | 19 | 1 | 18 | 5.3% |
+| gimle-gateway | 20 | 0 | 20 | 0.0% |
 | gimle-cli | 33 | 0 | 33 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 38 | 0 | 38 | 0.0% |
+| gimle-console | 39 | 0 | 39 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -41,11 +41,17 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
-| gimle-skald | 4 | 0 | 4 | 0.0% |
+| gimle-skald | 5 | 0 | 5 | 0.0% |
 
 ## Checklist
 
 ### gimle-core
+
+#### Authorization
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-727 | RBAC permissions accept a wildcard sentinel in the resource, verb and tenant-scope positions | Given a role granting the wildcard resource with the read verb When a bound subject reads two different resource kinds Then both reads are allowed And a write is still refused And the stored role remains a single unexpanded permission | No |
 
 #### Config
 
@@ -114,7 +120,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-008 | Health probe configuration with initial delay | Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s. | Yes |
+| [ ] | GIMLE-008 | Health probe configuration: probe classes, initial delay, and per-module interval/timeout/failure threshold | Given health:{liveness:..., initialDelaySeconds:30}, When parsed, Then HealthProbes.initialDelay() is 30s. Given health: also declares intervalSeconds, timeoutSeconds and failureThreshold, When parsed, Then each is carried on HealthProbes. Given health: declares none of the three, When parsed, Then each is empty and the worker's own defaults apply. Given health: declares a zero or negative interval or timeout, or a failureThreshold below 1, When parsed, Then a GimleManifestException is thrown. | No |
 
 #### Module System / Multi-tenancy
 
@@ -139,12 +145,14 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-037 | Tenant identity and resource quota model | Given a Tenant with negative quota field, When constructed, Then rejected with IllegalArgumentException. | No |
+| [ ] | GIMLE-732 | A tenant can be closed to cross-tenant fabric calls before its first NetworkPolicy exists | Given a tenant declared DENY_BY_DEFAULT with no network policies When another tenant calls one of its services over the fabric Then the call is refused And the same call against an OPEN tenant with no policies succeeds | No |
 
 #### Observability
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-032 | Instance lifecycle event log model | Given a TRANSITION_FAILED event, When constructed, Then it carries a non-empty causeSummary alongside a stable id. | No |
+| [ ] | GIMLE-737 | Logs can be filtered by level threshold and text at the reader, on every surface | Given a log containing lines at several levels When it is read with a level threshold of WARN and a text filter Then only matching WARN and ERROR lines are returned And the same query against a gone node's shipped history returns the same lines And a query matching nothing reports that rather than returning silence | No |
 
 #### Observability / Logging
 
@@ -182,6 +190,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-035 | Assigned-instance work-order model (incl. in-place rename and vessel dispatch) | Given an AssignedInstance with renamedFromInstanceIndex present, When the agent processes it, Then it retargets the already-running instance under that prior index in place. | No |
+
+#### Secrets Management
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-736 | Secret and config payloads are bounded on both the value and the raw request body | Given a secret value larger than the configured ceiling When it is written Then the write is refused with a clear error And the oversized request body is rejected before being buffered whole | No |
 
 #### Security
 
@@ -246,6 +260,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-059 | gimle-module.yaml descriptor parsing and validation | Given isolation.tier: BOGUS, When parsed via ModuleDescriptorParser.parse, Then GimleManifestException naming the invalid tier value. | Yes |
 | [ ] | GIMLE-060 | Module artifact reading — real-JPMS-module and descriptor-presence validation | Given a jar with no module-info.class, When ModuleArtifactReader.read(jarPath) is called, Then GimleManifestException explaining automatic modules are rejected. | No |
 | [ ] | GIMLE-616 | Instance identity on ModuleContext (downward API) | Given a hosted instance with a registered identity, When it calls ModuleContext.instanceInfo(), Then it sees its deployment name, replica index, node id, and tenant. Given an instance renamed in place, When it calls instanceInfo() again, Then the answer reflects the new index without a restart. | No |
+| [ ] | GIMLE-725 | Health probe interval, timeout and liveness failure threshold are declarable per module | Given a module manifest declaring a probe timeout longer than the worker default When its readiness check takes longer than the worker default but less than the declared timeout Then the instance is reported ready And a manifest declaring a zero or negative interval is rejected at parse time | No |
 
 #### Module System / Configuration
 
@@ -319,6 +334,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ### gimle-pki
 
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-745 | A failing certificate rotation check is durably visible with a failure streak, metrics and remaining validity | Given a certificate rotation check that fails repeatedly When the failure streak reaches its escalation point Then an ERROR names the streak length and how long the current certificate stays valid And the consecutive-failure gauge and the outcome-tagged counter reflect it And a healthy process still reports an explicit zero rather than no metric at all | No |
+
 #### PKI
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -348,6 +369,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-702 | A CSR's requested Subject Alternative Name is trusted only up to what the connecting request can verify | Given a node-join CSR requesting a SAN equal to the address this exact request is connecting from; When the control plane signs it; Then the issued certificate carries that SAN. Given a node-join CSR requesting a SAN for an address it is not actually connecting from (e.g. another component's real hostname); When the control plane signs it; Then no SAN is carried onto the issued certificate at all. Given an operator-join or certificate-rotation CSR requesting any SAN; When the control plane signs it; Then the SAN is dropped unconditionally, since neither flow has a live connection to verify a claim against. | No |
+
+#### Transport Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-742 | The one-time bootstrap password never reaches a build log or any other persistent sink | Given a bootstrap run whose stdout is redirected rather than a terminal When no password file is named Then the run is refused before any material is generated And when a password file is named, only its path is printed | No |
 
 ### gimle-worker
 
@@ -483,6 +510,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-119 | Vessel port allocation (dynamic/fixed) and env resolution (literal/port/secret) | Given a VesselSpec declares env entries of each kind (Literal/PortAllocation/SecretRef) When allocateVesselPorts and resolveVesselEnv run Then a PortAllocation with no fixed port gets a bind-then-release ephemeral port; a fixed one is used as declared And a SecretRef is resolved via fetchVesselSecretsByKey (lazy, fetched at most once per spawn) Given a referenced secret key doesn't exist for the tenant Then GimleSecretsException.secretNotFound is thrown, failing the spawn | No |
 | [ ] | GIMLE-120 | Vessel config-file rendering to disk | Given a VesselSpec declares files: [{configKey, path}] When renderVesselFiles runs before the process spawns Then each declared config value's raw content is written verbatim to path (relative to the instance root, or absolute as-is) Given the referenced config key has no value for the tenant Then GimleManifestException is thrown | No |
 | [ ] | GIMLE-134 | Node placement-label registration | Given -Dgimle.node.labels=gpu,ssd is set on the agent process When register() runs Then the registration body's capabilities.labels includes ["gpu", "ssd"] Given the property is unset or blank Then labels is an empty list | No |
+| [ ] | GIMLE-738 | A deleted config or secret key is retracted from a running instance, and modules can subscribe to changes | Given a running instance holding a config key When that key is deleted upstream Then the instance stops being able to read it without restarting And a module listener is notified of the retraction | No |
 
 #### Config / Internal-Infra
 
@@ -538,6 +566,18 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-123 | mTLS bootstrap CSR flow for node identity | Given TLS is enabled and no cert/key files exist yet on disk When bootstrapCertificateIfNeeded runs Then it generates an RSA keypair and CSR, connects with server-trust-only TLS, and POSTs it plus the bootstrap token to /bootstrap/csr And on a 200 response, writes the returned certificate and encoded private key to the configured cert/key files Given cert/key files already exist (a redeploy of an already-bootstrapped node) Then this is a no-op Given the bootstrap token is missing/blank Then GimleTlsException.missingProperty is thrown | Yes |
+
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-746 | Tier-1 worker density is an operator-configurable, validated knob | Given an agent configured with a Tier-1 density of one When two Tier-1 modules are assigned to it Then they are not packed into the same worker And an agent configured with a zero or non-numeric density fails at startup | No |
+
+#### Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-748 | A closed Bifrost service listener never serves one more connection | Given a Bifrost listener for a Service When that Service disappears from the source Then a subsequent connection attempt is refused rather than proxied | No |
 
 #### Networking / Services
 
@@ -691,6 +731,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-678 | Deleting a Role cascades to every RoleBinding naming it | Given a Role bound to one or more subjects via RoleBinding; When an operator deletes that Role; Then every RoleBinding naming it is removed atomically as part of the same delete, and the response reports which bindings were revoked. Given a Role deleted this way and later a new, unrelated Role created under the same name; Then no previously-bound subject gains that new Role's permissions -- their old binding is gone, not reactivated. Given the cascade removes N bindings; Then each removal is independently audited, attributed to the caller who deleted the Role, alongside the Role deletion's own audit event. | No |
 
+#### Autoscaling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-723 | Autoscale policies carry scale-up and scale-down stabilization windows backed by durable last-scale state | Given a deployment with a scale-down stabilization window When its signal crosses the target and immediately falls back Then the replica count is not reversed until the window elapses And the window still applies after the control plane replica restarts | No |
+
 #### Config
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -832,12 +878,19 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-165 | Store Read Load Balancing Across Replicas | Given three endpoints, one unreachable; When several reads are issued; Then each read tries endpoints from a rotating cursor and returns from the first reachable one. | Yes |
 | [ ] | GIMLE-606 | Group commit via batched mutations (StateMutation.Batch / proposeAll) | Given a burst of N independent mutations; When proposed via proposeAll; Then exactly one log entry is appended and every mutation is applied in order. Given an empty or nested batch; When constructed; Then it is rejected outright. | No |
 | [ ] | GIMLE-646 | Deployment writes (apply/delete/rollback) are generation-guarded compare-and-set, closing the concurrent apply/delete lost-update race | Given a deployment already exists at 3 replicas, When a scale-to-5 apply and a delete are fired concurrently with no ordering between them, Then at least one request wins, any losing request is refused with 409, and the final state is always the coherent result of some real total order of the two requests -- never the untouched pre-race content, and never a mix of both. Given a deployment name has never existed, When a create and a delete of that same name are fired concurrently, Then the create always succeeds, and the delete resolves to its own idempotent success or an honest conflict depending on ordering, never blocking or being blocked by the create. | No |
+| [ ] | GIMLE-726 | Instance event history is cleared when a workload is removed, so a reused name starts clean | Given a Deployment with recorded instance events When it is deleted and an unrelated Deployment is created with the same name Then the new Deployment's event timeline is empty And the cleared timeline does not reappear after a snapshot restore or log replay | No |
 
 #### Upgrade path
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-703 | RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding | Given a RaftRpc or StoreRpc frame carrying a version byte higher than this reader's own CURRENT_VERSION; When the frame is decoded; Then decoding fails with GimleCodecException naming both versions, before any tag or field is read. Given a real Raft leader and follower both running the same CURRENT_VERSION; When AppendEntries/InstallSnapshot RPCs are exchanged; Then every existing round-trip behavior is unchanged. | No |
+
+#### Workload Kinds
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-724 | CronJob schedules can be suspended without deleting and recreating them | Given a CronJob with suspend true When the reconciler ticks past several due instants Then no Job is generated And when suspend is set back to false, the next due instant fires exactly once | No |
 
 #### Workload Lifecycle
 
@@ -911,6 +964,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-574 | Per-deployment-scoped NetworkPolicySpec enforcement | Given a NetworkPolicySpec scoped to deployment "orders-service" only, When a cross-tenant caller not on its allow list invokes a service hosted by an instance of that exact deployment, Then FabricServer.checkNetworkPolicyPermitted rejects the call. Given the same deployment-scoped policy, When the same caller invokes a service hosted by an instance of a different deployment in the same tenant, Then the call is permitted -- the scoped policy never restricts a deployment it doesn't name. Given the same deployment-scoped policy, When the target instance has no deployment identity registered at all, Then the call is permitted -- a scoped rule can only be proven to apply, never assumed to. | No |
 
+#### Observability
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-720 | Per-endpoint circuit breaker state is visible as logs and shipped Micrometer meters | Given a fabric endpoint whose calls are failing When its circuit breaker opens Then a WARN line names the interface and the nodeId/workerId endpoint And gimle.fabric.circuitbreaker.state reports 2 for that endpoint And the transition counter increments for the state entered | No |
+
 #### Service Fabric
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -925,6 +984,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-194 | Inbound Call Dispatch with Bounded Concurrency | Given a target module with a bounded ModuleWorkExecutor; When more concurrent inbound calls arrive than allowed; Then extra calls queue; ModuleContext's in-flight counter reflects real inbound calls. | No |
 | [ ] | GIMLE-195 | Distributed Trace Propagation Across Fabric Hops | Given a caller with an active span and baggage; When it invokes a remote service; Then the callee starts a child span parented on the caller's real span, observing the same baggage. | No |
 | [ ] | GIMLE-196 | Fabric Transport over Mutual TLS with Hot Cert Reload | Given fabric configured for mTLS; When a cross-machine invocation is made; Then it succeeds over TLS; a client trusting a different CA is rejected; reload lets a fresh connection succeed without restart. | No |
+| [ ] | GIMLE-719 | Fabric calls retry only where retrying is provably safe, with server-side correlationId deduplication | Given a service method not annotated @Idempotent When the call fails after the request was written Then the failure is surfaced to the caller rather than retried And when the connection was never established, the call fails over to a different endpoint And a duplicate correlationId replays the original response instead of executing twice | No |
 
 #### Service fabric
 
@@ -1090,6 +1150,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-258 | Bootstrap node join via single-use token + CSR | Given an operator issued a bootstrap token; When a new node submits a CSR (purpose=NODE_CLIENT) with that token; Then the CA signs a cert stamped O=gimle:nodes, and the token cannot be reused. | No |
 | [ ] | GIMLE-259 | Operator-approval-gated CSR flow | Given a human submits a CSR (purpose=OPERATOR_CLIENT) with no client certificate; When submitted; Then it sits pending (202) until an existing operator approves it. | No |
 
+#### Internal/Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-749 | Proxied query parameters are URL-encoded rather than relayed decoded | Given a proxied request whose query value contains a space When the control plane forwards it upstream Then the value arrives intact rather than producing an invalid URI | No |
+
 #### Multi-Tenancy
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1125,6 +1191,13 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-675 | DaemonSet opt-in taint toleration (tolerateAllTaints) | Given a node is tainted for tenant "acme"; When an untenanted DaemonSet with the default tolerateAllTaints reconciles; Then that node is excluded from its placement, same as a Deployment replica would be. Given the same tainted node; When a DaemonSet manifest sets tolerateAllTaints: true; Then that node receives an assignment too, alongside every other eligible node. Given a DaemonSet was created with tolerateAllTaints: true and later rolled back to an earlier module version; Then the rolled-back spec still has tolerateAllTaints: true, not silently reset to false. | No |
+
+#### Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-730 | NetworkPolicy edits are version-guarded and can add or remove one allow-list entry at a time | Given a network policy allowing one caller tenant When a second caller tenant is added through the amend flag And a concurrent edit is attempted against the version it started from Then the concurrent edit is rejected with status 409 And both amendments are visible through a different control-plane replica | Yes |
+| [ ] | GIMLE-731 | A NetworkPolicy may only name tenants that exist | Given a cluster with no tenant named partner When a network policy allowing caller tenant partner is created Then the create is rejected with status 400 naming the unknown tenant | Yes |
 
 #### Networking / Services
 
@@ -1232,6 +1305,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-214 | Strict anti-affinity across nodes | Given anti-affinity is requested and every eligible node already runs a replica; When another replica is placed; Then placement fails outright rather than co-locating. | No |
 | [ ] | GIMLE-216 | Required node-label placement constraint | Given a manifest declares placement.requiredLabels; When placement runs; Then only nodes carrying every required label are candidates; fails outright if none qualify. | No |
 | [ ] | GIMLE-218 | DaemonSet eligible-node enumeration (`eligibleNodes`) | Given several nodes, some cordoned, some missing required labels; When DaemonSetReconciler computes eligible nodes; Then every node passing tier/cordon/tenant/label filters is returned, no single-winner pick. | No |
+| [ ] | GIMLE-744 | Placement and quota failures name the resource dimension, the numbers and the shortfall | Given a deployment requesting more memory than any node has free When placement is attempted Then the failure names memory, the shortfall, and the roomiest candidate node And a tier that no node supports says so instead of reporting a capacity shortfall | No |
 
 #### Scheduling / Multi-tenancy
 
@@ -1297,11 +1371,24 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-694 | StatefulSetReconciler and DaemonSetReconciler compare artifactPath in their rolling-update staleness check | Given a StatefulSet or DaemonSet is ACTIVE with its current moduleId and artifactPath; When the manifest is re-applied with the same moduleId but a different artifactPath; Then the reconciler triggers a rolling update instead of reporting already-converged. | No |
 | [ ] | GIMLE-696 | AutoscaleReconciler gates on node heartbeat freshness before trusting an instance observation | Given two ready instances of a deployment are reporting 100% CPU utilization against a 50% target; When their node's heartbeat has gone stale past the node-dark timeout; Then AutoscaleReconciler holds the current effective replica count instead of scaling up on the frozen observation. Given the same deployment's node heartbeat is fresh; When the same 100% utilization is observed; Then AutoscaleReconciler scales up by one replica, unchanged from before this fix. | No |
 
+#### Service Fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-728 | Overlapping Services are announced with a response warning rather than silently allowed | Given a Service fronting a deployment When a second Service is declared fronting the same deployment Then the create succeeds And the response carries a warning naming the first Service and the shared deployment | No |
+| [ ] | GIMLE-729 | A Service's targetPort is authoritative when declared and genuinely absent when not | Given a deployment whose instance reports two ports When a Service is declared fronting it with the second port as targetPort Then the Service resolves exactly one endpoint on that port And a Service declaring a port no instance reports resolves no endpoints and was warned about at creation | No |
+
 #### Storage / Operations
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-621 | Cluster-wide volume operator surface (/volumes API + CLI) | Given a retained orphan volume, When the operator lists volumes, Then it appears with attached=false and its current usage. Given an attached volume, When the operator attempts destroy, Then both the control plane and the owning agent refuse it. | No |
+
+#### Transport Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-743 | The unauthenticated CSR bootstrap endpoint is rate limited | Given a fleet of agents bootstrapping simultaneously from one address When they submit CSRs at shipped defaults Then every submission is accepted And a flood past the configured burst is refused with 429 and a Retry-After | No |
 
 #### Workloads / CronJob
 
@@ -1391,6 +1478,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-594 | SecretMap group-version ledger and rollback | Given a SecretMap `db-creds` has been set twice (group versions 1 and 2), When `rollback` is called with group version 1, Then `password` is restored to its group-version-1 content as a brand-new SecretStore version, and a new group version 3 is stamped recording `rollbackOfGroupVersion: 1`. | No |
 | [ ] | GIMLE-597 | Sealed SecretMap envelope crypto and key retirement | Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key. | No |
 | [ ] | GIMLE-598 | `/seal/*` and key-retirement HTTP routes | Given a value has been sealed against Fafnir's current public sealing key for tenant `acme`/name `db-creds`/key `password`, When it is committed via `POST /secretmaps/acme/db-creds/seal` under the correct tenant and name, Then `GET /secretmaps/acme/db-creds` shows `password` at a new version holding the recovered plaintext. | No |
+| [ ] | GIMLE-733 | Every secret version records who wrote it, when, and its declared type | Given a secret written by a known principal When its version list is read Then each version reports its author, write time and type And the audit event for that write carries the version it produced | No |
+| [ ] | GIMLE-734 | A secret write may declare its value's shape, validated before anything is stored | Given a secret write declaring the pem-certificate type When the value is a truncated PEM Then the write is rejected and nothing is stored And a well-formed value is stored with its type reported on read | No |
+| [ ] | GIMLE-735 | A tenant's whole secret set can be exported and imported in one authorized, audited call | Given a tenant with several live secrets When they are exported and imported into another tenant Then every value and declared type round-trips And a node identity is refused the bulk read while keeping its single-key read | No |
 
 #### Secrets Management / Internal-Infra
 
@@ -1524,6 +1614,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-331 | Age-based retention sweep | Given a day file older than the configured retentionDays When the retention sweep runs Then that file is deleted And a day file within the window is left untouched And sweeping twice, or sweeping a data root that doesn't exist yet, is a safe no-op | No |
 | [ ] | GIMLE-339 | `/status` operational endpoint | Given a running MuninnServer When GET /status is issued Then it returns 200 with uptimeSeconds and transportProtocol And a non-GET method is rejected with 405 | No |
 | [ ] | GIMLE-699 | MuninnDayFileStore reads tolerate a day file removed by a concurrent retention sweep instead of surfacing a 500 | Given a subtree with two day files, one of which is deleted by a concurrent retention sweep between the read's own directory listing and its turn to read that file; When the read runs; Then it returns the surviving file's lines rather than throwing. Given the same race repeated many times under load; When readAfter and readOlder are both exercised concurrently against a sweep racing to delete a day file; Then neither ever surfaces the file's disappearance as an error. | No |
+| [ ] | GIMLE-740 | Logs, metrics and traces each retain for their own configurable window | Given logs and traces retained for different windows When the retention sweep runs Then a trace day file past the traces window is deleted And a log day file of the same age within the logs window is kept | No |
 
 #### Security / Authorization
 
@@ -1577,6 +1668,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-351 | JFR-based per-module CPU/allocation attribution | Given a module registered under a thread-name prefix "gimle-<module>-<version>-" When a JFR jdk.ExecutionSample/jdk.ThreadAllocationStatistics event fires on a thread with that prefix Then gimle.module.cpu.samples / gimle.module.allocated.bytes counters are incremented tagged by module_prefix And events from unregistered/unclassifiable threads are ignored And JFR being unavailable degrades to "no samples" rather than failing the worker | No |
 | [ ] | GIMLE-698 | MuninnShipper's log-shipping cursor no longer permanently drops a line sharing its exact predecessor's timestamp | Given a log file already shipped up through one line at timestamp T; When a second line is appended at that exact same timestamp T before the next ship tick; Then the next tick ships that second line. Given the same-instant sibling has just been shipped; When a further tick runs with no new lines; Then nothing is re-shipped, proving the cursor genuinely advanced rather than re-querying the same boundary forever. | No |
 | [ ] | GIMLE-712 | WorkerMetrics evicts a module's Micrometer meters on uninstall, so repeated redeploy no longer accumulates one permanent meter set per (module, version) forever | Given a worker has recorded requests, thread counts, and metaspace bytes for module 'orders@1.0.0'; When that module is successfully uninstalled; Then every meter WorkerMetrics registered for it is removed from the registry. Given the same module is later reinstalled and recordThreadCount is called again; When its gauge is queried; Then a fresh gauge reflects the new value rather than a stale, already-removed one silently failing to update. Given two modules 'orders@1.0.0' and 'catalog@1.0.0' both have recorded metrics; When 'orders@1.0.0' is uninstalled and evicted; Then 'catalog@1.0.0''s own meters are untouched. | No |
+| [ ] | GIMLE-739 | Trace sampling is configurable and parent-based | Given a process configured with a sampling ratio below one When a trace is started and crosses a process hop Then the child span follows the parent's sampling decision And the default configuration still records every trace | No |
 
 #### Tracing
 
@@ -1626,12 +1718,19 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-368 | Boot-only platform-layer JPMS workaround (`requires static`) | (structural/build-time behavior, not a runtime scenario) | No |
+| [ ] | GIMLE-747 | Gateway route-table and server fields are guarded under one monitor | Given a gateway whose route-reload scheduler starts during onStart When a reload tick fires before onStart returns Then it observes a fully applied route table rather than partial state | No |
 
 #### Networking
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-679 | Gateway route table reloads on a config change without a restart | Given a running gateway instance serving a route table; When gateway.routes is updated to add a new route; Then the new route becomes reachable on the same listener within one reload interval, with no restart. Given a running gateway instance; When gateway.routes is updated to remove a route; Then that path stops being reachable (the server's own 404, not a stale route ever matching again) while every other route keeps serving. Given a running gateway instance; When gateway.routes is updated to a malformed value; Then the update is rejected and logged, and the previously-applied route table keeps serving traffic unchanged. | No |
+
+#### Transport Security
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-722 | Gateway TLS selects a per-virtual-host certificate from the client's SNI extension | Given a gateway terminating TLS for two routed hostnames When a client connects with SNI naming the second hostname Then the gateway presents that hostname's own certificate And a client sending no SNI receives the cluster-wide certificate | No |
 
 ### gimle-cli
 
@@ -1869,6 +1968,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-587 | NetworkPolicy CRUD (Networking screen) | Given no NetworkPolicy named "acme-billing-policy" exists, When an operator submits the NetworkPolicies tab's create form with tenant "acme" and allowed caller tenant "partner", Then POST /networkpolicies creates it and it appears in the table with allowedCallerTenantIds ["partner"]. | No |
 | [ ] | GIMLE-593 | SecretMaps screen | Given the SecretMaps screen has `db-creds` open, When `set` is called with `username`/`password` and the server reports `password` failed, Then the panel shows the failure inline rather than silently dropping it or throwing. | No |
 | [ ] | GIMLE-596 | SecretMaps screen History panel | Given the SecretMaps screen has `db-creds` open with two group versions, When the operator clicks "Roll back" on group version 1, Then the panel's key table reflects the restored content and the History table shows a new group version 3 marked "rollback of v1". | No |
+| [ ] | GIMLE-741 | A trace can be followed across processes from the console's Traces screen | Given a trace whose spans were created in two different worker processes When that trace id is selected on the Traces screen Then spans from both processes are shown grouped by process and nested by parent And processes the view could not reach are named explicitly | No |
 
 #### Web Console / Testing
 
@@ -2159,4 +2259,5 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | Given SkaldServer's directory cache holds "orders.acme.svc.gimle.local" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record. Given the directory holds no entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN. Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence. | No |
+| [ ] | GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | Given the directory has never held an entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN. Given the directory holds a declared Service whose endpoint list is currently empty, When queried, Then the response is NOERROR with zero answer records rather than NXDOMAIN. Given SkaldServer's directory cache holds "orders.acme.svc.gimle.local" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record. Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence. | No |
+| [ ] | GIMLE-721 | Cluster DNS answers NODATA, not NXDOMAIN, for a declared Service with no live endpoints | Given a declared Service whose backing deployment is scaled to zero When a client resolves that Service name Then the responder answers NOERROR with zero answer records And a name that was never declared still answers NXDOMAIN | No |
