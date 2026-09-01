@@ -144,10 +144,7 @@ public final class NetworkPolicySteps {
   }
 
   private int patchNetworkPolicy(
-      final int replica,
-      final String name,
-      final String tenantId,
-      final Map<String, Object> body) {
+      final int replica, final String name, final String tenantId, final Map<String, Object> body) {
     return send(replica, "PATCH", "/networkpolicies/" + name + "?tenant=" + tenantId, body)
         .statusCode();
   }

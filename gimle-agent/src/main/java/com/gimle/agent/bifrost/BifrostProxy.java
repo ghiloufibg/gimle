@@ -191,9 +191,9 @@ public final class BifrostProxy implements AutoCloseable {
    *
    * <p>A tenant whose declared posture denies uncovered traffic contributes a synthesized
    * tenant-wide, allow-nobody rule when no real ingress rule already covers this service, so a
-   * closed tenant behaves here exactly as if an explicit deny-all policy had been written for it
-   * -- rather than staying wide open through this proxy simply because nobody has written that
-   * policy yet.
+   * closed tenant behaves here exactly as if an explicit deny-all policy had been written for it --
+   * rather than staying wide open through this proxy simply because nobody has written that policy
+   * yet.
    */
   private static List<NetworkPolicyRule> applicableRules(
       ServiceSummary service, NetworkPolicySnapshot snapshot) {

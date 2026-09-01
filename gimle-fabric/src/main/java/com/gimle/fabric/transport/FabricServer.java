@@ -650,8 +650,8 @@ public final class FabricServer implements AutoCloseable {
    * The ingress half: rules owned by <em>this worker's own</em> tenant, gating who may call in. A
    * call no such rule covers falls through to this tenant's own declared posture -- which denies a
    * cross-tenant caller when the tenant is closed, and otherwise permits, the state every tenant
-   * starts in. Without that fallback a tenant with no policies yet written could never be closed
-   * at all, since a loop over an empty rule set denies nothing.
+   * starts in. Without that fallback a tenant with no policies yet written could never be closed at
+   * all, since a loop over an empty rule set denies nothing.
    */
   private void checkIngressPermitted(ModuleId owner, FabricFrame.InvokeRequest request) {
     if (selfTenantId.isEmpty()) {

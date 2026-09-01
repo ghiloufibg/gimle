@@ -1623,6 +1623,10 @@ class GimleCliTest {
 
   @Test
   void set_networkpolicy_then_get_networkpolicies_round_trips_then_delete() throws Exception {
+    // A policy's allow list may only name tenants that exist, so the referenced tenant is
+    // declared first -- the same order a real operator works in.
+    createTenant("partner");
+
     int setExit =
         run(
             "set",
@@ -1657,6 +1661,10 @@ class GimleCliTest {
 
   @Test
   void apply_networkpolicy_then_get_networkpolicies_round_trips() throws Exception {
+    // A policy's allow list may only name tenants that exist, so the referenced tenant is
+    // declared first -- the same order a real operator works in.
+    createTenant("partner");
+
     Path manifest = tempDir.resolve("applied-networkpolicy.yaml");
     Files.writeString(
         manifest,
@@ -1704,6 +1712,10 @@ class GimleCliTest {
 
   @Test
   void set_networkpolicy_carries_interface_scoping_and_egress_restrictions() throws Exception {
+    // A policy's allow list may only name tenants that exist, so the referenced tenant is
+    // declared first -- the same order a real operator works in.
+    createTenant("partner");
+
     int setExit =
         run(
             "set",

@@ -64,7 +64,12 @@ class ApiServerNetworkPoliciesTest {
     // A policy's allow list is validated against the real tenant registry, so the tenants these
     // scenarios name have to exist before a policy may name them.
     for (String tenantId :
-        List.of("partner-tenant", "partner-a", "partner-b", "partner-c", "closed-tenant",
+        List.of(
+            "partner-tenant",
+            "partner-a",
+            "partner-b",
+            "partner-c",
+            "closed-tenant",
             "odd-tenant")) {
       inProcessStore.client().propose(new StateMutation.PutTenant(new Tenant(tenantId, QUOTA)));
     }
@@ -357,7 +362,8 @@ class ApiServerNetworkPoliciesTest {
         Json.asObject(Json.parse(get("/networkpolicies/policy?tenant=acme").body()));
     assertEquals(List.of("partner-a"), spec.get("danglingTenantIds"));
     assertEquals(
-        Set.of("partner-a", "partner-b"), Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
+        Set.of("partner-a", "partner-b"),
+        Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
   }
 
   @Test
@@ -392,7 +398,8 @@ class ApiServerNetworkPoliciesTest {
     Map<String, Object> spec =
         Json.asObject(Json.parse(get("/networkpolicies/policy?tenant=acme").body()));
     assertEquals(
-        Set.of("partner-a", "partner-b"), Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
+        Set.of("partner-a", "partner-b"),
+        Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
     assertEquals(2, ((Number) spec.get("version")).intValue());
   }
 
@@ -416,7 +423,8 @@ class ApiServerNetworkPoliciesTest {
     Map<String, Object> spec =
         Json.asObject(Json.parse(get("/networkpolicies/policy?tenant=acme").body()));
     assertEquals(
-        Set.of("partner-a", "partner-b"), Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
+        Set.of("partner-a", "partner-b"),
+        Set.copyOf(Json.asArray(spec.get("allowedCallerTenantIds"))));
   }
 
   @Test
@@ -479,8 +487,7 @@ class ApiServerNetworkPoliciesTest {
   @Test
   @Timeout(10)
   void an_unrecognized_isolation_posture_is_a_400() throws Exception {
-    assertEquals(
-        400, putTenant("odd-tenant", ", \"isolationPosture\": \"SOMEWHAT_CLOSED\""));
+    assertEquals(400, putTenant("odd-tenant", ", \"isolationPosture\": \"SOMEWHAT_CLOSED\""));
   }
 
   private int putTenant(String tenantId, String extraFields) throws Exception {
@@ -489,10 +496,9 @@ class ApiServerNetworkPoliciesTest {
             + " \"maxInstances\": 5}"
             + extraFields
             + "}";
-    return send(
-            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + tenantId))
-                .PUT(HttpRequest.BodyPublishers.ofString(body))
-                .build())
+    return send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/" + tenantId))
+            .PUT(HttpRequest.BodyPublishers.ofString(body))
+            .build())
         .statusCode();
   }
 

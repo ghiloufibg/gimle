@@ -51,10 +51,10 @@ import com.gimle.core.authz.Role;
 import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
-import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
+import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.logging.LogFilter;
 import com.gimle.core.module.ArtifactKind;
@@ -2257,10 +2257,7 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 405, "method not allowed");
       return;
     }
-    respondJson(
-        exchange,
-        200,
-        networkPolicyList(readableTenant.get()));
+    respondJson(exchange, 200, networkPolicyList(readableTenant.get()));
   }
 
   /**
@@ -2290,7 +2287,7 @@ public final class ApiServer implements AutoCloseable {
         }
         case "PATCH" -> {
           if (requireAuthorized(
-              exchange, ResourceKind.NETWORK_POLICY, Verb.WRITE, Optional.of(tenant))
+                  exchange, ResourceKind.NETWORK_POLICY, Verb.WRITE, Optional.of(tenant))
               && !rejectIfReservedSystemTenant(exchange, Optional.of(tenant))) {
             handlePatchNetworkPolicy(exchange, tenant, name);
           }
@@ -4328,9 +4325,9 @@ public final class ApiServer implements AutoCloseable {
   /**
    * Omitting {@code isolationPosture} keeps whatever posture the tenant already has, and defaults a
    * brand-new tenant to {@link TenantIsolationPosture#OPEN}. Deliberately not a full replace for
-   * this one field: every other field here is a quota an operator edits routinely, and a quota
-   * bump that silently reopened a tenant an operator had closed would be a security regression
-   * caused by an unrelated edit.
+   * this one field: every other field here is a quota an operator edits routinely, and a quota bump
+   * that silently reopened a tenant an operator had closed would be a security regression caused by
+   * an unrelated edit.
    */
   private void handlePutTenant(HttpExchange exchange, String id) throws IOException {
     Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
@@ -4340,7 +4337,8 @@ public final class ApiServer implements AutoCloseable {
             ((Number) quotaMap.get("maxMemoryBytes")).longValue(),
             ((Number) quotaMap.get("maxCpuMillicores")).longValue(),
             ((Number) quotaMap.get("maxInstances")).intValue());
-    Optional<TenantIsolationPosture> submitted = parseIsolationPosture(body.get("isolationPosture"));
+    Optional<TenantIsolationPosture> submitted =
+        parseIsolationPosture(body.get("isolationPosture"));
     TenantIsolationPosture posture =
         submitted.orElseGet(
             () ->

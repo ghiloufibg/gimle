@@ -323,9 +323,9 @@ public final class ControlMessageCodec {
    * variable-length tenant set, unlike {@link ServiceExport}'s single optional set -- rather than
    * inventing another bespoke {@code @}/comma nesting scheme, this reuses {@link Json} (already a
    * {@code gimle-core} dependency every control-plane/agent JSON exchange shares) to write a
-   * compact JSON array, then escapes the whole result as one field of this line the same way
-   * {@link ControlMessage.MetricsSnapshot}'s NDJSON payload already does. The message's
-   * deny-by-default tenant set travels as a second such field, written the same way.
+   * compact JSON array, then escapes the whole result as one field of this line the same way {@link
+   * ControlMessage.MetricsSnapshot}'s NDJSON payload already does. The message's deny-by-default
+   * tenant set travels as a second such field, written the same way.
    */
   private static String encodeNetworkPolicies(List<NetworkPolicyRule> rules) {
     List<Object> array = new ArrayList<>(rules.size());

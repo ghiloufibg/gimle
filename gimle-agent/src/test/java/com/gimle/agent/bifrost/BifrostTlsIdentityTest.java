@@ -78,7 +78,11 @@ class BifrostTlsIdentityTest {
     proxy =
         new BifrostProxy(
             source,
-            () -> new NetworkPolicySnapshot(List.of(new NetworkPolicyRule("allow-partner", "acme", Set.of("partner-tenant"))), Set.of()),
+            () ->
+                new NetworkPolicySnapshot(
+                    List.of(
+                        new NetworkPolicyRule("allow-partner", "acme", Set.of("partner-tenant"))),
+                    Set.of()),
             new BifrostSettings(
                 Duration.ofMinutes(5),
                 false,
