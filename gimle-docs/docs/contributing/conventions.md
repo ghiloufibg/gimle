@@ -74,6 +74,21 @@ it today, not a second gate behind a local one.
 ## Repo hygiene
 
 Commit only essential source and config. No generated reports or ad-hoc markdown files except
-`CLAUDE.md`/`README.md`. `claudedocs/` (design notes, QA audit findings) is gitignored — see
-[Project structure](./project-structure.md) if you're looking for where things actually live in the
-build.
+`CLAUDE.md`/`README.md` and the repo-root requirements and QA documents rendered from their JSON
+sources (`REQUIREMENTS_MATRIX.md`, `RTM.md`, `UAT_CHECKLIST.md`, `FORSETI.md`, from
+`requirements-matrix.json`, `rtm.json`, `uat-checklist.json`, `forseti.json`). `claudedocs/` (design
+notes, QA audit findings) is gitignored — see [Project structure](./project-structure.md) if you're
+looking for where things actually live in the build.
+
+## Pre-release QA (Forseti)
+
+`FORSETI.md` at the repo root is the standing pre-release QA doctrine: a fleet of black-box tester
+agents, each a persona (operator, module author, on-call engineer, release engineer, …), runs an
+objective-plus-oracle scenario catalog against purpose-built environments in parallel, and one lead
+merges their findings into a deduplicated report with reproduction steps. Coverage is measured
+against `requirements-matrix.json` directly: every `GIMLE-NNN` is reached by a fleet scenario,
+classified internal with its unit-test or Holmgang citation, or excluded with a stated reason —
+`forseti.json` holds that classification and the catalog, and
+`python3 scripts/generate_forseti_docs.py` renders the generated sections and fails loudly on an
+unplaced requirement. Adding a requirement therefore means placing it in `forseti.json` too. A run's
+findings report is published, not committed; only its one-line index row lands in `FORSETI.md`.

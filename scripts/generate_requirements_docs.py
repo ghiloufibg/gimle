@@ -18,6 +18,7 @@ Usage:
 """
 import json
 import os
+import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -334,6 +335,15 @@ def main():
     save("uat-checklist.json", uat)
     write_md("UAT_CHECKLIST.md", render_uat_checklist_md(uat))
     print(f"Wrote uat-checklist.json + UAT_CHECKLIST.md ({uat['summary']['totalRequirements']} items)")
+
+    # FORSETI.md's coverage tables are derived from the same two JSON files, so a requirements
+    # change re-renders them too. Its generator reports (not raises) a gap here, so a requirement
+    # nobody has placed in forseti.json yet is loud without blocking this regeneration.
+    sys.dont_write_bytecode = True  # keep scripts/ free of a __pycache__ from this import
+    import generate_forseti_docs
+
+    if generate_forseti_docs.main() != 0:
+        print("FORSETI.md regenerated with gaps -- place the flagged requirement(s) in forseti.json")
 
 
 if __name__ == "__main__":

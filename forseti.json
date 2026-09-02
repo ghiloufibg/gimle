@@ -1,0 +1,2500 @@
+{
+  "title": "Forseti — pre-release QA doctrine (structured source of truth)",
+  "preamble": "The data FORSETI.md's generated sections are rendered from by scripts/generate_forseti_docs.py. Every GIMLE-NNN in requirements-matrix.json is either reached by one or more fleet scenarios below, classified internal (covered by the unit/Holmgang evidence rtm.json already carries), or explicitly out of scope with a reason. Anything unlisted is user-observable and unassigned, and the generator flags it.",
+  "fleetCoverageTarget": 0.9,
+  "environments": [
+    {
+      "id": "forge",
+      "name": "Forge",
+      "letter": "G",
+      "shape": "A developer workstation: the source checkout, JDK 25, Maven, Bun, Docker where available. No standing cluster of its own — a scenario that needs one brings up a throwaway via `mvn gimle:bootstrap` and tears it down after.",
+      "builtVia": "`git clone` + `mvn install -DskipTests`, exactly as `gimle-console/LOCAL_DEV.md` describes.",
+      "covers": "Everything a module author touches before anything is deployed: manifest authoring, `hilmir doctor`/`init`, every `mvn gimle:*` goal, Saga, the documentation site's own tutorials followed literally."
+    },
+    {
+      "id": "midgard",
+      "name": "Midgard",
+      "letter": "A",
+      "shape": "One machine: one Mimir store, one control plane, Fafnir, Muninn, Andvari, one node agent. Plaintext, unauthenticated. Pre-seeded with the bundled greeter examples.",
+      "builtVia": "The `gimle-midgard-<version>.tar.gz` archive's own `docker compose up -d`. Where the run's sandbox has no Docker daemon, `mvn gimle:bootstrap` stands up the same real processes uncontainerized — same surface, and the coverage table notes which was used.",
+      "covers": "Everyday CRUD, every console screen, artifact push/pull, example-application deploys, logs/metrics/traces — the bulk of what an ordinary user ever does."
+    },
+    {
+      "id": "fleet",
+      "name": "Fleet",
+      "letter": "B",
+      "shape": "Five machines: 3 Mimir replicas, 2 control-plane replicas, Fafnir, Muninn, 2 Andvari replicas, 4 node agents (one labelled `edge`, one tainted). Plaintext. Optionally one extra machine with a real `sshd`.",
+      "builtVia": "Unpacked from the `gimle-platform` archive; `hilmir validate`/`plan`/`up` against a hand-written `topology.yaml`, one `hilmir up --machine` per machine — per the archive's own docs. Realised as one Docker container per machine on a shared network (the shape `gimle-holmgang/compose/docker-compose.naked-infra.yml` and Utgard already use), or as real hosts where available.",
+      "covers": "HA and failover, live store membership change, cross-node scheduling and anti-affinity, rolling updates, autoscaling, machine-level self-healing, cordon/taint, Bifrost/Skald across nodes, Andvari replication, upgrade-cluster, Ragnarok."
+    },
+    {
+      "id": "vault",
+      "name": "Vault",
+      "letter": "C",
+      "shape": "Fleet's shape (it can be smaller — 3 machines is enough), but `transport: mtls` throughout: `hilmir pki init` mints the CA and every process leaf, agents join through the real token + CSR bootstrap.",
+      "builtVia": "Same as Fleet plus `hilmir pki init`, per the hilmir reference. Never an IP-literal host (the validator's own `MTLS_IP_LITERAL_HOST` rule) — real hostnames, which the container-per-machine realisation gives for free.",
+      "covers": "Certificate issuance, approval, revocation; RBAC under real authentication (not the plaintext anonymous-session carve-out); tenant isolation; the defense-in-depth re-checks in Fafnir, Muninn and Andvari; gateway TLS and SNI; the mTLS default-RBAC seams between node agents, the control plane and the registry."
+    }
+  ],
+  "personas": [
+    {
+      "id": "OPS",
+      "name": "Ops — Platform operator",
+      "who": "The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day.",
+      "environments": [
+        "midgard",
+        "fleet",
+        "vault"
+      ]
+    },
+    {
+      "id": "DEV",
+      "name": "Dev — Module author",
+      "who": "A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster.",
+      "environments": [
+        "forge",
+        "midgard"
+      ]
+    },
+    {
+      "id": "DEP",
+      "name": "App-1 — Deployments",
+      "who": "A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers.",
+      "environments": [
+        "midgard"
+      ]
+    },
+    {
+      "id": "BATCH",
+      "name": "App-2 — Batch, Cron, Node & Stateful workloads",
+      "who": "Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes.",
+      "environments": [
+        "midgard",
+        "fleet"
+      ]
+    },
+    {
+      "id": "SCHED",
+      "name": "Scheduling & Resilience",
+      "who": "An SRE deciding whether the platform can be trusted unattended across several machines.",
+      "environments": [
+        "fleet"
+      ]
+    },
+    {
+      "id": "NET",
+      "name": "Fabric & Networking",
+      "who": "Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy.",
+      "environments": [
+        "midgard",
+        "fleet",
+        "vault"
+      ]
+    },
+    {
+      "id": "GOV",
+      "name": "Governance — Tenancy, Quotas & RBAC",
+      "who": "A platform admin onboarding a second team and needing to prove the first one can't see it.",
+      "environments": [
+        "midgard",
+        "vault"
+      ]
+    },
+    {
+      "id": "SEC",
+      "name": "Security & Secrets",
+      "who": "Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be.",
+      "environments": [
+        "vault",
+        "midgard"
+      ]
+    },
+    {
+      "id": "ART",
+      "name": "Artifacts & Registry",
+      "who": "A release engineer publishing module builds and expecting the registry to behave like Nexus.",
+      "environments": [
+        "midgard",
+        "fleet"
+      ]
+    },
+    {
+      "id": "OBS",
+      "name": "Observability & Console",
+      "who": "An on-call engineer with nothing but the consoles and `gimle logs`, at 3 a.m.",
+      "environments": [
+        "midgard",
+        "fleet"
+      ]
+    },
+    {
+      "id": "JRN",
+      "name": "Journeys — Sample applications",
+      "who": "Someone validating that a real application, not a primitive, works end to end — including a custom-kind operator.",
+      "environments": [
+        "midgard",
+        "fleet"
+      ]
+    },
+    {
+      "id": "CHAOS",
+      "name": "Exploratory, Chaos & Negative-path",
+      "who": "Mildly adversarial, reads no manual twice, and runs the shipped chaos tooling against the cluster.",
+      "environments": [
+        "midgard",
+        "fleet",
+        "vault"
+      ]
+    },
+    {
+      "id": "LEAD",
+      "name": "Lead — Triage, deduplication & report",
+      "who": "The Tech QA lead. Never runs a scenario. Ingests every raw finding, fingerprints and merges duplicates, adjudicates disagreement, writes the findings artifact.",
+      "environments": []
+    }
+  ],
+  "classification": {
+    "outOfScope": {
+      "deferred": {
+        "note": "Deliberately not built yet (kernel-level cgroup v2 enforcement, Tier 3 namespaces). Nothing exists for any test mechanism to exercise; re-enters scope when the code lands.",
+        "ids": [
+          "GIMLE-066",
+          "GIMLE-067",
+          "GIMLE-107",
+          "GIMLE-108"
+        ]
+      },
+      "documented-limitation": {
+        "note": "The requirement records a known, documented scope limitation or a gap since superseded by a later requirement, not a capability a user can rely on.",
+        "ids": [
+          "GIMLE-338",
+          "GIMLE-369",
+          "GIMLE-370",
+          "GIMLE-549"
+        ]
+      },
+      "test-harness": {
+        "note": "The requirement *is* a test asset or test-infrastructure component (a suite, a fixture, a harness primitive, a Gherkin scenario, a simulation). Its validation is running it, which the suites cited on each row already do; counting it as a platform capability would inflate the denominator with things a user never touches.",
+        "ids": [
+          "GIMLE-049",
+          "GIMLE-426",
+          "GIMLE-460",
+          "GIMLE-496",
+          "GIMLE-497",
+          "GIMLE-498",
+          "GIMLE-499",
+          "GIMLE-500",
+          "GIMLE-501",
+          "GIMLE-502",
+          "GIMLE-507",
+          "GIMLE-508",
+          "GIMLE-509",
+          "GIMLE-510",
+          "GIMLE-511",
+          "GIMLE-512",
+          "GIMLE-513",
+          "GIMLE-514",
+          "GIMLE-515",
+          "GIMLE-516",
+          "GIMLE-517",
+          "GIMLE-518",
+          "GIMLE-519",
+          "GIMLE-520",
+          "GIMLE-521",
+          "GIMLE-522",
+          "GIMLE-523",
+          "GIMLE-524",
+          "GIMLE-525",
+          "GIMLE-526",
+          "GIMLE-527",
+          "GIMLE-528",
+          "GIMLE-529",
+          "GIMLE-530",
+          "GIMLE-531",
+          "GIMLE-532",
+          "GIMLE-534",
+          "GIMLE-535",
+          "GIMLE-536",
+          "GIMLE-537",
+          "GIMLE-538",
+          "GIMLE-539",
+          "GIMLE-540",
+          "GIMLE-541",
+          "GIMLE-542",
+          "GIMLE-543",
+          "GIMLE-544",
+          "GIMLE-545",
+          "GIMLE-546",
+          "GIMLE-547",
+          "GIMLE-550",
+          "GIMLE-551",
+          "GIMLE-552",
+          "GIMLE-553",
+          "GIMLE-554",
+          "GIMLE-555",
+          "GIMLE-556",
+          "GIMLE-557",
+          "GIMLE-558",
+          "GIMLE-559",
+          "GIMLE-565"
+        ]
+      }
+    },
+    "internal": {
+      "wire-protocol-codec": {
+        "note": "Wire framing, codecs, marshalling, protocol shapes. Invisible from outside the process; correctness is a unit-test property.",
+        "ids": [
+          "GIMLE-028",
+          "GIMLE-029",
+          "GIMLE-030",
+          "GIMLE-031",
+          "GIMLE-035",
+          "GIMLE-080",
+          "GIMLE-150",
+          "GIMLE-154",
+          "GIMLE-168",
+          "GIMLE-177",
+          "GIMLE-198",
+          "GIMLE-199",
+          "GIMLE-207",
+          "GIMLE-208",
+          "GIMLE-209",
+          "GIMLE-270",
+          "GIMLE-348",
+          "GIMLE-349",
+          "GIMLE-703"
+        ]
+      },
+      "raft-internals": {
+        "note": "Raft safety/liveness mechanics below the level a user observes (they observe 'the cluster kept accepting writes', which the fleet does test).",
+        "ids": [
+          "GIMLE-137",
+          "GIMLE-138",
+          "GIMLE-139",
+          "GIMLE-140",
+          "GIMLE-141",
+          "GIMLE-142",
+          "GIMLE-143",
+          "GIMLE-144",
+          "GIMLE-145",
+          "GIMLE-147",
+          "GIMLE-149",
+          "GIMLE-151",
+          "GIMLE-153",
+          "GIMLE-155",
+          "GIMLE-156",
+          "GIMLE-159",
+          "GIMLE-164",
+          "GIMLE-165",
+          "GIMLE-166",
+          "GIMLE-167",
+          "GIMLE-178",
+          "GIMLE-179",
+          "GIMLE-606"
+        ]
+      },
+      "gossip-internals": {
+        "note": "SWIM protocol mechanics. The fleet observes membership converging and dead nodes disappearing; the protocol's own guarantees are unit/Holmgang territory.",
+        "ids": [
+          "GIMLE-125",
+          "GIMLE-200",
+          "GIMLE-201",
+          "GIMLE-202",
+          "GIMLE-203",
+          "GIMLE-204",
+          "GIMLE-206",
+          "GIMLE-672",
+          "GIMLE-676"
+        ]
+      },
+      "fabric-internals": {
+        "note": "Load-balancer selection math, breaker scoring, timeouts, bounded concurrency, retry safety. The fleet observes the outcome (ejection, spillover), not the algorithm.",
+        "ids": [
+          "GIMLE-185",
+          "GIMLE-187",
+          "GIMLE-188",
+          "GIMLE-189",
+          "GIMLE-193",
+          "GIMLE-194",
+          "GIMLE-197",
+          "GIMLE-688",
+          "GIMLE-689",
+          "GIMLE-700",
+          "GIMLE-719"
+        ]
+      },
+      "jpms-and-classloading": {
+        "note": "ModuleLayer construction, readability grants, module-info wiring, JFR retaining-path attribution. Observable only as 'the module loaded and ran', which the fleet covers elsewhere.",
+        "ids": [
+          "GIMLE-044",
+          "GIMLE-046",
+          "GIMLE-047",
+          "GIMLE-050",
+          "GIMLE-099",
+          "GIMLE-100",
+          "GIMLE-135",
+          "GIMLE-180",
+          "GIMLE-210",
+          "GIMLE-244",
+          "GIMLE-296",
+          "GIMLE-368"
+        ]
+      },
+      "process-plumbing": {
+        "note": "Control-channel bootstrap, tick loops, executor isolation, stdout draining, lease bookkeeping, ledger persistence. Mechanism, not a user-facing capability.",
+        "ids": [
+          "GIMLE-079",
+          "GIMLE-081",
+          "GIMLE-082",
+          "GIMLE-083",
+          "GIMLE-086",
+          "GIMLE-091",
+          "GIMLE-094",
+          "GIMLE-095",
+          "GIMLE-096",
+          "GIMLE-098",
+          "GIMLE-101",
+          "GIMLE-102",
+          "GIMLE-105",
+          "GIMLE-109",
+          "GIMLE-111",
+          "GIMLE-112",
+          "GIMLE-122",
+          "GIMLE-124",
+          "GIMLE-131",
+          "GIMLE-133",
+          "GIMLE-221",
+          "GIMLE-225",
+          "GIMLE-232",
+          "GIMLE-240",
+          "GIMLE-242",
+          "GIMLE-243",
+          "GIMLE-245",
+          "GIMLE-254",
+          "GIMLE-264",
+          "GIMLE-269",
+          "GIMLE-283",
+          "GIMLE-414",
+          "GIMLE-415",
+          "GIMLE-416",
+          "GIMLE-417",
+          "GIMLE-695",
+          "GIMLE-696",
+          "GIMLE-697",
+          "GIMLE-705",
+          "GIMLE-747",
+          "GIMLE-749"
+        ]
+      },
+      "crypto-and-key-material": {
+        "note": "Cipher construction, PEM handling, key-file permissions, hashing parameters, token signing. Verified by unit tests; the fleet verifies the behaviours built on them.",
+        "ids": [
+          "GIMLE-013",
+          "GIMLE-014",
+          "GIMLE-016",
+          "GIMLE-017",
+          "GIMLE-074",
+          "GIMLE-075",
+          "GIMLE-076",
+          "GIMLE-077",
+          "GIMLE-276",
+          "GIMLE-277",
+          "GIMLE-278",
+          "GIMLE-708"
+        ]
+      },
+      "tls-material-reload": {
+        "note": "Zero-downtime TLS reload and rotation-check plumbing inside each process kind. Needs certificate expiry to observe; covered by unit tests against the real code.",
+        "ids": [
+          "GIMLE-260",
+          "GIMLE-261",
+          "GIMLE-289",
+          "GIMLE-315",
+          "GIMLE-334",
+          "GIMLE-745"
+        ]
+      },
+      "server-side-guards": {
+        "note": "Authorization-engine internals, throttles and principal-resolution tiers whose user-visible effect (a 403, a 429) the fleet does test through the scenarios that trigger them.",
+        "ids": [
+          "GIMLE-169",
+          "GIMLE-170",
+          "GIMLE-286",
+          "GIMLE-287",
+          "GIMLE-288",
+          "GIMLE-312",
+          "GIMLE-335",
+          "GIMLE-336",
+          "GIMLE-337"
+        ]
+      },
+      "storage-engine": {
+        "note": "Day-file layout, path sanitization, atomic writes, retention sweeps, integrity scrubs, quarantine. Time- or disk-tampering-driven; unit-tested against the real store code.",
+        "ids": [
+          "GIMLE-025",
+          "GIMLE-298",
+          "GIMLE-300",
+          "GIMLE-301",
+          "GIMLE-302",
+          "GIMLE-304",
+          "GIMLE-309",
+          "GIMLE-327",
+          "GIMLE-328",
+          "GIMLE-329",
+          "GIMLE-330",
+          "GIMLE-331",
+          "GIMLE-698",
+          "GIMLE-699",
+          "GIMLE-707",
+          "GIMLE-740"
+        ]
+      },
+      "shipping-and-telemetry-plumbing": {
+        "note": "Exporter/shipper installation, fan-out, cursors, meter wrappers, sampling knobs. The fleet observes data arriving in Muninn and on the console screens.",
+        "ids": [
+          "GIMLE-022",
+          "GIMLE-294",
+          "GIMLE-295",
+          "GIMLE-317",
+          "GIMLE-340",
+          "GIMLE-341",
+          "GIMLE-342",
+          "GIMLE-345",
+          "GIMLE-346",
+          "GIMLE-347",
+          "GIMLE-350",
+          "GIMLE-352",
+          "GIMLE-354",
+          "GIMLE-355",
+          "GIMLE-739",
+          "GIMLE-687"
+        ]
+      },
+      "gateway-internals": {
+        "note": "Endpoint TTL cache, stale-cache fallback, lifecycle-hook bootstrap. The fleet tests routing outcomes.",
+        "ids": [
+          "GIMLE-359",
+          "GIMLE-361",
+          "GIMLE-365"
+        ]
+      },
+      "tooling-internals": {
+        "note": "Maven-plugin and Saga back-end internals (classpath resolution, git capture, report discovery, crash-safe append, flake-ledger derivation). Unit-tested; the goals and screens built on them are fleet-tested.",
+        "ids": [
+          "GIMLE-041",
+          "GIMLE-042",
+          "GIMLE-389",
+          "GIMLE-431",
+          "GIMLE-432",
+          "GIMLE-433",
+          "GIMLE-434",
+          "GIMLE-483",
+          "GIMLE-484",
+          "GIMLE-486",
+          "GIMLE-489",
+          "GIMLE-490",
+          "GIMLE-494"
+        ]
+      },
+      "abstraction-seams": {
+        "note": "Pluggable interfaces with one implementation. Nothing to observe beyond the implementation, which is covered on its own row.",
+        "ids": [
+          "GIMLE-064",
+          "GIMLE-068"
+        ]
+      }
+    }
+  },
+  "scenarios": [
+    {
+      "id": "OPS-1",
+      "persona": "OPS",
+      "environments": [
+        "forge"
+      ],
+      "objective": "Unpack every distribution archive (`gimle-platform`, `gimle-cli`, `gimle-hilmir`, `gimle-midgard`, `gimle-ragnarok`); verify each `.sha256` against its archive; open each archive's CycloneDX SBOM; run each `bin/` launcher with `-h`.",
+      "oracle": "Checksums pass; each SBOM lists that archive's own dependency set, not a copy of another's; every launcher prints scoped help and exits 0 — `hilmir -h` included, not treated as an unknown token.",
+      "requirements": [
+        "GIMLE-560",
+        "GIMLE-561",
+        "GIMLE-562",
+        "GIMLE-564",
+        "GIMLE-611",
+        "GIMLE-642",
+        "GIMLE-635"
+      ]
+    },
+    {
+      "id": "OPS-2",
+      "persona": "OPS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Boot Midgard cold from the archive (`docker compose up -d`) with no prior state; where no Docker daemon exists, `mvn gimle:bootstrap` instead, noted in the run.",
+      "oracle": "Becomes healthy; the three seeded examples reach ACTIVE; all five documented URLs load (main, Fafnir and Andvari consoles served from the classpath, deep links resolve client-side); each process prints a legible startup banner; Andvari's and Muninn's plaintext warnings are loud and specific; the reserved `gimle-system` tenant exists; the Fafnir console needs no login in plaintext mode.",
+      "requirements": [
+        "GIMLE-611",
+        "GIMLE-392",
+        "GIMLE-027",
+        "GIMLE-020",
+        "GIMLE-316",
+        "GIMLE-332",
+        "GIMLE-271",
+        "GIMLE-291",
+        "GIMLE-039",
+        "GIMLE-040",
+        "GIMLE-272",
+        "GIMLE-292",
+        "GIMLE-650"
+      ]
+    },
+    {
+      "id": "OPS-3",
+      "persona": "OPS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`docker compose stop`/`start` Midgard after scaling one example and deleting another; then `down -v` and `up` again.",
+      "oracle": "Edits survive the restart (the store's durable log replayed); after `down -v` the cluster is genuinely empty and re-seeds; `hilmir status` inside the container agrees with what is running.",
+      "requirements": [
+        "GIMLE-148",
+        "GIMLE-152",
+        "GIMLE-393"
+      ]
+    },
+    {
+      "id": "OPS-4",
+      "persona": "OPS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Stand Fleet up from a hand-written five-machine `topology.yaml` using only the platform archive's own docs: `hilmir validate` (fix every ERROR it names), `hilmir plan`, one `hilmir up --machine` per machine in an out-of-dependency order.",
+      "oracle": "`validate`'s findings are specific and actionable; `up` on a machine whose prerequisites live elsewhere blocks then proceeds rather than racing; `hilmir status` on each machine matches reality; the density knob and log-format flag set in `jvm:` are honoured; every process answers its operator health signal.",
+      "requirements": [
+        "GIMLE-390",
+        "GIMLE-391",
+        "GIMLE-392",
+        "GIMLE-393",
+        "GIMLE-021",
+        "GIMLE-746",
+        "GIMLE-706"
+      ]
+    },
+    {
+      "id": "OPS-5",
+      "persona": "OPS",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Stand Vault up: `hilmir pki init`, then the same `up` sequence; inspect a leaf certificate with `openssl x509`; connect to the control plane, Fafnir, Muninn and Andvari with and without a client certificate; grep every process log and the shell history for the bootstrap password.",
+      "oracle": "Every inter-process link negotiates TLS (no silent plaintext fallback); a certless client is refused; leaf SANs are DNS names matching the topology; agents joined through the real token + CSR flow; a cross-worker fabric call succeeds over mTLS; the one-time bootstrap password appears in no log or persistent sink.",
+      "requirements": [
+        "GIMLE-394",
+        "GIMLE-015",
+        "GIMLE-070",
+        "GIMLE-073",
+        "GIMLE-255",
+        "GIMLE-123",
+        "GIMLE-258",
+        "GIMLE-333",
+        "GIMLE-196",
+        "GIMLE-742"
+      ]
+    },
+    {
+      "id": "OPS-6",
+      "persona": "OPS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "`hilmir store add` a sixth machine's store replica to the running Fleet, then `hilmir store remove` one of the originals, writing deployments throughout.",
+      "oracle": "The cluster stays quorate and writable throughout; membership change is one server at a time; nothing scheduled on the removed machine is left orphaned.",
+      "requirements": [
+        "GIMLE-395",
+        "GIMLE-396",
+        "GIMLE-146"
+      ]
+    },
+    {
+      "id": "OPS-7",
+      "persona": "OPS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "`hilmir upgrade-cluster` the running Fleet to a second build of the platform archive, then `hilmir rollback`; repeat the upgrade `--remote` over SSH where the SSH machine exists.",
+      "oracle": "Workloads stay available across the rolling binary upgrade (store restarts respect quorum); the rollback returns to the prior binary, not merely a prior manifest.",
+      "requirements": [
+        "GIMLE-397",
+        "GIMLE-580"
+      ]
+    },
+    {
+      "id": "OPS-8",
+      "persona": "OPS",
+      "environments": [
+        "forge"
+      ],
+      "objective": "Build the `dist-with-jre` platform archive and boot it in a container image with no JDK on `PATH`.",
+      "oracle": "The bundled launchers find their own `jre/<component>/` and run; the agent still needs (and the docs say it needs) a real JRE.",
+      "requirements": [
+        "GIMLE-563"
+      ]
+    },
+    {
+      "id": "OPS-9",
+      "persona": "OPS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Against the ssh-remote machine (`gimle-holmgang/compose/docker-compose.ssh-remote.yml`'s shape): `hilmir up --remote`, `status --remote`, `down --remote` from outside the container.",
+      "oracle": "Host-key pinning behaves as documented (TOFU or pinned fingerprint); the archive self-provisions; each verb's output matches what a local `status` inside the machine reports.",
+      "requirements": [
+        "GIMLE-576"
+      ]
+    },
+    {
+      "id": "OPS-10",
+      "persona": "OPS",
+      "environments": [
+        "midgard",
+        "fleet"
+      ],
+      "objective": "`gimle backup create`, then mutate the cluster (delete a deployment, add a tenant), then restore the backup.",
+      "oracle": "Restored state matches the backup exactly, the later mutations are gone, and every running instance reconciles to the restored desired state without manual intervention.",
+      "requirements": [
+        "GIMLE-701"
+      ]
+    },
+    {
+      "id": "OPS-11",
+      "persona": "OPS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Poll each process kind's own health/status signal (control plane, Mimir, agent, Fafnir `/status`, Andvari `/status`, Muninn `/status`, an agent's gossip membership surface); then stop one process and poll again.",
+      "oracle": "Each signal is reachable and truthful; the stopped process's signal fails fast; the gossip membership view drops the dead agent within the documented window.",
+      "requirements": [
+        "GIMLE-706",
+        "GIMLE-293",
+        "GIMLE-318",
+        "GIMLE-339",
+        "GIMLE-126"
+      ]
+    },
+    {
+      "id": "OPS-12",
+      "persona": "OPS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Release-bundle lifecycle: `hilmir deploy` a bundle with `${values.*}` templating and `--wait`; `releases`/`release-status`; `hilmir upgrade` with a resource removed from the bundle; `hilmir rollback`; `hilmir undeploy`; then `hilmir sync --prune --watch` a GitOps directory and edit files under it.",
+      "oracle": "Templating precedence matches the docs; `--wait` returns only once workloads are ready; upgrade prunes exactly the dropped resource; rollback restores the prior revision; sync converges on each edit and prunes on delete.",
+      "requirements": [
+        "GIMLE-398",
+        "GIMLE-399",
+        "GIMLE-400",
+        "GIMLE-401",
+        "GIMLE-402",
+        "GIMLE-403",
+        "GIMLE-404",
+        "GIMLE-405",
+        "GIMLE-406",
+        "GIMLE-407",
+        "GIMLE-408"
+      ]
+    },
+    {
+      "id": "OPS-13",
+      "persona": "OPS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`hilmir enable gateway` then `hilmir disable gateway` on a running cluster.",
+      "oracle": "Enabling deploys the gateway as a real workload that reaches ACTIVE; disabling removes it cleanly with no orphaned instance.",
+      "requirements": [
+        "GIMLE-412",
+        "GIMLE-413"
+      ]
+    },
+    {
+      "id": "OPS-14",
+      "persona": "OPS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy a Tier-2 module, read the agent's log around the first and second worker spawn.",
+      "oracle": "The agent records creating the JDK AOT cache on the first spawn and reusing it on the next; the second worker's time-to-ACTIVE is visibly shorter.",
+      "requirements": [
+        "GIMLE-603"
+      ]
+    },
+    {
+      "id": "OPS-15",
+      "persona": "OPS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Read platform (non-instance) logs: `gimle logs node/<id>` for the merged SYSTEM view, the per-process files under the data root, and restart one process with the JSON console format flag.",
+      "oracle": "Node platform logs are retrievable and separate from instance logs; the merged SYSTEM view interleaves worker stdout correctly; the format flag switches the console encoding without a rebuild.",
+      "requirements": [
+        "GIMLE-024",
+        "GIMLE-128",
+        "GIMLE-021"
+      ]
+    },
+    {
+      "id": "DEV-1",
+      "persona": "DEV",
+      "environments": [
+        "forge",
+        "midgard"
+      ],
+      "objective": "Write a brand-new module from the docs alone: `gimle-module.yaml` with `resources.request`/`limit`, Kubernetes-shaped quantities, probe classes with per-module interval/timeout/threshold, one deliberate outbound `HttpClient`; run `hilmir doctor` and `mvn gimle:doctor`, then `mvn gimle:init`, fix what they flag, deploy.",
+      "oracle": "`doctor` explains every finding in plain language, flags the outbound call as INFO only, and passes once fixed; `init` scaffolds a manifest that applies unchanged; a descriptor with `request > limit` or a non-JPMS jar is rejected with a field-level reason.",
+      "requirements": [
+        "GIMLE-059",
+        "GIMLE-060",
+        "GIMLE-409",
+        "GIMLE-410",
+        "GIMLE-411",
+        "GIMLE-422",
+        "GIMLE-423",
+        "GIMLE-573",
+        "GIMLE-003",
+        "GIMLE-005",
+        "GIMLE-725",
+        "GIMLE-008"
+      ]
+    },
+    {
+      "id": "DEV-2",
+      "persona": "DEV",
+      "environments": [
+        "forge"
+      ],
+      "objective": "Bring up a local cluster with `mvn gimle:bootstrap`, then again piecewise (`gimle:store`, `gimle:controlplane`, `gimle:fafnir`, `gimle:muninn`, `gimle:andvari`, `gimle:agent`); `mvn gimle:deploy` and `mvn gimle:publish` the module from DEV-1; `mvn gimle:tls-init` and re-bring-up in TLS.",
+      "oracle": "Each goal works with no `-pl` or classpath flags exactly as `LOCAL_DEV.md` says; `deploy` reaches ACTIVE; `publish` lands the coordinate in Andvari; the TLS bring-up authenticates the CLI with the minted material.",
+      "requirements": [
+        "GIMLE-418",
+        "GIMLE-419",
+        "GIMLE-420",
+        "GIMLE-421",
+        "GIMLE-424",
+        "GIMLE-078"
+      ]
+    },
+    {
+      "id": "DEV-3",
+      "persona": "DEV",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Apply the same workload as `apiVersion: v1` (registry coordinate) and as the alpha default with `artifactPath`; apply a manifest whose `module:` disagrees with the jar's own descriptor; run `gimle apply --dry-run` on a good and a bad manifest.",
+      "oracle": "v1 rejects `artifactPath`; alpha use is accepted with a surfaced deprecation warning; the identity mismatch is rejected at admission naming both identities; dry-run returns a structured verdict with every stage reported and writes nothing.",
+      "requirements": [
+        "GIMLE-609",
+        "GIMLE-610",
+        "GIMLE-607",
+        "GIMLE-768",
+        "GIMLE-010"
+      ]
+    },
+    {
+      "id": "DEV-4",
+      "persona": "DEV",
+      "environments": [
+        "forge"
+      ],
+      "objective": "`mvn gimle:saga` (twice — the second must reuse the running server); `mvn gimle:saga-import` of existing surefire reports; `mvn gimle:verify -pl gimle-core` under tracking; browse the Saga console; `mvn gimle:saga-stop`.",
+      "oracle": "Runs appear live with a streaming test feed; imported runs show their totals; a test's detail and cross-run history resolve; two runs diff; the flake scoreboard ranks `@Tag(\"flaky\")` tests as quarantined; a run's event stream can be tailed as NDJSON; stop is idempotent.",
+      "requirements": [
+        "GIMLE-427",
+        "GIMLE-428",
+        "GIMLE-429",
+        "GIMLE-430",
+        "GIMLE-475",
+        "GIMLE-476",
+        "GIMLE-477",
+        "GIMLE-478",
+        "GIMLE-479",
+        "GIMLE-480",
+        "GIMLE-481",
+        "GIMLE-482",
+        "GIMLE-485",
+        "GIMLE-487",
+        "GIMLE-488",
+        "GIMLE-491",
+        "GIMLE-492",
+        "GIMLE-493",
+        "GIMLE-495"
+      ]
+    },
+    {
+      "id": "DEV-5",
+      "persona": "DEV",
+      "environments": [
+        "forge",
+        "midgard"
+      ],
+      "objective": "Build the documentation site (`mvn gimle:docs`) and follow its four tutorials command by command against Midgard, including the orders-platform NetworkPolicy example in both its API and CLI forms.",
+      "oracle": "Every command works as written or the page is filed as a defect; the `--deny-all-callers` form does what the page says.",
+      "requirements": [
+        "GIMLE-425",
+        "GIMLE-636"
+      ]
+    },
+    {
+      "id": "DEV-6",
+      "persona": "DEV",
+      "environments": [
+        "forge",
+        "midgard"
+      ],
+      "objective": "In a scratch module, exercise the `ModuleContext` downward API: instance identity, config key enumeration, named `dataDirectory(name)` volumes, and a config-change subscription; then change and delete a config key while it runs.",
+      "oracle": "Identity matches what `gimle get instances` shows; enumeration lists exactly the delivered keys; each named volume is distinct and durable; the subscription fires on change and the deleted key is retracted from the running instance.",
+      "requirements": [
+        "GIMLE-616",
+        "GIMLE-617",
+        "GIMLE-630",
+        "GIMLE-738",
+        "GIMLE-053"
+      ]
+    },
+    {
+      "id": "DEP-1",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Write a Deployment manifest from scratch (no copy-paste of a bundled example), `apply -f` it, watch it reach ACTIVE via `get deployments`, `get instances`, `gimle events`, and the console's Deployments/Instances/detail pages.",
+      "oracle": "Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree.",
+      "requirements": [
+        "GIMLE-371",
+        "GIMLE-274",
+        "GIMLE-219",
+        "GIMLE-045",
+        "GIMLE-084",
+        "GIMLE-032",
+        "GIMLE-377",
+        "GIMLE-437",
+        "GIMLE-439",
+        "GIMLE-444",
+        "GIMLE-753",
+        "GIMLE-157"
+      ]
+    },
+    {
+      "id": "DEP-2",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Re-apply with a bumped version while a caller is hitting the service across workers.",
+      "oracle": "Old and new coexist briefly, callers cut over version-aware with zero failed calls (same-worker and cross-worker alike), the old layer disposes; `deployment revisions` and the console's revision panel list both.",
+      "requirements": [
+        "GIMLE-058",
+        "GIMLE-054",
+        "GIMLE-685",
+        "GIMLE-601",
+        "GIMLE-602",
+        "GIMLE-714",
+        "GIMLE-001"
+      ]
+    },
+    {
+      "id": "DEP-3",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`deployment rollback --to-revision` to the first version, then from the console's revision panel.",
+      "oracle": "The running version actually reverts (observable behaviour, not just the recorded manifest); the rollback itself becomes a new revision.",
+      "requirements": [
+        "GIMLE-601",
+        "GIMLE-602",
+        "GIMLE-714"
+      ]
+    },
+    {
+      "id": "DEP-4",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Redeploy the same Tier-1 module 25 times in a loop while watching the Metrics screen's worker metaspace/thread gauges and the count of meters per instance.",
+      "oracle": "Metaspace stays flat (no sawtooth), no leak is reported in the worker log, the per-module meter set is evicted on each uninstall rather than accumulating.",
+      "requirements": [
+        "GIMLE-048",
+        "GIMLE-085",
+        "GIMLE-712",
+        "GIMLE-353",
+        "GIMLE-097"
+      ]
+    },
+    {
+      "id": "DEP-5",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy the same module as Tier 1 (two replicas) and as Tier 2; inspect worker processes and `-Xmx` flags; kill the Tier-2 worker.",
+      "oracle": "Tier-1 replicas share one worker (same `workerId` in the console, up to the configured density cap); Tier 2 gets its own worker with `-Xmx` equal to its limit; killing it never touches the Tier-1 siblings.",
+      "requirements": [
+        "GIMLE-004",
+        "GIMLE-065",
+        "GIMLE-110",
+        "GIMLE-212",
+        "GIMLE-647",
+        "GIMLE-746"
+      ]
+    },
+    {
+      "id": "DEP-6",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`delete deployment` on a deployment with live traffic, then immediately reuse its name.",
+      "oracle": "In-flight calls drain to the deadline, instances disappear with no ghost entries, no worker respawn is attempted for the deliberate stop, revision and event history are cleared so the reused name starts clean.",
+      "requirements": [
+        "GIMLE-057",
+        "GIMLE-220",
+        "GIMLE-241",
+        "GIMLE-104",
+        "GIMLE-652",
+        "GIMLE-726"
+      ]
+    },
+    {
+      "id": "DEP-7",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy a module whose readiness probe fails for a warm-up period, then flaps once.",
+      "oracle": "The instance is excluded from Service endpoints and fabric traffic until ready, shown in a distinct not-ready state; readiness only counts after a continuous stabilization window; readiness failure alone never triggers a reschedule.",
+      "requirements": [
+        "GIMLE-090",
+        "GIMLE-227",
+        "GIMLE-683",
+        "GIMLE-063",
+        "GIMLE-088"
+      ]
+    },
+    {
+      "id": "DEP-8",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy a module whose liveness probe starts failing after it is serving, with a short declared interval/threshold; let it fail repeatedly.",
+      "oracle": "Module-tier restart happens without operator action, is visible as a legible event, and repeated failure escalates with backoff until the budget is exhausted and the instance is marked FAILED — never a silent hot loop.",
+      "requirements": [
+        "GIMLE-089",
+        "GIMLE-036",
+        "GIMLE-088",
+        "GIMLE-725",
+        "GIMLE-008",
+        "GIMLE-113"
+      ]
+    },
+    {
+      "id": "DEP-9",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Scale a deployment 1→4→2 by re-applying `replicas`.",
+      "oracle": "Replica count converges each time; scale-down removes exactly the surplus and nothing else.",
+      "requirements": [
+        "GIMLE-219",
+        "GIMLE-220"
+      ]
+    },
+    {
+      "id": "DEP-10",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy a manifest naming a probe class that does not exist in the jar; deploy a jar whose install fails inside the worker.",
+      "oracle": "Both end in FAILED with a durable event that names the cause — never stuck at INSTALLED with no explanation.",
+      "requirements": [
+        "GIMLE-666",
+        "GIMLE-114"
+      ]
+    },
+    {
+      "id": "DEP-11",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`gimle get deployment <name> --watch` during an apply; `gimle get deployment <name> -o manifest | gimle apply -f -`.",
+      "oracle": "Watch streams the convergence and exits cleanly; the round trip is a no-op re-apply (same generation), proving `get`'s manifest projection is complete.",
+      "requirements": [
+        "GIMLE-767",
+        "GIMLE-718"
+      ]
+    },
+    {
+      "id": "DEP-12",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Create a deployment through the console's New-deployment form, browse its detail page with 60 instances, force a write failure.",
+      "oracle": "The form applies a valid manifest; instance tables are bounded and paginated; the failure surfaces as a toast; the screen keeps itself current without a manual reload.",
+      "requirements": [
+        "GIMLE-439",
+        "GIMLE-757",
+        "GIMLE-632",
+        "GIMLE-759"
+      ]
+    },
+    {
+      "id": "DEP-13",
+      "persona": "DEP",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy a module that `requires` another within a version range, first with an in-range provider present, then out-of-range, then with a dependency cycle.",
+      "oracle": "In-range resolves and starts; out-of-range and cyclic both fail resolution with a message naming the module and range/cycle.",
+      "requirements": [
+        "GIMLE-002",
+        "GIMLE-043",
+        "GIMLE-001"
+      ]
+    },
+    {
+      "id": "BATCH-1",
+      "persona": "BATCH",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Apply a Job; apply one with an `activeDeadline` it will exceed; apply one that fails; create one from the console's Jobs form.",
+      "oracle": "Exactly one run to COMPLETED that does not linger like a Deployment; the deadline kills and marks the second; the third retries under exponential backoff, not every tick; the console form and list agree with the CLI.",
+      "requirements": [
+        "GIMLE-372",
+        "GIMLE-052",
+        "GIMLE-092",
+        "GIMLE-235",
+        "GIMLE-236",
+        "GIMLE-680",
+        "GIMLE-440",
+        "GIMLE-713"
+      ]
+    },
+    {
+      "id": "BATCH-2",
+      "persona": "BATCH",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Apply a CronJob on a one-minute schedule; let two fires happen; `cronjob trigger` between them; try each concurrency policy; suspend and resume; set history limits of 1/1; put the tenant over quota before a fire.",
+      "oracle": "Three completed runs with no duplicate or skipped fire; Forbid/Replace behave as documented; suspension stops fires without deletion; terminal Jobs are pruned to the limits; the over-quota fire is refused through admission like any other Job.",
+      "requirements": [
+        "GIMLE-373",
+        "GIMLE-171",
+        "GIMLE-237",
+        "GIMLE-238",
+        "GIMLE-239",
+        "GIMLE-724",
+        "GIMLE-670",
+        "GIMLE-658",
+        "GIMLE-441",
+        "GIMLE-713"
+      ]
+    },
+    {
+      "id": "BATCH-3",
+      "persona": "BATCH",
+      "environments": [
+        "midgard",
+        "fleet"
+      ],
+      "objective": "Apply a DaemonSet on Midgard, then on Fleet; add a node after the fact; taint one node and set `tolerateAllTaints`.",
+      "oracle": "Exactly one instance per eligible node including the late-joining one; the tainted node is skipped until the toleration is set; console list/detail match `get daemonsets`.",
+      "requirements": [
+        "GIMLE-374",
+        "GIMLE-218",
+        "GIMLE-231",
+        "GIMLE-442",
+        "GIMLE-675"
+      ]
+    },
+    {
+      "id": "BATCH-4",
+      "persona": "BATCH",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Roll a bad version onto a DaemonSet and a StatefulSet, then `rollback` each; also change only the artifact of a StatefulSet.",
+      "oracle": "Every node/index reverts, not just some; an artifact-only change is recognised as a rolling update.",
+      "requirements": [
+        "GIMLE-601",
+        "GIMLE-602",
+        "GIMLE-694",
+        "GIMLE-714"
+      ]
+    },
+    {
+      "id": "BATCH-5",
+      "persona": "BATCH",
+      "environments": [
+        "midgard",
+        "fleet"
+      ],
+      "objective": "Apply a StatefulSet with three ordered replicas declaring a volume; kill a worker; scale 3→1; inspect the Volumes screen.",
+      "oracle": "Start is ordered; each index keeps its identity, its node and gets its own volume back after the restart; scale-down retires one index at a time; volumes are tenant-scoped and their soft disk usage shows in the console.",
+      "requirements": [
+        "GIMLE-375",
+        "GIMLE-007",
+        "GIMLE-069",
+        "GIMLE-117",
+        "GIMLE-160",
+        "GIMLE-217",
+        "GIMLE-233",
+        "GIMLE-234",
+        "GIMLE-443",
+        "GIMLE-612",
+        "GIMLE-621",
+        "GIMLE-622",
+        "GIMLE-751",
+        "GIMLE-630",
+        "GIMLE-655"
+      ]
+    },
+    {
+      "id": "BATCH-6",
+      "persona": "BATCH",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Delete a StatefulSet and inspect its volumes; `gimle volume destroy` with and without `--tenant`, and against a coordinate with nothing on disk.",
+      "oracle": "Volumes are retained by default and listed as orphaned; destroy targets the named tenant's volume only; a destroy that removed nothing returns 404, not a false success.",
+      "requirements": [
+        "GIMLE-612",
+        "GIMLE-621",
+        "GIMLE-770",
+        "GIMLE-771",
+        "GIMLE-751"
+      ]
+    },
+    {
+      "id": "BATCH-7",
+      "persona": "BATCH",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`apply -f` an ArtifactSet bundling several workload kinds under per-module tenant tags, with one member deliberately broken.",
+      "oracle": "Healthy members come up together; the failure is reported against that member by name, not the whole bundle opaquely.",
+      "requirements": [
+        "GIMLE-577"
+      ]
+    },
+    {
+      "id": "BATCH-8",
+      "persona": "BATCH",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy a Vessel (plain-jar process) workload from a bundle artifact: dynamic and fixed ports, env from a secret and from a port, a rendered config file, a TCP and an HTTP probe, a volume and a secret-backed file mount; kill its process; re-apply with only an env change.",
+      "oracle": "It runs as its own supervised process; ports/env/files land as declared; probes gate readiness after the initial delay; the crash is respawned with the delay clock reset; the env-only change is detected as drift and applied.",
+      "requirements": [
+        "GIMLE-009",
+        "GIMLE-118",
+        "GIMLE-119",
+        "GIMLE-120",
+        "GIMLE-121",
+        "GIMLE-681",
+        "GIMLE-629",
+        "GIMLE-608"
+      ]
+    },
+    {
+      "id": "BATCH-9",
+      "persona": "BATCH",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`gimle get statefulsets`/`daemonsets`/`jobs`/`cronjobs` with default output.",
+      "oracle": "Clean table columns like `get deployments`, never a raw spec dumped per cell.",
+      "requirements": [
+        "GIMLE-637"
+      ]
+    },
+    {
+      "id": "SCHED-1",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Deploy four replicas with `placement.antiAffinity: true`, then without; add a `requiredLabels: [edge]` constraint; taint a node and give one tenant a toleration.",
+      "oracle": "With the flag no two replicas share a node while a free node exists; without it they may co-locate; the label constraint lands replicas only on the labelled node; the taint reserves its node for the tolerating tenant alone.",
+      "requirements": [
+        "GIMLE-214",
+        "GIMLE-211",
+        "GIMLE-216",
+        "GIMLE-134",
+        "GIMLE-648",
+        "GIMLE-675"
+      ]
+    },
+    {
+      "id": "SCHED-2",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Request more memory than any node has free.",
+      "oracle": "A clear no-feasible-placement outcome naming the dimension, the numbers and the shortfall — not a stuck INSTALLED instance.",
+      "requirements": [
+        "GIMLE-106",
+        "GIMLE-744"
+      ]
+    },
+    {
+      "id": "SCHED-3",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "`cordon` a node carrying running instances, deploy more, `uncordon`; repeat from the console's node controls.",
+      "oracle": "Nothing new lands while cordoned, existing instances are untouched (cordon is not drain), the node's page shows the flag and its capacity bars.",
+      "requirements": [
+        "GIMLE-376",
+        "GIMLE-161",
+        "GIMLE-213",
+        "GIMLE-715",
+        "GIMLE-445",
+        "GIMLE-132"
+      ]
+    },
+    {
+      "id": "SCHED-4",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Kill a Tier-1 worker process directly.",
+      "oracle": "Module-level recovery is attempted before worker-level escalation; the crash lands as a durable instance event; the deployment returns to ACTIVE.",
+      "requirements": [
+        "GIMLE-103",
+        "GIMLE-089",
+        "GIMLE-113"
+      ]
+    },
+    {
+      "id": "SCHED-5",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Kill the same worker five times in quick succession; do the same to a StatefulSet's and a DaemonSet's instance.",
+      "oracle": "Escalating CrashLoopBackOff-style backoff is visible for all three kinds — restarts do not hot-loop at a fixed interval.",
+      "requirements": [
+        "GIMLE-036",
+        "GIMLE-226",
+        "GIMLE-674"
+      ]
+    },
+    {
+      "id": "SCHED-6",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Stop an agent process outright (machine loss) hosting Deployment, StatefulSet and DaemonSet instances, with a DisruptionBudget on the Deployment.",
+      "oracle": "The node shows STALE, never vanishes from `get nodes`; all three kinds are rescheduled elsewhere; eviction respects the budget; its services leave the fabric catalog and the gossip view reaps it.",
+      "requirements": [
+        "GIMLE-224",
+        "GIMLE-631",
+        "GIMLE-669",
+        "GIMLE-191",
+        "GIMLE-205",
+        "GIMLE-445",
+        "GIMLE-132"
+      ]
+    },
+    {
+      "id": "SCHED-7",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Drive `greeter-load-generator` traffic up and down against a deployment with request-rate autoscaling, then with WEIGHTED multi-signal mode, then with a tenant quota just above the current count.",
+      "oracle": "Replicas track load in both directions with the declared stabilization windows and no flapping; WEIGHTED blends as documented; autoscaling never exceeds the tenant quota.",
+      "requirements": [
+        "GIMLE-229",
+        "GIMLE-230",
+        "GIMLE-723",
+        "GIMLE-506"
+      ]
+    },
+    {
+      "id": "SCHED-8",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Roll a new version onto a four-replica deployment with `maxSurge` and a DisruptionBudget while a consumer keeps calling it.",
+      "oracle": "Serving capacity never dips below the budget, at most the declared surge exists, migrations are throttled, and the consumer sees zero failed calls through the cutover.",
+      "requirements": [
+        "GIMLE-222",
+        "GIMLE-223",
+        "GIMLE-682",
+        "GIMLE-685"
+      ]
+    },
+    {
+      "id": "SCHED-9",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Deploy Tier-2 workloads from two tenants onto a two-node pool.",
+      "oracle": "Node-level tenant isolation keeps the two tenants' Tier-2 workers on different nodes when it can.",
+      "requirements": [
+        "GIMLE-215"
+      ]
+    },
+    {
+      "id": "SCHED-10",
+      "persona": "SCHED",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Deploy twelve tiny Tier-1 modules under one tenant with the density knob set to 4.",
+      "oracle": "Instances pack four per worker and a fifth worker is spawned only when the cap is reached.",
+      "requirements": [
+        "GIMLE-110",
+        "GIMLE-746"
+      ]
+    },
+    {
+      "id": "NET-1",
+      "persona": "NET",
+      "environments": [
+        "midgard",
+        "fleet"
+      ],
+      "objective": "Create a Service fronting a three-replica deployment (and one fronting a hosted module that calls `reportPort`); scale up and down; declare then omit `targetPort`; create a second Service overlapping the first; drive it from the console's Networking screen too.",
+      "oracle": "`service endpoints` tracks live replicas exactly; a hosted module's reported port resolves; `targetPort` is authoritative when declared and absent when not; the overlap is announced as a warning; CLI and console agree.",
+      "requirements": [
+        "GIMLE-566",
+        "GIMLE-578",
+        "GIMLE-586",
+        "GIMLE-571",
+        "GIMLE-728",
+        "GIMLE-729"
+      ]
+    },
+    {
+      "id": "NET-2",
+      "persona": "NET",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane.",
+      "oracle": "Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window.",
+      "requirements": [
+        "GIMLE-569",
+        "GIMLE-620",
+        "GIMLE-721",
+        "GIMLE-613",
+        "GIMLE-628",
+        "GIMLE-686"
+      ]
+    },
+    {
+      "id": "NET-3",
+      "persona": "NET",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Enable Bifrost on one agent; dial its local port for a Service repeatedly, then with ClientIP affinity, then from off-node via the NodePort-style exposure; delete the Service.",
+      "oracle": "Round-robin across live endpoints preferring local ones; affinity pins a client; off-node reaches the same backends; the listener closes on delete and never serves one more connection.",
+      "requirements": [
+        "GIMLE-568",
+        "GIMLE-626",
+        "GIMLE-618",
+        "GIMLE-748"
+      ]
+    },
+    {
+      "id": "NET-4",
+      "persona": "NET",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path.",
+      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready.",
+      "requirements": [
+        "GIMLE-570",
+        "GIMLE-356",
+        "GIMLE-357",
+        "GIMLE-358",
+        "GIMLE-360",
+        "GIMLE-362",
+        "GIMLE-363",
+        "GIMLE-364",
+        "GIMLE-366",
+        "GIMLE-367",
+        "GIMLE-684",
+        "GIMLE-679"
+      ]
+    },
+    {
+      "id": "NET-5",
+      "persona": "NET",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Turn on gateway TLS termination with two virtual hosts carrying different certificates.",
+      "oracle": "Plaintext no longer answers; each host is served the certificate matching the client's SNI; fabric calls behind the gateway succeed over mTLS.",
+      "requirements": [
+        "GIMLE-722",
+        "GIMLE-196"
+      ]
+    },
+    {
+      "id": "NET-6",
+      "persona": "NET",
+      "environments": [
+        "midgard",
+        "vault"
+      ],
+      "objective": "Create a NetworkPolicy denying tenant B from tenant A's service (tenant-wide, then per-deployment, then per-interface); attempt the call from a tenant-B module and by dialling the raw catalog address; edit the allow-list one entry at a time; name a nonexistent tenant; close a tenant before its first policy; restart the control plane.",
+      "oracle": "Refused with a legible reason at the caller; the listener side refuses the direct dial independently; scoped rules match only what they name; edits are version-guarded; the bad tenant is rejected; the closed tenant denies by default; the policy survives the restart; CLI and console Networking agree.",
+      "requirements": [
+        "GIMLE-579",
+        "GIMLE-572",
+        "GIMLE-574",
+        "GIMLE-623",
+        "GIMLE-730",
+        "GIMLE-731",
+        "GIMLE-732",
+        "GIMLE-192",
+        "GIMLE-567",
+        "GIMLE-587"
+      ]
+    },
+    {
+      "id": "NET-7",
+      "persona": "NET",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Hold a Bifrost connection open, then apply a NetworkPolicy to that Service's tenant.",
+      "oracle": "The open connection is closed and new ones are refused (fail-closed) with the documented log reason; endpoints are untouched.",
+      "requirements": [
+        "GIMLE-575",
+        "GIMLE-668"
+      ]
+    },
+    {
+      "id": "NET-8",
+      "persona": "NET",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Run fraud-detection's three-hop chain and force one replica to start erroring, then heal it.",
+      "oracle": "The breaker ejects it, traffic keeps flowing through healthy replicas, it is re-admitted once healthy; the breaker's state is visible in logs and shipped meters.",
+      "requirements": [
+        "GIMLE-186",
+        "GIMLE-720"
+      ]
+    },
+    {
+      "id": "NET-9",
+      "persona": "NET",
+      "environments": [
+        "midgard",
+        "fleet"
+      ],
+      "objective": "Place a provider/consumer pair co-located in one worker, as two Tier-2 workers on one machine, and on two machines; watch the same call each way.",
+      "oracle": "All three tiers work transparently to the module; the direct tier shows no socket, the same-machine tier a Unix domain socket, the cross-machine tier TCP; the service is discoverable cluster-wide through the gossip catalog.",
+      "requirements": [
+        "GIMLE-181",
+        "GIMLE-182",
+        "GIMLE-183",
+        "GIMLE-093",
+        "GIMLE-055",
+        "GIMLE-056",
+        "GIMLE-190"
+      ]
+    },
+    {
+      "id": "NET-10",
+      "persona": "NET",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Enable Bifrost's TLS identity-verifying mode on a Vault agent; dial it with a tenant-member client certificate, a foreign tenant's certificate, and no certificate.",
+      "oracle": "Only the tenant member is forwarded; the other two are refused at the handshake with the documented reason.",
+      "requirements": [
+        "GIMLE-627"
+      ]
+    },
+    {
+      "id": "GOV-1",
+      "persona": "GOV",
+      "environments": [
+        "midgard",
+        "vault"
+      ],
+      "objective": "Create two tenants with distinct quotas; deploy up to and past each; lower a quota below current usage; read tenant usage in CLI and console.",
+      "oracle": "Over-quota is refused with a reason naming the dimension and shortfall; a retroactive violation flags, never evicts; tenant A's quota never blocks tenant B; usage is real, server-computed consumption.",
+      "requirements": [
+        "GIMLE-378",
+        "GIMLE-037",
+        "GIMLE-162",
+        "GIMLE-228",
+        "GIMLE-246",
+        "GIMLE-716",
+        "GIMLE-446",
+        "GIMLE-744"
+      ]
+    },
+    {
+      "id": "GOV-2",
+      "persona": "GOV",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Set a LimitRange on a tenant; submit requests inside and outside its bounds via CLI and console.",
+      "oracle": "Admission accepts the valid one and rejects the invalid ones with a field-level reason.",
+      "requirements": [
+        "GIMLE-604",
+        "GIMLE-605",
+        "GIMLE-750"
+      ]
+    },
+    {
+      "id": "GOV-3",
+      "persona": "GOV",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Create a role scoped to one kind and one tenant, from a template and by hand with a wildcard; bind it to a new account and to a `group:`; `can-i` for in- and out-of-scope actions as that account (cert and console-login), then attempt them; build a role in the console's Roles picker.",
+      "oracle": "`can-i` predicts exactly what the real attempt then does (in-scope 200, out-of-scope 403); group bindings work for cookie-authenticated principals too; the picker offers the live permission vocabulary; the built-in cluster-admin and operator/node groups behave as documented.",
+      "requirements": [
+        "GIMLE-384",
+        "GIMLE-385",
+        "GIMLE-386",
+        "GIMLE-614",
+        "GIMLE-615",
+        "GIMLE-727",
+        "GIMLE-756",
+        "GIMLE-709",
+        "GIMLE-011",
+        "GIMLE-012",
+        "GIMLE-250",
+        "GIMLE-163",
+        "GIMLE-456"
+      ]
+    },
+    {
+      "id": "GOV-4",
+      "persona": "GOV",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Delete an account that owns an active binding; delete a role that several bindings name.",
+      "oracle": "A sane, documented outcome for the account (refusal or cascade, stated); deleting the role cascades to every binding naming it — no dangling subjects or roles.",
+      "requirements": [
+        "GIMLE-678",
+        "GIMLE-386",
+        "GIMLE-385"
+      ]
+    },
+    {
+      "id": "GOV-5",
+      "persona": "GOV",
+      "environments": [
+        "midgard",
+        "vault"
+      ],
+      "objective": "Perform every privileged action above, plus a certificate approval and a node join; page `gimle audit` with a cursor and filter by actor; use the console Audit screen's `since` filter.",
+      "oracle": "Each action shows up once with the right actor and target; paging is stable across ring-buffer eviction; the `since` filter sends the format the API parses.",
+      "requirements": [
+        "GIMLE-383",
+        "GIMLE-033",
+        "GIMLE-158",
+        "GIMLE-251",
+        "GIMLE-457",
+        "GIMLE-766",
+        "GIMLE-769",
+        "GIMLE-704"
+      ]
+    },
+    {
+      "id": "GOV-6",
+      "persona": "GOV",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Log into the console as a read-only account and try every write path.",
+      "oracle": "Write controls are hidden or disabled up front, and a refused submit gives visible feedback — never a silent no-op.",
+      "requirements": [
+        "GIMLE-456",
+        "GIMLE-435",
+        "GIMLE-436"
+      ]
+    },
+    {
+      "id": "GOV-7",
+      "persona": "GOV",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Autoscale a tenant's deployment past its quota ceiling under real load.",
+      "oracle": "Autoscaling stops at the quota exactly as a manual scale would — no bypass.",
+      "requirements": [
+        "GIMLE-229",
+        "GIMLE-246"
+      ]
+    },
+    {
+      "id": "GOV-8",
+      "persona": "GOV",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "On plaintext Midgard, create a second real tenant and deploy to it; deploy an untenanted workload.",
+      "oracle": "Plaintext is explicitly single-tenant and refuses the second tenant with a reason; the untenanted workload lands in the implicit default tenant and is addressable as such.",
+      "requirements": [
+        "GIMLE-649",
+        "GIMLE-650"
+      ]
+    },
+    {
+      "id": "GOV-9",
+      "persona": "GOV",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Create the same-named deployment, StatefulSet volume and CronJob in two tenants; use `?tenant=`/`--tenant` on gets, deletes, logs, metrics rollups and `volume destroy`.",
+      "oracle": "Every surface tells the two apart: store keys, logs, metrics rows, volumes and generated Jobs are tenant-scoped; omitting the tenant never silently resolves to the wrong one.",
+      "requirements": [
+        "GIMLE-654",
+        "GIMLE-656",
+        "GIMLE-657",
+        "GIMLE-693",
+        "GIMLE-772",
+        "GIMLE-655",
+        "GIMLE-770"
+      ]
+    },
+    {
+      "id": "GOV-10",
+      "persona": "GOV",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Attempt to deploy into `gimle-system` as a normal account; set `policy.maxReplicasPerDeployment` and exceed it.",
+      "oracle": "The reserved tenant is operator-only; the policy is enforced at admission with a specific reason.",
+      "requirements": [
+        "GIMLE-252",
+        "GIMLE-247"
+      ]
+    },
+    {
+      "id": "GOV-11",
+      "persona": "GOV",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Re-apply an existing deployment's manifest with a different `tenant:`.",
+      "oracle": "The re-tenanting is authorized against both tenants and refused unless the caller may write both.",
+      "requirements": [
+        "GIMLE-249"
+      ]
+    },
+    {
+      "id": "GOV-12",
+      "persona": "GOV",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`apply -f` manifests for Tenant, LimitRange, Role, RoleBinding, Account, Service and NetworkPolicy.",
+      "oracle": "Each kind is created from its manifest identically to its `gimle set <kind>` form.",
+      "requirements": [
+        "GIMLE-717"
+      ]
+    },
+    {
+      "id": "SEC-1",
+      "persona": "SEC",
+      "environments": [
+        "vault",
+        "midgard"
+      ],
+      "objective": "Set a secret, read it back, update it twice, list versions, fetch an old version explicitly, declare a value type and submit a value violating it; repeat in the console's Secrets screen.",
+      "oracle": "Versioning is real (old values retrievable by version); each version records who/when/type; the malformed typed value is rejected before storage; the proxy relays bytes untouched.",
+      "requirements": [
+        "GIMLE-380",
+        "GIMLE-282",
+        "GIMLE-262",
+        "GIMLE-733",
+        "GIMLE-734",
+        "GIMLE-454",
+        "GIMLE-038"
+      ]
+    },
+    {
+      "id": "SEC-2",
+      "persona": "SEC",
+      "environments": [
+        "vault"
+      ],
+      "objective": "`secret delete` without `--destroy`, read, undelete to the current and to an earlier version, then `--destroy`.",
+      "oracle": "Soft delete hides but preserves; undelete restores the requested version; destroy is irreversible and says so.",
+      "requirements": [
+        "GIMLE-284",
+        "GIMLE-671"
+      ]
+    },
+    {
+      "id": "SEC-3",
+      "persona": "SEC",
+      "environments": [
+        "vault"
+      ],
+      "objective": "`secret rotate-key`, read old secrets, `retire-key` the old key; trigger rotation and retirement from the console; read the key-ring fingerprint from Fafnir's status and console.",
+      "oracle": "Old secrets stay readable after rotation (re-encrypted or transparently decrypted) and only the retired key's material is unusable afterwards; rotation/retirement are authorized and audited; fingerprints agree across replicas.",
+      "requirements": [
+        "GIMLE-263",
+        "GIMLE-279",
+        "GIMLE-281",
+        "GIMLE-465",
+        "GIMLE-755",
+        "GIMLE-280",
+        "GIMLE-462",
+        "GIMLE-692"
+      ]
+    },
+    {
+      "id": "SEC-4",
+      "persona": "SEC",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Fully offline: fetch the seal public key, seal a value with no server connection, feed the ciphertext into a SecretMap via `secretmap seal`, deploy a module that reads it; browse the console's Seal screen.",
+      "oracle": "The module reads the plaintext; the committed ciphertext is safe to share; the Seal screen shows key lifecycle.",
+      "requirements": [
+        "GIMLE-597",
+        "GIMLE-598",
+        "GIMLE-599",
+        "GIMLE-600",
+        "GIMLE-752"
+      ]
+    },
+    {
+      "id": "SEC-5",
+      "persona": "SEC",
+      "environments": [
+        "midgard",
+        "vault"
+      ],
+      "objective": "ConfigMap and SecretMap from `--from-literal` and `--from-file`; reference both from a deployment with a colliding key; `secretmap rollback`, `secretmap replace`, a batch write with one bad entry; plain Config versions and rollback; console ConfigMaps/SecretMaps screens with History.",
+      "oracle": "Collision is rejected at admission; only referenced maps are delivered; rollback restores exactly the prior key set; replace is atomic; partial batch failure is signalled in HTTP status and exit code; Config history/rollback behaves like Secrets; screens agree with the CLI.",
+      "requirements": [
+        "GIMLE-581",
+        "GIMLE-582",
+        "GIMLE-583",
+        "GIMLE-584",
+        "GIMLE-585",
+        "GIMLE-588",
+        "GIMLE-589",
+        "GIMLE-590",
+        "GIMLE-591",
+        "GIMLE-592",
+        "GIMLE-593",
+        "GIMLE-594",
+        "GIMLE-595",
+        "GIMLE-596",
+        "GIMLE-651",
+        "GIMLE-677",
+        "GIMLE-673",
+        "GIMLE-453",
+        "GIMLE-379"
+      ]
+    },
+    {
+      "id": "SEC-6",
+      "persona": "SEC",
+      "environments": [
+        "midgard",
+        "vault"
+      ],
+      "objective": "A module reads a Config value declared `--encrypted` and one that isn't; change both while it runs; inspect the store's on-disk state.",
+      "oracle": "Both resolve at runtime; the encrypted one is unreadable at rest; live changes propagate to the running instance without restart.",
+      "requirements": [
+        "GIMLE-116",
+        "GIMLE-619",
+        "GIMLE-738",
+        "GIMLE-379",
+        "GIMLE-453"
+      ]
+    },
+    {
+      "id": "SEC-7",
+      "persona": "SEC",
+      "environments": [
+        "vault"
+      ],
+      "objective": "`cert token create`, join a node, `cert request`/`status`/`approve`; request a CSR claiming the operator group and one with a SAN it cannot prove; revoke a certificate and use it; hammer the CSR endpoint.",
+      "oracle": "Approval-gated flow works end to end and is audited; the self-declared group is overwritten server-side; the unprovable SAN is refused; the revoked certificate is denied everywhere; the bootstrap endpoint rate-limits. (Renewal-banner timing is unit-cited, not waited out.)",
+      "requirements": [
+        "GIMLE-387",
+        "GIMLE-034",
+        "GIMLE-071",
+        "GIMLE-072",
+        "GIMLE-259",
+        "GIMLE-258",
+        "GIMLE-624",
+        "GIMLE-702",
+        "GIMLE-743",
+        "GIMLE-704"
+      ]
+    },
+    {
+      "id": "SEC-8",
+      "persona": "SEC",
+      "environments": [
+        "vault"
+      ],
+      "objective": "With a tenant-A certificate: read/write tenant A's secret, then tenant B's; call Fafnir directly with a forged forwarded-principal header; read Muninn's logs API unauthenticated; push to Andvari with a node certificate.",
+      "oracle": "Fafnir refuses the foreign tenant independently of the control plane; the forged header is ignored unless the peer is the control plane's own certificate; Muninn refuses; the node identity may pull but never push.",
+      "requirements": [
+        "GIMLE-285",
+        "GIMLE-690",
+        "GIMLE-691",
+        "GIMLE-310",
+        "GIMLE-311",
+        "GIMLE-253"
+      ]
+    },
+    {
+      "id": "SEC-9",
+      "persona": "SEC",
+      "environments": [
+        "vault",
+        "midgard"
+      ],
+      "objective": "Console sessions: log in, log out and replay the old cookie; wait out an expired session; fail login repeatedly; log into Fafnir's and Andvari's consoles separately.",
+      "oracle": "Logout revokes server-side (replay is 401); expiry is explained once in plain language; throttling kicks in with backoff; each console keeps its own session that is useless against the others.",
+      "requirements": [
+        "GIMLE-256",
+        "GIMLE-435",
+        "GIMLE-436",
+        "GIMLE-667",
+        "GIMLE-758",
+        "GIMLE-018",
+        "GIMLE-257",
+        "GIMLE-461",
+        "GIMLE-467",
+        "GIMLE-290",
+        "GIMLE-314"
+      ]
+    },
+    {
+      "id": "SEC-10",
+      "persona": "SEC",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Export a tenant's whole secret set, import it into a fresh tenant; submit an oversized secret value and an oversized request body.",
+      "oracle": "Export/import is one authorized, audited call and round-trips exactly; both oversized submissions are rejected with the limit named.",
+      "requirements": [
+        "GIMLE-735",
+        "GIMLE-736"
+      ]
+    },
+    {
+      "id": "SEC-11",
+      "persona": "SEC",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Export a service with `allowedTenantIds` and call it from an allowed and a disallowed tenant, including by dialling the raw address.",
+      "oracle": "Allowed succeeds; disallowed is refused at the listener even when the caller-side filter is bypassed.",
+      "requirements": [
+        "GIMLE-006",
+        "GIMLE-192"
+      ]
+    },
+    {
+      "id": "SEC-12",
+      "persona": "SEC",
+      "environments": [
+        "vault"
+      ],
+      "objective": "Under mTLS with no operator-added RoleBindings: deploy a coordinate-only DaemonSet and a deployment that reads a ConfigMap.",
+      "oracle": "The control plane's own certificate may read the registry and node agents may read their assigned tenants' config out of the box — the two default-RBAC seams hold.",
+      "requirements": [
+        "GIMLE-633",
+        "GIMLE-634"
+      ]
+    },
+    {
+      "id": "ART-1",
+      "persona": "ART",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`artifact push` a module jar, `list`/`get` it, open it in the main console's Artifacts screen and in Andvari's own console (catalog search, version detail, checksum, download with client-side verification, drag-and-drop push, copy-to-clipboard); read Andvari's status.",
+      "oracle": "The coordinate comes from the jar's own bundled descriptor, not a flag; every surface shows the same SHA-256 and size; the download verifies; status reports transport and recent pushes.",
+      "requirements": [
+        "GIMLE-381",
+        "GIMLE-305",
+        "GIMLE-297",
+        "GIMLE-455",
+        "GIMLE-468",
+        "GIMLE-469",
+        "GIMLE-470",
+        "GIMLE-471",
+        "GIMLE-472",
+        "GIMLE-474",
+        "GIMLE-265"
+      ]
+    },
+    {
+      "id": "ART-2",
+      "persona": "ART",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Push the identical jar again, then a different jar at the same coordinate.",
+      "oracle": "The first is an idempotent no-op; the second is refused with 409 and the stored jar is untouched.",
+      "requirements": [
+        "GIMLE-297"
+      ]
+    },
+    {
+      "id": "ART-3",
+      "persona": "ART",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`artifact delete` a version, then look for it in the CLI, both consoles and the audit trail.",
+      "oracle": "Gone everywhere; the delete decision is audited with the actor.",
+      "requirements": [
+        "GIMLE-305",
+        "GIMLE-313",
+        "GIMLE-470"
+      ]
+    },
+    {
+      "id": "ART-4",
+      "persona": "ART",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy a manifest naming only a pushed coordinate with no `artifactPath`.",
+      "oracle": "Admission HEAD-checks the coordinate; the agent pulls through its cache with zero manual placement; a second deploy of the same coordinate is served from the cache.",
+      "requirements": [
+        "GIMLE-061",
+        "GIMLE-115",
+        "GIMLE-248",
+        "GIMLE-010"
+      ]
+    },
+    {
+      "id": "ART-5",
+      "persona": "ART",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy referencing a coordinate that was never pushed.",
+      "oracle": "Rejected up front at admission with a clear not-found — never scheduled and failing later.",
+      "requirements": [
+        "GIMLE-248"
+      ]
+    },
+    {
+      "id": "ART-6",
+      "persona": "ART",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Point a stock `mvn deploy` at Andvari's `/repository/**` for a throwaway artifact, then `mvn install` a project depending on it; fetch the `.jar.sha256` and `maven-metadata.xml` by hand; open the Maven view in Andvari's console.",
+      "oracle": "Ordinary Maven tooling works with only a repository URL; checksums are server-computed; metadata is fresh; the console's Maven view shows the GAV translation.",
+      "requirements": [
+        "GIMLE-306",
+        "GIMLE-307",
+        "GIMLE-308",
+        "GIMLE-473"
+      ]
+    },
+    {
+      "id": "ART-7",
+      "persona": "ART",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Push a jar with no `gimle-module.yaml`, then one far above the configured size limit.",
+      "oracle": "Both are refused with a specific reason and neither leaves a partial file behind.",
+      "requirements": [
+        "GIMLE-060",
+        "GIMLE-299"
+      ]
+    },
+    {
+      "id": "ART-8",
+      "persona": "ART",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "With two Andvari replicas: push to one, pull and deploy from the other; then stop one replica and deploy a fresh coordinate.",
+      "oracle": "Peer sync makes the push visible on both; the control plane and agents fail over to the surviving replica without operator action.",
+      "requirements": [
+        "GIMLE-303",
+        "GIMLE-062",
+        "GIMLE-266"
+      ]
+    },
+    {
+      "id": "OBS-1",
+      "persona": "OBS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`gimle logs <instance> --follow` under fresh traffic; filter by `--category`, level threshold and text; page backwards with the cursor; `-o json`; then the console's Log explorer.",
+      "oracle": "Lines arrive live; APPLICATION vs PLATFORM categorisation is real; filters filter rather than relabel; paging is stable; instance logs are kept per instance on the node.",
+      "requirements": [
+        "GIMLE-382",
+        "GIMLE-026",
+        "GIMLE-019",
+        "GIMLE-023",
+        "GIMLE-737",
+        "GIMLE-762",
+        "GIMLE-451",
+        "GIMLE-127"
+      ]
+    },
+    {
+      "id": "OBS-2",
+      "persona": "OBS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Crash a Tier-2 instance hard enough to produce an `hs_err_pid` dump.",
+      "oracle": "The dump is listed and retrievable on the console's Logs screen and via the logs API.",
+      "requirements": [
+        "GIMLE-129",
+        "GIMLE-452"
+      ]
+    },
+    {
+      "id": "OBS-3",
+      "persona": "OBS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Stop the agent supervising a running instance, then read that instance's logs again through the control plane.",
+      "oracle": "Still retrievable through the Muninn fallback for the whole node-death window — the shipped platform and instance logs are complete; asking the fallback to `--follow` is refused with a clear reason rather than hanging.",
+      "requirements": [
+        "GIMLE-267",
+        "GIMLE-343",
+        "GIMLE-130",
+        "GIMLE-319",
+        "GIMLE-320",
+        "GIMLE-321",
+        "GIMLE-322"
+      ]
+    },
+    {
+      "id": "OBS-4",
+      "persona": "OBS",
+      "environments": [
+        "midgard",
+        "fleet"
+      ],
+      "objective": "Compare a live metric to its history an hour later; `gimle metrics` and `metrics-history`; per-deployment rollup, per-instance error rate, per-module CPU/allocation attribution, the control plane's own request metrics; the Metrics screen's charts.",
+      "oracle": "History persisted through Muninn rather than re-rendering the live snapshot; every CLI and console figure agrees; error rate is real; JFR attribution is per module.",
+      "requirements": [
+        "GIMLE-268",
+        "GIMLE-323",
+        "GIMLE-324",
+        "GIMLE-344",
+        "GIMLE-449",
+        "GIMLE-754",
+        "GIMLE-763",
+        "GIMLE-764",
+        "GIMLE-275",
+        "GIMLE-710",
+        "GIMLE-351",
+        "GIMLE-273",
+        "GIMLE-448",
+        "GIMLE-097"
+      ]
+    },
+    {
+      "id": "OBS-5",
+      "persona": "OBS",
+      "environments": [
+        "midgard",
+        "fleet"
+      ],
+      "objective": "Trigger a cross-worker fabric call and find its trace; follow it across processes on the Traces screen; `traces-history` from the CLI.",
+      "oracle": "Both hops present and ordered with context propagated across the virtual-thread and wire boundaries.",
+      "requirements": [
+        "GIMLE-195",
+        "GIMLE-087",
+        "GIMLE-325",
+        "GIMLE-326",
+        "GIMLE-450",
+        "GIMLE-741",
+        "GIMLE-764"
+      ]
+    },
+    {
+      "id": "OBS-6",
+      "persona": "OBS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Load the Topology screen against multi-node, multi-tenant Fleet.",
+      "oracle": "Placement shown matches `get instances`/`get nodes` independently.",
+      "requirements": [
+        "GIMLE-447"
+      ]
+    },
+    {
+      "id": "OBS-7",
+      "persona": "OBS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Walk every console route as a normal logged-in user: Overview, HUD/Signal toggle, theme, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances (with node/tenant filters), Nodes, Tenants, Config, ConfigMaps, Secrets, SecretMaps, Networking, Access-Control, Artifacts, Audit, Control-Plane, Metrics, Traces, Topology, Logs, Custom Resources, Volumes, LimitRanges, Seal.",
+      "oracle": "No route errors, blanks or contradicts the CLI's view of the same data.",
+      "requirements": [
+        "GIMLE-437",
+        "GIMLE-438",
+        "GIMLE-444",
+        "GIMLE-445",
+        "GIMLE-458",
+        "GIMLE-459",
+        "GIMLE-664",
+        "GIMLE-751",
+        "GIMLE-750",
+        "GIMLE-752",
+        "GIMLE-457",
+        "GIMLE-440",
+        "GIMLE-441",
+        "GIMLE-442",
+        "GIMLE-443",
+        "GIMLE-446",
+        "GIMLE-453",
+        "GIMLE-454",
+        "GIMLE-455",
+        "GIMLE-456",
+        "GIMLE-585",
+        "GIMLE-593",
+        "GIMLE-586",
+        "GIMLE-587"
+      ]
+    },
+    {
+      "id": "OBS-8",
+      "persona": "OBS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Log into the Fafnir and Andvari consoles: status overviews, tenant filter via URL param, secrets browsing/reveal/write/destroy, the global error banner on a forced failure.",
+      "oracle": "Each console's status is truthful; the URL filter works; vault-native actions match the CLI; errors surface in the banner rather than vanishing.",
+      "requirements": [
+        "GIMLE-461",
+        "GIMLE-462",
+        "GIMLE-463",
+        "GIMLE-464",
+        "GIMLE-466",
+        "GIMLE-467",
+        "GIMLE-468"
+      ]
+    },
+    {
+      "id": "OBS-9",
+      "persona": "OBS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Read an instance's event timeline in CLI and console; create an AlertRule on a deployment's error rate pointed at a local webhook; trip and clear it.",
+      "oracle": "The timeline is complete and ordered; the webhook fires once on crossing and once on resolve.",
+      "requirements": [
+        "GIMLE-377",
+        "GIMLE-753",
+        "GIMLE-711"
+      ]
+    },
+    {
+      "id": "OBS-10",
+      "persona": "OBS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "From an instance row, follow the `workerId` deep link into the Metrics and Traces WORKER pickers.",
+      "oracle": "The link lands on that worker's data, matching the agent's own view of which worker hosts it.",
+      "requirements": [
+        "GIMLE-647"
+      ]
+    },
+    {
+      "id": "JRN-1",
+      "persona": "JRN",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy orders-platform whole; place a real order through its web surface; read the reconciliation and report-job tallies.",
+      "oracle": "The order completes through every backing service including the DaemonSet-hosted inventory; the tallies are right; the NetworkPolicy example from its README applies as written.",
+      "requirements": [
+        "GIMLE-636",
+        "GIMLE-118",
+        "GIMLE-566"
+      ]
+    },
+    {
+      "id": "JRN-2",
+      "persona": "JRN",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Submit mapreduce-wordcount over a real input set.",
+      "oracle": "Completes with correct counts and genuinely parallelises across mapper instances (visible per instance).",
+      "requirements": [
+        "GIMLE-052",
+        "GIMLE-092",
+        "GIMLE-235"
+      ]
+    },
+    {
+      "id": "JRN-3",
+      "persona": "JRN",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Run order-fulfillment-saga's happy path, then force the shipping step to fail after stock is reserved and payment charged.",
+      "oracle": "Compensations run in reverse order — refund, then stock release — every time; the order ends clearly failed, not partial.",
+      "requirements": [
+        "GIMLE-055",
+        "GIMLE-093"
+      ]
+    },
+    {
+      "id": "JRN-4",
+      "persona": "JRN",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Write through session-store, kill its instance with a real native crash, redeploy, read the same keys.",
+      "oracle": "Values survive — the volume, not the instance, held the data; the crash's own dump is listed (OBS-2).",
+      "requirements": [
+        "GIMLE-069",
+        "GIMLE-630",
+        "GIMLE-612"
+      ]
+    },
+    {
+      "id": "JRN-5",
+      "persona": "JRN",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Deploy node-local-cache across four nodes; call from a co-located caller while a less-loaded remote replica exists; saturate the local one.",
+      "oracle": "Calls stay same-machine while the local replica is not saturated and spill over once every same-machine candidate is busier than the least-loaded remote; its first lookup race logs at INFO, not WARN.",
+      "requirements": [
+        "GIMLE-184",
+        "GIMLE-638"
+      ]
+    },
+    {
+      "id": "JRN-6",
+      "persona": "JRN",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Deploy the whole greeter family (provider, consumer, load generator, hello-module) as a smoke check and drive it briefly.",
+      "oracle": "Provider hooks and probes log as APPLICATION output; the consumer's real cross-worker call shows in its log; the load generator turns HTTP into real fabric traffic; hello-module's distinct request/limit values are honoured.",
+      "requirements": [
+        "GIMLE-503",
+        "GIMLE-504",
+        "GIMLE-505",
+        "GIMLE-506",
+        "GIMLE-051"
+      ]
+    },
+    {
+      "id": "JRN-7",
+      "persona": "JRN",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Apply the `custom.Greeting` KindDefinition, deploy greeting-operator, apply valid and invalid custom resources, re-apply one unchanged; `gimle kinds`; read status; browse the console's Custom Resources screen; bind the operator's `svc:` principal a narrower role.",
+      "oracle": "Defaults are persisted, unknown keys and bound violations rejected, tenant scope enforced, the identical re-apply is a generation no-op; the operator's status loop updates `observedGeneration`; printColumns render in CLI and console; per-kind RBAC and the workload-identity token gate the operator exactly.",
+      "requirements": [
+        "GIMLE-659",
+        "GIMLE-660",
+        "GIMLE-661",
+        "GIMLE-662",
+        "GIMLE-663",
+        "GIMLE-664",
+        "GIMLE-625"
+      ]
+    },
+    {
+      "id": "CHAOS-1",
+      "persona": "CHAOS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Feed `apply -f` a typo'd field, a missing required field, valid YAML of no Gimlé kind, `request > limit`, a malformed quantity, an anti-affinity DaemonSet — for every workload kind.",
+      "oracle": "Distinct, specific, client-side or admission errors — never a stack trace; each kind's parser names the offending field.",
+      "requirements": [
+        "GIMLE-172",
+        "GIMLE-173",
+        "GIMLE-174",
+        "GIMLE-175",
+        "GIMLE-176",
+        "GIMLE-003",
+        "GIMLE-005",
+        "GIMLE-059"
+      ]
+    },
+    {
+      "id": "CHAOS-2",
+      "persona": "CHAOS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "`gimle delete <kind> <name>` for a name that does not exist, across every kind.",
+      "oracle": "One consistent behaviour (idempotent success or a uniform not-found), not five behaviours for five kinds.",
+      "requirements": [
+        "GIMLE-371",
+        "GIMLE-372",
+        "GIMLE-373",
+        "GIMLE-374",
+        "GIMLE-375"
+      ]
+    },
+    {
+      "id": "CHAOS-3",
+      "persona": "CHAOS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "Compare `-o table` and `-o json` for every `get`, and `-o json` on every mutating verb including node and volume ones.",
+      "oracle": "Same underlying data — no field present in one and silently missing in the other.",
+      "requirements": [
+        "GIMLE-388",
+        "GIMLE-760",
+        "GIMLE-637"
+      ]
+    },
+    {
+      "id": "CHAOS-4",
+      "persona": "CHAOS",
+      "environments": [
+        "midgard"
+      ],
+      "objective": "No `--server` and no `GIMLE_SERVER`; a manifest path that does not exist; `-h` at every verb level; a wrong flag; two positional names to a single-resource verb; switch clusters with `gimle context`.",
+      "oracle": "Every failure exits with a code that names why, shows usage where a flag was wrong, rejects the extra positional rather than truncating, and gives a message a first-time user can act on; contexts switch cleanly.",
+      "requirements": [
+        "GIMLE-653",
+        "GIMLE-761",
+        "GIMLE-665",
+        "GIMLE-765",
+        "GIMLE-635"
+      ]
+    },
+    {
+      "id": "CHAOS-5",
+      "persona": "CHAOS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Fire a scale-up and a delete at the same deployment back to back; then two concurrent applies from two control-plane replicas.",
+      "oracle": "Converges to deleted with no half-scaled zombie; the concurrent applies are generation-guarded so one loses with a conflict rather than a silent lost update.",
+      "requirements": [
+        "GIMLE-646",
+        "GIMLE-241"
+      ]
+    },
+    {
+      "id": "CHAOS-6",
+      "persona": "CHAOS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Kill the current Mimir leader mid-write on the three-replica store.",
+      "oracle": "A new leader is elected, writes resume within a bounded window, and no acknowledged write vanishes.",
+      "requirements": [
+        "GIMLE-136",
+        "GIMLE-148"
+      ]
+    },
+    {
+      "id": "CHAOS-7",
+      "persona": "CHAOS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Kill one of the two control-plane replicas while a client points at the other.",
+      "oracle": "Zero client disruption; reconciliation continues; the killed replica's health signal fails fast and recovers on restart.",
+      "requirements": [
+        "GIMLE-706",
+        "GIMLE-393"
+      ]
+    },
+    {
+      "id": "CHAOS-8",
+      "persona": "CHAOS",
+      "environments": [
+        "vault"
+      ],
+      "objective": "As a tenant-B account, attempt every action GOV-3 confirmed tenant-A-only, straight at the API rather than through the console; also directly at Fafnir, Andvari and Muninn.",
+      "oracle": "Refused identically (403) everywhere, independent of any UI-level hiding.",
+      "requirements": [
+        "GIMLE-250",
+        "GIMLE-285",
+        "GIMLE-310",
+        "GIMLE-691"
+      ]
+    },
+    {
+      "id": "CHAOS-9",
+      "persona": "CHAOS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Unpack the Ragnarok archive; `ragnarok preflight` against Fleet; run a small chaos plan (worker kill through the agent's admin fault API, store bounce, an SSH-inventory link cut where the SSH machine exists); `report` and `replay` it; run a small `stress` workload with the bundled pause module.",
+      "oracle": "Preflight names every unmet precondition; every strike is gated on recovery and lands in a replayable ledger; the report is complete; stress gates on its declared thresholds and writes a diffable summary.",
+      "requirements": [
+        "GIMLE-641",
+        "GIMLE-639",
+        "GIMLE-533",
+        "GIMLE-548",
+        "GIMLE-640",
+        "GIMLE-645",
+        "GIMLE-643",
+        "GIMLE-644",
+        "GIMLE-642"
+      ]
+    },
+    {
+      "id": "CHAOS-10",
+      "persona": "CHAOS",
+      "environments": [
+        "fleet"
+      ],
+      "objective": "Stop the control plane for two minutes while workloads run, then restart it.",
+      "oracle": "Running instances keep serving; Skald degrades only after its staleness window; on restart everything reconverges with no duplicate or lost instance.",
+      "requirements": [
+        "GIMLE-686",
+        "GIMLE-706"
+      ]
+    }
+  ]
+}
