@@ -6,7 +6,10 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  // `target` is the Maven build directory: the resources step copies the built SPA into
+  // target/classes/console/**, so without it here `eslint .` walks ~190 minified bundles after any
+  // `mvn install` and effectively never finishes.
+  { ignores: ["dist", "target", ".output", ".vinxi"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
