@@ -13008,14 +13008,15 @@
       "feature": "CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider",
       "category": "CLI",
       "status": "New",
-      "statusNote": "New requirement: gimle-cli gained a CliExtension SPI looked up in GimleCli's verb-switch default branch, immediately before the existing unknown-verb error, with a provider declared both in META-INF/services (the classpath, which is how the shipped CLI and every test load) and a module-info provides directive.",
+      "statusNote": "New requirement: gimle-cli gained a CliExtension SPI looked up in GimleCli's verb-switch default branch, immediately before the existing unknown-verb error, with a provider declared both in META-INF/services (the classpath, which is how the shipped CLI and every test load) and a module-info provides directive. Also scopes `-h`/`--help` on a discovered verb to that verb's own usage line, which the statically-built scopedUsage table could not do on its own.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "otherTestCoverage": "gimle-cli's CliExtensionSeamTest (classpath discovery via a test-only provider, dispatch, help folding, unknown-verb error preserved) and gimle-hugin's HuginExtensionTest.",
+      "otherTestCoverage": "gimle-cli's CliExtensionSeamTest (classpath discovery via a test-only provider, dispatch, help folding, unknown-verb error preserved) and gimle-hugin's HuginExtensionTest. A further CliExtensionSeamTest case pins the scoped `-h` output.",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/spi/CliExtension.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/CliExtensions.java`",
-        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`dispatchExtension`)"
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`dispatchExtension`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`scopedUsage`, `extensionUsage`)"
       ],
       "gapNote": "No .feature exercises the CLI's verb dispatch: Holmgang drives the platform through its own harness, not through GimleCli's argument parsing."
     },

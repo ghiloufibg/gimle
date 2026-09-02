@@ -8251,7 +8251,7 @@
       "module": "gimle-cli",
       "category": "CLI",
       "feature": "CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider",
-      "step": "Given a CliExtension provider for the verb \"top\" on the CLI's own classpath When an operator runs `gimle top` Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed",
+      "step": "Given a CliExtension provider for the verb \"top\" on the CLI's own classpath When an operator runs `gimle top` Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed And `gimle top -h` prints that verb's own usage rather than the full verb listing",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

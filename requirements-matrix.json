@@ -15114,20 +15114,22 @@
       "feature": "CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider",
       "category": "CLI",
       "userStory": "As a platform developer, I want to add a CLI verb from a separate module without gimle-cli depending on it, so that the whole feature is one directory and one reactor entry that can be removed again.",
-      "statusDetail": "Complete. GimleCli's verb switch looks a CliExtension provider up in its `default` branch, immediately before the existing unknown-verb error, loading through GimleCli's own classloader rather than the thread context one. A provider is declared twice -- META-INF/services (what resolves it from the classpath, which is how the shipped bin/gimle launcher and every test load this code) and a module-info `provides` directive (the module path, which nothing uses today). gimle-cli itself gains the interface, a narrowing ClusterReader view of ControlPlaneClient, `uses` in its module-info, and roughly ten lines of dispatch -- and no dependency. A discovered provider's usageLine() is folded into `gimle --help`; a broken provider declaration costs the extension surface, never the CLI.",
+      "statusDetail": "Complete. GimleCli's verb switch looks a CliExtension provider up in its `default` branch, immediately before the existing unknown-verb error, loading through GimleCli's own classloader rather than the thread context one. A provider is declared twice -- META-INF/services (what resolves it from the classpath, which is how the shipped bin/gimle launcher and every test load this code) and a module-info `provides` directive (the module path, which nothing uses today). gimle-cli itself gains the interface, a narrowing ClusterReader view of ControlPlaneClient, `uses` in its module-info, and roughly ten lines of dispatch -- and no dependency. A discovered provider's usageLine() is folded into `gimle --help`; a broken provider declaration costs the extension surface, never the CLI. A discovered verb is also consulted for scoped `-h`/`--help`: GimleCli's own scopedUsage table is built statically and cannot know about a verb a provider contributes at runtime, so before this it fell through to the entire multi-verb top-level listing -- the same default a genuinely unknown verb gets -- rather than that verb's own one-line usage.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-cli/src/main/java/com/gimle/cli/spi/CliExtension.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/spi/ClusterReader.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/CliExtensions.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`",
-        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`dispatchExtension`, `usage`)"
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`dispatchExtension`, `usage`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`scopedUsage`, `extensionUsage`)"
       ],
-      "testCoverageDetail": "CliExtensionSeamTest exercises discovery from the classpath (a test-only provider declared in src/test/resources/META-INF/services, so a services file that only worked on the module path fails here rather than in an operator's terminal), dispatch, help folding, and the unknown-verb error surviving unchanged with no provider for a verb. HuginExtensionTest asserts the shipped provider is discoverable the same way.",
+      "testCoverageDetail": "CliExtensionSeamTest exercises discovery from the classpath (a test-only provider declared in src/test/resources/META-INF/services, so a services file that only worked on the module path fails here rather than in an operator's terminal), dispatch, help folding, and the unknown-verb error surviving unchanged with no provider for a verb. HuginExtensionTest asserts the shipped provider is discoverable the same way. CliExtensionSeamTest additionally asserts that `-h` on a discovered verb prints that verb's own usage line and not the full top-level listing.",
       "gherkinSteps": [
         "Given a CliExtension provider for the verb \"top\" on the CLI's own classpath",
         "When an operator runs `gimle top`",
-        "Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed"
+        "Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed",
+        "And `gimle top -h` prints that verb's own usage rather than the full verb listing"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
