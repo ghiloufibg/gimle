@@ -25,9 +25,9 @@ the three dedicated services rather than either client talking to them directly 
 
 ## Screens
 
-Twenty-eight screens, each backed by a real `Http*Repository` hitting the control plane's own API —
+Twenty-nine screens, each backed by a real `Http*Repository` hitting the control plane's own API —
 the same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth.
-Twenty-seven carry a sidebar entry, grouped **Cluster** (what the cluster is doing), **Workloads**
+Twenty-eight carry a sidebar entry, grouped **Cluster** (what the cluster is doing), **Workloads**
 (what is deployed), **Edge** (how traffic reaches it), **Platform** (tenancy, configuration,
 identity) and **System** (the control plane process itself); `Logs` is reached contextually from an
 instance/deployment rather than its own top-level nav entry:
@@ -43,6 +43,7 @@ instance/deployment rather than its own top-level nav entry:
 | Volumes | Every StatefulSet persistent volume across every node — owning set, instance index, volume name, tenant, node, on-disk size, host path, and whether the store still attaches it and its agent still reports it held. Retained orphans carry a destroy action behind a confirmation naming the exact set/index/node about to be erased; a volume still attached or still in use offers none. A node whose agent didn't answer is called out in a warning strip, since a listing that silently omits one node's volumes is the wrong thing to trust on a reclamation screen. The UI equivalent of `gimle volume list/destroy`, with the tenant carried explicitly on destroy. |
 | Instances | Per-instance detail: lifecycle state, health, resource usage, plus that instance's own lifecycle-event timeline — the "why did this instance restart" panel, below. The same paginated instance table backs the Nodes screen and every workload detail page, below. |
 | Custom Resources | Instances of cluster-defined [custom kinds](./custom-kinds.md): a kind picker fed by `/kinddefinitions`, an instance table honoring each definition's own `printColumns`, and a detail pane showing spec and status side by side with the generation/observedGeneration pair made visible — the at-a-glance "has the operator caught up" signal. Deliberately read-only; authoring stays in the CLI. |
+| Applications | Every deployable resource — Deployment, StatefulSet, DaemonSet, Job, CronJob, and each custom kind — as one application, with a health verdict on what is running and a separate sync verdict on whether the cluster matches the manifest, plus a resource tree from the application down to the nodes carrying it. An addon (below); nothing here is a source of truth the per-kind screens do not already hold. |
 | Nodes | Registered node agents and their reported capacity, plus cordon/uncordon and per-tenant taint/untaint controls on the detail page — the UI equivalent of `gimle get nodes` and `gimle cordon/uncordon/taint/untaint`. Cordoning/tainting only ever affects future scheduling; neither evicts an already-running instance. |
 | Gateway | The [edge gateway](./service-fabric.md#the-gateway-module)'s declared route table, read from the `gateway.routes` config key under tenant `gimle-system` — the same key a gateway instance reads — with each route's target resolved against the control plane's own live endpoints. Names the two failures only a gateway instance's own log shows today: a route whose target Service or deployment resolves to nothing, and a route line the gateway rejects (it refuses the whole table on any one). Read-only; editing the table is `gimle set config`. A `FABRIC` route's target is never claimed to resolve — the control plane holds no view of the fabric registry. |
 | Skald DNS | Which `<service>.<tenant>.svc.gimle.local` names [Skald](./node-topology.md#skald) would answer right now, and with how many `A` records — derived from the same `GET /services/*` reads a Skald replica polls, so a name with zero addresses (DNS resolves, the connection refuses) is visible without running `dig` against a replica. Per-replica directory staleness and consecutive poll failures come from the two gauges `SkaldMetrics` already ships to Muninn, read back through `GET /metrics-history/SKALD/{host:port}`. |
@@ -65,13 +66,20 @@ instance/deployment rather than its own top-level nav entry:
 
 ## Addon screens
 
-Gateway and Skald DNS are **addons**: screens for an optional component, which ship inside the same
-console bundle as every other screen but are only reachable when the control plane serving that
-bundle advertises them. Neither component could host a console of its own — the gateway is a
-`DaemonSet` module (one jar per coordinate, and its only listener *is* the data plane), and Skald
-speaks DNS over UDP/TCP with no HTTP surface at all — but both are downstream of state the control
-plane already serves, so a screen reading those same APIs shows what each process is working from
-without either process serving anything.
+Applications, Gateway and Skald DNS are **addons**: screens that ship inside the same console
+bundle as every other screen but are only reachable when the control plane serving that bundle
+advertises them.
+
+Gateway and Skald DNS are addons because their component could not host a console of its own — the
+gateway is a `DaemonSet` module (one jar per coordinate, and its only listener *is* the data plane),
+and Skald speaks DNS over UDP/TCP with no HTTP surface at all — yet both are downstream of state the
+control plane already serves, so a screen reading those same APIs shows what each process is working
+from without either process serving anything.
+
+Applications is an addon for the opposite reason: it adds no component at all. It is a second way of
+reading workloads the core screens already cover — as *applications*, the way a GitOps dashboard
+presents them — and a deployment that prefers the per-kind screens should be able to leave it out.
+Being an addon is what makes that a property rather than a fork.
 
 Three pieces make an addon:
 
@@ -110,8 +118,10 @@ file under `src/routes/` that mounts the screen inside `AddonRoute`. Removing an
 folder, its route file, and its catalog entry — nothing on any running process to unwind, no server
 endpoint of its own, no config key, no module.
 
-Both screens state their own limits in place rather than by omission:
+Each screen states its own limits in place rather than by omission:
 
+- **A custom resource's owning workload** is not shown, because Gimlé has no owner-reference
+  concept: nothing ties a resource to the operator reconciling it. Its tree stops at its status.
 - **Which route table revision a gateway instance has actually applied** is known only to that
   instance, and it exports no such reading. The screen shows what the gateway was *told*.
 - **A Skald replica's actual directory contents** would need a read-only status port on a process
@@ -134,7 +144,7 @@ polling" means exactly that on every screen.
 
 The screens that poll are the ones showing cluster state that changes on its own: Overview,
 Topology, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances, Nodes, Tenants,
-Volumes, Networking, Gateway, and Skald DNS. Configuration and key-management screens (Config, ConfigMaps, Secrets,
+Volumes, Networking, Applications, Gateway, and Skald DNS. Configuration and key-management screens (Config, ConfigMaps, Secrets,
 SecretMaps, Seal Keys, LimitRanges, Access Control, Custom Resources, Artifacts) deliberately do
 not: their contents change only when a person changes them, they are edit surfaces where a re-read
 under a half-finished form is a hazard rather than a service, and Seal Keys in particular is a

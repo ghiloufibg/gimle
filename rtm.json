@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 778,
+  "requirementCount": 779,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13475,6 +13475,25 @@
         "`gimle-console/src/components/app-sidebar.tsx`, `gimle-console/src/lib/nav.ts`"
       ],
       "gapNote": "Holmgang never opens a browser, so console behaviour is structurally outside its reach; the control-plane half is reachable but no .feature scenario reads GET /console/addons. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-779",
+      "module": "gimle-console",
+      "feature": "An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: the Applications addon screens, derived entirely from APIs the console already reads -- no control-plane change.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "47 Vitest cases across the addon. kinds/replicated.test.ts covers every row of both truth tables (each lifecycle state, both probe failures, quota and LimitRange violations carrying the server's own reason, unplaced counts, scale-up and scale-down, nothing-placed reading Unknown rather than Healthy) plus Service attachment being matched on name and tenant together. kinds/jobs.test.ts covers the four Job phases, a retry in flight, a RUNNING Job with nothing placed reading OutOfSync, generated-Job matching rejecting a same-prefix hand-applied Job and another tenant's, a CronJob taking its verdict from the newest run, and the five-run cap. kinds/custom.test.ts covers caught-up, behind, no status, and a status without the convention. model.test.ts covers worst-first ordering being stable between polls, every filter including a custom kind's own name and the untenanted bucket. tree.test.ts covers one card per lane, parents centred over their children, two replicas on one machine yielding a single node card, machine cards never overlapping, every edge's endpoints existing, and the per-kind tree shapes. store.test.ts covers error surfacing, a poll never raising `loading` and keeping the last good list, revision history only for a revisioned kind, a stale revision response being discarded, and a rollback re-reading the cluster.",
+      "sourceLocations": [
+        "`gimle-console/src/addons/applications/model.ts`, `build.ts`, `tree.ts`, `store.ts`",
+        "`gimle-console/src/addons/applications/kinds/replicated.ts`, `kinds/jobs.ts`, `kinds/custom.ts`",
+        "`gimle-console/src/addons/applications/screen.tsx`, `detail.tsx`, `components/*`",
+        "`gimle-console/src/routes/apps.index.tsx`, `gimle-console/src/routes/apps.$kind.$name.tsx`",
+        "`gimle-console/public/addons.json`"
+      ],
+      "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser, so console-level behaviour is structurally outside its reach -- the same gap GIMLE-447 (Topology) and GIMLE-773/774 (the Gateway and Skald addon screens) record. Verifying this end to end needs a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one."
     }
   ]
 }

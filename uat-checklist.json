@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 778,
+    "totalRequirements": 779,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 651,
+    "notCoveredByAutomatedTest": 652,
     "releaseReadinessPercent": 16.3
   },
   "items": [
@@ -8560,6 +8560,17 @@
       "category": "Web Console / Frontend",
       "feature": "Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing",
       "step": "Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no entry for it in the group its catalog entry names",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-779",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each",
+      "step": "Given a Deployment whose replicas are all placed but one instance is FAILED When I open the Applications screen Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node Given a Deployment placing 1 of 2 desired replicas, that one healthy Then it reads Progressing on health and OutOfSync on sync Given a Job that has SUCCEEDED Then it reads Healthy, because a Job's desired state is having run Given a CronJob whose newest generated Job FAILED Then it reads Degraded, naming that Job Given a custom resource whose status reports an observedGeneration behind its generation Then it reads Progressing and OutOfSync, naming both generations Given a control plane whose consoleAddons property does not name this addon Then the sidebar carries no Applications entry and its route explains which property would enable it",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

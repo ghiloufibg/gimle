@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 778
+- **Total requirements**: 779
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 651
+- **Not covered by automated test**: 652
 - **Release-readiness (automated coverage)**: 16.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 41 | 0 | 41 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 53 | 0 | 53 | 0.0% |
+| gimle-console | 54 | 0 | 54 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -2013,6 +2013,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-773 | A Gateway console screen showing the declared route table and what each route currently resolves to | Given a `gateway.routes` config key declaring a SERVICE route whose Service no longer exists When an operator opens the console's Gateway screen Then that route is listed with its target named and reported as resolving to nothing And a route whose Service has live endpoints shows how many, without either being read from a gateway instance | No |
 | [ ] | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it | No |
 | [ ] | GIMLE-778 | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no entry for it in the group its catalog entry names | No |
+| [ ] | GIMLE-779 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Given a Deployment whose replicas are all placed but one instance is FAILED When I open the Applications screen Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node Given a Deployment placing 1 of 2 desired replicas, that one healthy Then it reads Progressing on health and OutOfSync on sync Given a Job that has SUCCEEDED Then it reads Healthy, because a Job's desired state is having run Given a CronJob whose newest generated Job FAILED Then it reads Degraded, naming that Job Given a custom resource whose status reports an observedGeneration behind its generation Then it reads Progressing and OutOfSync, naming both generations Given a control plane whose consoleAddons property does not name this addon Then the sidebar carries no Applications entry and its route explains which property would enable it | No |
 
 #### Web Console / Testing
 
