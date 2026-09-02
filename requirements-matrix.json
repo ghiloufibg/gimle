@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 779,
+  "requirementCount": 780,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15747,6 +15747,32 @@
         "When a gateway configured with a control-plane endpoint reloads its routes",
         "Then the declared route is served alongside the gateway's own config-declared routes",
         "And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-780",
+      "module": "gimle-agent",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "category": "Worker Supervision",
+      "userStory": "As an operator declaring resources.limit on a Tier-1 module, I want a shared worker JVM to be sized by the node rather than by whichever instance happened to spawn it, and to admit further instances only while their declared limits still fit, so that a Tier-1 limit is a real admission input with a predictable worker behind it instead of a number the runtime discards.",
+      "statusDetail": "Fixed. A Tier-1 worker's -Xmx was whatever the first instance to land on it declared, and installIntoExistingWorker never re-derived one, so every later instance ran under an arbitrary ceiling: a small module could allocate far past its declared limit, and a large one was strangled by a ceiling it never asked for. Tier1WorkerBudget now holds the node's shared-worker heap/cpu (gimle.agent.tier1WorkerHeap, default 1Gi; gimle.agent.tier1WorkerCpu, default 2000m) and an overhead reserve held back for the worker JVM's own footprint (gimle.agent.tier1WorkerOverheadReserve, default 128Mi), all parsed and validated at agent startup. prepareResourceLimit sizes a TIER_1 worker from that budget (a TIER_2 worker still from the instance's own limit), never below the spawning instance's own declared limit plus the reserve so a large module is not strangled; findReusableTier1Worker additionally refuses reuse once the summed resources.limit.memory of the residents plus the candidate would exceed the heap the worker was actually spawned with, recorded on every instance sharing it (SupervisedInstance.workerLimit) so the answer survives the spawning instance being stopped. Limits are summed rather than requests, since a shared unpartitioned heap has no per-instance ceiling to fall back on; CPU is deliberately not summed, being time-shared rather than exhaustible. Overflow spawns a fresh worker rather than refusing the assignment. This is a reservation, not enforcement: one JVM has one heap, so a module overrunning its declared limit can still OOM its co-tenants, which remains the reason TIER_2 exists.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/Tier1WorkerBudget.java` (new)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`prepareResourceLimit`, `findReusableTier1Worker`, `workerSizeOf`, `installIntoExistingWorker`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`workerLimit`)",
+        "`gimle-docs/docs/reference/node-sizing.md`"
+      ],
+      "testCoverageDetail": "`Tier1WorkerBudgetTest` (8: default fallback, malformed quantity naming its property, a reserve as large as the heap rejected, budget sizing over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, cpu not summed); `AgentMainTest#a_tier1_worker_is_sized_by_the_shared_budget_not_by_whichever_instance_spawned_it`, `#a_tier2_worker_is_sized_by_the_descriptors_limit_not_its_request`, `#a_worker_is_not_reused_once_the_residents_declared_limits_fill_its_heap`, `#a_worker_is_reused_while_the_declared_limits_still_fit_inside_its_heap`, `#a_module_larger_than_the_whole_budget_gets_a_worker_to_itself`, `#a_worker_still_carries_its_recorded_size_once_the_instance_that_spawned_it_is_gone`",
+      "gherkinSteps": [
+        "Given an agent with a declared Tier-1 shared-worker heap budget",
+        "When a TIER_1 instance spawns a worker",
+        "Then that worker is sized from the budget, not from the instance's own declared limit",
+        "Given a shared worker whose residents' declared memory limits already fill its heap",
+        "When another TIER_1 instance of the same tenant is assigned to that node",
+        "Then it is not packed into that worker and gets a fresh one instead"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

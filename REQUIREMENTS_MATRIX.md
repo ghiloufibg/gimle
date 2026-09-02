@@ -789,6 +789,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-777 | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Scheduling | Complete | Yes |
 | GIMLE-778 | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | Networking | Complete | Yes |
 | GIMLE-779 | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Networking | Complete | Yes |
+| GIMLE-780 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Worker Supervision | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3440,6 +3441,24 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When two different clients each send a datagram to the Service's bound address
   Then each client receives the reply to its own request
   And a NetworkPolicy applying to that Service causes every datagram to be dropped instead
+  ```
+
+#### GIMLE-780 — Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits
+
+- **Category**: Worker Supervision
+- **User story**: As an operator declaring resources.limit on a Tier-1 module, I want a shared worker JVM to be sized by the node rather than by whichever instance happened to spawn it, and to admit further instances only while their declared limits still fit, so that a Tier-1 limit is a real admission input with a predictable worker behind it instead of a number the runtime discards.
+- **Status**: Fixed. A Tier-1 worker's -Xmx was whatever the first instance to land on it declared, and installIntoExistingWorker never re-derived one, so every later instance ran under an arbitrary ceiling: a small module could allocate far past its declared limit, and a large one was strangled by a ceiling it never asked for. Tier1WorkerBudget now holds the node's shared-worker heap/cpu (gimle.agent.tier1WorkerHeap, default 1Gi; gimle.agent.tier1WorkerCpu, default 2000m) and an overhead reserve held back for the worker JVM's own footprint (gimle.agent.tier1WorkerOverheadReserve, default 128Mi), all parsed and validated at agent startup. prepareResourceLimit sizes a TIER_1 worker from that budget (a TIER_2 worker still from the instance's own limit), never below the spawning instance's own declared limit plus the reserve so a large module is not strangled; findReusableTier1Worker additionally refuses reuse once the summed resources.limit.memory of the residents plus the candidate would exceed the heap the worker was actually spawned with, recorded on every instance sharing it (SupervisedInstance.workerLimit) so the answer survives the spawning instance being stopped. Limits are summed rather than requests, since a shared unpartitioned heap has no per-instance ceiling to fall back on; CPU is deliberately not summed, being time-shared rather than exhaustible. Overflow spawns a fresh worker rather than refusing the assignment. This is a reservation, not enforcement: one JVM has one heap, so a module overrunning its declared limit can still OOM its co-tenants, which remains the reason TIER_2 exists.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/Tier1WorkerBudget.java` (new), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`prepareResourceLimit`, `findReusableTier1Worker`, `workerSizeOf`, `installIntoExistingWorker`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`workerLimit`), `gimle-docs/docs/reference/node-sizing.md`
+- **Test coverage**: `Tier1WorkerBudgetTest` (8: default fallback, malformed quantity naming its property, a reserve as large as the heap rejected, budget sizing over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, cpu not summed); `AgentMainTest#a_tier1_worker_is_sized_by_the_shared_budget_not_by_whichever_instance_spawned_it`, `#a_tier2_worker_is_sized_by_the_descriptors_limit_not_its_request`, `#a_worker_is_not_reused_once_the_residents_declared_limits_fill_its_heap`, `#a_worker_is_reused_while_the_declared_limits_still_fit_inside_its_heap`, `#a_module_larger_than_the_whole_budget_gets_a_worker_to_itself`, `#a_worker_still_carries_its_recorded_size_once_the_instance_that_spawned_it_is_gone`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an agent with a declared Tier-1 shared-worker heap budget
+  When a TIER_1 instance spawns a worker
+  Then that worker is sized from the budget, not from the instance's own declared limit
+  Given a shared worker whose residents' declared memory limits already fill its heap
+  When another TIER_1 instance of the same tenant is assigned to that node
+  Then it is not packed into that worker and gets a fresh one instead
   ```
 
 ### gimle-mimir

@@ -43,8 +43,9 @@ reader has a ceiling to judge the usage figures against rather than a bare numbe
 for a vessel instance, which is an OS process with no module descriptor behind it. Read the limit
 against the tier: at `TIER_2` the instance owns its worker JVM, so the declared limit is its own
 enforced `-Xmx` and a used/limit ratio is correct; at `TIER_1` several instances share a worker JVM
-sized for whichever instance spawned it, so the declared limit is what the manifest asked for, not a
-bound applied to that instance. The control plane exposes a `GET /metrics` per-deployment rollup (owning tenant, average request
+sized from the node's shared-worker budget, and the declared limit is the share that instance was
+admitted for rather than a bound applied to it — see [Node sizing and worker
+density](../reference/node-sizing.md). The control plane exposes a `GET /metrics` per-deployment rollup (owning tenant, average request
 rate, average error rate, instance count) built from that same observation data, and the console's
 own Instances/Metrics screens surface both figures per instance and per deployment (an error-rate
 column on the Instances table, a total-error-rate stat tile and a ranked "instances with errors"

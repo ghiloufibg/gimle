@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 779 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 780 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 192 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 166, uncited 0). |
-| **User-observable** | **518** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 518 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **519** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 519 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -124,9 +124,9 @@ not carry over to the new one.
 |---|---|---|---|---:|---:|
 | **OPS** | Ops — Platform operator | The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day. | A B C | 15 | 65 |
 | **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 6 | 49 |
-| **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 56 |
+| **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 57 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 53 |
-| **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 37 |
+| **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 38 |
 | **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 56 |
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
 | **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 78 |
@@ -189,7 +189,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **DEP-2** | A | Re-apply with a bumped version while a caller is hitting the service across workers. | Old and new coexist briefly, callers cut over version-aware with zero failed calls (same-worker and cross-worker alike), the old layer disposes; `deployment revisions` and the console's revision panel list both. | GIMLE-058, GIMLE-054, GIMLE-685, GIMLE-601, GIMLE-602, GIMLE-714, GIMLE-001 |
 | **DEP-3** | A | `deployment rollback --to-revision` to the first version, then from the console's revision panel. | The running version actually reverts (observable behaviour, not just the recorded manifest); the rollback itself becomes a new revision. | GIMLE-601, GIMLE-602, GIMLE-714 |
 | **DEP-4** | A | Redeploy the same Tier-1 module 25 times in a loop while watching the Metrics screen's worker metaspace/thread gauges and the count of meters per instance. | Metaspace stays flat (no sawtooth), no leak is reported in the worker log, the per-module meter set is evicted on each uninstall rather than accumulating. | GIMLE-048, GIMLE-085, GIMLE-712, GIMLE-353, GIMLE-097 |
-| **DEP-5** | A | Deploy the same module as Tier 1 (two replicas) and as Tier 2; inspect worker processes and `-Xmx` flags; kill the Tier-2 worker. | Tier-1 replicas share one worker (same `workerId` in the console, up to the configured density cap); Tier 2 gets its own worker with `-Xmx` equal to its limit; killing it never touches the Tier-1 siblings. | GIMLE-004, GIMLE-065, GIMLE-110, GIMLE-212, GIMLE-647, GIMLE-746 |
+| **DEP-5** | A | Deploy the same module as Tier 1 (two replicas) and as Tier 2; inspect worker processes and `-Xmx` flags; kill the Tier-2 worker. | Tier-1 replicas share one worker (same `workerId` in the console, up to the configured density cap) whose `-Xmx` is the node's shared-worker budget rather than any one module's limit; Tier 2 gets its own worker with `-Xmx` equal to its limit; killing it never touches the Tier-1 siblings. | GIMLE-004, GIMLE-065, GIMLE-110, GIMLE-212, GIMLE-647, GIMLE-746, GIMLE-780 |
 | **DEP-6** | A | `delete deployment` on a deployment with live traffic, then immediately reuse its name. | In-flight calls drain to the deadline, instances disappear with no ghost entries, no worker respawn is attempted for the deliberate stop, revision and event history are cleared so the reused name starts clean. | GIMLE-057, GIMLE-220, GIMLE-241, GIMLE-104, GIMLE-652, GIMLE-726 |
 | **DEP-7** | A | Deploy a module whose readiness probe fails for a warm-up period, then flaps once. | The instance is excluded from Service endpoints and fabric traffic until ready, shown in a distinct not-ready state; readiness only counts after a continuous stabilization window; readiness failure alone never triggers a reschedule. | GIMLE-090, GIMLE-227, GIMLE-683, GIMLE-063, GIMLE-088 |
 | **DEP-8** | A | Deploy a module whose liveness probe starts failing after it is serving, with a short declared interval/threshold; let it fail repeatedly. | Module-tier restart happens without operator action, is visible as a legible event, and repeated failure escalates with backoff until the budget is exhausted and the instance is marked FAILED — never a silent hot loop. | GIMLE-089, GIMLE-036, GIMLE-088, GIMLE-725, GIMLE-008, GIMLE-113 |
@@ -226,7 +226,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **SCHED-7** | B | Drive `greeter-load-generator` traffic up and down against a deployment with request-rate autoscaling, then with WEIGHTED multi-signal mode, then with a tenant quota just above the current count. | Replicas track load in both directions with the declared stabilization windows and no flapping; WEIGHTED blends as documented; autoscaling never exceeds the tenant quota. | GIMLE-229, GIMLE-230, GIMLE-723, GIMLE-506 |
 | **SCHED-8** | B | Roll a new version onto a four-replica deployment with `maxSurge` and a DisruptionBudget while a consumer keeps calling it. | Serving capacity never dips below the budget, at most the declared surge exists, migrations are throttled, and the consumer sees zero failed calls through the cutover. | GIMLE-222, GIMLE-223, GIMLE-682, GIMLE-685 |
 | **SCHED-9** | B | Deploy Tier-2 workloads from two tenants onto a two-node pool. | Node-level tenant isolation keeps the two tenants' Tier-2 workers on different nodes when it can. | GIMLE-215 |
-| **SCHED-10** | B | Deploy twelve tiny Tier-1 modules under one tenant with the density knob set to 4. | Instances pack four per worker and a fifth worker is spawned only when the cap is reached. | GIMLE-110, GIMLE-746 |
+| **SCHED-10** | B | Deploy twelve tiny Tier-1 modules under one tenant with the density knob set to 4, then deploy modules whose declared `resources.limit.memory` sums past the shared-worker heap budget before that cap is reached, and one module declaring more heap than a whole budget. | Tiny instances pack four per worker and a fifth worker is spawned only when the cap is reached; the larger modules stop packing on the summed-limit budget instead, spawning a fresh worker rather than being refused; a module larger than a whole budget gets a worker sized to its own declared limit and nothing is packed alongside it; every shared worker's `-Xmx` is the configured budget, identical whichever instance spawned it. | GIMLE-110, GIMLE-746, GIMLE-780 |
 
 #### Fabric & Networking
 
@@ -1273,4 +1273,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-777 | `gimle-controlplane` | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | observable | FLEET | SCHED-2 |
 | GIMLE-778 | `gimle-skald` | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | observable | FLEET | NET-2 |
 | GIMLE-779 | `gimle-controlplane` | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | observable | FLEET | NET-4 |
+| GIMLE-780 | `gimle-agent` | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | observable | FLEET | DEP-5, SCHED-10 |
 <!-- /forseti:generated -->

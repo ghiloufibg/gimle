@@ -939,14 +939,15 @@
         "midgard"
       ],
       "objective": "Deploy the same module as Tier 1 (two replicas) and as Tier 2; inspect worker processes and `-Xmx` flags; kill the Tier-2 worker.",
-      "oracle": "Tier-1 replicas share one worker (same `workerId` in the console, up to the configured density cap); Tier 2 gets its own worker with `-Xmx` equal to its limit; killing it never touches the Tier-1 siblings.",
+      "oracle": "Tier-1 replicas share one worker (same `workerId` in the console, up to the configured density cap) whose `-Xmx` is the node's shared-worker budget rather than any one module's limit; Tier 2 gets its own worker with `-Xmx` equal to its limit; killing it never touches the Tier-1 siblings.",
       "requirements": [
         "GIMLE-004",
         "GIMLE-065",
         "GIMLE-110",
         "GIMLE-212",
         "GIMLE-647",
-        "GIMLE-746"
+        "GIMLE-746",
+        "GIMLE-780"
       ]
     },
     {
@@ -1367,11 +1368,12 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Deploy twelve tiny Tier-1 modules under one tenant with the density knob set to 4.",
-      "oracle": "Instances pack four per worker and a fifth worker is spawned only when the cap is reached.",
+      "objective": "Deploy twelve tiny Tier-1 modules under one tenant with the density knob set to 4, then deploy modules whose declared `resources.limit.memory` sums past the shared-worker heap budget before that cap is reached, and one module declaring more heap than a whole budget.",
+      "oracle": "Tiny instances pack four per worker and a fifth worker is spawned only when the cap is reached; the larger modules stop packing on the summed-limit budget instead, spawning a fresh worker rather than being refused; a module larger than a whole budget gets a worker sized to its own declared limit and nothing is packed alongside it; every shared worker's `-Xmx` is the configured budget, identical whichever instance spawned it.",
       "requirements": [
         "GIMLE-110",
-        "GIMLE-746"
+        "GIMLE-746",
+        "GIMLE-780"
       ]
     },
     {

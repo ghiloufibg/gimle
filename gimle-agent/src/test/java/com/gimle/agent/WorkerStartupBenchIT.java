@@ -56,6 +56,9 @@ import org.junit.jupiter.api.Timeout;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class WorkerStartupBenchIT {
 
+  private static final Tier1WorkerBudget DEFAULT_TIER1_BUDGET =
+      Tier1WorkerBudget.parse(null, null, null);
+
   private static final int SPAWN_ITERATIONS = 30;
   private static final double REQUIRED_P50_REDUCTION = 0.25;
   private static final Duration SPAWN_TIMEOUT = Duration.ofSeconds(30);
@@ -108,7 +111,9 @@ class WorkerStartupBenchIT {
             Optional.empty(),
             Optional.empty(),
             Map.of());
-    limitHandle = AgentMain.prepareResourceLimit(resourceLimiter, "sleipnir-bench#0", descriptor);
+    limitHandle =
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "sleipnir-bench#0", descriptor, DEFAULT_TIER1_BUDGET);
     assigned =
         new AssignedInstance(
             "sleipnir-bench", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());

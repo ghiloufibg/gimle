@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 779,
+  "requirementCount": 780,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13501,6 +13501,24 @@
         "`gimle-cli/src/main/java/com/gimle/cli/IngressCommand.java`"
       ],
       "gapNote": "No .feature scenario declares an Ingress and drives traffic through a gateway serving it against a real cluster. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-780",
+      "module": "gimle-agent",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "category": "Worker Supervision",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. A Tier-1 shared worker's -Xmx came from whichever instance happened to spawn it, and installIntoExistingWorker never re-derived one, so every instance packed in afterwards ran under an arbitrary ceiling -- a small module could allocate far past its declared limit, a large one was strangled by a ceiling it never asked for, and a Tier-1 resources.limit was closer to decorative than enforced. Tier1WorkerBudget now holds the node's shared-worker heap and cpu (gimle.agent.tier1WorkerHeap, default 1Gi; gimle.agent.tier1WorkerCpu, default 2000m) plus an overhead reserve held back for the worker JVM's own footprint (gimle.agent.tier1WorkerOverheadReserve, default 128Mi), each parsed and validated at agent startup so a malformed value fails there rather than the first time a Tier-1 instance is placed. prepareResourceLimit sizes a TIER_1 worker from that budget and a TIER_2 worker from the instance's own limit as before, never below the spawning instance's own declared limit plus the reserve so a module larger than a whole budget still gets the heap its manifest declares. findReusableTier1Worker gained a weight check alongside the existing count cap: a worker is reused only while the summed resources.limit.memory of its residents plus the candidate's still fits the heap that worker was actually spawned with, recorded on every instance sharing it (SupervisedInstance.workerLimit) so the answer does not change when the spawning instance is stopped while the worker lives on. Limits are summed rather than requests, because a shared unpartitioned heap offers no per-instance ceiling to fall back on; cpu is deliberately not summed, being time-shared rather than exhaustible. Overflow spawns a fresh worker rather than refusing an already-scheduled assignment. Explicitly a reservation and not enforcement: one JVM has one heap, so a module overrunning its declared limit can still OOM its co-tenants, which is what TIER_2 remains for.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "New Tier1WorkerBudgetTest (8 tests) covers default fallback, a malformed quantity naming the property it came from, a reserve as large as the heap rejected, budget sizing winning over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, and cpu deliberately not summed. AgentMainTest gained six: TIER_1 sized by the budget, TIER_2 still sized by the descriptor's limit, reuse refused once residents fill the heap, reuse granted while they still fit, an oversized module getting a worker to itself, and a worker keeping its recorded size once the instance that spawned it is gone.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/Tier1WorkerBudget.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`prepareResourceLimit`, `findReusableTier1Worker`, `workerSizeOf`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`workerLimit`)",
+        "`gimle-docs/docs/reference/node-sizing.md`"
+      ],
+      "gapNote": "No .feature scenario declares Tier-1 modules whose summed limits overflow a shared worker's budget and asserts against a real cluster that they land in separate worker JVMs. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

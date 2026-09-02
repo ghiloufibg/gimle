@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 779,
+    "totalRequirements": 780,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 652,
+    "notCoveredByAutomatedTest": 653,
     "releaseReadinessPercent": 16.3
   },
   "items": [
@@ -8571,6 +8571,17 @@
       "category": "Networking",
       "feature": "Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string",
       "step": "Given an Ingress declaring a SERVICE route for a tenant When a gateway configured with a control-plane endpoint reloads its routes Then the declared route is served alongside the gateway's own config-declared routes And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-780",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "step": "Given an agent with a declared Tier-1 shared-worker heap budget When a TIER_1 instance spawns a worker Then that worker is sized from the budget, not from the instance's own declared limit Given a shared worker whose residents' declared memory limits already fill its heap When another TIER_1 instance of the same tenant is assigned to that node Then it is not packed into that worker and gets a fresh one instead",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
