@@ -176,6 +176,26 @@ final class ManifestFields {
    * scopes its error messages to {@code jobTemplate.placement.*}, so both keep their own local
    * variant rather than delegating here.
    */
+  /**
+   * {@code placement.priority}, the PriorityClass analogue -- absent means 0. Negative is allowed
+   * and meaningful (a workload marked more evictable than the default); a non-integer is a manifest
+   * error rather than something to round, since silently reinterpreting a resource guarantee is
+   * exactly the kind of surprise a scheduling knob must not spring.
+   */
+  private static int priorityField(Map<?, ?> placement) {
+    Object raw = placement.get("priority");
+    if (raw == null) {
+      return 0;
+    }
+    if (raw instanceof Integer value) {
+      return value;
+    }
+    if (raw instanceof Long value && value == value.intValue()) {
+      return value.intValue();
+    }
+    throw new GimleManifestException("'placement.priority' must be an integer");
+  }
+
   static PlacementConstraints parsePlacement(Map<?, ?> root) {
     Object placementObj = root.get("placement");
     if (placementObj == null) {
@@ -186,8 +206,9 @@ final class ManifestFields {
     }
     boolean antiAffinity = booleanField(placement, "antiAffinity", false);
     Optional<Set<String>> requiredLabels = parseRequiredLabels(placement);
+    int priority = priorityField(placement);
     try {
-      return new PlacementConstraints(requiredLabels, antiAffinity);
+      return new PlacementConstraints(requiredLabels, antiAffinity, priority);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid placement: " + e.getMessage(), e);
     }

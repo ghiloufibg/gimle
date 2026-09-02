@@ -2,6 +2,7 @@ package com.gimle.controlplane.schedule;
 
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.ResourceUsageSnapshot;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -28,6 +29,12 @@ import java.util.Set;
  * above) meaning "don't place anything new here" -- it never evicts what's already running, only
  * excludes the node from future placement, so {@code alreadyRunsThisDeployment}/{@code taints} stay
  * meaningful even for a cordoned node.
+ *
+ * <p>{@code residents} is what this node is currently running, supplied only by a caller that may
+ * need to preempt -- every other caller leaves it empty, since nothing but {@code
+ * Scheduler#preemption} ever reads it. It is deliberately not derived from {@code capacity}: free
+ * capacity says how much room is left, never who is holding the rest, and preemption needs the
+ * second question answered.
  */
 public record NodeCandidate(
     String nodeId,
@@ -35,10 +42,23 @@ public record NodeCandidate(
     ResourceUsageSnapshot capacity,
     boolean alreadyRunsThisDeployment,
     Set<String> taints,
-    boolean cordoned) {
+    boolean cordoned,
+    List<ResidentInstance> residents) {
 
   public NodeCandidate {
     taints = Set.copyOf(taints);
+    residents = List.copyOf(residents);
+  }
+
+  /** Defaults {@code residents} to empty -- what a caller that never preempts needs to supply. */
+  public NodeCandidate(
+      String nodeId,
+      NodeCapabilities capabilities,
+      ResourceUsageSnapshot capacity,
+      boolean alreadyRunsThisDeployment,
+      Set<String> taints,
+      boolean cordoned) {
+    this(nodeId, capabilities, capacity, alreadyRunsThisDeployment, taints, cordoned, List.of());
   }
 
   public NodeCandidate(

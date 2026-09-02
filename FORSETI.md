@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 776 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 777 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 192 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 166, uncited 0). |
-| **User-observable** | **515** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 515 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **516** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 516 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -126,7 +126,7 @@ not carry over to the new one.
 | **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 6 | 49 |
 | **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 56 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 53 |
-| **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 36 |
+| **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 37 |
 | **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 54 |
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
 | **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 78 |
@@ -218,7 +218,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | ID | Env | Objective | Oracle | Requirements |
 |---|---|---|---|---|
 | **SCHED-1** | B | Deploy four replicas with `placement.antiAffinity: true`, then without; add a `requiredLabels: [edge]` constraint; taint a node and give one tenant a toleration. | With the flag no two replicas share a node while a free node exists; without it they may co-locate; the label constraint lands replicas only on the labelled node; the taint reserves its node for the tolerating tenant alone. | GIMLE-214, GIMLE-211, GIMLE-216, GIMLE-134, GIMLE-648, GIMLE-675 |
-| **SCHED-2** | B | Request more memory than any node has free. | A clear no-feasible-placement outcome naming the dimension, the numbers and the shortfall — not a stuck INSTALLED instance. | GIMLE-106, GIMLE-744 |
+| **SCHED-2** | B | Request more memory than any node has free, at the default priority and then again with `placement.priority` set above what is already running; and once more at a priority equal to the residents'. | A clear no-feasible-placement outcome naming the dimension, the numbers and the shortfall — not a stuck INSTALLED instance. The higher-priority submission instead displaces strictly-lower-priority instances and lands; the equal-priority one does not, and nothing is evicted for it. | GIMLE-106, GIMLE-744, GIMLE-777 |
 | **SCHED-3** | B | `cordon` a node carrying running instances, deploy more, `uncordon`; repeat from the console's node controls. | Nothing new lands while cordoned, existing instances are untouched (cordon is not drain), the node's page shows the flag and its capacity bars. | GIMLE-376, GIMLE-161, GIMLE-213, GIMLE-715, GIMLE-445, GIMLE-132 |
 | **SCHED-4** | B | Kill a Tier-1 worker process directly. | Module-level recovery is attempted before worker-level escalation; the crash lands as a durable instance event; the deployment returns to ACTIVE. | GIMLE-103, GIMLE-089, GIMLE-113 |
 | **SCHED-5** | B | Kill the same worker five times in quick succession; do the same to a StatefulSet's and a DaemonSet's instance. | Escalating CrashLoopBackOff-style backoff is visible for all three kinds — restarts do not hot-loop at a fixed interval. | GIMLE-036, GIMLE-226, GIMLE-674 |
@@ -1270,4 +1270,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-774 | `gimle-controlplane` | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | observable | FLEET | NET-6 |
 | GIMLE-775 | `gimle-controlplane` | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | observable | FLEET | SEC-9 |
 | GIMLE-776 | `gimle-agent` | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | observable | FLEET | NET-3 |
+| GIMLE-777 | `gimle-controlplane` | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | observable | FLEET | SCHED-2 |
 <!-- /forseti:generated -->

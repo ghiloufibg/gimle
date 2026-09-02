@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 776,
+  "requirementCount": 777,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13440,6 +13440,26 @@
         "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`)"
       ],
       "gapNote": "No .feature scenario deploys a UDP workload behind a Service against a real cluster. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-777",
+      "module": "gimle-controlplane",
+      "feature": "Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full",
+      "category": "Scheduling",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. The scheduler had no PriorityClass equivalent and documented preemption as out of scope, so nothing could guarantee a critical workload was placeable under resource pressure -- a full cluster simply left it unplaced. `PlacementConstraints` gained `priority` (integer, default 0, negatives allowed so a batch workload can be marked more evictable than the default), the PriorityClass analogue collapsed to the resolved integer rather than introduced as a separate cluster-scoped kind -- the same simplification `ServiceSpec` makes matching deployments by name instead of by label selector. Carried through the manifest parser, `DomainCodec`, and `PlacementConstraints.NONE`. `Scheduler#preemption` is a new pure decision returning which node to seat the workload on and which instances to evict first; it never evicts anything itself. Priority is consulted only after `place` has already failed, so while any node has room a workload lands there regardless of priorities -- raising a priority buys the ability to make room, never a better address. Victims are taken lowest-priority first and within one priority largest first, so the fewest instances are disturbed and the ones disturbed are those the cluster was told matter least. Four safety properties are enforced and tested: an equal-priority instance is never a victim (two peers would otherwise displace each other indefinitely), nothing is evicted when evicting everything eligible still would not fit, only Deployment instances are ever victims (a StatefulSet instance is pinned by a local volume eviction cannot move, a DaemonSet instance exists because its node does, a Job run is already finite), and an ineligible node is never preempted since the full tier/cordon/anti-affinity/taint/label walk runs first. `DeploymentReconciler` turns the decision into `RemoveAssignment` mutations and lets the ordinary placement path find the freed room on a later tick -- level-triggered, with no reservation carried through the store, which is why a preempting workload can occasionally need more than one tick to land. Residents are resolved by `ResidentInstances` only in the failure path, never on the hot reconcile path, and a resident whose artifact cannot be resolved is skipped so preemption under-evicts rather than evicting a reservation it could not confirm.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "New SchedulerPreemptionTest covers all ten decisions as a pure function over synthetic candidates: a higher-priority workload evicting a lower one, equal priority never being a victim, higher priority never being a victim, nothing evicted when evicting everything still would not fit, lowest-priority victims taken first, the node needing fewest evictions winning, a node with room needing no victims, an ineligible (cordoned) node never preempted however low its residents rank, multiple victims taken when one does not free enough, and CPU pressure alone being sufficient to preempt.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/PlacementConstraints.java` (`priority`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (`priorityField`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`preemption`, `victimsOn`, `Preemption`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/ResidentInstance.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/ResidentInstances.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java` (`preemptForUnplaceable`)"
+      ],
+      "gapNote": "No .feature scenario fills a real cluster and then submits a higher-priority workload to observe eviction. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

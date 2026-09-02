@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 776
+- **Total requirements**: 777
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 649
-- **Release-readiness (automated coverage)**: 16.4%
+- **Not covered by automated test**: 650
+- **Release-readiness (automated coverage)**: 16.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 55 | 6 | 49 | 10.9% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 110 | 17 | 93 | 15.5% |
+| gimle-controlplane | 111 | 17 | 94 | 15.3% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -1318,6 +1318,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-216 | Required node-label placement constraint | Given a manifest declares placement.requiredLabels; When placement runs; Then only nodes carrying every required label are candidates; fails outright if none qualify. | No |
 | [ ] | GIMLE-218 | DaemonSet eligible-node enumeration (`eligibleNodes`) | Given several nodes, some cordoned, some missing required labels; When DaemonSetReconciler computes eligible nodes; Then every node passing tier/cordon/tenant/label filters is returned, no single-winner pick. | No |
 | [ ] | GIMLE-744 | Placement and quota failures name the resource dimension, the numbers and the shortfall | Given a deployment requesting more memory than any node has free When placement is attempted Then the failure names memory, the shortfall, and the roomiest candidate node And a tier that no node supports says so instead of reporting a capacity shortfall | No |
+| [ ] | GIMLE-777 | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Given a cluster with no free capacity running only default-priority workloads When a deployment declaring a higher placement priority cannot be placed Then strictly-lower-priority instances are evicted to free room for it And an equal-or-higher-priority instance is never evicted | No |
 
 #### Scheduling / Multi-tenancy
 

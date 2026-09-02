@@ -1248,11 +1248,12 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Request more memory than any node has free.",
-      "oracle": "A clear no-feasible-placement outcome naming the dimension, the numbers and the shortfall — not a stuck INSTALLED instance.",
+      "objective": "Request more memory than any node has free, at the default priority and then again with `placement.priority` set above what is already running; and once more at a priority equal to the residents'.",
+      "oracle": "A clear no-feasible-placement outcome naming the dimension, the numbers and the shortfall — not a stuck INSTALLED instance. The higher-priority submission instead displaces strictly-lower-priority instances and lands; the equal-priority one does not, and nothing is evicted for it.",
       "requirements": [
         "GIMLE-106",
-        "GIMLE-744"
+        "GIMLE-744",
+        "GIMLE-777"
       ]
     },
     {

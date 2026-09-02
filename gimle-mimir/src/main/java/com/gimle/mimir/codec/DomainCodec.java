@@ -547,6 +547,7 @@ public final class DomainCodec {
         out.writeUTF(label);
       }
     }
+    out.writeInt(pc.priority());
   }
 
   public static PlacementConstraints readPlacementConstraints(DataInputStream in)
@@ -562,7 +563,8 @@ public final class DomainCodec {
       }
       labels = Optional.of(set);
     }
-    return new PlacementConstraints(labels, antiAffinity);
+    int priority = in.readInt();
+    return new PlacementConstraints(labels, antiAffinity, priority);
   }
 
   /**

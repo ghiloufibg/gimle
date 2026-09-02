@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 776,
+  "requirementCount": 777,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15668,6 +15668,32 @@
         "When two different clients each send a datagram to the Service's bound address",
         "Then each client receives the reply to its own request",
         "And a NetworkPolicy applying to that Service causes every datagram to be dropped instead"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-777",
+      "module": "gimle-controlplane",
+      "feature": "Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full",
+      "category": "Scheduling",
+      "userStory": "As a platform operator running a critical workload, I want it to be placeable on a full cluster by displacing workloads declared less important, so cluster-critical components are not left unplaced behind ordinary batch work.",
+      "statusDetail": "Implemented. The scheduler had no PriorityClass equivalent and documented preemption as out of scope, so nothing could guarantee a critical workload was placeable under resource pressure -- a full cluster simply left it unplaced. `PlacementConstraints` gained `priority` (integer, default 0, negatives allowed so a batch workload can be marked more evictable than the default), the PriorityClass analogue collapsed to the resolved integer rather than introduced as a separate cluster-scoped kind -- the same simplification `ServiceSpec` makes matching deployments by name instead of by label selector. Carried through the manifest parser, `DomainCodec`, and `PlacementConstraints.NONE`. `Scheduler#preemption` is a new pure decision returning which node to seat the workload on and which instances to evict first; it never evicts anything itself. Priority is consulted only after `place` has already failed, so while any node has room a workload lands there regardless of priorities -- raising a priority buys the ability to make room, never a better address. Victims are taken lowest-priority first and within one priority largest first, so the fewest instances are disturbed and the ones disturbed are those the cluster was told matter least. Four safety properties are enforced and tested: an equal-priority instance is never a victim (two peers would otherwise displace each other indefinitely), nothing is evicted when evicting everything eligible still would not fit, only Deployment instances are ever victims (a StatefulSet instance is pinned by a local volume eviction cannot move, a DaemonSet instance exists because its node does, a Job run is already finite), and an ineligible node is never preempted since the full tier/cordon/anti-affinity/taint/label walk runs first. `DeploymentReconciler` turns the decision into `RemoveAssignment` mutations and lets the ordinary placement path find the freed room on a later tick -- level-triggered, with no reservation carried through the store, which is why a preempting workload can occasionally need more than one tick to land. Residents are resolved by `ResidentInstances` only in the failure path, never on the hot reconcile path, and a resident whose artifact cannot be resolved is skipped so preemption under-evicts rather than evicting a reservation it could not confirm.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/PlacementConstraints.java` (`priority`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (`priorityField`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`preemption`, `victimsOn`, `Preemption`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/ResidentInstance.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/ResidentInstances.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java` (`preemptForUnplaceable`)"
+      ],
+      "testCoverageDetail": "New SchedulerPreemptionTest covers all ten decisions as a pure function over synthetic candidates: a higher-priority workload evicting a lower one, equal priority never being a victim, higher priority never being a victim, nothing evicted when evicting everything still would not fit, lowest-priority victims taken first, the node needing fewest evictions winning, a node with room needing no victims, an ineligible (cordoned) node never preempted however low its residents rank, multiple victims taken when one does not free enough, and CPU pressure alone being sufficient to preempt.",
+      "gherkinSteps": [
+        "Given a cluster with no free capacity running only default-priority workloads",
+        "When a deployment declaring a higher placement priority cannot be placed",
+        "Then strictly-lower-priority instances are evicted to free room for it",
+        "And an equal-or-higher-priority instance is never evicted"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 776,
+    "totalRequirements": 777,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 649,
-    "releaseReadinessPercent": 16.4
+    "notCoveredByAutomatedTest": 650,
+    "releaseReadinessPercent": 16.3
   },
   "items": [
     {
@@ -8538,6 +8538,17 @@
       "category": "Networking",
       "feature": "A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams",
       "step": "Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-777",
+      "module": "gimle-controlplane",
+      "category": "Scheduling",
+      "feature": "Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full",
+      "step": "Given a cluster with no free capacity running only default-priority workloads When a deployment declaring a higher placement priority cannot be placed Then strictly-lower-priority instances are evicted to free room for it And an equal-or-higher-priority instance is never evicted",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
