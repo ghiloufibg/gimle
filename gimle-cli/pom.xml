@@ -20,9 +20,13 @@
   </description>
 
   <properties>
-    <!-- Runtime-image profile (root pom): see gimle-agent/pom.xml for how this list was derived. -->
+    <!-- Runtime-image profile (root pom): see gimle-agent/pom.xml for how this list was derived.
+         java.logging is here for JLine, which the CLI archive ships alongside gimle-hugin for the
+         `top` verb: org.jline.utils.Log is a java.util.logging front end, and its static
+         initializer runs while a terminal is being built, so a JRE without java.logging fails that
+         verb with NoClassDefFoundError rather than degrading. -->
     <gimle.runtimeImage.launcherClass>com.gimle.cli.GimleCli</gimle.runtimeImage.launcherClass>
-    <gimle.runtimeImage.jdkModules>java.base,java.net.http</gimle.runtimeImage.jdkModules>
+    <gimle.runtimeImage.jdkModules>java.base,java.net.http,java.logging</gimle.runtimeImage.jdkModules>
   </properties>
 
   <dependencies>
