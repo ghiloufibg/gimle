@@ -357,6 +357,23 @@ public final class ApiServer implements AutoCloseable {
       new RequestRateLimiter(
           Integer.getInteger(CSR_CLUSTER_BURST_PROPERTY, 1_000),
           Duration.ofMillis(Long.getLong(CSR_CLUSTER_REFILL_MILLIS_PROPERTY, 50L)));
+  // Bounds how fast any single source may be served *at all*, whatever route it calls and whether
+  // or not it authenticates -- the backstop the CSR buckets above only ever provided for one route.
+  // Hooked into #instrument, so every registered context is covered and a new route cannot forget
+  // to opt in.
+  //
+  // Keyed by remote address only, with deliberately no cluster-wide companion bucket, which is the
+  // one place this differs from the CSR pair above. A shared bucket would let a single flooding
+  // source spend the budget every other caller draws from -- including the node agents' own
+  // heartbeats, whose starvation the control plane reads as nodes going dark and answers with mass
+  // rescheduling. That converts a flood from one source into a cluster-wide outage, which is worse
+  // than the unbounded surface it set out to fix. CSR can afford a shared bucket because
+  // submissions are rare and bounded by fleet size; ordinary API traffic is neither.
+  //
+  // Sized as a flood backstop rather than a quota: a node agent's heartbeat/assignment polling, an
+  // operator's bulk apply, and a console page load's asset burst all sit far below it, so the
+  // limit is only ever reached by traffic no legitimate caller generates.
+  private final Optional<RequestRateLimiter> requestRateLimiter = buildRequestRateLimiter();
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
   private final Instant startedAt = Instant.now();
   // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
@@ -653,6 +670,12 @@ public final class ApiServer implements AutoCloseable {
       String verb = exchange.getRequestMethod();
       long startNanos = System.nanoTime();
       try {
+        Optional<Instant> retryAt = rateLimited(exchange);
+        if (retryAt.isPresent()) {
+          respondThrottled(exchange, retryAt.get());
+          exchange.close();
+          return;
+        }
         delegate.handle(exchange);
       } finally {
         Duration latency = Duration.ofNanos(System.nanoTime() - startNanos);
@@ -8423,6 +8446,26 @@ public final class ApiServer implements AutoCloseable {
 
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
   // How many submissions one address may spend at once, and how fast it earns another.
+  static final String RATE_LIMIT_ENABLED_PROPERTY = "gimle.controlplane.rateLimit.enabled";
+  static final String RATE_LIMIT_BURST_PROPERTY = "gimle.controlplane.rateLimit.burstPerAddress";
+  static final String RATE_LIMIT_REFILL_MILLIS_PROPERTY =
+      "gimle.controlplane.rateLimit.refillMillisPerAddress";
+
+  /**
+   * Empty when {@code gimle.controlplane.rateLimit.enabled} is set to {@code false} -- an explicit
+   * operator decision to run the API unbounded, for a benchmark or a single-tenant lab where the
+   * limit is only noise. On by default: an unbounded write path is the gap, not the limit.
+   */
+  private static Optional<RequestRateLimiter> buildRequestRateLimiter() {
+    if (!Boolean.parseBoolean(System.getProperty(RATE_LIMIT_ENABLED_PROPERTY, "true"))) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        new RequestRateLimiter(
+            Integer.getInteger(RATE_LIMIT_BURST_PROPERTY, 600),
+            Duration.ofMillis(Long.getLong(RATE_LIMIT_REFILL_MILLIS_PROPERTY, 5L))));
+  }
+
   static final String CSR_BURST_PER_ADDRESS_PROPERTY = "gimle.controlplane.csr.burstPerAddress";
   static final String CSR_REFILL_MILLIS_PER_ADDRESS_PROPERTY =
       "gimle.controlplane.csr.refillMillisPerAddress";
@@ -8491,6 +8534,15 @@ public final class ApiServer implements AutoCloseable {
    * threat this bounds, but exempting one would mean deciding that before the body is read, and the
    * limits are set far above any rate a real node's own join or rotation traffic reaches.
    */
+  /**
+   * Empty while this caller may be served; otherwise when it may try again. Charged before the
+   * route runs and before any authentication, since the point is to bound work done on behalf of a
+   * caller whose identity establishing would itself be the work.
+   */
+  private Optional<Instant> rateLimited(HttpExchange exchange) {
+    return requestRateLimiter.flatMap(limiter -> limiter.acquire(remoteAddressKey(exchange)));
+  }
+
   private Optional<Instant> csrRateLimited(HttpExchange exchange) {
     Optional<Instant> addressRetryAt = csrAddressRateLimiter.acquire(remoteAddressKey(exchange));
     if (addressRetryAt.isPresent()) {

@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 774,
+    "totalRequirements": 775,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 647,
+    "notCoveredByAutomatedTest": 648,
     "releaseReadinessPercent": 16.4
   },
   "items": [
@@ -8516,6 +8516,17 @@
       "category": "Service fabric",
       "feature": "An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster",
       "step": "Given a deployment with an instance running on a node When an operator reads that instance's fabric endpoint through the control plane Then the address its worker actually bound is returned, resolved from the hosting node's own agent And an instance whose worker has not yet handshaked is reported as retryable rather than missing",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-775",
+      "module": "gimle-controlplane",
+      "category": "Security",
+      "feature": "Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission",
+      "step": "Given a control plane serving its API When one source issues requests faster than its configured budget allows Then further requests from that source are refused with 429 and a Retry-After And requests from other sources, including node agents' own heartbeats, are unaffected",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

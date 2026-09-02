@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 774 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 775 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 192 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 166, uncited 0). |
-| **User-observable** | **513** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 513 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **514** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 514 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -129,7 +129,7 @@ not carry over to the new one.
 | **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 36 |
 | **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 53 |
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
-| **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 77 |
+| **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 78 |
 | **ART** | Artifacts & Registry | A release engineer publishing module builds and expecting the registry to behave like Nexus. | A B | 8 | 25 |
 | **OBS** | Observability & Console | An on-call engineer with nothing but the consoles and `gimle logs`, at 3 a.m. | A B | 10 | 73 |
 | **JRN** | Journeys — Sample applications | Someone validating that a real application, not a primitive, works end to end — including a custom-kind operator. | A B | 7 | 25 |
@@ -272,7 +272,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **SEC-6** | A C | A module reads a Config value declared `--encrypted` and one that isn't; change both while it runs; inspect the store's on-disk state. | Both resolve at runtime; the encrypted one is unreadable at rest; live changes propagate to the running instance without restart. | GIMLE-116, GIMLE-619, GIMLE-738, GIMLE-379, GIMLE-453 |
 | **SEC-7** | C | `cert token create`, join a node, `cert request`/`status`/`approve`; request a CSR claiming the operator group and one with a SAN it cannot prove; revoke a certificate and use it; hammer the CSR endpoint. | Approval-gated flow works end to end and is audited; the self-declared group is overwritten server-side; the unprovable SAN is refused; the revoked certificate is denied everywhere; the bootstrap endpoint rate-limits. (Renewal-banner timing is unit-cited, not waited out.) | GIMLE-387, GIMLE-034, GIMLE-071, GIMLE-072, GIMLE-259, GIMLE-258, GIMLE-624, GIMLE-702, GIMLE-743, GIMLE-704 |
 | **SEC-8** | C | With a tenant-A certificate: read/write tenant A's secret, then tenant B's; call Fafnir directly with a forged forwarded-principal header; read Muninn's logs API unauthenticated; push to Andvari with a node certificate. | Fafnir refuses the foreign tenant independently of the control plane; the forged header is ignored unless the peer is the control plane's own certificate; Muninn refuses; the node identity may pull but never push. | GIMLE-285, GIMLE-690, GIMLE-691, GIMLE-310, GIMLE-311, GIMLE-253 |
-| **SEC-9** | C A | Console sessions: log in, log out and replay the old cookie; wait out an expired session; fail login repeatedly; log into Fafnir's and Andvari's consoles separately. | Logout revokes server-side (replay is 401); expiry is explained once in plain language; throttling kicks in with backoff; each console keeps its own session that is useless against the others. | GIMLE-256, GIMLE-435, GIMLE-436, GIMLE-667, GIMLE-758, GIMLE-018, GIMLE-257, GIMLE-461, GIMLE-467, GIMLE-290, GIMLE-314 |
+| **SEC-9** | C A | Console sessions: log in, log out and replay the old cookie; wait out an expired session; fail login repeatedly; flood an ordinary read route from one source past its per-address budget while a second source keeps calling normally; log into Fafnir's and Andvari's consoles separately. | Logout revokes server-side (replay is 401); expiry is explained once in plain language; throttling kicks in with backoff; the flooded source is refused with 429 and a Retry-After while the second source is served throughout, the cluster's own node heartbeats included; each console keeps its own session that is useless against the others. | GIMLE-256, GIMLE-435, GIMLE-436, GIMLE-667, GIMLE-758, GIMLE-018, GIMLE-257, GIMLE-461, GIMLE-467, GIMLE-290, GIMLE-314, GIMLE-775 |
 | **SEC-10** | C | Export a tenant's whole secret set, import it into a fresh tenant; submit an oversized secret value and an oversized request body. | Export/import is one authorized, audited call and round-trips exactly; both oversized submissions are rejected with the limit named. | GIMLE-735, GIMLE-736 |
 | **SEC-11** | C | Export a service with `allowedTenantIds` and call it from an allowed and a disallowed tenant, including by dialling the raw address. | Allowed succeeds; disallowed is refused at the listener even when the caller-side filter is bypassed. | GIMLE-006, GIMLE-192 |
 | **SEC-12** | C | Under mTLS with no operator-added RoleBindings: deploy a coordinate-only DaemonSet and a deployment that reads a ConfigMap. | The control plane's own certificate may read the registry and node agents may read their assigned tenants' config out of the box — the two default-RBAC seams hold. | GIMLE-633, GIMLE-634 |
@@ -1268,4 +1268,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-772 | `gimle-controlplane` | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | observable | FLEET | GOV-9 |
 | GIMLE-773 | `gimle-core` | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | observable | FLEET | DEP-1 |
 | GIMLE-774 | `gimle-controlplane` | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | observable | FLEET | NET-6 |
+| GIMLE-775 | `gimle-controlplane` | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | observable | FLEET | SEC-9 |
 <!-- /forseti:generated -->

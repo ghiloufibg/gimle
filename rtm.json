@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 774,
+  "requirementCount": 775,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13404,6 +13404,22 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleInstanceFabricEndpoint`, `resolveInstancePlacement`)"
       ],
       "gapNote": "No .feature scenario reads an instance's fabric endpoint against a real cluster yet. This requirement is the enabler for closing GIMLE-567's and GIMLE-574's own coverage gaps rather than being covered by them; a scenario using this route to dial an instance directly is the next step. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-775",
+      "module": "gimle-controlplane",
+      "feature": "Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission",
+      "category": "Security",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. `RequestRateLimiter` existed and was wired to exactly two things: the CSR submission route's per-address and cluster buckets, plus `LoginThrottle` on failed logins. Every other route -- including every write that proposes into Raft -- was unbounded, authenticated or not. The limiter is now charged inside `ApiServer#instrument`, the single wrapper every registered context already passes through, so no route can forget to opt in and a new one is covered by construction. A refused caller gets 429 with `Retry-After`, the same response shape the CSR and login paths already return. Keyed by remote address with deliberately no cluster-wide companion bucket, unlike the CSR pair: a shared bucket would let one flooding source spend the budget node agents' heartbeats draw from, and the control plane reads starved heartbeats as nodes going dark and answers with mass rescheduling -- turning a single-source flood into a cluster-wide outage, worse than the unbounded surface it set out to fix. Sized as a flood backstop rather than a quota (600-token burst, 5ms refill, ~200/s sustained per address), far above an agent's polling, an operator's bulk apply, or a console page load; tunable via `gimle.controlplane.rateLimit.burstPerAddress`/`.refillMillisPerAddress` and disableable via `.enabled=false`, which is the right setting when pointing `ragnarok stress` at a cluster. Console static assets are served outside `instrument` and are not charged.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "New ApiServerRateLimitTest covers a source outrunning its budget being refused with a positive Retry-After, the limit spanning routes (budget spent on one route refuses the next on another -- the property that makes the choke point worth hooking), a refilled bucket serving again rather than latching closed, the operator opt-out, and a guard on the sizing decision itself (60 consecutive default-configuration requests are not throttled).",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`instrument`, `rateLimited`, `buildRequestRateLimiter`)",
+        "`gimle-core/src/main/java/com/gimle/core/throttle/RequestRateLimiter.java`"
+      ],
+      "gapNote": "No .feature scenario drives the API past its rate limit against a real cluster. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

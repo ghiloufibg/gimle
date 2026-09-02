@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 774
+- **Total requirements**: 775
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 647
+- **Not covered by automated test**: 648
 - **Release-readiness (automated coverage)**: 16.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 54 | 6 | 48 | 11.1% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 109 | 17 | 92 | 15.6% |
+| gimle-controlplane | 110 | 17 | 93 | 15.5% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -1349,6 +1349,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-704 | Certificate-request approval and node/operator join are recorded in the durable audit trail | Given an operator with CERTIFICATE_REQUEST:APPROVE permission approves a tenant-client CSR; When the approval completes; Then a durable audit event records the approval, allowed=true. Given a node presents an invalid or already-consumed bootstrap token; When the join request is rejected; Then a durable audit event records the rejection, attributed to the bootstrap-token principal. Given an operator submits a join CSR; When the request is accepted as pending; Then a durable audit event records the submission before any approval decision is made. | No |
+| [ ] | GIMLE-775 | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | Given a control plane serving its API When one source issues requests faster than its configured budget allows Then further requests from that source are refused with 429 and a Retry-After And requests from other sources, including node agents' own heartbeats, are unaffected | No |
 
 #### Security / PKI
 

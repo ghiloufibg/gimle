@@ -1886,8 +1886,8 @@
         "vault",
         "midgard"
       ],
-      "objective": "Console sessions: log in, log out and replay the old cookie; wait out an expired session; fail login repeatedly; log into Fafnir's and Andvari's consoles separately.",
-      "oracle": "Logout revokes server-side (replay is 401); expiry is explained once in plain language; throttling kicks in with backoff; each console keeps its own session that is useless against the others.",
+      "objective": "Console sessions: log in, log out and replay the old cookie; wait out an expired session; fail login repeatedly; flood an ordinary read route from one source past its per-address budget while a second source keeps calling normally; log into Fafnir's and Andvari's consoles separately.",
+      "oracle": "Logout revokes server-side (replay is 401); expiry is explained once in plain language; throttling kicks in with backoff; the flooded source is refused with 429 and a Retry-After while the second source is served throughout, the cluster's own node heartbeats included; each console keeps its own session that is useless against the others.",
       "requirements": [
         "GIMLE-256",
         "GIMLE-435",
@@ -1899,7 +1899,8 @@
         "GIMLE-461",
         "GIMLE-467",
         "GIMLE-290",
-        "GIMLE-314"
+        "GIMLE-314",
+        "GIMLE-775"
       ]
     },
     {

@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 774,
+  "requirementCount": 775,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15620,6 +15620,28 @@
         "When an operator reads that instance's fabric endpoint through the control plane",
         "Then the address its worker actually bound is returned, resolved from the hosting node's own agent",
         "And an instance whose worker has not yet handshaked is reported as retryable rather than missing"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-775",
+      "module": "gimle-controlplane",
+      "feature": "Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission",
+      "category": "Security",
+      "userStory": "As a cluster operator, I want a single source unable to flood the control-plane API without bound, so a runaway client or a hostile one cannot exhaust the API server while leaving the cluster's own control traffic unaffected.",
+      "statusDetail": "Implemented. `RequestRateLimiter` existed and was wired to exactly two things: the CSR submission route's per-address and cluster buckets, plus `LoginThrottle` on failed logins. Every other route -- including every write that proposes into Raft -- was unbounded, authenticated or not. The limiter is now charged inside `ApiServer#instrument`, the single wrapper every registered context already passes through, so no route can forget to opt in and a new one is covered by construction. A refused caller gets 429 with `Retry-After`, the same response shape the CSR and login paths already return. Keyed by remote address with deliberately no cluster-wide companion bucket, unlike the CSR pair: a shared bucket would let one flooding source spend the budget node agents' heartbeats draw from, and the control plane reads starved heartbeats as nodes going dark and answers with mass rescheduling -- turning a single-source flood into a cluster-wide outage, worse than the unbounded surface it set out to fix. Sized as a flood backstop rather than a quota (600-token burst, 5ms refill, ~200/s sustained per address), far above an agent's polling, an operator's bulk apply, or a console page load; tunable via `gimle.controlplane.rateLimit.burstPerAddress`/`.refillMillisPerAddress` and disableable via `.enabled=false`, which is the right setting when pointing `ragnarok stress` at a cluster. Console static assets are served outside `instrument` and are not charged.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`instrument`, `rateLimited`, `buildRequestRateLimiter`)",
+        "`gimle-core/src/main/java/com/gimle/core/throttle/RequestRateLimiter.java`"
+      ],
+      "testCoverageDetail": "New ApiServerRateLimitTest covers a source outrunning its budget being refused with a positive Retry-After, the limit spanning routes (budget spent on one route refuses the next on another -- the property that makes the choke point worth hooking), a refilled bucket serving again rather than latching closed, the operator opt-out, and a guard on the sizing decision itself (60 consecutive default-configuration requests are not throttled).",
+      "gherkinSteps": [
+        "Given a control plane serving its API",
+        "When one source issues requests faster than its configured budget allows",
+        "Then further requests from that source are refused with 429 and a Retry-After",
+        "And requests from other sources, including node agents' own heartbeats, are unaffected"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

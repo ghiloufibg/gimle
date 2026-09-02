@@ -784,6 +784,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | Observability | Complete | Yes |
 | GIMLE-773 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Observability | Complete | Yes |
 | GIMLE-774 | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | Service fabric | Complete | Yes |
+| GIMLE-775 | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | Security | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6405,6 +6406,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When an operator reads that instance's fabric endpoint through the control plane
   Then the address its worker actually bound is returned, resolved from the hosting node's own agent
   And an instance whose worker has not yet handshaked is reported as retryable rather than missing
+  ```
+
+#### GIMLE-775 — Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission
+
+- **Category**: Security
+- **User story**: As a cluster operator, I want a single source unable to flood the control-plane API without bound, so a runaway client or a hostile one cannot exhaust the API server while leaving the cluster's own control traffic unaffected.
+- **Status**: Implemented. `RequestRateLimiter` existed and was wired to exactly two things: the CSR submission route's per-address and cluster buckets, plus `LoginThrottle` on failed logins. Every other route -- including every write that proposes into Raft -- was unbounded, authenticated or not. The limiter is now charged inside `ApiServer#instrument`, the single wrapper every registered context already passes through, so no route can forget to opt in and a new one is covered by construction. A refused caller gets 429 with `Retry-After`, the same response shape the CSR and login paths already return. Keyed by remote address with deliberately no cluster-wide companion bucket, unlike the CSR pair: a shared bucket would let one flooding source spend the budget node agents' heartbeats draw from, and the control plane reads starved heartbeats as nodes going dark and answers with mass rescheduling -- turning a single-source flood into a cluster-wide outage, worse than the unbounded surface it set out to fix. Sized as a flood backstop rather than a quota (600-token burst, 5ms refill, ~200/s sustained per address), far above an agent's polling, an operator's bulk apply, or a console page load; tunable via `gimle.controlplane.rateLimit.burstPerAddress`/`.refillMillisPerAddress` and disableable via `.enabled=false`, which is the right setting when pointing `ragnarok stress` at a cluster. Console static assets are served outside `instrument` and are not charged.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`instrument`, `rateLimited`, `buildRequestRateLimiter`), `gimle-core/src/main/java/com/gimle/core/throttle/RequestRateLimiter.java`
+- **Test coverage**: New ApiServerRateLimitTest covers a source outrunning its budget being refused with a positive Retry-After, the limit spanning routes (budget spent on one route refuses the next on another -- the property that makes the choke point worth hooking), a refilled bucket serving again rather than latching closed, the operator opt-out, and a guard on the sizing decision itself (60 consecutive default-configuration requests are not throttled).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a control plane serving its API
+  When one source issues requests faster than its configured budget allows
+  Then further requests from that source are refused with 429 and a Retry-After
+  And requests from other sources, including node agents' own heartbeats, are unaffected
   ```
 
 ### gimle-fafnir

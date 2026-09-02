@@ -112,6 +112,29 @@ relay a `GET /endpoints/{name}` call on its behalf (the worker-agent control cha
 `RelayControlPlaneRead`/`RelayControlPlaneResult` pair — see [Node topology](./node-topology.md#relaying-a-hosted-modules-control-plane-reads))
 without that agent's own certificate needing an ordinary `RoleBinding` granted to it.
 
+### Request rate limiting
+
+Every route registered on the API server passes through one instrumentation wrapper, and that
+wrapper charges the caller's remote address a token before the route runs. A source that outruns its
+budget gets `429` with a `Retry-After` header; the limit applies whether or not the caller
+authenticates, since establishing an identity is itself work a flood would force the server to do.
+
+Deliberately keyed by remote address alone, with **no** cluster-wide companion bucket — the one
+place this differs from the `POST /bootstrap/csr` limiter, which has both. A shared bucket would let
+a single flooding source spend the budget every other caller draws from, node agents' heartbeats
+included; the control plane reads starved heartbeats as nodes going dark and answers with mass
+rescheduling, so a shared bucket would convert a flood from one source into a cluster-wide outage.
+CSR can afford one because submissions are rare and bounded by fleet size. Ordinary API traffic is
+neither.
+
+Sized as a flood backstop, not a quota: the default 600-token burst refilling every 5ms (≈200/s
+sustained, per address) sits far above an agent's polling, an operator's bulk apply, or a console
+page load's asset burst. Tune with `gimle.controlplane.rateLimit.burstPerAddress` and
+`.refillMillisPerAddress`, or set `gimle.controlplane.rateLimit.enabled=false` to run unbounded —
+worth doing when pointing a load generator such as [`ragnarok stress`](../reference/ragnarok-reference.md)
+at the cluster, since a stress run's whole purpose is to exceed exactly this rate. Console static
+assets are served outside this wrapper and are not charged.
+
 ## Admission, and previewing it
 
 Every workload PUT runs an ordered `AdmissionChain` before anything is proposed to the store:
