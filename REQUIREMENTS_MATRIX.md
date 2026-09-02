@@ -785,6 +785,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-773 | A Gateway console screen showing the declared route table and what each route currently resolves to | Web Console / Frontend | Complete | Yes |
 | GIMLE-774 | A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness | Service Discovery / DNS | Complete | Yes |
 | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Web Console / Frontend | Complete | Yes |
+| GIMLE-776 | A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing | Networking / Services | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6373,6 +6374,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When an operator reads the per-deployment rollup
   Then two rows are returned, one naming each tenant, neither merged into a single average
   And an untenanted deployment named `api` is a third, distinct row carrying a null tenant
+  ```
+
+#### GIMLE-776 — A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing
+
+- **Category**: Networking / Services
+- **User story**: As an operator declaring a Service for a tenant, I want the gateway to proxy to it and Skald to resolve its DNS name, rather than both silently behaving as though the Service does not exist.
+- **Status**: Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as "raced to deletion" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolveTenantForServiceName`, `handleService`), `gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`
+- **Test coverage**: ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service declared for tenant `acme` with live backing instances
+  When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name
+  Then the route is served from a live endpoint instead of answering 502
+  And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN
   ```
 
 ### gimle-fafnir

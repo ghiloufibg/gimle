@@ -5,6 +5,7 @@ import { describeApiError, storeErrorMessage } from "@/lib/api-error";
 import { ApiError } from "@/repositories/http/apiClient";
 import {
   parseGatewayRoutes,
+  routeTarget,
   type GatewayRoute,
   type GatewayRouteError,
 } from "@/lib/gateway-routes";
@@ -115,15 +116,24 @@ async function readGateway(): Promise<
 
   const services = await servicesRepo.fetchAll();
   const serviceTenants = new Map(services.map((s) => [s.name, s.tenantId]));
+  // Two routes may name the same target (an exact route beside a prefix one is a deliberate,
+  // common shape), and resolving each independently would issue the same read twice on every
+  // auto-refresh tick. One read per distinct target, shared by every route naming it.
+  const resolutions = new Map<string, Promise<RouteResolution>>();
   const rows: GatewayRouteRow[] = await Promise.all(
-    routes.map(async (route) => ({
-      route,
-      // One target failing to resolve must not blank the whole table -- the rest of it is still
-      // exactly what the gateway is serving.
-      resolution: await resolveRoute(route, serviceTenants).catch(
-        (e): RouteResolution => ({ status: "unknown", detail: describeApiError(e) }),
-      ),
-    })),
+    routes.map(async (route) => {
+      const key = `${route.kind} ${routeTarget(route)}`;
+      let resolution = resolutions.get(key);
+      if (resolution === undefined) {
+        // One target failing to resolve must not blank the whole table -- the rest of it is still
+        // exactly what the gateway is serving.
+        resolution = resolveRoute(route, serviceTenants).catch(
+          (e): RouteResolution => ({ status: "unknown", detail: describeApiError(e) }),
+        );
+        resolutions.set(key, resolution);
+      }
+      return { route, resolution: await resolution };
+    }),
   );
 
   return {

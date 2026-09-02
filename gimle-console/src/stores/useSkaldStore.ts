@@ -15,7 +15,9 @@ export interface SkaldName {
   dnsName: string;
   serviceName: string;
   tenantId: string | null;
-  /** How many `A` records the query would come back with. Zero is the failure this screen catches. */
+  /** How many `A` records the query would come back with -- distinct endpoint hosts, not
+   * endpoints: two replicas on one node share one address and answer as a single A record. Zero is
+   * the failure this screen catches. */
   addressCount: number;
   port: number | null;
   deploymentNames: string[];
@@ -120,7 +122,7 @@ async function readNames(): Promise<SkaldName[]> {
         const endpoints = await servicesRepo.fetchEndpoints(service.name, service.tenantId);
         return {
           ...base,
-          addressCount: endpoints.endpoints.length,
+          addressCount: new Set(endpoints.endpoints.map((e) => e.host)).size,
           // Every endpoint of one Service answers on the same port, so the first one names it.
           port: endpoints.endpoints[0]?.port ?? null,
           unreadable: null,

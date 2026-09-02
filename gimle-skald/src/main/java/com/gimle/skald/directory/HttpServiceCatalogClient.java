@@ -3,9 +3,11 @@ package com.gimle.skald.directory;
 import com.gimle.core.protocol.Json;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,11 +65,24 @@ public final class HttpServiceCatalogClient implements ServiceCatalogClient {
   }
 
   @Override
-  public Optional<ServiceEndpoints> fetchEndpoints(String serviceName)
+  public Optional<ServiceEndpoints> fetchEndpoints(ServiceListing listing)
       throws IOException, InterruptedException {
+    String serviceName = listing.name();
+    // The tenant this Service was listed under has to ride the endpoints read: the control plane
+    // keys a Service by (tenant, name), so a tenant-scoped one asked for by bare name answers 404.
+    String tenantQuery =
+        listing
+            .tenantId()
+            .map(t -> "?tenant=" + URLEncoder.encode(t, StandardCharsets.UTF_8))
+            .orElse("");
     HttpResponse<String> response =
         httpClient.send(
-            HttpRequest.newBuilder(baseUri.resolve("services/" + serviceName + "/endpoints"))
+            HttpRequest.newBuilder(
+                    baseUri.resolve(
+                        "services/"
+                            + URLEncoder.encode(serviceName, StandardCharsets.UTF_8)
+                            + "/endpoints"
+                            + tenantQuery))
                 .timeout(REQUEST_TIMEOUT)
                 .GET()
                 .build(),

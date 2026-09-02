@@ -55,6 +55,7 @@ describe("useSkaldStore", () => {
       "greeter.svc.gimle.local",
     ]);
     expect(names[0].addressCount).toBe(2);
+    expect(names[1].addressCount).toBe(1);
     expect(names[0].port).toBe(8080);
     expect(names[1].tenantId).toBeNull();
   });
@@ -163,5 +164,25 @@ describe("useSkaldStore", () => {
 
     expect(useSkaldStore.getState().error).toContain("permission");
     expect(useSkaldStore.getState().loaded).toBe(false);
+  });
+
+  it("counts one A record per distinct host, not per endpoint", async () => {
+    vi.mocked(servicesRepo.fetchAll).mockResolvedValue([
+      { name: "packed", tenantId: "acme", deploymentNames: ["packed-deployment"], port: 8080 },
+    ]);
+    // Two replicas placed on one node: one address, so one A record -- what a resolver actually
+    // gets back, which is not the same as the endpoint count.
+    vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
+      name: "packed",
+      port: 8080,
+      endpoints: [
+        { host: "10.0.1.4", port: 18080 },
+        { host: "10.0.1.4", port: 18081 },
+      ],
+    });
+
+    await useSkaldStore.getState().load();
+
+    expect(useSkaldStore.getState().names[0].addressCount).toBe(1);
   });
 });

@@ -1,6 +1,7 @@
 package com.gimle.skald.directory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,11 +36,15 @@ class HttpServiceCatalogClientTest {
     }
   }
 
+  /** The raw query string of the last request the stub answered, or null if it carried none. */
+  private volatile String lastQuery;
+
   private URI startStub(String path, int status, String body) throws IOException {
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         path,
         exchange -> {
+          lastQuery = exchange.getRequestURI().getQuery();
           try (InputStream in = exchange.getRequestBody()) {
             in.readAllBytes();
           }
@@ -95,7 +100,7 @@ class HttpServiceCatalogClientTest {
     HttpServiceCatalogClient client =
         new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
-    Optional<ServiceEndpoints> result = client.fetchEndpoints("orders");
+    Optional<ServiceEndpoints> result = client.fetchEndpoints(untenanted("orders"));
 
     assertTrue(result.isPresent());
     ServiceEndpoints endpoints = result.get();
@@ -112,7 +117,7 @@ class HttpServiceCatalogClientTest {
     HttpServiceCatalogClient client =
         new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
-    Optional<ServiceEndpoints> result = client.fetchEndpoints("gone");
+    Optional<ServiceEndpoints> result = client.fetchEndpoints(untenanted("gone"));
 
     assertTrue(result.isEmpty());
   }
@@ -125,5 +130,46 @@ class HttpServiceCatalogClientTest {
         new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
 
     assertThrows(IOException.class, client::listServices);
+  }
+
+  /**
+   * The control plane keys a Service by {@code (tenant, name)}, so a tenant-scoped Service asked
+   * for by bare name answers 404 -- which this client reports as "gone". Skald reads the tenant off
+   * the catalog listing, so it must carry it into the endpoints read rather than dropping it.
+   */
+  @Test
+  @Timeout(15)
+  void the_listings_own_tenant_rides_the_endpoints_read() throws Exception {
+    URI baseUri =
+        startStub(
+            "/services/orders/endpoints",
+            200,
+            "{\"name\": \"orders\", \"port\": 8080, \"endpoints\": []}");
+    HttpServiceCatalogClient client =
+        new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
+
+    client.fetchEndpoints(new ServiceListing("orders", Optional.of("acme")));
+
+    assertEquals("tenant=acme", lastQuery);
+  }
+
+  @Test
+  @Timeout(15)
+  void an_untenanted_service_asks_for_no_tenant_at_all() throws Exception {
+    URI baseUri =
+        startStub(
+            "/services/orders/endpoints",
+            200,
+            "{\"name\": \"orders\", \"port\": 8080, \"endpoints\": []}");
+    HttpServiceCatalogClient client =
+        new HttpServiceCatalogClient(HttpClient.newHttpClient(), baseUri);
+
+    client.fetchEndpoints(untenanted("orders"));
+
+    assertNull(lastQuery);
+  }
+
+  private static ServiceListing untenanted(String name) {
+    return new ServiceListing(name, Optional.empty());
   }
 }

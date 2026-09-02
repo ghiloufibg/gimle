@@ -294,6 +294,10 @@ no plaintext-warning banner and no mTLS mode of its own yet — its polling conn
 plane stays plain HTTP for this first slice, matching how a new component in this codebase
 typically starts plaintext-only before a transport-security pass lands.
 
+Each per-Service endpoint read carries the tenant that Service was listed under: the control plane
+keys a Service by `(tenant, name)`, so a tenant-scoped one asked for by bare name answers 404 —
+which this poller reports as "gone", indistinguishable from a Service that really was deleted.
+
 A Service the catalog lists but which currently has no live endpoints — mid-rollout, or scaled to
 zero, which the control plane's own `ServiceReconciler` treats as a normal, valid outcome — is
 cached as a known-but-empty name, not dropped. Skald answers it `NOERROR` with zero answer records

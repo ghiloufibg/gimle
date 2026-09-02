@@ -115,6 +115,13 @@ exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (re
 `{"name","port","targetPort","sessionAffinity","endpoints":[{"host","port","nodeId"}]}`, with
 `targetPort` present only when the Service declared one), RBAC-gated via `ResourceKind.SERVICE`.
 
+`GET /services/{name}/endpoints` resolves a Service addressed by bare name to its own tenant when
+the caller gives no `?tenant=` of its own, exactly as `GET /endpoints/{name}` already does for a
+workload name — an explicit `?tenant=` still wins. Both of the gateway's endpoint caches address
+their target by bare name (`VesselEndpointCache` through `/endpoints/{name}`,
+`ServiceEndpointCache` through this route), so without the fallback the two behaved differently for
+the same spelling and every tenant-scoped Service a `SERVICE` route named resolved to nothing.
+
 ### `targetPort` is optional, and authoritative when present
 
 `port` is what a caller dials the Service on. `targetPort` is what the backing instances must

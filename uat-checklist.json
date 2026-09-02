@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 775,
+    "totalRequirements": 776,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 648,
+    "notCoveredByAutomatedTest": 649,
     "releaseReadinessPercent": 16.4
   },
   "items": [
@@ -8527,6 +8527,17 @@
       "category": "Web Console / Frontend",
       "feature": "Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list",
       "step": "Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-776",
+      "module": "gimle-controlplane",
+      "category": "Networking / Services",
+      "feature": "A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing",
+      "step": "Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

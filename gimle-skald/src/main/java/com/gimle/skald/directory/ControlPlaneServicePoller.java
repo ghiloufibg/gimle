@@ -90,9 +90,9 @@ public final class ControlPlaneServicePoller implements AutoCloseable {
     Map<String, List<HostPort>> next = new LinkedHashMap<>();
     for (ServiceListing listing : listings) {
       try {
-        // fetchEndpoints needs the bare name (the control plane's registry key), but the
-        // directory cache is keyed by the qualified name a DNS query resolves to -- the two
-        // differ for every tenant-scoped Service.
+        // fetchEndpoints is given the whole listing, tenant included -- the control plane keys a
+        // Service by (tenant, name) -- while the directory cache is keyed by the qualified name a
+        // DNS query resolves to. All three spellings differ for a tenant-scoped Service.
         //
         // A Service whose endpoint list came back empty is cached as an empty entry rather than
         // dropped: it was in the catalog listing, so it genuinely exists, and dropping it would
@@ -101,7 +101,7 @@ public final class ControlPlaneServicePoller implements AutoCloseable {
         // the listing and this fetch (an absent Optional -- the control plane answered 404) is
         // left out, which is exactly right: by then it really is gone.
         client
-            .fetchEndpoints(listing.name())
+            .fetchEndpoints(listing)
             .ifPresent(endpoints -> next.put(listing.qualifiedName(), endpoints.endpoints()));
       } catch (IOException | InterruptedException e) {
         if (e instanceof InterruptedException) {

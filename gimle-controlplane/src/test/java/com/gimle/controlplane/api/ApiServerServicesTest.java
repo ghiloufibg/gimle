@@ -662,4 +662,64 @@ class ApiServerServicesTest {
     Map<String, Object> body = Json.asObject(Json.parse(response.body()));
     assertEquals(List.of(), Json.asObjectList(body.get("endpoints")));
   }
+
+  /**
+   * A tenant-scoped Service is keyed by {@code (tenant, name)}, but both of the gateway's endpoint
+   * caches address their target by bare name -- {@code VesselEndpointCache} through {@code
+   * /endpoints/{name}}, {@code ServiceEndpointCache} through this route. Without the same
+   * resolve-the-tenant-from-the-name fallback {@code /endpoints/{name}} already has, every
+   * tenant-scoped Service a gateway SERVICE route names answered 404, and Skald cached nothing for
+   * it -- a silent NXDOMAIN for the whole zone.
+   */
+  @Test
+  @Timeout(10)
+  void a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    """
+                    {"name": "orders", "tenantId": "acme",
+                     "deploymentNames": ["orders-service"], "port": 8080}
+                    """))
+            .build());
+
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders/endpoints"))
+                .GET()
+                .build());
+
+    assertEquals(200, response.statusCode());
+    assertEquals("orders", Json.asObject(Json.parse(response.body())).get("name"));
+  }
+
+  /** An explicit {@code ?tenant=} still wins over the fallback, and a wrong one still 404s. */
+  @Test
+  @Timeout(10)
+  void an_explicit_tenant_still_decides_which_service_is_addressed() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    """
+                    {"name": "orders", "tenantId": "acme",
+                     "deploymentNames": ["orders-service"], "port": 8080}
+                    """))
+            .build());
+
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders/endpoints?tenant=acme"))
+                .GET()
+                .build())
+            .statusCode());
+    assertEquals(
+        404,
+        send(HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/services/orders/endpoints?tenant=globex"))
+                .GET()
+                .build())
+            .statusCode());
+  }
 }

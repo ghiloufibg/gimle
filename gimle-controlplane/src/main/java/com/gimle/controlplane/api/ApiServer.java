@@ -2067,8 +2067,20 @@ public final class ApiServer implements AutoCloseable {
           respond(exchange, 404, "unknown service endpoint: " + subResource);
           return;
         }
+        // An explicit ?tenant= always wins; resolveTenantForServiceName only stands in for a hint
+        // nobody gave, exactly as handleEndpoints does for a workload name. Both of the gateway's
+        // own endpoint caches address their target by bare name -- VesselEndpointCache through
+        // /endpoints/{name}, ServiceEndpointCache through this route -- so without the fallback
+        // the two behave differently for the same spelling, and every tenant-scoped Service a
+        // SERVICE route names resolves to nothing.
+        Optional<String> declaredServiceTenant =
+            Optional.ofNullable(parseQuery(exchange).get("tenant"));
         handleServiceEndpoints(
-            exchange, Optional.ofNullable(parseQuery(exchange).get("tenant")), name);
+            exchange,
+            declaredServiceTenant.isPresent()
+                ? declaredServiceTenant
+                : resolveTenantForServiceName(name),
+            name);
         return;
       }
       // Caller-declared ?tenant= hint, same convention as dispatchResourceRequest's own GET/
@@ -3789,6 +3801,19 @@ public final class ApiServer implements AutoCloseable {
       return daemonSet;
     }
     return findTenantByName(storeClient.listStatefulSetSpecs(), name);
+  }
+
+  /**
+   * The tenant of whichever Service is named {@code name}, for a caller that gave no {@code
+   * ?tenant=} hint of its own. {@link ServiceSpec} is not a {@link WorkloadSpec}, so this cannot
+   * reuse {@link #findTenantByName}; the resolution rule is otherwise identical, including how an
+   * untenanted Service and an unknown one collapse to the same empty answer.
+   */
+  private Optional<String> resolveTenantForServiceName(String name) {
+    return serviceRegistry.list().stream()
+        .filter(spec -> spec.name().equals(name))
+        .findFirst()
+        .flatMap(ServiceSpec::tenantId);
   }
 
   /**

@@ -225,4 +225,22 @@ describe("useGatewayStore", () => {
     expect(useGatewayStore.getState().rows).toHaveLength(1);
     expect(useGatewayStore.getState().error).toContain("503");
   });
+
+  it("resolves one shared read for two routes naming the same target", async () => {
+    seed("SERVICE /api/orders orders-api\nSERVICE /api/orders/* orders-api\n");
+    vi.mocked(servicesRepo.fetchEndpoints).mockResolvedValue({
+      name: "orders-api",
+      port: 8080,
+      endpoints: [{ host: "10.0.1.4", port: 8080 }],
+    });
+
+    await useGatewayStore.getState().load();
+
+    const { rows } = useGatewayStore.getState();
+    expect(rows).toHaveLength(2);
+    expect(rows[0].resolution).toEqual({ status: "live", endpointCount: 1 });
+    expect(rows[1].resolution).toEqual({ status: "live", endpointCount: 1 });
+    // Both rows share one read rather than issuing the same request twice every poll.
+    expect(servicesRepo.fetchEndpoints).toHaveBeenCalledTimes(1);
+  });
 });

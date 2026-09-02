@@ -209,8 +209,8 @@ final class ControlPlaneServicePollerTest {
     }
 
     @Override
-    public Optional<ServiceEndpoints> fetchEndpoints(String serviceName) {
-      return Optional.ofNullable(byName.get(serviceName));
+    public Optional<ServiceEndpoints> fetchEndpoints(ServiceListing listing) {
+      return Optional.ofNullable(byName.get(listing.name()));
     }
   }
 }
