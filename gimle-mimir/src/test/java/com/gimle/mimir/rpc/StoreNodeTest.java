@@ -111,17 +111,14 @@ class StoreNodeTest {
             "node-a",
             new ResourceUsageSnapshot(1024, 512, 4000, 1000),
             List.of(
-                new InstanceObservation(
-                    "greeter",
-                    0,
-                    new ModuleId("greeter", Version.parse("1.0.0")),
-                    "ACTIVE",
-                    true,
-                    true,
-                    0.0,
-                    0,
-                    0L,
-                    0L)));
+                InstanceObservation.builder(
+                        "greeter",
+                        0,
+                        new ModuleId("greeter", Version.parse("1.0.0")),
+                        "ACTIVE",
+                        true,
+                        true)
+                    .build()));
 
     StoreRpc.Response response = node.handle(new StoreRpc.PutHeartbeat(heartbeat));
 

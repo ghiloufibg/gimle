@@ -55,19 +55,10 @@ class ServiceReconcilerTest {
             nodeId,
             new ResourceUsageSnapshot(0, 0, 0, 0),
             List.of(
-                new InstanceObservation(
-                    deploymentName,
-                    instanceIndex,
-                    MODULE_ID,
-                    "ACTIVE",
-                    true,
-                    ready,
-                    0.0,
-                    0,
-                    0L,
-                    0L,
-                    0.0,
-                    ports))));
+                InstanceObservation.builder(
+                        deploymentName, instanceIndex, MODULE_ID, "ACTIVE", true, ready)
+                    .ports(ports)
+                    .build())));
   }
 
   @Test

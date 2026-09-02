@@ -336,19 +336,9 @@ class ApiServerServicesTest {
                 "node-1",
                 new ResourceUsageSnapshot(0, 0, 0, 0),
                 List.of(
-                    new InstanceObservation(
-                        "orders-service",
-                        0,
-                        moduleId,
-                        "ACTIVE",
-                        true,
-                        true,
-                        0.0,
-                        0,
-                        0L,
-                        0L,
-                        0.0,
-                        Map.of("HTTP_PORT", 51234)))));
+                    InstanceObservation.builder("orders-service", 0, moduleId, "ACTIVE", true, true)
+                        .ports(Map.of("HTTP_PORT", 51234))
+                        .build())));
 
     HttpResponse<String> response =
         send(
@@ -493,19 +483,9 @@ class ApiServerServicesTest {
                 "node-1",
                 new ResourceUsageSnapshot(0, 0, 0, 0),
                 List.of(
-                    new InstanceObservation(
-                        deploymentName,
-                        0,
-                        moduleId,
-                        "ACTIVE",
-                        true,
-                        true,
-                        0.0,
-                        0,
-                        0L,
-                        0L,
-                        0.0,
-                        ports))));
+                    InstanceObservation.builder(deploymentName, 0, moduleId, "ACTIVE", true, true)
+                        .ports(ports)
+                        .build())));
   }
 
   @Test

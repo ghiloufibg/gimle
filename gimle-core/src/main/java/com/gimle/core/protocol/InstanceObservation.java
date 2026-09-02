@@ -16,11 +16,9 @@ import java.util.Optional;
  * <p>{@code requestRatePerSecond}/{@code errorRatePerSecond}/{@code queueDepth}/{@code
  * cpuMillicoresUsed}/{@code memoryBytesUsed} feed autoscaling decisions: {@code cpuMillicoresUsed}
  * divided by the module descriptor's requested CPU gives the observed CPU utilization used as a
- * scaling signal, alongside request rate, error rate, and queue depth. The six-argument constructor
- * defaults all five to {@code 0} for call sites that only track lifecycle/health, not scaling
- * metrics. {@code errorRatePerSecond} was added after the other four -- appended last, with the
- * pre-existing ten-argument constructor preserved as an overload, so every call site built against
- * the earlier shape keeps compiling unchanged.
+ * scaling signal, alongside request rate, error rate, and queue depth. All five default to {@code
+ * 0} via {@link #builder}, for the call sites that only track lifecycle/health and never see a
+ * metrics report.
  *
  * <p>{@code ports}, keyed by the {@code vessel.env} variable name each was declared under (e.g.
  * {@code "HTTP_PORT"}), carries a vessel instance's own agent-allocated or fixed port numbers --
@@ -120,227 +118,161 @@ public record InstanceObservation(
   }
 
   /**
-   * For a call site with no module descriptor in hand -- a vessel instance, or an observation
-   * rebuilt from a payload that carried no declared tier/limit. Defaults both to {@link
-   * Optional#empty()}.
+   * Starts an observation from the five identifying facts plus liveness -- everything a node can
+   * always report about an instance it supervises. Every remaining field is a measurement or a
+   * declaration that may genuinely be unavailable (a node that has had no metrics report yet, a
+   * vessel with no module descriptor), so each defaults to zero/empty and is set only when known.
+   * Required-in-the-factory rather than a builder setter: an observation naming no instance is not
+   * a thing that should be constructible.
    */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond,
-      Map<String, Integer> ports,
-      long volumeUsageBytes,
-      Optional<String> workerId,
-      Optional<String> tenantId) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        volumeUsageBytes,
-        workerId,
-        tenantId,
-        Optional.empty(),
-        Optional.empty());
+  public static Builder builder(
+      final String deploymentName,
+      final int instanceIndex,
+      final ModuleId moduleId,
+      final String lifecycleState,
+      final boolean alive,
+      final boolean ready) {
+    return new Builder(deploymentName, instanceIndex, moduleId, lifecycleState, alive, ready);
   }
 
-  /** Defaults {@code tenantId} to {@link Optional#empty()}. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond,
-      Map<String, Integer> ports,
-      long volumeUsageBytes,
-      Optional<String> workerId) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        volumeUsageBytes,
-        workerId,
-        Optional.empty());
-  }
+  /** Mutable while assembling one {@link InstanceObservation}; the record it builds is not. */
+  public static final class Builder {
 
-  /** Defaults {@code workerId} and {@code tenantId} to {@link Optional#empty()}. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond,
-      Map<String, Integer> ports,
-      long volumeUsageBytes) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        volumeUsageBytes,
-        Optional.empty());
-  }
+    private final String deploymentName;
+    private final int instanceIndex;
+    private final ModuleId moduleId;
+    private final String lifecycleState;
+    private final boolean alive;
+    private final boolean ready;
 
-  /** Defaults {@code volumeUsageBytes} to 0. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond,
-      Map<String, Integer> ports) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        0L);
-  }
+    private double requestRatePerSecond;
+    private int queueDepth;
+    private long cpuMillicoresUsed;
+    private long memoryBytesUsed;
+    private double errorRatePerSecond;
+    private Map<String, Integer> ports = Map.of();
+    private long volumeUsageBytes;
+    private Optional<String> workerId = Optional.empty();
+    private Optional<String> tenantId = Optional.empty();
+    private Optional<IsolationTier> isolationTier = Optional.empty();
+    private Optional<ResourceSpec> resourceLimit = Optional.empty();
 
-  /** Defaults {@code ports} to an empty map. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        Map.of());
-  }
+    private Builder(
+        final String deploymentName,
+        final int instanceIndex,
+        final ModuleId moduleId,
+        final String lifecycleState,
+        final boolean alive,
+        final boolean ready) {
+      this.deploymentName = deploymentName;
+      this.instanceIndex = instanceIndex;
+      this.moduleId = moduleId;
+      this.lifecycleState = lifecycleState;
+      this.alive = alive;
+      this.ready = ready;
+    }
 
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready) {
-    this(
-        deploymentName, instanceIndex, moduleId, lifecycleState, alive, ready, 0.0, 0, 0L, 0L, 0.0);
-  }
+    /** The four autoscaling signals, which a worker reports together in one metrics tick. */
+    public Builder load(
+        final double requestRatePerSecond,
+        final double errorRatePerSecond,
+        final int queueDepth,
+        final long cpuMillicoresUsed,
+        final long memoryBytesUsed) {
+      this.requestRatePerSecond = requestRatePerSecond;
+      this.errorRatePerSecond = errorRatePerSecond;
+      this.queueDepth = queueDepth;
+      this.cpuMillicoresUsed = cpuMillicoresUsed;
+      this.memoryBytesUsed = memoryBytesUsed;
+      return this;
+    }
 
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        0L,
-        0L,
-        0.0);
-  }
+    public Builder requestRatePerSecond(final double requestRatePerSecond) {
+      this.requestRatePerSecond = requestRatePerSecond;
+      return this;
+    }
 
-  /** The pre-{@code errorRatePerSecond} full-detail shape, kept for existing call sites. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        0.0);
+    public Builder errorRatePerSecond(final double errorRatePerSecond) {
+      this.errorRatePerSecond = errorRatePerSecond;
+      return this;
+    }
+
+    public Builder queueDepth(final int queueDepth) {
+      this.queueDepth = queueDepth;
+      return this;
+    }
+
+    public Builder cpuMillicoresUsed(final long cpuMillicoresUsed) {
+      this.cpuMillicoresUsed = cpuMillicoresUsed;
+      return this;
+    }
+
+    public Builder memoryBytesUsed(final long memoryBytesUsed) {
+      this.memoryBytesUsed = memoryBytesUsed;
+      return this;
+    }
+
+    public Builder ports(final Map<String, Integer> ports) {
+      this.ports = ports;
+      return this;
+    }
+
+    public Builder volumeUsageBytes(final long volumeUsageBytes) {
+      this.volumeUsageBytes = volumeUsageBytes;
+      return this;
+    }
+
+    public Builder workerId(final Optional<String> workerId) {
+      this.workerId = workerId;
+      return this;
+    }
+
+    public Builder tenantId(final Optional<String> tenantId) {
+      this.tenantId = tenantId;
+      return this;
+    }
+
+    public Builder isolationTier(final Optional<IsolationTier> isolationTier) {
+      this.isolationTier = isolationTier;
+      return this;
+    }
+
+    public Builder resourceLimit(final Optional<ResourceSpec> resourceLimit) {
+      this.resourceLimit = resourceLimit;
+      return this;
+    }
+
+    /**
+     * The tier and ceiling a module instance was admitted under, taken together because they are
+     * only meaningful read against each other -- a limit says something different at TIER_1, where
+     * the worker JVM is shared, than at TIER_2, where the instance owns it.
+     */
+    public Builder declaredResources(
+        final IsolationTier isolationTier, final ResourceSpec resourceLimit) {
+      this.isolationTier = Optional.of(isolationTier);
+      this.resourceLimit = Optional.of(resourceLimit);
+      return this;
+    }
+
+    public InstanceObservation build() {
+      return new InstanceObservation(
+          deploymentName,
+          instanceIndex,
+          moduleId,
+          lifecycleState,
+          alive,
+          ready,
+          requestRatePerSecond,
+          queueDepth,
+          cpuMillicoresUsed,
+          memoryBytesUsed,
+          errorRatePerSecond,
+          ports,
+          volumeUsageBytes,
+          workerId,
+          tenantId,
+          isolationTier,
+          resourceLimit);
+    }
   }
 }

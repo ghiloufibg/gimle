@@ -34,19 +34,9 @@ class ServiceAdvisoriesTest {
             "node-a",
             new ResourceUsageSnapshot(0, 0, 0, 0),
             List.of(
-                new InstanceObservation(
-                    deploymentName,
-                    0,
-                    MODULE_ID,
-                    "ACTIVE",
-                    true,
-                    true,
-                    0.0,
-                    0,
-                    0L,
-                    0L,
-                    0.0,
-                    ports))));
+                InstanceObservation.builder(deploymentName, 0, MODULE_ID, "ACTIVE", true, true)
+                    .ports(ports)
+                    .build())));
   }
 
   @Test

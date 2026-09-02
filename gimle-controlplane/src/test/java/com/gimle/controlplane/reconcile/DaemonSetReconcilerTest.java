@@ -88,18 +88,9 @@ class DaemonSetReconcilerTest {
             assignment.nodeId(),
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    assignment.daemonSetName(),
-                    0,
-                    assignment.moduleId(),
-                    "ACTIVE",
-                    true,
-                    true,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0))));
+                InstanceObservation.builder(
+                        assignment.daemonSetName(), 0, assignment.moduleId(), "ACTIVE", true, true)
+                    .build())));
   }
 
   /** Reports {@code assignment}'s own instance as {@code FAILED} rather than merely not ready. */
@@ -109,18 +100,9 @@ class DaemonSetReconcilerTest {
             assignment.nodeId(),
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    assignment.daemonSetName(),
-                    0,
-                    assignment.moduleId(),
-                    "FAILED",
-                    true,
-                    false,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0))));
+                InstanceObservation.builder(
+                        assignment.daemonSetName(), 0, assignment.moduleId(), "FAILED", true, false)
+                    .build())));
   }
 
   @Test

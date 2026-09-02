@@ -104,8 +104,9 @@ class DeploymentReconcilerSurgeTest {
             nodeId,
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    deploymentName, instanceIndex, moduleId, "ACTIVE", true, true))));
+                InstanceObservation.builder(
+                        deploymentName, instanceIndex, moduleId, "ACTIVE", true, true)
+                    .build())));
   }
 
   /**
@@ -125,8 +126,14 @@ class DeploymentReconcilerSurgeTest {
             store.listAssignmentsFor(Optional.empty(), deploymentName).stream()
                 .map(
                     a ->
-                        new InstanceObservation(
-                            deploymentName, a.instanceIndex(), a.moduleId(), "ACTIVE", true, true))
+                        InstanceObservation.builder(
+                                deploymentName,
+                                a.instanceIndex(),
+                                a.moduleId(),
+                                "ACTIVE",
+                                true,
+                                true)
+                            .build())
                 .toList()));
   }
 

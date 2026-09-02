@@ -1479,38 +1479,14 @@ class ApiServerTest {
             "node-a",
             new ResourceUsageSnapshot(1000L, 0, 1000, 0),
             List.of(
-                new InstanceObservation(
-                    "orders-service",
-                    0,
-                    moduleId,
-                    "ACTIVE",
-                    true,
-                    true,
-                    10.0,
-                    0,
-                    0L,
-                    0L,
-                    2.0,
-                    Map.of(),
-                    0L,
-                    Optional.empty(),
-                    Optional.of(Tenant.DEFAULT_TENANT_ID)),
-                new InstanceObservation(
-                    "orders-service",
-                    1,
-                    moduleId,
-                    "ACTIVE",
-                    true,
-                    true,
-                    20.0,
-                    0,
-                    0L,
-                    0L,
-                    4.0,
-                    Map.of(),
-                    0L,
-                    Optional.empty(),
-                    Optional.of(Tenant.DEFAULT_TENANT_ID)))));
+                InstanceObservation.builder("orders-service", 0, moduleId, "ACTIVE", true, true)
+                    .load(10.0, 2.0, 0, 0L, 0L)
+                    .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
+                    .build(),
+                InstanceObservation.builder("orders-service", 1, moduleId, "ACTIVE", true, true)
+                    .load(20.0, 4.0, 0, 0L, 0L)
+                    .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
+                    .build())));
 
     HttpResponse<String> metrics =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/metrics")).GET().build());

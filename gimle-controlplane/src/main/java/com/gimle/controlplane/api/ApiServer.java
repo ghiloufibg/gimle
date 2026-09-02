@@ -4518,26 +4518,29 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private static InstanceObservation observationFromJson(Map<?, ?> map) {
-    return new InstanceObservation(
-        (String) map.get("deploymentName"),
-        ((Number) map.get("instanceIndex")).intValue(),
-        moduleIdFromJson((Map<?, ?>) map.get("moduleId")),
-        (String) map.get("lifecycleState"),
-        (Boolean) map.get("alive"),
-        (Boolean) map.get("ready"),
-        numberField(map, "requestRatePerSecond", 0.0).doubleValue(),
-        numberField(map, "queueDepth", 0).intValue(),
-        numberField(map, "cpuMillicoresUsed", 0L).longValue(),
-        numberField(map, "memoryBytesUsed", 0L).longValue(),
-        numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
-        portsFromJson(map.get("ports")),
-        numberField(map, "volumeUsageBytes", 0L).longValue(),
-        Optional.ofNullable((String) map.get("workerId")),
-        Optional.ofNullable((String) map.get("tenantId")),
-        isolationTierFromJson(map.get("isolationTier")),
-        map.get("resourceLimit") instanceof Map<?, ?> limit
-            ? resourceSpecFromJson(limit)
-            : Optional.empty());
+    return InstanceObservation.builder(
+            (String) map.get("deploymentName"),
+            ((Number) map.get("instanceIndex")).intValue(),
+            moduleIdFromJson((Map<?, ?>) map.get("moduleId")),
+            (String) map.get("lifecycleState"),
+            (Boolean) map.get("alive"),
+            (Boolean) map.get("ready"))
+        .load(
+            numberField(map, "requestRatePerSecond", 0.0).doubleValue(),
+            numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
+            numberField(map, "queueDepth", 0).intValue(),
+            numberField(map, "cpuMillicoresUsed", 0L).longValue(),
+            numberField(map, "memoryBytesUsed", 0L).longValue())
+        .ports(portsFromJson(map.get("ports")))
+        .volumeUsageBytes(numberField(map, "volumeUsageBytes", 0L).longValue())
+        .workerId(Optional.ofNullable((String) map.get("workerId")))
+        .tenantId(Optional.ofNullable((String) map.get("tenantId")))
+        .isolationTier(isolationTierFromJson(map.get("isolationTier")))
+        .resourceLimit(
+            map.get("resourceLimit") instanceof Map<?, ?> limit
+                ? resourceSpecFromJson(limit)
+                : Optional.empty())
+        .build();
   }
 
   /**

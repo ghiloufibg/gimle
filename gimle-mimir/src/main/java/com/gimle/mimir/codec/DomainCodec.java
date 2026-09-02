@@ -1154,24 +1154,21 @@ public final class DomainCodec {
     Optional<String> tenantId = readOptionalString(in);
     Optional<IsolationTier> isolationTier = readOptionalString(in).map(IsolationTier::valueOf);
     Optional<ResourceSpec> resourceLimit = readOptionalResourceSpec(in);
-    return new InstanceObservation(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        volumeUsageBytes,
-        workerId,
-        tenantId,
-        isolationTier,
-        resourceLimit);
+    return InstanceObservation.builder(
+            deploymentName, instanceIndex, moduleId, lifecycleState, alive, ready)
+        .load(
+            requestRatePerSecond,
+            errorRatePerSecond,
+            queueDepth,
+            cpuMillicoresUsed,
+            memoryBytesUsed)
+        .ports(ports)
+        .volumeUsageBytes(volumeUsageBytes)
+        .workerId(workerId)
+        .tenantId(tenantId)
+        .isolationTier(isolationTier)
+        .resourceLimit(resourceLimit)
+        .build();
   }
 
   public static void writeNodeHeartbeat(DataOutputStream out, NodeHeartbeat heartbeat)

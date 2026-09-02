@@ -104,8 +104,9 @@ class ReplicaCountReconcilerTest {
             allConfirmed.stream()
                 .map(
                     index ->
-                        new InstanceObservation(
-                            deploymentName, index, ORDERS, "ACTIVE", true, true))
+                        InstanceObservation.builder(
+                                deploymentName, index, ORDERS, "ACTIVE", true, true)
+                            .build())
                 .toList()));
   }
 
@@ -126,7 +127,9 @@ class ReplicaCountReconcilerTest {
         new NodeHeartbeat(
             "node-a",
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
-            List.of(new InstanceObservation("orders-service", 0, ORDERS, "ACTIVE", true, true))));
+            List.of(
+                InstanceObservation.builder("orders-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build())));
 
     immediateReconciler(store, Duration.ofSeconds(15)).reconcileOnce();
 
@@ -205,7 +208,9 @@ class ReplicaCountReconcilerTest {
         new NodeHeartbeat(
             "node-a",
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
-            List.of(new InstanceObservation("orders-service", 0, ORDERS, "ACTIVE", true, true))));
+            List.of(
+                InstanceObservation.builder("orders-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build())));
 
     clock.advance(GRACE_PERIOD.plusSeconds(1)); // past what would have been the deadline
     reconciler.reconcileOnce();
@@ -234,7 +239,9 @@ class ReplicaCountReconcilerTest {
         new NodeHeartbeat(
             "node-a",
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
-            List.of(new InstanceObservation("orders-service", 0, ORDERS, "ACTIVE", true, true))));
+            List.of(
+                InstanceObservation.builder("orders-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build())));
 
     // The heartbeat's own receivedAt is stamped by StateStore with the system clock, so the clock
     // is anchored at real now and advanced past the real production dark timeout from there.
@@ -255,8 +262,10 @@ class ReplicaCountReconcilerTest {
             "node-a",
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
             List.of(
-                new InstanceObservation("orders-service", 0, ORDERS, "ACTIVE", true, true),
-                new InstanceObservation("catalog-service", 0, ORDERS, "ACTIVE", true, true))));
+                InstanceObservation.builder("orders-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build(),
+                InstanceObservation.builder("catalog-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build())));
 
     immediateReconciler(store, Duration.ofSeconds(15)).reconcileOnce();
 
@@ -309,7 +318,8 @@ class ReplicaCountReconcilerTest {
             "node-a",
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
             List.of(
-                new InstanceObservation("confirmed-service", 0, ORDERS, "ACTIVE", true, true))));
+                InstanceObservation.builder("confirmed-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build())));
 
     // 2. Not confirmed, grace-period timer already elapsed before this reconciler even existed --
     // must be removed on this very first tick, not treated as freshly missing.
@@ -449,8 +459,10 @@ class ReplicaCountReconcilerTest {
             "node-b",
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
             List.of(
-                new InstanceObservation("orders-service", 1, ORDERS, "ACTIVE", true, true),
-                new InstanceObservation("orders-service", 2, ORDERS, "ACTIVE", true, true))));
+                InstanceObservation.builder("orders-service", 1, ORDERS, "ACTIVE", true, true)
+                    .build(),
+                InstanceObservation.builder("orders-service", 2, ORDERS, "ACTIVE", true, true)
+                    .build())));
     // node-a alone goes dark, with only instance 0 assigned to it.
 
     immediateReconciler(store, Duration.ofSeconds(15)).reconcileOnce();

@@ -126,22 +126,10 @@ class ApiServerEndpointsTest {
                 "node-1",
                 new ResourceUsageSnapshot(0, 0, 0, 0),
                 List.of(
-                    new InstanceObservation(
-                        "billing-api",
-                        0,
-                        moduleId,
-                        "ACTIVE",
-                        true,
-                        true,
-                        0.0,
-                        0,
-                        0L,
-                        0L,
-                        0.0,
-                        Map.of("HTTP_PORT", 54321),
-                        0L,
-                        Optional.empty(),
-                        Optional.of(Tenant.DEFAULT_TENANT_ID)))));
+                    InstanceObservation.builder("billing-api", 0, moduleId, "ACTIVE", true, true)
+                        .ports(Map.of("HTTP_PORT", 54321))
+                        .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
+                        .build())));
 
     HttpResponse<String> response =
         client.send(

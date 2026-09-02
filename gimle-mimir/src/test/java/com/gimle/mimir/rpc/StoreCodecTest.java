@@ -131,8 +131,9 @@ class StoreCodecTest {
         "node-1",
         new ResourceUsageSnapshot(1024, 512, 4000, 1000),
         List.of(
-            new InstanceObservation(
-                "greeter", 0, MODULE_ID, "ACTIVE", true, true, 12.5, 0, 100, 2048)));
+            InstanceObservation.builder("greeter", 0, MODULE_ID, "ACTIVE", true, true)
+                .load(12.5, 0.0, 0, 100, 2048)
+                .build()));
   }
 
   private static ObservedHeartbeat observedHeartbeat() {

@@ -106,8 +106,9 @@ class DeploymentReconcilerTest {
             nodeId,
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    deploymentName, instanceIndex, moduleId, "ACTIVE", true, true))));
+                InstanceObservation.builder(
+                        deploymentName, instanceIndex, moduleId, "ACTIVE", true, true)
+                    .build())));
   }
 
   /**
@@ -125,8 +126,9 @@ class DeploymentReconcilerTest {
             nodeId,
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    deploymentName, instanceIndex, moduleId, "ACTIVE", true, false))));
+                InstanceObservation.builder(
+                        deploymentName, instanceIndex, moduleId, "ACTIVE", true, false)
+                    .build())));
   }
 
   private static InstanceAssignment assignmentAt(StateStore store, String name, int index) {
