@@ -15,6 +15,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -64,6 +65,10 @@ public interface StoreReader {
   Optional<NetworkPolicySpec> getNetworkPolicy(String tenantId, String name);
 
   List<NetworkPolicySpec> listNetworkPolicies();
+
+  Optional<IngressSpec> getIngress(String tenantId, String name);
+
+  List<IngressSpec> listIngresses();
 
   Optional<AlertRuleSpec> getAlertRule(Optional<String> tenantId, String name);
 

@@ -3,6 +3,7 @@ package com.gimle.mimir.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.ingress.IngressRule;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ReclaimPolicy;
@@ -16,6 +17,7 @@ import com.gimle.core.vessel.VesselProbes;
 import com.gimle.core.vessel.VesselSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.ControllerRevision;
@@ -271,6 +273,34 @@ class DomainCodecTest {
 
     assertEquals(observation, roundTripped);
     assertEquals(54321, roundTripped.ports().get("HTTP_PORT"));
+  }
+
+  @Test
+  void an_ingress_with_every_route_kind_round_trips() throws Exception {
+    // All three kinds in one spec: each carries a different subset of the flat rule's fields, so a
+    // codec that read them back in the wrong order would only show up on a mixed spec like this.
+    IngressSpec ingress =
+        new IngressSpec(
+            "public",
+            "acme",
+            List.of(
+                IngressRule.service(Optional.of("shop.example"), "/api", true, "orders"),
+                IngressRule.vessel(Optional.empty(), "/app", false, "billing", "HTTP_PORT"),
+                IngressRule.fabric(
+                    Optional.empty(), "/greet", "com.acme.Greeter", 2, "greet", "STRING")),
+            7);
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeIngressSpec(new DataOutputStream(buffer), ingress);
+    IngressSpec roundTripped =
+        DomainCodec.readIngressSpec(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(ingress, roundTripped);
+    assertEquals(7, roundTripped.version());
+    assertEquals(Optional.of("shop.example"), roundTripped.routes().get(0).host());
+    assertTrue(roundTripped.routes().get(0).prefix());
+    assertEquals(2, roundTripped.routes().get(2).majorVersion());
   }
 
   @Test

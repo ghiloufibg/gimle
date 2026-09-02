@@ -5,6 +5,7 @@ module com.gimle.core {
   requires jdk.httpserver;
   requires java.net.http;
 
+  exports com.gimle.core.ingress;
   exports com.gimle.core.manifest;
   exports com.gimle.core.module;
   exports com.gimle.core.vessel;

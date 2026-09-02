@@ -788,6 +788,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-776 | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Networking | Complete | Yes |
 | GIMLE-777 | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Scheduling | Complete | Yes |
 | GIMLE-778 | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | Networking | Complete | Yes |
+| GIMLE-779 | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Networking | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6457,6 +6458,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When a deployment declaring a higher placement priority cannot be placed
   Then strictly-lower-priority instances are evicted to free room for it
   And an equal-or-higher-priority instance is never evicted
+  ```
+
+#### GIMLE-779 — Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string
+
+- **Category**: Networking
+- **User story**: As an operator exposing workloads through a gateway, I want routes declared as a validated, listable, versioned resource rather than a config string, so a typo is rejected at submission instead of becoming a route that never matches.
+- **Status**: Implemented. `gateway.routes` was flat text pushed through `/config/*` -- the Ingress-shaped gap. A config value is opaque to the platform: validated only when a gateway happens to parse it, a typo surfacing as a route that silently never matches, no way to answer "what routes exist" without reading a string, and no version to compare so two operators editing it race. `IngressSpec` (gimle-mimir) is now a first-class Raft-replicated resource carrying a list of `IngressRule` (gimle-core, the wire type -- gimle-gateway depends on gimle-core and never on gimle-mimir's manifest types, the same split NetworkPolicyRule has from NetworkPolicySpec). Full store wiring: StateMutation.PutIngress/RemoveIngress, StateStore, StateSnapshot, DomainCodec, RaftCodec mutation tags and snapshot, StoreRpc/StoreCodec/StoreNode/StoreClient. `ApiServer` serves POST/GET/DELETE `/ingresses` under a new `ResourceKind.INGRESS` -- its own kind rather than folded into SERVICE, on the reasoning NETWORK_POLICY already establishes -- written through `IngressRegistry`'s lease-guarded compare-and-set, so a stale expectedVersion is a 409 rather than a lost update, and a malformed route is a 400 naming the field because IngressRule validates in its own compact constructor. A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges declared routes into its existing level-triggered reload: each fetch returns the full set so a missed poll self-heals, and an unreachable control plane leaves the working table untouched rather than tearing it down. Config-declared routes win a collision on `(host, path, prefix)` -- an operator editing config on a live gateway is acting on the machine in front of them, and a cluster-wide resource silently overriding that would make the local edit look broken. Both declaration paths converge on the same GatewayRoute objects, so a route behaves identically however it was declared. CLI: `gimle get ingresses`, `delete ingress`, and `apply -f` for `kind: Ingress`; deliberately no flag-built `set ingress`, since a route's six kind-dependent fields read worse on a command line than in the manifest this kind exists to accept.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/ingress/IngressRule.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/IngressSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeIngressSpec`/`readIngressSpec`), `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java` (MUT_PUT_INGRESS/MUT_REMOVE_INGRESS, snapshot), `gimle-controlplane/src/main/java/com/gimle/controlplane/ingress/IngressRegistry.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/ingresses`), `gimle-gateway/src/main/java/com/gimle/gateway/IngressRoutes.java`, `HttpIngressSource.java`, `GatewayHooks.java`, `gimle-cli/src/main/java/com/gimle/cli/IngressCommand.java`
+- **Test coverage**: New IngressRoutesTest asserts each of the three route kinds converts to exactly what the config parser produces for the equivalent line (the property that keeps a route behaving identically however declared), that a host constraint and a prefix both survive, that an unknown paramType is rejected rather than defaulted to NONE, that every declared ParamType converts, and that an empty declaration yields no routes. DomainCodecTest gained an_ingress_with_every_route_kind_round_trips, which mixes all three kinds in one spec so a codec reading fields back in the wrong order is caught.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an Ingress declaring a SERVICE route for a tenant
+  When a gateway configured with a control-plane endpoint reloads its routes
+  Then the declared route is served alongside the gateway's own config-declared routes
+  And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting
   ```
 
 ### gimle-fafnir

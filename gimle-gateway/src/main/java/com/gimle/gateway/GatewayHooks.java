@@ -1,6 +1,7 @@
 package com.gimle.gateway;
 
 import com.gimle.core.io.SizeLimitedInputStream;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.HostCertificate;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
@@ -17,10 +18,15 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -137,7 +143,11 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
     List<HostCertificate> hostCertificates =
         ctx.config("gateway.tlsCertificates").map(GatewayTlsConfig::parse).orElse(List.of());
     dispatcher = new GatewayDispatcher(ctx, routes);
-    appliedRoutesConfig = routesConfig;
+    // Deliberately not the applied fingerprint: onStart binds from config alone so the gateway is
+    // serving before it has ever talked to a control plane, and leaving this unset makes the first
+    // reload tick apply the merged table -- config plus declared Ingresses -- rather than deciding
+    // nothing changed and never picking the Ingresses up.
+    appliedRoutesConfig = null;
     registeredPaths = distinctPaths(routes);
 
     try {
@@ -224,14 +234,61 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
    * whatever route table is already serving traffic, rather than tearing down a working gateway
    * over an operator's typo.
    */
+  /**
+   * Routes declared as {@code Ingress} resources, or empty when no control-plane endpoint is
+   * configured (the gateway then behaves exactly as it always has, serving only its config) or when
+   * the control plane could not be reached. An unreachable control plane must never tear down a
+   * route table that is currently serving traffic, so a failed fetch is indistinguishable from "no
+   * Ingresses declared" only in the sense that both leave the previous table in place.
+   */
+  private List<GatewayRoute> fetchIngressRoutes(ModuleContext ctx) {
+    Optional<String> endpoint = ctx.config("gateway.controlPlaneEndpoint");
+    if (endpoint.isEmpty()) {
+      return List.of();
+    }
+    String tenantId = ctx.config("gateway.tenantId").orElse(Tenant.DEFAULT_TENANT_ID);
+    try {
+      HttpIngressSource source =
+          new HttpIngressSource(
+              HttpClient.newHttpClient(), URI.create("http://" + endpoint.get() + "/"));
+      return source.fetch(tenantId).map(IngressRoutes::toGatewayRoutes).orElse(List.of());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return List.of();
+    } catch (IOException | RuntimeException e) {
+      log.warn("gimle-gateway could not read declared ingresses: {}", e.getMessage());
+      return List.of();
+    }
+  }
+
   private synchronized void reloadRoutesIfChanged(ModuleContext ctx) {
-    String routesConfig = ctx.config("gateway.routes").orElse(null);
-    if (routesConfig == null || routesConfig.equals(appliedRoutesConfig)) {
+    String routesConfig = ctx.config("gateway.routes").orElse("");
+    List<GatewayRoute> declaredRoutes = fetchIngressRoutes(ctx);
+    // Both sources are compared together: an Ingress edit with an unchanged config string still has
+    // to reach the route table, and a config edit with unchanged Ingresses still has to as well.
+    String fingerprint = routesConfig + "\u0000" + declaredRoutes;
+    if (fingerprint.equals(appliedRoutesConfig)) {
       return;
     }
     List<GatewayRoute> newRoutes;
     try {
-      newRoutes = GatewayRouteConfig.parse(routesConfig);
+      newRoutes = new ArrayList<>(GatewayRouteConfig.parse(routesConfig));
+      // Config-declared routes win a collision: an operator editing gateway.routes on a live
+      // gateway is acting on the machine in front of them, and having a cluster-wide Ingress
+      // silently override that would make the local edit look broken.
+      Set<String> configPaths = new HashSet<>();
+      for (GatewayRoute route : newRoutes) {
+        configPaths.add(route.host().orElse("") + " " + route.path() + " " + route.prefix());
+      }
+      for (GatewayRoute route : declaredRoutes) {
+        if (configPaths.add(route.host().orElse("") + " " + route.path() + " " + route.prefix())) {
+          newRoutes.add(route);
+        } else {
+          log.warn(
+              "gimle-gateway ignored an ingress route for {}: gateway.routes already declares it",
+              route.path());
+        }
+      }
     } catch (GatewayConfigException e) {
       log.warn(
           "gimle-gateway rejected a gateway.routes update, keeping the previous route table: {}",

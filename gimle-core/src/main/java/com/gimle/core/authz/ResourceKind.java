@@ -51,6 +51,10 @@ public enum ResourceKind {
   // granting it is a materially different, more consequential authority than merely being able to
   // declare a Service in the first place.
   NETWORK_POLICY,
+  // Its own kind rather than folded into SERVICE, on the same reasoning NETWORK_POLICY already
+  // establishes relative to it: an Ingress decides what the outside world can reach through a
+  // gateway, which is a meaningfully more consequential grant than declaring an in-cluster Service.
+  INGRESS,
   // Guards a tenant's named, multi-key ConfigMap objects -- distinct from CONFIG (which guards the
   // same tenant's loose flat keys) so a role can be granted "read flat config keys" without also
   // getting "read named ConfigMaps," the same split CONFIG/SECRET already establishes for

@@ -16,6 +16,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -79,6 +80,8 @@ public sealed interface StoreRpc {
           ListServices,
           GetNetworkPolicy,
           ListNetworkPolicies,
+          GetIngress,
+          ListIngresses,
           GetAlertRule,
           ListAlertRules,
           ListAssignmentsFor,
@@ -187,6 +190,8 @@ public sealed interface StoreRpc {
           ServiceListResult,
           NetworkPolicyResult,
           NetworkPolicyListResult,
+          IngressResult,
+          IngressListResult,
           AlertRuleResult,
           AlertRuleListResult,
           AssignmentListResult,
@@ -293,6 +298,10 @@ public sealed interface StoreRpc {
   record ListServices() implements Request {}
 
   record GetNetworkPolicy(String tenantId, String name) implements Request {}
+
+  record GetIngress(String tenantId, String name) implements Request {}
+
+  record ListIngresses() implements Request {}
 
   record ListNetworkPolicies() implements Request {}
 
@@ -609,6 +618,10 @@ public sealed interface StoreRpc {
   record NetworkPolicyResult(boolean present, NetworkPolicySpec value) implements Response {}
 
   record NetworkPolicyListResult(List<NetworkPolicySpec> values) implements Response {}
+
+  record IngressResult(boolean present, IngressSpec value) implements Response {}
+
+  record IngressListResult(List<IngressSpec> values) implements Response {}
 
   record AlertRuleResult(boolean present, AlertRuleSpec value) implements Response {}
 

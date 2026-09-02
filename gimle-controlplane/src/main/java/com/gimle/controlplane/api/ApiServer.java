@@ -29,6 +29,8 @@ import com.gimle.controlplane.galdr.CustomResourceManifestParser;
 import com.gimle.controlplane.galdr.GaldrJson;
 import com.gimle.controlplane.galdr.GaldrKinds;
 import com.gimle.controlplane.galdr.KindDefinitionParser;
+import com.gimle.controlplane.ingress.IngressRegistry;
+import com.gimle.controlplane.ingress.IngressWriteResult;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyPatch;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyRegistry;
@@ -61,6 +63,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
+import com.gimle.core.ingress.IngressRule;
 import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.logging.LogFilter;
@@ -115,6 +118,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.ManifestParser;
@@ -324,6 +328,7 @@ public final class ApiServer implements AutoCloseable {
   // gimle-agent's own poller (GET /networkpolicies below), never by a reconciler -- nothing in this
   // process itself needs to act on a NetworkPolicySpec, only relay it downstream unchanged.
   private final NetworkPolicyRegistry networkPolicyRegistry;
+  private final IngressRegistry ingressRegistry;
   // Same delegate-to-the-store shape as networkPolicyRegistry above -- see AlertRuleRegistry's own
   // javadoc. Read by ControlPlaneMain's own AlertReconciler, evaluated on the same reconcile tick
   // every other resource kind here converges on.
@@ -488,6 +493,7 @@ public final class ApiServer implements AutoCloseable {
         new CronJobReconciler(storeClient, storeClient, Clock.systemUTC(), this.artifactResolver);
     this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
     this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient);
+    this.ingressRegistry = new IngressRegistry(storeClient);
     this.alertRuleRegistry = new AlertRuleRegistry(storeClient, storeClient);
     this.configMapStore = new ConfigMapStore(storeClient);
     this.configVersionStore = new ConfigVersionStore(storeClient);
@@ -579,6 +585,8 @@ public final class ApiServer implements AutoCloseable {
         "/networkpolicies/", instrument("networkpolicies", this::handleNetworkPolicy));
     target.createContext(
         "/networkpolicies", instrument("networkpolicies", this::handleNetworkPoliciesCollection));
+    target.createContext("/ingresses/", instrument("ingresses", this::handleIngress));
+    target.createContext("/ingresses", instrument("ingresses", this::handleIngressesCollection));
     target.createContext(
         "/networkpostures", instrument("networkpostures", this::handleNetworkPosturesList));
     target.createContext("/alertrules/", instrument("alertrules", this::handleAlertRule));
@@ -2356,6 +2364,158 @@ public final class ApiServer implements AutoCloseable {
    * which isn't a {@link WorkloadSpec} itself either and so travels as plain JSON rather than a
    * {@code kind:}-dispatched manifest.
    */
+  // ---- /ingresses, /ingresses/{name} ----
+
+  private void handleIngressesCollection(HttpExchange exchange) {
+    try {
+      switch (exchange.getRequestMethod()) {
+        case "POST" -> handlePostIngress(exchange);
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.READ, Optional.empty())) {
+            List<Map<String, Object>> body = new ArrayList<>();
+            for (IngressSpec spec : ingressRegistry.list()) {
+              body.add(ingressToJson(spec));
+            }
+            respondJson(exchange, 200, body);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("ingresses request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleIngress(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/ingresses/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing ingress name");
+        return;
+      }
+      Optional<String> tenantId = workloadTenantHint(exchange);
+      switch (exchange.getRequestMethod()) {
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.READ, tenantId)) {
+            Optional<IngressSpec> spec = ingressRegistry.get(tenantId.orElseThrow(), name);
+            if (spec.isEmpty()) {
+              respond(exchange, 404, "no such ingress: " + name);
+            } else {
+              respondJson(exchange, 200, ingressToJson(spec.get()));
+            }
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, tenantId)) {
+            ingressRegistry.remove(tenantId.orElseThrow(), name);
+            respondJson(exchange, 200, Map.of("deleted", true));
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("ingress request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * A route's own validation lives in {@link IngressRule}'s compact constructor, so a malformed
+   * declaration is an {@link IllegalArgumentException} the caller sees as a 400 naming the field --
+   * rather than a route that parses and then silently never matches, which is the failure mode a
+   * flat config string has.
+   */
+  private void handlePostIngress(HttpExchange exchange) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    String name = (String) body.get("name");
+    if (name == null || name.isBlank()) {
+      respond(exchange, 400, "missing ingress name");
+      return;
+    }
+    String tenantId = (String) body.get("tenantId");
+    if (tenantId == null || tenantId.isBlank()) {
+      respond(exchange, 400, "missing tenantId");
+      return;
+    }
+    if (!requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, Optional.of(tenantId))) {
+      return;
+    }
+    List<IngressRule> routes = new ArrayList<>();
+    for (Map<String, Object> route : Json.asObjectList(body.get("routes"))) {
+      routes.add(ingressRuleFromJson(route));
+    }
+    OptionalInt expectedVersion =
+        body.get("expectedVersion") instanceof Number n
+            ? OptionalInt.of(n.intValue())
+            : OptionalInt.empty();
+    IngressWriteResult result =
+        ingressRegistry.put(new IngressSpec(name, tenantId, routes), expectedVersion);
+    switch (result) {
+      case IngressWriteResult.Written written ->
+          respondJson(exchange, 200, ingressToJson(written.spec()));
+      case IngressWriteResult.VersionConflict conflict ->
+          respondJson(
+              exchange,
+              409,
+              Map.of("error", "version conflict", "currentVersion", conflict.currentVersion()));
+      case IngressWriteResult.Contended unused ->
+          respond(exchange, 503, "ingress " + name + " is being written by another caller");
+    }
+  }
+
+  private static IngressRule ingressRuleFromJson(Map<String, Object> route) {
+    IngressRule.Kind kind =
+        IngressRule.Kind.valueOf(String.valueOf(route.get("kind")).toUpperCase(Locale.ROOT));
+    return new IngressRule(
+        Optional.ofNullable((String) route.get("host")),
+        (String) route.get("path"),
+        Boolean.TRUE.equals(route.get("prefix")),
+        kind,
+        Optional.ofNullable((String) route.get("serviceName")),
+        Optional.ofNullable((String) route.get("deploymentName")),
+        Optional.ofNullable((String) route.get("portName")),
+        Optional.ofNullable((String) route.get("interfaceName")),
+        route.get("majorVersion") instanceof Number n ? n.intValue() : 0,
+        Optional.ofNullable((String) route.get("methodName")),
+        Optional.ofNullable((String) route.get("paramType")));
+  }
+
+  private static Map<String, Object> ingressToJson(IngressSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", spec.name());
+    map.put("tenantId", spec.tenantId());
+    map.put("version", spec.version());
+    List<Map<String, Object>> routes = new ArrayList<>();
+    for (IngressRule route : spec.routes()) {
+      Map<String, Object> entry = new LinkedHashMap<>();
+      route.host().ifPresent(host -> entry.put("host", host));
+      entry.put("path", route.path());
+      entry.put("prefix", route.prefix());
+      entry.put("kind", route.kind().name());
+      route.serviceName().ifPresent(v -> entry.put("serviceName", v));
+      route.deploymentName().ifPresent(v -> entry.put("deploymentName", v));
+      route.portName().ifPresent(v -> entry.put("portName", v));
+      route.interfaceName().ifPresent(v -> entry.put("interfaceName", v));
+      if (route.kind() == IngressRule.Kind.FABRIC) {
+        entry.put("majorVersion", route.majorVersion());
+      }
+      route.methodName().ifPresent(v -> entry.put("methodName", v));
+      route.paramType().ifPresent(v -> entry.put("paramType", v));
+      routes.add(entry);
+    }
+    map.put("routes", routes);
+    return map;
+  }
+
   private void handleNetworkPoliciesCollection(HttpExchange exchange) {
     try {
       switch (exchange.getRequestMethod()) {

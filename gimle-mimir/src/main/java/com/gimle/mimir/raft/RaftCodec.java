@@ -16,6 +16,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -161,6 +162,8 @@ public final class RaftCodec {
   private static final byte MUT_PUT_ALERT_RULE = 71;
   private static final byte MUT_REMOVE_ALERT_RULE = 72;
   private static final byte MUT_PUT_DEPLOYMENT_LAST_SCALE = 73;
+  private static final byte MUT_PUT_INGRESS = 74;
+  private static final byte MUT_REMOVE_INGRESS = 75;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -444,6 +447,15 @@ public final class RaftCodec {
       }
       case StateMutation.RemoveNetworkPolicy m -> {
         out.writeByte(MUT_REMOVE_NETWORK_POLICY);
+        out.writeUTF(m.tenantId());
+        out.writeUTF(m.name());
+      }
+      case StateMutation.PutIngress m -> {
+        out.writeByte(MUT_PUT_INGRESS);
+        DomainCodec.writeIngressSpec(out, m.spec());
+      }
+      case StateMutation.RemoveIngress m -> {
+        out.writeByte(MUT_REMOVE_INGRESS);
         out.writeUTF(m.tenantId());
         out.writeUTF(m.name());
       }
@@ -818,6 +830,11 @@ public final class RaftCodec {
       case MUT_REMOVE_NETWORK_POLICY -> {
         String tenantId = in.readUTF();
         yield new StateMutation.RemoveNetworkPolicy(tenantId, in.readUTF());
+      }
+      case MUT_PUT_INGRESS -> new StateMutation.PutIngress(DomainCodec.readIngressSpec(in));
+      case MUT_REMOVE_INGRESS -> {
+        String ingressTenantId = in.readUTF();
+        yield new StateMutation.RemoveIngress(ingressTenantId, in.readUTF());
       }
       case MUT_APPEND_CONTROLLER_REVISION ->
           new StateMutation.AppendControllerRevision(DomainCodec.readControllerRevision(in));
@@ -1213,6 +1230,10 @@ public final class RaftCodec {
       for (NetworkPolicySpec spec : snapshot.networkPolicies()) {
         DomainCodec.writeNetworkPolicySpec(out, spec);
       }
+      out.writeInt(snapshot.ingresses().size());
+      for (IngressSpec spec : snapshot.ingresses()) {
+        DomainCodec.writeIngressSpec(out, spec);
+      }
       out.writeInt(snapshot.controllerRevisions().size());
       for (ControllerRevision revision : snapshot.controllerRevisions()) {
         DomainCodec.writeControllerRevision(out, revision);
@@ -1467,6 +1488,11 @@ public final class RaftCodec {
       for (int i = 0; i < networkPolicyCount; i++) {
         networkPolicies.add(DomainCodec.readNetworkPolicySpec(in));
       }
+      List<IngressSpec> ingresses = new ArrayList<>();
+      int ingressCount = in.readInt();
+      for (int i = 0; i < ingressCount; i++) {
+        ingresses.add(DomainCodec.readIngressSpec(in));
+      }
       List<ControllerRevision> controllerRevisions = new ArrayList<>();
       int controllerRevisionCount = in.readInt();
       for (int i = 0; i < controllerRevisionCount; i++) {
@@ -1579,7 +1605,8 @@ public final class RaftCodec {
           workloadHealthStates,
           sessionRevokedBeforeEpochMilli,
           alertRules,
-          deploymentLastScale);
+          deploymentLastScale,
+          ingresses);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

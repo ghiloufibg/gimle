@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 778
+- **Total requirements**: 779
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 651
+- **Not covered by automated test**: 652
 - **Release-readiness (automated coverage)**: 16.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 55 | 6 | 49 | 10.9% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 111 | 17 | 94 | 15.3% |
+| gimle-controlplane | 112 | 17 | 95 | 15.2% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -1208,6 +1208,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-730 | NetworkPolicy edits are version-guarded and can add or remove one allow-list entry at a time | Given a network policy allowing one caller tenant When a second caller tenant is added through the amend flag And a concurrent edit is attempted against the version it started from Then the concurrent edit is rejected with status 409 And both amendments are visible through a different control-plane replica | Yes |
 | [ ] | GIMLE-731 | A NetworkPolicy may only name tenants that exist | Given a cluster with no tenant named partner When a network policy allowing caller tenant partner is created Then the create is rejected with status 400 naming the unknown tenant | Yes |
+| [ ] | GIMLE-779 | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Given an Ingress declaring a SERVICE route for a tenant When a gateway configured with a control-plane endpoint reloads its routes Then the declared route is served alongside the gateway's own config-declared routes And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting | No |
 
 #### Networking / Services
 

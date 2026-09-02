@@ -14,6 +14,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -84,10 +85,12 @@ public record StateSnapshot(
     List<AlertRuleSpec> alertRules,
     // When the autoscaler last moved each deployment's effectiveReplicas -- what makes an
     // AutoscalePolicy's stabilization windows survive a control-plane restart or failover.
-    Map<String, Instant> deploymentLastScale) {
+    Map<String, Instant> deploymentLastScale,
+    List<IngressSpec> ingresses) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
+    ingresses = List.copyOf(ingresses);
     deploymentGenerations = Map.copyOf(deploymentGenerations);
     assignments = List.copyOf(assignments);
     jobSpecs = List.copyOf(jobSpecs);

@@ -1432,8 +1432,8 @@
       "environments": [
         "midgard"
       ],
-      "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path.",
-      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready.",
+      "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path. Then declare the same routes again as an `Ingress` resource instead of gateway.routes config, including one deliberately malformed route and one colliding with a config-declared path; re-submit the Ingress with a stale expectedVersion.",
+      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready. An Ingress-declared route behaves identically to the same route declared in config; the malformed one is refused at submission naming the field, not accepted and silently unmatched; the config-declared route wins the collision; the stale re-submit is refused rather than overwriting.",
       "requirements": [
         "GIMLE-570",
         "GIMLE-356",
@@ -1446,7 +1446,8 @@
         "GIMLE-366",
         "GIMLE-367",
         "GIMLE-684",
-        "GIMLE-679"
+        "GIMLE-679",
+        "GIMLE-779"
       ]
     },
     {

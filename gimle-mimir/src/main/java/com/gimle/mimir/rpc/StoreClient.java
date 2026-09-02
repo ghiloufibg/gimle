@@ -17,6 +17,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -223,6 +224,24 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   public List<ServiceSpec> listServices() {
     return ((StoreRpc.ServiceListResult) sendRead(new StoreRpc.ListServices())).values();
+  }
+
+  public Optional<IngressSpec> getIngress(String tenantId, String name) {
+    StoreRpc.IngressResult r =
+        (StoreRpc.IngressResult) sendRead(new StoreRpc.GetIngress(tenantId, name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  /** Same query as {@link #getIngress}, routed only to the current leader for a guarded write. */
+  public Optional<IngressSpec> getIngressLinearizable(String tenantId, String name) {
+    StoreRpc.IngressResult r =
+        (StoreRpc.IngressResult)
+            sendLeaderOnly("getIngressLinearizable", new StoreRpc.GetIngress(tenantId, name));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
+  public List<IngressSpec> listIngresses() {
+    return ((StoreRpc.IngressListResult) sendRead(new StoreRpc.ListIngresses())).values();
   }
 
   public Optional<NetworkPolicySpec> getNetworkPolicy(String tenantId, String name) {

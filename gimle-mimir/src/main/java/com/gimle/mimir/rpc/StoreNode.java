@@ -12,6 +12,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -84,6 +85,8 @@ public final class StoreNode implements StoreRpcHandler {
           networkPolicyResult(store.getNetworkPolicy(r.tenantId(), r.name()));
       case StoreRpc.ListNetworkPolicies r ->
           new StoreRpc.NetworkPolicyListResult(store.listNetworkPolicies());
+      case StoreRpc.GetIngress r -> ingressResult(store.getIngress(r.tenantId(), r.name()));
+      case StoreRpc.ListIngresses r -> new StoreRpc.IngressListResult(store.listIngresses());
       case StoreRpc.GetAlertRule r -> alertRuleResult(store.getAlertRule(r.tenantId(), r.name()));
       case StoreRpc.ListAlertRules r -> new StoreRpc.AlertRuleListResult(store.listAlertRules());
       case StoreRpc.GetLimitRange r -> limitRangeResult(store.getLimitRange(r.tenantId()));
@@ -355,6 +358,10 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.ServiceResult(true, v))
         .orElseGet(() -> new StoreRpc.ServiceResult(false, null));
+  }
+
+  private static StoreRpc.IngressResult ingressResult(Optional<IngressSpec> value) {
+    return new StoreRpc.IngressResult(value.isPresent(), value.orElse(null));
   }
 
   private static StoreRpc.NetworkPolicyResult networkPolicyResult(

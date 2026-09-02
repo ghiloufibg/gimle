@@ -183,6 +183,44 @@ through the caller-side filter. Both are the same "forwarded claim, independentl
 far end" posture Fafnir/Muninn/Andvari each apply to identity, applied to cross-tenant fabric
 traffic.
 
+### Ingress: routes as a resource
+
+`gateway.routes` is a flat, hand-authored config string, and that is the Ingress-shaped gap
+Kubernetes fills with a resource. A config value is opaque to the platform: it is validated only
+when a gateway happens to parse it, a typo surfaces as a route that silently never matches, nothing
+can answer "what routes exist" without reading a string, and there is no version to compare so two
+operators editing it race.
+
+An `Ingress` closes all four. It is a first-class resource — Raft-replicated through `gimle-mimir`,
+RBAC-gated under its own `ResourceKind.INGRESS` (its own kind rather than folded into `SERVICE`, on
+the same reasoning `NETWORK_POLICY` already establishes: deciding what the outside world can reach
+is a more consequential grant than declaring an in-cluster Service), and written through the same
+lease-guarded compare-and-set path `NetworkPolicy` uses, so a stale `expectedVersion` is a `409`
+rather than a lost update. Each route is validated at submission, so a malformed declaration is a
+`400` naming the field.
+
+```yaml
+kind: Ingress
+name: public
+tenantId: acme
+routes:
+  - {kind: SERVICE, path: /api/*, prefix: true, serviceName: orders}
+  - {kind: SERVICE, host: shop.example, path: /shop, serviceName: storefront}
+  - {kind: VESSEL,  path: /app, deploymentName: billing, portName: HTTP_PORT}
+  - {kind: FABRIC,  path: /greet, interfaceName: com.acme.Greeter, majorVersion: 1,
+     methodName: greet, paramType: STRING}
+```
+
+A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges the
+declared routes into its own table on the same level-triggered reload tick it already uses for
+config changes — each fetch returns the full current set, so a missed poll self-heals and an
+unreachable control plane leaves the working table untouched rather than tearing it down. Routes
+declared in `gateway.routes` win a collision with an Ingress declaring the same
+`(host, path, prefix)`: an operator editing config on a live gateway is acting on the machine in
+front of them, and a cluster-wide resource silently overriding that would make the local edit look
+broken. Both paths converge on the same `GatewayRoute` objects (`IngressRoutes` converts; the config
+parser parses), so a route behaves identically however it was declared.
+
 ### `gimle-bifrost`: the per-node service proxy
 
 `gimle-agent` gained a per-node Service proxy, package `com.gimle.agent.bifrost` — the kube-proxy

@@ -7,6 +7,7 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
+import com.gimle.core.ingress.IngressRule;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ReclaimPolicy;
@@ -44,6 +45,7 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.LimitRangeSpec;
@@ -227,6 +229,68 @@ public final class DomainCodec {
         allowedCallerTenantIds,
         allowedCalleeTenantIds,
         version);
+  }
+
+  public static void writeIngressSpec(DataOutputStream out, IngressSpec spec) throws IOException {
+    out.writeUTF(spec.name());
+    out.writeUTF(spec.tenantId());
+    out.writeInt(spec.routes().size());
+    for (IngressRule route : spec.routes()) {
+      writeIngressRule(out, route);
+    }
+    out.writeInt(spec.version());
+  }
+
+  public static IngressSpec readIngressSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    String tenantId = in.readUTF();
+    int routeCount = in.readInt();
+    List<IngressRule> routes = new ArrayList<>(routeCount);
+    for (int i = 0; i < routeCount; i++) {
+      routes.add(readIngressRule(in));
+    }
+    int version = in.readInt();
+    return new IngressSpec(name, tenantId, routes, version);
+  }
+
+  private static void writeIngressRule(DataOutputStream out, IngressRule route) throws IOException {
+    writeOptionalString(out, route.host());
+    out.writeUTF(route.path());
+    out.writeBoolean(route.prefix());
+    out.writeUTF(route.kind().name());
+    writeOptionalString(out, route.serviceName());
+    writeOptionalString(out, route.deploymentName());
+    writeOptionalString(out, route.portName());
+    writeOptionalString(out, route.interfaceName());
+    out.writeInt(route.majorVersion());
+    writeOptionalString(out, route.methodName());
+    writeOptionalString(out, route.paramType());
+  }
+
+  private static IngressRule readIngressRule(DataInputStream in) throws IOException {
+    Optional<String> host = readOptionalString(in);
+    String path = in.readUTF();
+    boolean prefix = in.readBoolean();
+    IngressRule.Kind kind = IngressRule.Kind.valueOf(in.readUTF());
+    Optional<String> serviceName = readOptionalString(in);
+    Optional<String> deploymentName = readOptionalString(in);
+    Optional<String> portName = readOptionalString(in);
+    Optional<String> interfaceName = readOptionalString(in);
+    int majorVersion = in.readInt();
+    Optional<String> methodName = readOptionalString(in);
+    Optional<String> paramType = readOptionalString(in);
+    return new IngressRule(
+        host,
+        path,
+        prefix,
+        kind,
+        serviceName,
+        deploymentName,
+        portName,
+        interfaceName,
+        majorVersion,
+        methodName,
+        paramType);
   }
 
   public static void writeAlertRuleSpec(DataOutputStream out, AlertRuleSpec spec)

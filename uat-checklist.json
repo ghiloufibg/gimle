@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 778,
+    "totalRequirements": 779,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 651,
+    "notCoveredByAutomatedTest": 652,
     "releaseReadinessPercent": 16.3
   },
   "items": [
@@ -8560,6 +8560,17 @@
       "category": "Networking",
       "feature": "Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind",
       "step": "Given the Skald DaemonSet and its UDP Service applied to a running cluster When an operator queries the Service's stable ClusterIP for a cluster name Then the answer comes from a Skald instance the platform scheduled and supervises And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-779",
+      "module": "gimle-controlplane",
+      "category": "Networking",
+      "feature": "Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string",
+      "step": "Given an Ingress declaring a SERVICE route for a tenant When a gateway configured with a control-plane endpoint reloads its routes Then the declared route is served alongside the gateway's own config-declared routes And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
