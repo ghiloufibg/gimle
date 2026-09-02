@@ -71,9 +71,7 @@ public final class HelpOverlay {
     lines.add(
         new Line(painter)
             .add(" ", Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
-            .add("?", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" or ", Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
-            .add("esc", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
+            .add("any key", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
             .add(" to close", Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
             .fillTo(viewport.columns(), Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
             .build());
