@@ -12,8 +12,9 @@ export interface NavEntry {
   exact?: boolean;
 }
 
-/** Sidebar groups, in render order. `Addons` sits between the platform screens and the
- * control plane's own, and renders only what the server advertises (see `useAddonsStore`). */
+/** Sidebar groups, in render order. An addon renders under whichever of these its catalog entry
+ * names -- `Addons` is the fallback for one that belongs beside no existing screen -- and only
+ * when the control plane advertises it (see `useAddonsStore`). */
 export const NAV_GROUPS = ["Cluster", "Workloads", "Edge", "Platform", "Addons", "System"] as const;
 
 /** Groups entries for rendering, dropping any group nothing landed in. */

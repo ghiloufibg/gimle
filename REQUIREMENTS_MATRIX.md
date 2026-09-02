@@ -787,7 +787,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Web Console / Frontend | Complete | Yes |
 | GIMLE-776 | A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing | Networking / Services | Complete | Yes |
 | GIMLE-777 | A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog | Web Console / Frontend | Complete | Yes |
-| GIMLE-778 | Console addons are a catalog, a registry and an Addons sidebar group, with a disabled addon explaining itself instead of 404ing | Web Console / Frontend | Complete | Yes |
+| GIMLE-778 | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Web Console / Frontend | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -10116,20 +10116,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And deleting the route file removes both the route and its sidebar entry, with nothing left naming it
   ```
 
-#### GIMLE-778 — Console addons are a catalog, a registry and an Addons sidebar group, with a disabled addon explaining itself instead of 404ing
+#### GIMLE-778 — Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing
 
 - **Category**: Web Console / Frontend
 - **User story**: As an operator following a link to a console screen the deployment does not offer, I want the page to tell me which property turns it on, instead of showing me a 404 that looks like a broken link.
-- **Status**: Complete. Replaces the earlier per-route `navEntry` + `import.meta.glob` seam with the registry shape the platform's own addon design specifies, so every addon is added the same way. `public/addons.json` is the single bundled catalog (copied verbatim into the jar as `console/addons.json`, which the control plane validates its property against); `src/addons/index.ts` adds only the icon component JSON cannot carry; each addon's store, model and screen live under `src/addons/<id>/` with a thin route file mounting it inside `AddonRoute`. `useAddonsStore` reads `GET /console/addons` once beside the auth session; the sidebar's Addons group renders only advertised entries and hides when none are, and an unadvertised addon's route renders a panel naming `-Dgimle.controlplane.consoleAddons` rather than a 404, so a shared link still explains itself. An unreachable or older control plane advertises nothing rather than failing the console.
+- **Status**: Complete. Replaces the earlier per-route `navEntry` + `import.meta.glob` seam with the registry shape the platform's own addon design specifies, so every addon is added the same way. `public/addons.json` is the single bundled catalog (copied verbatim into the jar as `console/addons.json`, which the control plane validates its property against); `src/addons/index.ts` adds only the icon component JSON cannot carry; each addon's store, model and screen live under `src/addons/<id>/` with a thin route file mounting it inside `AddonRoute`. `useAddonsStore` reads `GET /console/addons` once beside the auth session; each advertised addon renders in whichever sidebar group its own catalog entry names (Gateway and Skald DNS under `Edge`, beside the Networking screen they belong with, rather than fenced off in a group of their own -- `Addons` remains the fallback for an addon belonging beside no existing screen), an unadvertised addon contributes no entry, a group nothing landed in is dropped, and an unadvertised addon's route renders a panel naming `-Dgimle.controlplane.consoleAddons` rather than a 404, so a shared link still explains itself. An unreachable or older control plane advertises nothing rather than failing the console.
 - **Confidence**: High
 - **Source location(s)**: `gimle-console/public/addons.json`, `gimle-console/src/addons/index.ts`, `gimle-console/src/addons/addon-route.tsx`, `gimle-console/src/addons/gateway/**`, `gimle-console/src/addons/skald/**`, `gimle-console/src/stores/useAddonsStore.ts`, `gimle-console/src/components/app-sidebar.tsx`, `gimle-console/src/lib/nav.ts`
-- **Test coverage**: useAddonsStore.test.ts covers advertising only enabled ids (a disabled id hides its entry), a failed read and a 404 both advertising nothing rather than throwing, and the read happening once rather than per mount; the same file asserts the registry and addons.json agree on ids, that every catalogued addon carries an icon, that each addon's route matches its own route file's URL, and that an unknown id is refused. nav.test.ts covers the Addons group's placement among the known groups and empty groups being dropped.
+- **Test coverage**: useAddonsStore.test.ts covers advertising only enabled ids (a disabled id hides its entry), a failed read and a 404 both advertising nothing rather than throwing, and the read happening once rather than per mount; the same file asserts the registry and addons.json agree on ids, that every catalogued addon carries an icon, that each addon's route matches its own route file's URL, and that an unknown id is refused. nav.test.ts covers the Addons group's placement among the known groups and empty groups being dropped. Two further cases pin that both edge addons name the `Edge` group and that every catalogued addon names a group the sidebar knows how to order.
 - **Gherkin scenario**:
   ```gherkin
   Given a control plane advertising no console addons
   When an operator opens a bundled addon's route directly
   Then the page names the property that would enable it rather than answering 404
-  And the sidebar shows no Addons group at all
+  And the sidebar shows no entry for it in the group its catalog entry names
   ```
 
 ### gimle-fafnir-console

@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { LucideIcon } from "lucide-react";
 import { groupNavEntries, NAV_GROUPS, type NavEntry } from "./nav";
 
-// collectAddonNavEntries lives in nav-addons.ts and is deliberately not covered: it is an
-// import.meta.glob over route modules, so exercising it would drag the whole rendering stack into
-// a suite configured without one (vitest.config.ts runs plain Node). Grouping is the logic.
+// Which group an addon lands in is its own catalog entry's business (see addons.json and
+// useAddonsStore.test.ts); this file covers only how groups are ordered and folded once built.
 
 const icon = (() => null) as unknown as LucideIcon;
 

@@ -77,7 +77,7 @@ Three pieces make an addon:
 
 | Piece | Where | What it decides |
 |---|---|---|
-| Catalog | `gimle-console/public/addons.json` | which addons are **bundled**: id, title, description, route |
+| Catalog | `gimle-console/public/addons.json` | which addons are **bundled**: id, title, description, route, and the sidebar group each renders under |
 | Registry | `gimle-console/src/addons/index.ts` | adds only what JSON cannot carry — the icon component |
 | Property | `-Dgimle.controlplane.consoleAddons` | which bundled addons this deployment **advertises** |
 
@@ -94,10 +94,14 @@ prefix) and sits behind no RBAC gate and no session: it says which screens exist
 contain, and the console reads it before anyone has signed in. Every screen it names still enforces
 its own reads through the ordinary authorized routes.
 
-The console reads it once, alongside the auth session, into `useAddonsStore`. The sidebar's
-**Addons** group renders only advertised entries and hides itself when none are; a route for an
-addon that is not advertised renders a panel naming the property that would turn it on, never a
-404, so a shared link still explains itself. A control plane too old to serve the route, or simply
+The console reads it once, alongside the auth session, into `useAddonsStore`. Each advertised addon
+renders in whichever sidebar group its own catalog entry names — Gateway and Skald DNS sit under
+**Edge**, beside the Networking screen they belong with, rather than being fenced off in a group of
+their own; `Addons` exists as the fallback for an addon that belongs beside no existing screen. An
+unadvertised addon contributes no entry at all, and a group nothing landed in is dropped, so a
+control plane advertising none looks exactly like one that never bundled any. A route for an addon
+that is not advertised renders a panel naming the property that would turn it on, never a 404, so a
+shared link still explains itself. A control plane too old to serve the route, or simply
 unreachable, is treated as advertising nothing — the same posture the auth store takes on a failed
 session read — so the console still loads.
 

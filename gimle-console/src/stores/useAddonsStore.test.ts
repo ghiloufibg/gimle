@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import catalog from "../../public/addons.json";
 import { ADDONS, addonById } from "@/addons";
+import { NAV_GROUPS } from "@/lib/nav";
 import { useAddonsStore } from "./useAddonsStore";
 
 function respondWith(body: unknown, ok = true, status = 200) {
@@ -90,6 +91,15 @@ describe("the addon registry", () => {
   it("keeps each addon's route matching its own route file's URL", () => {
     expect(addonById("gateway").route).toBe("/gateway");
     expect(addonById("skald").route).toBe("/skald");
+  });
+
+  it("places both edge addons in the group the Networking screen already renders under", () => {
+    expect(addonById("gateway").group).toBe("Edge");
+    expect(addonById("skald").group).toBe("Edge");
+  });
+
+  it("names a group the sidebar knows how to order, for every addon", () => {
+    for (const addon of ADDONS) expect(NAV_GROUPS).toContain(addon.group);
   });
 
   it("refuses an id the catalog does not carry", () => {

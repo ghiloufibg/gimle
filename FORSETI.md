@@ -1271,5 +1271,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-775 | `gimle-console` | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | observable | FLEET | NET-4 |
 | GIMLE-776 | `gimle-controlplane` | A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing | observable | FLEET | NET-2, NET-4 |
 | GIMLE-777 | `gimle-controlplane` | A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog | observable | FLEET | NET-4 |
-| GIMLE-778 | `gimle-console` | Console addons are a catalog, a registry and an Addons sidebar group, with a disabled addon explaining itself instead of 404ing | observable | FLEET | NET-4 |
+| GIMLE-778 | `gimle-console` | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | observable | FLEET | NET-4 |
 <!-- /forseti:generated -->

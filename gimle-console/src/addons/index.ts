@@ -13,6 +13,13 @@ export interface Addon {
   description: string;
   /** The route the screen mounts at, matching its file under `src/routes/`. */
   route: string;
+  /**
+   * The sidebar group this addon renders under when advertised. Carried in the catalog rather than
+   * fixed in the sidebar, so an addon sits beside the screens it belongs with -- Gateway and Skald
+   * DNS under `Edge` next to Networking -- and one that belongs nowhere existing can name its own
+   * group without a code change.
+   */
+  group: string;
   icon: LucideIcon;
 }
 

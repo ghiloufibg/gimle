@@ -4,13 +4,15 @@
       "id": "gateway",
       "title": "Gateway",
       "description": "The edge gateway's declared route table and what each route currently resolves to.",
-      "route": "/gateway"
+      "route": "/gateway",
+      "group": "Edge"
     },
     {
       "id": "skald",
       "title": "Skald DNS",
       "description": "Which svc.gimle.local names resolve right now, and to how many addresses.",
-      "route": "/skald"
+      "route": "/skald",
+      "group": "Edge"
     }
   ]
 }

@@ -83,7 +83,7 @@ function useNavGroups() {
     title: a.title,
     url: a.route,
     icon: a.icon,
-    group: "Addons",
+    group: a.group,
   }));
   return groupNavEntries([...coreItems, ...addonItems]);
 }
