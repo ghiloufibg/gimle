@@ -64,6 +64,27 @@ caller to a peer the way it once did, because there is no longer a fixed 1:1 rel
 an `ApiServer` replica and any particular store node to redirect to. Reads tolerate the same
 staleness they always did: any store endpoint may answer, with no linearizability guarantee.
 
+`GET /instances/{name}/{index}/fabric-endpoint` answers a different question that `/endpoints/{name}`
+cannot: where one instance's worker JVM is reachable on the **service fabric** — the TCP address a
+`FabricClient` dials to invoke a service on it directly, rather than through
+`FabricServiceRegistry`'s own locality-preferring selection. That address arrives on the worker's
+own `Hello` handshake and lives only in the supervising agent's memory, so this route resolves which
+node currently hosts the instance (across all four placement kinds, the same walk `/endpoints/{name}`
+does) and proxies the lookup to that node's agent — the same API-server-to-kubelet shape
+`/logs/instances/...` already uses, so a caller needs only the workload name and index rather than
+having to know the placement. Read authorization is checked against the grant the instance's own
+owning workload kind falls under, so a `DaemonSet` or `StatefulSet` instance needs that kind's
+independently withholdable grant rather than `DEPLOYMENT`'s.
+
+The agent distinguishes three outcomes rather than collapsing them into one `404`, because they
+tell a caller different things: `404` — this node does not supervise that instance, so look
+elsewhere; `409` — it does, but the worker's fabric handshake has not landed yet, so retry; `200` —
+here is `tcpAddress`/`tcpHost`/`tcpPort`, plus `workerId` and the `udsPath` a same-machine caller
+would prefer, when the worker bound one. The route is diagnostic and grants no new capability: an
+instance's fabric listener authenticates and authorizes every inbound call itself, and dialing it
+directly is exactly what `FabricServer`'s own listener-side tenant re-check defends against — a
+defence that could not be exercised end to end while the address stayed undiscoverable.
+
 `GET /endpoints/{name}` is a small, read-only view over the same assignment/heartbeat state
 `GET /deployments/{name}` already exposes, purpose-built for [vessel workloads](../reference/manifest-schema.md#vessel-workloads-vessel):
 for each live instance, its `nodeId`, the host that node registered at startup (`NodeRegistration.apiAddress`,
@@ -90,6 +111,29 @@ call sites share one implementation. This is what lets a hosted module ask its o
 relay a `GET /endpoints/{name}` call on its behalf (the worker-agent control channel's
 `RelayControlPlaneRead`/`RelayControlPlaneResult` pair — see [Node topology](./node-topology.md#relaying-a-hosted-modules-control-plane-reads))
 without that agent's own certificate needing an ordinary `RoleBinding` granted to it.
+
+### Request rate limiting
+
+Every route registered on the API server passes through one instrumentation wrapper, and that
+wrapper charges the caller's remote address a token before the route runs. A source that outruns its
+budget gets `429` with a `Retry-After` header; the limit applies whether or not the caller
+authenticates, since establishing an identity is itself work a flood would force the server to do.
+
+Deliberately keyed by remote address alone, with **no** cluster-wide companion bucket — the one
+place this differs from the `POST /bootstrap/csr` limiter, which has both. A shared bucket would let
+a single flooding source spend the budget every other caller draws from, node agents' heartbeats
+included; the control plane reads starved heartbeats as nodes going dark and answers with mass
+rescheduling, so a shared bucket would convert a flood from one source into a cluster-wide outage.
+CSR can afford one because submissions are rare and bounded by fleet size. Ordinary API traffic is
+neither.
+
+Sized as a flood backstop, not a quota: the default 600-token burst refilling every 5ms (≈200/s
+sustained, per address) sits far above an agent's polling, an operator's bulk apply, or a console
+page load's asset burst. Tune with `gimle.controlplane.rateLimit.burstPerAddress` and
+`.refillMillisPerAddress`, or set `gimle.controlplane.rateLimit.enabled=false` to run unbounded —
+worth doing when pointing a load generator such as [`ragnarok stress`](../reference/ragnarok-reference.md)
+at the cluster, since a stress run's whole purpose is to exceed exactly this rate. Console static
+assets are served outside this wrapper and are not charged.
 
 ## Admission, and previewing it
 
@@ -259,6 +303,41 @@ tenant, the common case. Unlike an ad hoc co-residency check computed from curre
 taint is a single per-node property read directly from the store, so it doesn't degrade as more
 tenants or workload kinds share the cluster, and it never evicts an instance already running there
 — only keeps a non-tolerating tenant's new placements off it.
+
+### Priority and preemption
+
+`placement.priority` on a workload is the `PriorityClass` analogue, collapsed to the resolved
+integer a PriorityClass exists to name rather than introduced as a separate cluster-scoped kind —
+the same simplification `ServiceSpec` makes by matching deployments by name instead of by label
+selector. Higher wins, `0` is the default, and negatives are allowed so a batch workload can be
+marked explicitly more evictable than the default.
+
+Priority is consulted **only** when the cluster is out of room. It is not a scheduling preference:
+while any node has capacity, a workload lands there regardless of what else is running and no matter
+how the priorities compare, so raising a priority never changes where a workload lands — it buys the
+ability to make room. When a replica fails to place, `Scheduler#preemption` looks for a node where
+evicting strictly-lower-priority instances would free enough, taking victims lowest-priority first
+and, within one priority, largest first, so the fewest instances are disturbed and the ones
+disturbed are those the cluster was told matter least.
+
+Four properties are worth stating because they are what make this safe:
+
+- **An equal-priority instance is never a victim.** Equal priority means the cluster was given no
+  basis to prefer one over the other, and evicting a peer to seat a peer would let two workloads
+  displace each other indefinitely.
+- **If evicting everything eligible still would not fit, nothing is evicted.** Under-evicting is the
+  correct failure — the disruption would buy nothing.
+- **Only Deployment instances are ever victims.** A StatefulSet instance is pinned to its node by a
+  local volume eviction cannot move, a DaemonSet instance exists precisely because its node does,
+  and a Job run is already finite.
+- **Ineligible nodes are never preempted.** The full eligibility walk (tier, cordon, anti-affinity,
+  taints, labels) runs first, so evicting from a node the workload could not be placed on anyway is
+  impossible.
+
+Eviction is level-triggered like everything else here: preemption removes the victims' assignments,
+and the ordinary placement path on a later tick finds the freed room. Nothing reserves that room for
+the workload that earned it — a deliberate trade against carrying a reservation through the store,
+and the reason a preempting workload can occasionally need more than one tick to land.
 
 ### Why a placement failed
 

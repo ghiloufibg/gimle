@@ -4,6 +4,7 @@ import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.exception.GimleSchedulingException.NodeFreeCapacity;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ResourceSpec;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -207,6 +208,106 @@ public final class Scheduler {
                     tier,
                     resourceRequest,
                     freeCapacityOf(labelEligible)));
+  }
+
+  /**
+   * One node's instances that could be evicted to make room for a workload the cluster currently
+   * has nowhere to put, or empty when no eviction would help. A pure decision -- it evicts nothing
+   * itself and mutates nothing; the caller turns the answer into {@code RemoveAssignment}s.
+   *
+   * <p>Only ever consulted after {@link #place} has already failed for capacity, which is what
+   * makes priority a last resort rather than a scheduling preference: while any node has room, a
+   * workload lands there and nothing is disturbed, no matter how high its priority or how low its
+   * neighbours'. Raising a priority buys the ability to make room, not a better address.
+   *
+   * <p>Eviction is level-triggered like everything else here: this returns victims, the caller
+   * removes their assignments, and the ordinary {@link #place} on a later tick then succeeds
+   * against the freed capacity. Nothing tries to hold the freed room for the workload that earned
+   * it -- if something else takes it first, this simply runs again next tick. That is a deliberate
+   * trade against carrying a reservation through the store, and it is why a preempting workload can
+   * occasionally need more than one round to land.
+   */
+  public Optional<Preemption> preemption(
+      IsolationTier tier,
+      ResourceSpec resourceRequest,
+      int priority,
+      boolean antiAffinityAcrossNodes,
+      Optional<String> tenantId,
+      Set<String> requiredNodeLabels,
+      List<NodeCandidate> candidates) {
+    long requiredMemory = resourceRequest.memoryBytes();
+    long requiredCpu = resourceRequest.cpuMillicores();
+    return eligibleNodes(
+            tier, antiAffinityAcrossNodes, tenantId, requiredNodeLabels, false, candidates)
+        .stream()
+        .map(candidate -> victimsOn(candidate, priority, requiredMemory, requiredCpu))
+        .flatMap(Optional::stream)
+        // Fewest evictions first, then least capacity taken back: disturbing two instances to seat
+        // one is worse than disturbing one, and between equal counts the smaller disruption wins.
+        .min(
+            Comparator.comparingInt((Preemption p) -> p.victims().size())
+                .thenComparingLong(Preemption::reclaimedMemoryBytes))
+        .map(Optional::of)
+        .orElse(Optional.empty());
+  }
+
+  /**
+   * The cheapest set of strictly-lower-priority instances on one node that together free enough for
+   * the request, or empty when even evicting all of them would not. Victims are taken
+   * lowest-priority first, and within one priority the largest first -- so the fewest instances are
+   * disturbed, and the ones disturbed are the ones the cluster was told matter least.
+   *
+   * <p>An instance at the same priority is never a victim. Equal priority means the cluster was
+   * given no basis to prefer one over the other, and evicting a peer to seat a peer would let two
+   * equal workloads displace each other indefinitely.
+   */
+  private static Optional<Preemption> victimsOn(
+      NodeCandidate candidate, int priority, long requiredMemory, long requiredCpu) {
+    long freeMemory = candidate.freeMemoryBytes();
+    long freeCpu = candidate.freeCpuMillicores();
+    if (freeMemory >= requiredMemory && freeCpu >= requiredCpu) {
+      // Nothing to preempt: this node already fits the request. Reached when place() failed for a
+      // reason other than this node's capacity -- a concurrent placement, or a stale snapshot.
+      return Optional.of(new Preemption(candidate.nodeId(), List.of()));
+    }
+    List<ResidentInstance> ordered =
+        candidate.residents().stream()
+            .filter(resident -> resident.priority() < priority)
+            .sorted(
+                Comparator.comparingInt(ResidentInstance::priority)
+                    .thenComparing(
+                        Comparator.comparingLong((ResidentInstance r) -> r.request().memoryBytes())
+                            .reversed()))
+            .toList();
+    List<ResidentInstance> victims = new ArrayList<>();
+    for (ResidentInstance resident : ordered) {
+      if (freeMemory >= requiredMemory && freeCpu >= requiredCpu) {
+        break;
+      }
+      victims.add(resident);
+      freeMemory += resident.request().memoryBytes();
+      freeCpu += resident.request().cpuMillicores();
+    }
+    if (freeMemory < requiredMemory || freeCpu < requiredCpu) {
+      return Optional.empty();
+    }
+    return Optional.of(new Preemption(candidate.nodeId(), victims));
+  }
+
+  /**
+   * Where a preempting workload would land and what would have to be evicted first. An empty {@code
+   * victims} list means the node already had room after all -- valid, and distinct from "no
+   * preemption is possible", which is an empty {@link Optional} instead.
+   */
+  public record Preemption(String nodeId, List<ResidentInstance> victims) {
+
+    public Preemption {
+      victims = List.copyOf(victims);
+    }
+
+    long reclaimedMemoryBytes() {
+      return victims.stream().mapToLong(victim -> victim.request().memoryBytes()).sum();
+    }
   }
 
   /**

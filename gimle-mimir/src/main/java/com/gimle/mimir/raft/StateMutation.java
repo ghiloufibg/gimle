@@ -13,6 +13,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -159,6 +160,22 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeNetworkPolicy(tenantId, name);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  record PutIngress(IngressSpec spec) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putIngress(spec);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  record RemoveIngress(String tenantId, String name) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.removeIngress(tenantId, name);
       return MutationOutcome.accepted();
     }
   }

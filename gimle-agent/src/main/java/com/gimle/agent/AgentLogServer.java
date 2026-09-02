@@ -30,15 +30,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The agent's read-only log-serving HTTP surface, letting the control plane proxy a console/CLI log
+ * The agent's always-on read-only HTTP surface, letting the control plane proxy a console/CLI
  * request to whichever node actually hosts the target instance -- a proxy-and-tail design, the same
  * architecture {@code kubectl logs} uses (API server &rarr; kubelet &rarr; the node's own local log
- * file). Every route reads straight off this agent's own {@code logRoot}: node-level routes read
- * files this process writes directly, and instance routes read {@code
- * workers/<deploymentName>#<instanceIndex>/...} -- the per-worker subtree {@code AgentMain} points
- * each spawned worker JVM's own {@code -Dgimle.log.root} at, so every worker's platform/application
- * logs land somewhere this agent can find them and distinct instances never collide on one shared
- * filename.
+ * file). Logs are the bulk of it, alongside the {@code /volumes} inventory and the {@code
+ * /fabric-endpoints} lookup: node-local facts that only the owning agent can answer. Every route
+ * reads straight off this agent's own {@code logRoot}: node-level routes read files this process
+ * writes directly, and instance routes read {@code workers/<deploymentName>#<instanceIndex>/...} --
+ * the per-worker subtree {@code AgentMain} points each spawned worker JVM's own {@code
+ * -Dgimle.log.root} at, so every worker's platform/application logs land somewhere this agent can
+ * find them and distinct instances never collide on one shared filename.
  */
 final class AgentLogServer implements AutoCloseable {
 
@@ -58,6 +59,7 @@ final class AgentLogServer implements AutoCloseable {
   private final Function<String, String> workerKeyResolver;
   private final VolumeManager volumeManager;
   private final Supplier<Set<String>> inUseVolumeKeys;
+  private final Function<String, Optional<InstanceFabricEndpoint>> fabricEndpointResolver;
 
   /** No density-aware resolution -- every {@code deploymentName#instanceIndex} maps to itself. */
   AgentLogServer(Path logRoot, int port) throws IOException {
@@ -68,6 +70,17 @@ final class AgentLogServer implements AutoCloseable {
   AgentLogServer(Path logRoot, int port, Function<String, String> workerKeyResolver)
       throws IOException {
     this(logRoot, port, workerKeyResolver, null, Set::of);
+  }
+
+  /** No fabric-endpoint surface -- {@code /fabric-endpoints} answers 404 until one is wired. */
+  AgentLogServer(
+      Path logRoot,
+      int port,
+      Function<String, String> workerKeyResolver,
+      VolumeManager volumeManager,
+      Supplier<Set<String>> inUseVolumeKeys)
+      throws IOException {
+    this(logRoot, port, workerKeyResolver, volumeManager, inUseVolumeKeys, key -> Optional.empty());
   }
 
   /**
@@ -89,17 +102,20 @@ final class AgentLogServer implements AutoCloseable {
       int port,
       Function<String, String> workerKeyResolver,
       VolumeManager volumeManager,
-      Supplier<Set<String>> inUseVolumeKeys)
+      Supplier<Set<String>> inUseVolumeKeys,
+      Function<String, Optional<InstanceFabricEndpoint>> fabricEndpointResolver)
       throws IOException {
     this.logRoot = logRoot;
     this.workerKeyResolver = workerKeyResolver;
     this.volumeManager = volumeManager;
     this.inUseVolumeKeys = inUseVolumeKeys;
+    this.fabricEndpointResolver = fabricEndpointResolver;
     this.server = HttpServer.create(new InetSocketAddress(port), 0);
     server.createContext("/health", this::handleHealth);
     server.createContext("/logs/nodes/", this::handleNodeLogs);
     server.createContext("/logs/instances/", this::handleInstanceLogs);
     server.createContext("/volumes", this::handleVolumes);
+    server.createContext("/fabric-endpoints/", this::handleFabricEndpoint);
     server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
   }
 
@@ -242,6 +258,72 @@ final class AgentLogServer implements AutoCloseable {
    * supervised instance still uses it, and loudly logged when it proceeds, since this permanently
    * deletes data an operator chose to retain.
    */
+  // ---- /fabric-endpoints/{deploymentName}/{instanceIndex} ----
+
+  /**
+   * Answers where one instance this agent supervises is reachable on the service fabric. Only the
+   * owning agent can: the address arrives on the worker's own {@code Hello} handshake and is held
+   * in this process's memory, so a caller anywhere else has no way to derive it.
+   *
+   * <p>Three outcomes, deliberately distinguished rather than collapsed into one 404, because they
+   * mean different things to whoever is asking: this node does not supervise that instance (404 --
+   * ask a different node, or the placement moved), it does but the worker's handshake has not
+   * landed yet (409 -- the instance is still coming up, so retrying is the useful response), or
+   * here is the address (200).
+   */
+  private void handleFabricEndpoint(HttpExchange exchange) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      String[] parts =
+          exchange.getRequestURI().getPath().substring("/fabric-endpoints/".length()).split("/");
+      if (parts.length != 2) {
+        respond(exchange, 400, "expected /fabric-endpoints/{deploymentName}/{instanceIndex}");
+        return;
+      }
+      String deploymentName = URLDecoder.decode(parts[0], StandardCharsets.UTF_8);
+      if (!DEPLOYMENT_NAME.matcher(deploymentName).matches()
+          || parts[1].isEmpty()
+          || !parts[1].chars().allMatch(Character::isDigit)) {
+        respond(exchange, 400, "expected /fabric-endpoints/{deploymentName}/{instanceIndex}");
+        return;
+      }
+      int instanceIndex = Integer.parseInt(parts[1]);
+
+      String key = deploymentName + "#" + instanceIndex;
+      Optional<InstanceFabricEndpoint> supervised = fabricEndpointResolver.apply(key);
+      if (supervised.isEmpty()) {
+        respond(exchange, 404, "no instance " + key + " supervised on this node");
+        return;
+      }
+      InstanceFabricEndpoint endpoint = supervised.get();
+      if (endpoint.tcpAddress().isEmpty()) {
+        respond(exchange, 409, "instance " + key + " has not completed its fabric handshake yet");
+        return;
+      }
+
+      InetSocketAddress tcp = endpoint.tcpAddress().get();
+      Map<String, Object> body = new LinkedHashMap<>();
+      body.put("deploymentName", deploymentName);
+      body.put("instanceIndex", instanceIndex);
+      endpoint.workerId().ifPresent(id -> body.put("workerId", id));
+      body.put("tcpAddress", InstanceFabricEndpoint.text(tcp));
+      body.put("tcpHost", tcp.getHostString());
+      body.put("tcpPort", tcp.getPort());
+      if (!endpoint.udsPath().isEmpty()) {
+        body.put("udsPath", endpoint.udsPath());
+      }
+      respondJson(exchange, 200, body);
+    } catch (IOException | RuntimeException e) {
+      log.warn("fabric-endpoint request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
   private void handleVolumes(HttpExchange exchange) {
     try {
       if (volumeManager == null) {

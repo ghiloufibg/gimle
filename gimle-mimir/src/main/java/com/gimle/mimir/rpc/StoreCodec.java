@@ -17,6 +17,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -219,6 +220,10 @@ public final class StoreCodec {
   private static final byte TAG_ALERT_RULE_RESULT = -114;
   private static final byte TAG_ALERT_RULE_LIST_RESULT = -113;
   private static final byte TAG_GET_DEPLOYMENT_LAST_SCALE = -112;
+  private static final byte TAG_GET_INGRESS = -111;
+  private static final byte TAG_LIST_INGRESSES = -110;
+  private static final byte TAG_INGRESS_RESULT = -109;
+  private static final byte TAG_INGRESS_LIST_RESULT = -108;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -303,6 +308,12 @@ public final class StoreCodec {
           out.writeUTF(v.name());
         }
         case StoreRpc.ListNetworkPolicies v -> out.writeByte(TAG_LIST_NETWORK_POLICIES);
+        case StoreRpc.GetIngress v -> {
+          out.writeByte(TAG_GET_INGRESS);
+          out.writeUTF(v.tenantId());
+          out.writeUTF(v.name());
+        }
+        case StoreRpc.ListIngresses v -> out.writeByte(TAG_LIST_INGRESSES);
         case StoreRpc.GetAlertRule v -> {
           out.writeByte(TAG_GET_ALERT_RULE);
           DomainCodec.writeOptionalString(out, v.tenantId());
@@ -620,6 +631,20 @@ public final class StoreCodec {
           out.writeInt(v.values().size());
           for (NetworkPolicySpec s : v.values()) {
             DomainCodec.writeNetworkPolicySpec(out, s);
+          }
+        }
+        case StoreRpc.IngressResult v -> {
+          out.writeByte(TAG_INGRESS_RESULT);
+          out.writeBoolean(v.present());
+          if (v.present()) {
+            DomainCodec.writeIngressSpec(out, v.value());
+          }
+        }
+        case StoreRpc.IngressListResult v -> {
+          out.writeByte(TAG_INGRESS_LIST_RESULT);
+          out.writeInt(v.values().size());
+          for (IngressSpec s : v.values()) {
+            DomainCodec.writeIngressSpec(out, s);
           }
         }
         case StoreRpc.AlertRuleResult v -> {
@@ -1012,6 +1037,8 @@ public final class StoreCodec {
         case TAG_LIST_SERVICES -> new StoreRpc.ListServices();
         case TAG_GET_NETWORK_POLICY -> new StoreRpc.GetNetworkPolicy(in.readUTF(), in.readUTF());
         case TAG_LIST_NETWORK_POLICIES -> new StoreRpc.ListNetworkPolicies();
+        case TAG_GET_INGRESS -> new StoreRpc.GetIngress(in.readUTF(), in.readUTF());
+        case TAG_LIST_INGRESSES -> new StoreRpc.ListIngresses();
         case TAG_GET_ALERT_RULE -> {
           Optional<String> tenantId = DomainCodec.readOptionalString(in);
           yield new StoreRpc.GetAlertRule(tenantId, in.readUTF());
@@ -1163,6 +1190,19 @@ public final class StoreCodec {
           boolean present = in.readBoolean();
           yield new StoreRpc.NetworkPolicyResult(
               present, present ? DomainCodec.readNetworkPolicySpec(in) : null);
+        }
+        case TAG_INGRESS_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.IngressResult(
+              present, present ? DomainCodec.readIngressSpec(in) : null);
+        }
+        case TAG_INGRESS_LIST_RESULT -> {
+          int count = in.readInt();
+          List<IngressSpec> values = new ArrayList<>();
+          for (int i = 0; i < count; i++) {
+            values.add(DomainCodec.readIngressSpec(in));
+          }
+          yield new StoreRpc.IngressListResult(values);
         }
         case TAG_NETWORK_POLICY_LIST_RESULT -> {
           int count = in.readInt();

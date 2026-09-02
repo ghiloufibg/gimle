@@ -92,18 +92,14 @@ class JobReconcilerTest {
             run.nodeId(),
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    run.jobName(),
-                    run.attempt(),
-                    run.moduleId(),
-                    state,
-                    !"FAILED".equals(state),
-                    "ACTIVE".equals(state),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0))));
+                InstanceObservation.builder(
+                        run.jobName(),
+                        run.attempt(),
+                        run.moduleId(),
+                        state,
+                        !"FAILED".equals(state),
+                        "ACTIVE".equals(state))
+                    .build())));
   }
 
   @Test

@@ -1306,6 +1306,106 @@ class ApiServerTest {
   }
 
   @Test
+  void a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface()
+      throws Exception {
+    // The whole point of relaying these: a reader of GET /deployments gets the ceiling alongside
+    // the usage, so 142Mi can be judged rather than merely reported. Exercises both directions of
+    // the JSON hop -- observationFromJson on the heartbeat in, observationToJson on the read out.
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+            .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
+            .build());
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+
+    String heartbeatBody =
+        """
+        {"capacity":{"totalMemoryBytes":1000,"assignedMemoryBytes":100,"totalCpuMillicores":4000,"assignedCpuMillicores":500},
+         "instances":[{"deploymentName":"orders-service","instanceIndex":0,\
+        "moduleId":{"name":"com.gimle.example.orders","version":"1.0.0"},\
+        "lifecycleState":"ACTIVE","alive":true,"ready":true,"tenantId":"%s",\
+        "memoryBytesUsed":148897792,\
+        "isolationTier":"TIER_2","resourceLimit":{"memory":"256Mi","cpu":"1000m"}}]}
+        """
+            .formatted(Tenant.DEFAULT_TENANT_ID);
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/heartbeat"))
+                .POST(HttpRequest.BodyPublishers.ofString(heartbeatBody))
+                .build())
+            .statusCode());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .GET()
+                .build());
+    assertEquals(200, get.statusCode());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    List<Map<String, Object>> instances = Json.asObjectList(status.get("instances"));
+    assertEquals(1, instances.size());
+    Map<String, Object> observation = Json.asObject(instances.get(0).get("observation"));
+    assertEquals("TIER_2", observation.get("isolationTier"));
+    assertEquals(148897792L, observation.get("memoryBytesUsed"));
+    Map<String, Object> limit = Json.asObject(observation.get("resourceLimit"));
+    assertEquals("256Mi", limit.get("memory"));
+    assertEquals("1000m", limit.get("cpu"));
+  }
+
+  @Test
+  void an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them()
+      throws Exception {
+    // A vessel instance has no module descriptor behind it, so its heartbeat carries neither.
+    // The read surface must say nothing rather than render a ceiling nothing declared.
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+            .PUT(HttpRequest.BodyPublishers.ofString(deploymentYaml("orders-service", 1)))
+            .build());
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            InstanceAssignment.UNSPECIFIED_MODULE,
+            "",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+
+    String heartbeatBody =
+        """
+        {"capacity":{"totalMemoryBytes":1000,"assignedMemoryBytes":100,"totalCpuMillicores":4000,"assignedCpuMillicores":500},
+         "instances":[{"deploymentName":"orders-service","instanceIndex":0,\
+        "moduleId":{"name":"com.gimle.example.orders","version":"1.0.0"},\
+        "lifecycleState":"ACTIVE","alive":true,"ready":true,"tenantId":"%s"}]}
+        """
+            .formatted(Tenant.DEFAULT_TENANT_ID);
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/heartbeat"))
+            .POST(HttpRequest.BodyPublishers.ofString(heartbeatBody))
+            .build());
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/deployments/orders-service"))
+                .GET()
+                .build());
+    Map<String, Object> observation =
+        Json.asObject(
+            Json.asObjectList(Json.asObject(Json.parse(get.body())).get("instances"))
+                .get(0)
+                .get("observation"));
+    assertFalse(observation.containsKey("isolationTier"));
+    assertFalse(observation.containsKey("resourceLimit"));
+  }
+
+  @Test
   void assignments_endpoint_joins_assignments_with_their_deployments_artifact_and_module_id()
       throws Exception {
     send(
@@ -1382,38 +1482,14 @@ class ApiServerTest {
             "node-a",
             new ResourceUsageSnapshot(1000L, 0, 1000, 0),
             List.of(
-                new InstanceObservation(
-                    "orders-service",
-                    0,
-                    moduleId,
-                    "ACTIVE",
-                    true,
-                    true,
-                    10.0,
-                    0,
-                    0L,
-                    0L,
-                    2.0,
-                    Map.of(),
-                    0L,
-                    Optional.empty(),
-                    Optional.of(Tenant.DEFAULT_TENANT_ID)),
-                new InstanceObservation(
-                    "orders-service",
-                    1,
-                    moduleId,
-                    "ACTIVE",
-                    true,
-                    true,
-                    20.0,
-                    0,
-                    0L,
-                    0L,
-                    4.0,
-                    Map.of(),
-                    0L,
-                    Optional.empty(),
-                    Optional.of(Tenant.DEFAULT_TENANT_ID)))));
+                InstanceObservation.builder("orders-service", 0, moduleId, "ACTIVE", true, true)
+                    .load(10.0, 2.0, 0, 0L, 0L)
+                    .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
+                    .build(),
+                InstanceObservation.builder("orders-service", 1, moduleId, "ACTIVE", true, true)
+                    .load(20.0, 4.0, 0, 0L, 0L)
+                    .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
+                    .build())));
 
     HttpResponse<String> metrics =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/metrics")).GET().build());

@@ -39,6 +39,12 @@ import java.util.Set;
  * selecting in-cluster instances -- useful while migrating a dependency into the cluster. The two
  * shapes are exclusive: an ExternalName Service names no deployments, and a selector Service names
  * no external host.
+ *
+ * <p>{@code protocol} is the {@code Service.spec.ports[].protocol} analogue and decides what {@code
+ * gimle-bifrost} binds for this Service -- a stream listener for {@link ServiceProtocol#TCP}, a
+ * datagram listener for {@link ServiceProtocol#UDP}. It has no effect on the fabric's own
+ * in-process calls or on the DNS answers {@code gimle-skald} serves, both of which are
+ * transport-independent.
  */
 public record ServiceSpec(
     String name,
@@ -47,7 +53,8 @@ public record ServiceSpec(
     int port,
     OptionalInt targetPort,
     boolean sessionAffinity,
-    Optional<String> externalName) {
+    Optional<String> externalName,
+    ServiceProtocol protocol) {
 
   public ServiceSpec {
     if (name == null || name.isBlank()) {
@@ -64,6 +71,9 @@ public record ServiceSpec(
     }
     if (externalName == null) {
       throw new IllegalArgumentException("externalName must be Optional.empty(), not null");
+    }
+    if (protocol == null) {
+      throw new IllegalArgumentException("protocol must not be null; use ServiceProtocol.TCP");
     }
     if (externalName.isPresent()) {
       if (externalName.get().isBlank()) {
@@ -87,6 +97,26 @@ public record ServiceSpec(
       requirePort(targetPort.getAsInt(), "targetPort");
     }
     deploymentNames = Set.copyOf(deploymentNames);
+  }
+
+  /** Defaults {@code protocol} to {@link ServiceProtocol#TCP}, what declaring none means. */
+  public ServiceSpec(
+      String name,
+      Optional<String> tenantId,
+      Set<String> deploymentNames,
+      int port,
+      OptionalInt targetPort,
+      boolean sessionAffinity,
+      Optional<String> externalName) {
+    this(
+        name,
+        tenantId,
+        deploymentNames,
+        port,
+        targetPort,
+        sessionAffinity,
+        externalName,
+        ServiceProtocol.TCP);
   }
 
   private static void requirePort(int value, String fieldName) {

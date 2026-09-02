@@ -167,6 +167,98 @@ class AgentLogServerTest {
     return Json.asArray(Json.parse(response.body()));
   }
 
+  // ---- /fabric-endpoints/{deploymentName}/{instanceIndex} ----
+
+  private void startWithFabricEndpoint(
+      String key, java.util.Optional<InstanceFabricEndpoint> endpoint) throws IOException {
+    server =
+        new AgentLogServer(
+            logRoot,
+            0,
+            java.util.function.Function.identity(),
+            null,
+            Set::of,
+            requested ->
+                requested.equals(key)
+                    ? endpoint
+                    : java.util.Optional.<InstanceFabricEndpoint>empty());
+    server.start();
+  }
+
+  @Test
+  void a_supervised_instance_reports_the_fabric_address_its_worker_bound() throws Exception {
+    startWithFabricEndpoint(
+        "greeter-provider#2",
+        java.util.Optional.of(
+            new InstanceFabricEndpoint(
+                java.util.Optional.of("worker-4821"),
+                java.util.Optional.of(
+                    new java.net.InetSocketAddress(
+                        java.net.InetAddress.getByName("127.0.0.1"), 41234)),
+                "/tmp/gimle-fabric-4821.sock")));
+
+    HttpResponse<String> response = getRaw("/fabric-endpoints/greeter-provider/2");
+
+    assertEquals(200, response.statusCode());
+    Map<String, Object> body = Json.asObject(Json.parse(response.body()));
+    assertEquals("greeter-provider", body.get("deploymentName"));
+    assertEquals(2L, body.get("instanceIndex"));
+    assertEquals("worker-4821", body.get("workerId"));
+    // The dialable form is what a caller actually needs; host and port travel alongside it so a
+    // client never has to parse the joined string back apart.
+    assertEquals("127.0.0.1:41234", body.get("tcpAddress"));
+    assertEquals(41234L, body.get("tcpPort"));
+    assertEquals("/tmp/gimle-fabric-4821.sock", body.get("udsPath"));
+  }
+
+  @Test
+  void a_worker_that_bound_no_domain_socket_omits_the_uds_path() throws Exception {
+    startWithFabricEndpoint(
+        "greeter-provider#0",
+        java.util.Optional.of(
+            new InstanceFabricEndpoint(
+                java.util.Optional.of("worker-7"),
+                java.util.Optional.of(
+                    new java.net.InetSocketAddress(
+                        java.net.InetAddress.getByName("127.0.0.1"), 5000)),
+                "")));
+
+    Map<String, Object> body =
+        Json.asObject(Json.parse(getRaw("/fabric-endpoints/greeter-provider/0").body()));
+
+    assertFalse(body.containsKey("udsPath"));
+  }
+
+  @Test
+  void an_instance_this_node_does_not_supervise_is_a_404() throws Exception {
+    startWithFabricEndpoint("greeter-provider#0", java.util.Optional.empty());
+
+    assertEquals(404, getRaw("/fabric-endpoints/greeter-provider/0").statusCode());
+  }
+
+  @Test
+  void an_instance_whose_worker_has_not_handshaked_yet_is_a_409_not_a_404() throws Exception {
+    // The distinction is the point: 404 means "look on another node", 409 means "this is the right
+    // node, the instance is still coming up" -- so a caller knows to retry rather than re-resolve.
+    startWithFabricEndpoint(
+        "greeter-provider#0",
+        java.util.Optional.of(
+            new InstanceFabricEndpoint(
+                java.util.Optional.empty(), java.util.Optional.empty(), "")));
+
+    assertEquals(409, getRaw("/fabric-endpoints/greeter-provider/0").statusCode());
+  }
+
+  @Test
+  void a_malformed_fabric_endpoint_path_is_rejected() throws Exception {
+    startWithFabricEndpoint("greeter-provider#0", java.util.Optional.empty());
+
+    assertEquals(400, getRaw("/fabric-endpoints/greeter-provider").statusCode());
+    assertEquals(400, getRaw("/fabric-endpoints/greeter-provider/not-a-number").statusCode());
+    // A traversal attempt must never reach the resolver, the same guard the log routes apply.
+    assertEquals(400, getRaw("/fabric-endpoints/..%2Fetc/0").statusCode());
+  }
+
   private HttpResponse<String> getRaw(String path) throws Exception {
     HttpRequest request =
         HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.port() + path))

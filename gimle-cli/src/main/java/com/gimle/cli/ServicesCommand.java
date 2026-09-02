@@ -6,17 +6,18 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * {@code get services [name]}, {@code set service <name> (--deployment <name> [--deployment
  * <name>...] | --external-name <host>) --port <n> [--target-port <n>] [--tenant <id>]
- * [--session-affinity]}, {@code delete service <name>}, {@code service endpoints <name>} -- the
- * ClusterIP analogue's CLI surface. {@code set} POSTs to the bare {@code /services} collection
- * rather than PUTting {@code /services/<name>}, matching {@code ApiServer}'s own routing: a {@link
- * com.gimle.mimir.manifest.ServiceSpec} names itself in the request body, unlike every {@code
- * WorkloadSpec} kind's own {@code PUT /deployments/{name}}-shaped routes.
+ * [--session-affinity] [--protocol tcp|udp]}, {@code delete service <name>}, {@code service
+ * endpoints <name>} -- the ClusterIP analogue's CLI surface. {@code set} POSTs to the bare {@code
+ * /services} collection rather than PUTting {@code /services/<name>}, matching {@code ApiServer}'s
+ * own routing: a {@link com.gimle.mimir.manifest.ServiceSpec} names itself in the request body,
+ * unlike every {@code WorkloadSpec} kind's own {@code PUT /deployments/{name}}-shaped routes.
  */
 public final class ServicesCommand {
 
@@ -44,7 +45,7 @@ public final class ServicesCommand {
     String usage =
         "set service requires <name> (--deployment <name> [--deployment <name>...] |"
             + " --external-name <host>) --port <n> [--target-port <n>] [--tenant <id>]"
-            + " [--session-affinity]";
+            + " [--session-affinity] [--protocol tcp|udp]";
     if (args.isEmpty()) {
       throw new CliException(usage);
     }
@@ -82,6 +83,14 @@ public final class ServicesCommand {
     }
     if (externalName != null) {
       body.put("externalName", externalName);
+    }
+    String protocol = flags.getOrDefault("--protocol", null);
+    if (protocol != null) {
+      String upper = protocol.toUpperCase(Locale.ROOT);
+      if (!"TCP".equals(upper) && !"UDP".equals(upper)) {
+        throw new CliException("--protocol must be tcp or udp");
+      }
+      body.put("protocol", upper);
     }
 
     ApiResponse response = client.post("/services", Json.write(body));
@@ -121,6 +130,10 @@ public final class ServicesCommand {
     }
     if (Boolean.TRUE.equals(root.get("sessionAffinity"))) {
       body.put("sessionAffinity", true);
+    }
+    Object protocol = root.get("protocol");
+    if (protocol != null) {
+      body.put("protocol", String.valueOf(protocol).toUpperCase(Locale.ROOT));
     }
     Object externalName = root.get("externalName");
     if (externalName != null) {

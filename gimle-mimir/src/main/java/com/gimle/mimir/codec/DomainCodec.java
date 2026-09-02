@@ -7,6 +7,7 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
+import com.gimle.core.ingress.IngressRule;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ReclaimPolicy;
@@ -44,11 +45,13 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.ServiceProtocol;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
@@ -177,6 +180,7 @@ public final class DomainCodec {
     out.writeInt(spec.targetPort().orElse(0));
     out.writeBoolean(spec.sessionAffinity());
     writeOptionalString(out, spec.externalName());
+    out.writeUTF(spec.protocol().name());
   }
 
   public static ServiceSpec readServiceSpec(DataInputStream in) throws IOException {
@@ -193,8 +197,9 @@ public final class DomainCodec {
         rawTargetPort == 0 ? OptionalInt.empty() : OptionalInt.of(rawTargetPort);
     boolean sessionAffinity = in.readBoolean();
     Optional<String> externalName = readOptionalString(in);
+    ServiceProtocol protocol = ServiceProtocol.valueOf(in.readUTF());
     return new ServiceSpec(
-        name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName);
+        name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName, protocol);
   }
 
   public static void writeNetworkPolicySpec(DataOutputStream out, NetworkPolicySpec spec)
@@ -224,6 +229,68 @@ public final class DomainCodec {
         allowedCallerTenantIds,
         allowedCalleeTenantIds,
         version);
+  }
+
+  public static void writeIngressSpec(DataOutputStream out, IngressSpec spec) throws IOException {
+    out.writeUTF(spec.name());
+    out.writeUTF(spec.tenantId());
+    out.writeInt(spec.routes().size());
+    for (IngressRule route : spec.routes()) {
+      writeIngressRule(out, route);
+    }
+    out.writeInt(spec.version());
+  }
+
+  public static IngressSpec readIngressSpec(DataInputStream in) throws IOException {
+    String name = in.readUTF();
+    String tenantId = in.readUTF();
+    int routeCount = in.readInt();
+    List<IngressRule> routes = new ArrayList<>(routeCount);
+    for (int i = 0; i < routeCount; i++) {
+      routes.add(readIngressRule(in));
+    }
+    int version = in.readInt();
+    return new IngressSpec(name, tenantId, routes, version);
+  }
+
+  private static void writeIngressRule(DataOutputStream out, IngressRule route) throws IOException {
+    writeOptionalString(out, route.host());
+    out.writeUTF(route.path());
+    out.writeBoolean(route.prefix());
+    out.writeUTF(route.kind().name());
+    writeOptionalString(out, route.serviceName());
+    writeOptionalString(out, route.deploymentName());
+    writeOptionalString(out, route.portName());
+    writeOptionalString(out, route.interfaceName());
+    out.writeInt(route.majorVersion());
+    writeOptionalString(out, route.methodName());
+    writeOptionalString(out, route.paramType());
+  }
+
+  private static IngressRule readIngressRule(DataInputStream in) throws IOException {
+    Optional<String> host = readOptionalString(in);
+    String path = in.readUTF();
+    boolean prefix = in.readBoolean();
+    IngressRule.Kind kind = IngressRule.Kind.valueOf(in.readUTF());
+    Optional<String> serviceName = readOptionalString(in);
+    Optional<String> deploymentName = readOptionalString(in);
+    Optional<String> portName = readOptionalString(in);
+    Optional<String> interfaceName = readOptionalString(in);
+    int majorVersion = in.readInt();
+    Optional<String> methodName = readOptionalString(in);
+    Optional<String> paramType = readOptionalString(in);
+    return new IngressRule(
+        host,
+        path,
+        prefix,
+        kind,
+        serviceName,
+        deploymentName,
+        portName,
+        interfaceName,
+        majorVersion,
+        methodName,
+        paramType);
   }
 
   public static void writeAlertRuleSpec(DataOutputStream out, AlertRuleSpec spec)
@@ -544,6 +611,7 @@ public final class DomainCodec {
         out.writeUTF(label);
       }
     }
+    out.writeInt(pc.priority());
   }
 
   public static PlacementConstraints readPlacementConstraints(DataInputStream in)
@@ -559,7 +627,8 @@ public final class DomainCodec {
       }
       labels = Optional.of(set);
     }
-    return new PlacementConstraints(labels, antiAffinity);
+    int priority = in.readInt();
+    return new PlacementConstraints(labels, antiAffinity, priority);
   }
 
   /**
@@ -1127,6 +1196,8 @@ public final class DomainCodec {
     out.writeLong(obs.volumeUsageBytes());
     writeOptionalString(out, obs.workerId());
     writeOptionalString(out, obs.tenantId());
+    writeOptionalString(out, obs.isolationTier().map(Enum::name));
+    writeOptionalResourceSpec(out, obs.resourceLimit());
   }
 
   public static InstanceObservation readInstanceObservation(DataInputStream in) throws IOException {
@@ -1150,22 +1221,23 @@ public final class DomainCodec {
     long volumeUsageBytes = in.readLong();
     Optional<String> workerId = readOptionalString(in);
     Optional<String> tenantId = readOptionalString(in);
-    return new InstanceObservation(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        volumeUsageBytes,
-        workerId,
-        tenantId);
+    Optional<IsolationTier> isolationTier = readOptionalString(in).map(IsolationTier::valueOf);
+    Optional<ResourceSpec> resourceLimit = readOptionalResourceSpec(in);
+    return InstanceObservation.builder(
+            deploymentName, instanceIndex, moduleId, lifecycleState, alive, ready)
+        .load(
+            requestRatePerSecond,
+            errorRatePerSecond,
+            queueDepth,
+            cpuMillicoresUsed,
+            memoryBytesUsed)
+        .ports(ports)
+        .volumeUsageBytes(volumeUsageBytes)
+        .workerId(workerId)
+        .tenantId(tenantId)
+        .isolationTier(isolationTier)
+        .resourceLimit(resourceLimit)
+        .build();
   }
 
   public static void writeNodeHeartbeat(DataOutputStream out, NodeHeartbeat heartbeat)

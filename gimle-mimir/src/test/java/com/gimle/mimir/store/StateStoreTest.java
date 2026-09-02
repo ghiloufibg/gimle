@@ -346,7 +346,9 @@ class StateStoreTest {
         new NodeHeartbeat(
             "node-a",
             new ResourceUsageSnapshot(1_000_000L, 400_000L, 4000L, 1000L),
-            List.of(new InstanceObservation("orders-service", 0, ORDERS, "ACTIVE", true, true)));
+            List.of(
+                InstanceObservation.builder("orders-service", 0, ORDERS, "ACTIVE", true, true)
+                    .build()));
 
     store.putNodeHeartbeat(heartbeat);
     ObservedHeartbeat observed = store.getNodeHeartbeat("node-a").orElseThrow();

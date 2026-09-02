@@ -3,6 +3,8 @@ package com.gimle.controlplane.reconcile;
 import com.gimle.controlplane.andvari.ArtifactResolver;
 import com.gimle.controlplane.schedule.NodeCandidate;
 import com.gimle.controlplane.schedule.NodeCandidateSource;
+import com.gimle.controlplane.schedule.ResidentInstance;
+import com.gimle.controlplane.schedule.ResidentInstances;
 import com.gimle.controlplane.schedule.Scheduler;
 import com.gimle.core.exception.GimleSchedulingException;
 import com.gimle.core.module.ModuleArtifact;
@@ -367,6 +369,7 @@ public final class DeploymentReconciler {
         // doesn't mint a fresh event every retry tick.
         log.warn("could not place {} instance {}: {}", spec.name(), index, e.getMessage());
         recordTransitionFailure(spec, index, e.getMessage(), Optional.empty());
+        preemptForUnplaceable(spec, index, descriptor, placements);
       }
     }
     mutations.proposeAll(placements);
@@ -818,6 +821,61 @@ public final class DeploymentReconciler {
    * #placeInstances}'s own rationale for why that's necessary for anti-affinity to work at all
    * across a single multi-replica placement batch.
    */
+  /**
+   * Makes room for a replica that could not be placed, by evicting strictly-lower-priority
+   * instances -- the {@code PriorityClass} preemption analogue, and the only thing a workload's
+   * declared priority ever does.
+   *
+   * <p>Attempted on any scheduling failure rather than only a capacity one, because the scheduler's
+   * own answer is already the right filter: {@code preemption} re-runs the full eligibility walk,
+   * so a replica that failed for an unsupported tier, a cordon, a taint or a missing label finds no
+   * eligible node and evicts nothing. There is no need to discriminate on the exception to reach
+   * the same outcome, and doing so would leave two definitions of "eligible" to keep in step.
+   *
+   * <p>Evicting is all this does. The freed capacity is not held for the workload that earned it --
+   * the ordinary placement path on a later tick simply finds room, which is what keeps this
+   * level-triggered rather than a reservation the store would have to carry. A priority of zero
+   * never preempts: the default workload is not entitled to displace anything, and skipping the
+   * store reads and artifact resolutions for it keeps the common failure path as cheap as it was.
+   */
+  private void preemptForUnplaceable(
+      DeploymentSpec spec, int index, ModuleDescriptor descriptor, List<StateMutation> placements) {
+    int priority = spec.placement().priority();
+    if (priority <= 0) {
+      return;
+    }
+    List<NodeCandidate> withResidents =
+        ResidentInstances.attach(
+            store, artifactResolver, buildCandidates(spec.tenantId(), spec.name(), Set.of()));
+    Optional<Scheduler.Preemption> preemption =
+        scheduler.preemption(
+            descriptor.isolationTier(),
+            descriptor.resourceRequest(),
+            priority,
+            spec.placement().antiAffinityAcrossNodes(),
+            spec.tenantId(),
+            spec.placement().requiredNodeLabels().orElse(Set.of()),
+            withResidents);
+    if (preemption.isEmpty() || preemption.get().victims().isEmpty()) {
+      return;
+    }
+    for (ResidentInstance victim : preemption.get().victims()) {
+      log.info(
+          "preempting {} instance {} (priority {}) on node {} to make room for {} instance {}"
+              + " (priority {})",
+          victim.deploymentName(),
+          victim.instanceIndex(),
+          victim.priority(),
+          preemption.get().nodeId(),
+          spec.name(),
+          index,
+          priority);
+      placements.add(
+          new StateMutation.RemoveAssignment(
+              victim.tenantId(), victim.deploymentName(), victim.instanceIndex()));
+    }
+  }
+
   private List<NodeCandidate> buildCandidates(
       Optional<String> tenantId, String deploymentName, Set<String> alsoRunningThisDeployment) {
     Set<String> nodesAlreadyRunningThisDeployment = new HashSet<>(alsoRunningThisDeployment);

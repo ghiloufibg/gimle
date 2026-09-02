@@ -45,18 +45,9 @@ class AlertReconcilerTest {
             "node-a",
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    deploymentName,
-                    0,
-                    MODULE_ID,
-                    "ACTIVE",
-                    true,
-                    true,
-                    0.0,
-                    0,
-                    0L,
-                    0L,
-                    errorRatePerSecond))));
+                InstanceObservation.builder(deploymentName, 0, MODULE_ID, "ACTIVE", true, true)
+                    .load(0.0, errorRatePerSecond, 0, 0L, 0L)
+                    .build())));
   }
 
   private static AlertRuleSpec errorRateRule(double threshold) {

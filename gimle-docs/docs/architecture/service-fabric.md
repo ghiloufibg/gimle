@@ -112,8 +112,9 @@ like every other reconciler in this codebase — each tick recomputes a Service'
 from scratch off the current store snapshot rather than diffing against the last tick, so an empty
 store, a mid-rollout store, and a fully-converged store all take the same code path. `ApiServer`
 exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (returning
-`{"name","port","targetPort","sessionAffinity","endpoints":[{"host","port","nodeId"}]}`, with
-`targetPort` present only when the Service declared one), RBAC-gated via `ResourceKind.SERVICE`.
+`{"name","port","targetPort","sessionAffinity","protocol","endpoints":[{"host","port","nodeId"}]}`,
+with `targetPort` present only when the Service declared one), RBAC-gated via
+`ResourceKind.SERVICE`.
 
 `GET /services/{name}/endpoints` resolves a Service addressed by bare name to its own tenant when
 the caller gives no `?tenant=` of its own, exactly as `GET /endpoints/{name}` already does for a
@@ -167,7 +168,10 @@ special casing, and `gimle-skald` answers an `A` query for the Service with a `C
 external name — the caller's own resolver finishes the resolution, exactly Kubernetes' own
 ExternalName contract. `sessionAffinity: true` asks the forwarding proxy layer to pin each caller
 address to one backend (see Bifrost below); it deliberately has no effect on DNS answers or the
-fabric's own in-process load balancing.
+fabric's own in-process load balancing. `protocol: TCP|UDP` (defaulting to `TCP`, and settable from
+the CLI with `gimle set service ... --protocol udp`) likewise only reaches the proxy layer, deciding
+which kind of listener Bifrost binds; the fabric's own calls and Skald's DNS answers are
+transport-independent.
 
 A `NetworkPolicySpec` record (same package) is declared alongside `ServiceSpec` as the NetworkPolicy
 analogue, relayed to every worker (`NetworkPolicyRelay` → `ControlMessage.NetworkPoliciesUpdated` →
@@ -186,6 +190,44 @@ through the caller-side filter. Both are the same "forwarded claim, independentl
 far end" posture Fafnir/Muninn/Andvari each apply to identity, applied to cross-tenant fabric
 traffic.
 
+### Ingress: routes as a resource
+
+`gateway.routes` is a flat, hand-authored config string, and that is the Ingress-shaped gap
+Kubernetes fills with a resource. A config value is opaque to the platform: it is validated only
+when a gateway happens to parse it, a typo surfaces as a route that silently never matches, nothing
+can answer "what routes exist" without reading a string, and there is no version to compare so two
+operators editing it race.
+
+An `Ingress` closes all four. It is a first-class resource — Raft-replicated through `gimle-mimir`,
+RBAC-gated under its own `ResourceKind.INGRESS` (its own kind rather than folded into `SERVICE`, on
+the same reasoning `NETWORK_POLICY` already establishes: deciding what the outside world can reach
+is a more consequential grant than declaring an in-cluster Service), and written through the same
+lease-guarded compare-and-set path `NetworkPolicy` uses, so a stale `expectedVersion` is a `409`
+rather than a lost update. Each route is validated at submission, so a malformed declaration is a
+`400` naming the field.
+
+```yaml
+kind: Ingress
+name: public
+tenantId: acme
+routes:
+  - {kind: SERVICE, path: /api/*, prefix: true, serviceName: orders}
+  - {kind: SERVICE, host: shop.example, path: /shop, serviceName: storefront}
+  - {kind: VESSEL,  path: /app, deploymentName: billing, portName: HTTP_PORT}
+  - {kind: FABRIC,  path: /greet, interfaceName: com.acme.Greeter, majorVersion: 1,
+     methodName: greet, paramType: STRING}
+```
+
+A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges the
+declared routes into its own table on the same level-triggered reload tick it already uses for
+config changes — each fetch returns the full current set, so a missed poll self-heals and an
+unreachable control plane leaves the working table untouched rather than tearing it down. Routes
+declared in `gateway.routes` win a collision with an Ingress declaring the same
+`(host, path, prefix)`: an operator editing config on a live gateway is acting on the machine in
+front of them, and a cluster-wide resource silently overriding that would make the local edit look
+broken. Both paths converge on the same `GatewayRoute` objects (`IngressRoutes` converts; the config
+parser parses), so a route behaves identically however it was declared.
+
 ### `gimle-bifrost`: the per-node service proxy
 
 `gimle-agent` gained a per-node Service proxy, package `com.gimle.agent.bifrost` — the kube-proxy
@@ -198,6 +240,22 @@ ones for Services that appeared — a missed or failed poll self-heals on the ne
 leaving stale listeners behind. It's embedded inside `gimle-agent`, not a new process kind.
 `gimle-skald` (see [Node topology](./node-topology.md#skald)) resolves the same Service/endpoint
 data by name over DNS instead of by loopback address, for callers outside the fabric entirely.
+
+A Service declaring `protocol: UDP` (the `Service.spec.ports[].protocol` analogue; `TCP` is what
+declaring none means) gets a datagram relay instead — `UdpServiceListener` rather than
+`ServiceListener`. The difference is not cosmetic. A TCP relay learns where a reply belongs from the
+socket it arrived on; a UDP listener receives everything on one bound socket, so it keeps a
+*session* per client address — a dedicated upstream socket connected to the selected backend, plus a
+reader returning that backend's replies to that client — and reaps sessions once idle. This is the
+same shape kube-proxy's own userspace UDP mode used, for the same reason.
+
+Two consequences worth knowing. A UDP session pins its backend for its lifetime whether or not
+`sessionAffinity` is declared, because one upstream socket per client is what makes reply routing
+work at all; `sessionAffinity` instead decides how a *new* session picks its backend (consistent
+hash rather than round-robin), so a client returning after its session expires lands where it was.
+And a UDP Service under a NetworkPolicy always fails closed: there is no handshake and no peer
+certificate, so a datagram relay can never learn a caller's tenant — the same permanent limit a
+plaintext TCP listener has, reached sooner because UDP has no TLS option to opt into.
 
 Endpoint selection is locality-first: each endpoint the control plane answers with carries the
 `nodeId` its backing instance runs on, and a listener round-robins over the subset on its own node

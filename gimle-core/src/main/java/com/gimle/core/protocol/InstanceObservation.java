@@ -1,6 +1,8 @@
 package com.gimle.core.protocol;
 
+import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ResourceSpec;
 import java.util.Map;
 import java.util.Optional;
 
@@ -14,11 +16,9 @@ import java.util.Optional;
  * <p>{@code requestRatePerSecond}/{@code errorRatePerSecond}/{@code queueDepth}/{@code
  * cpuMillicoresUsed}/{@code memoryBytesUsed} feed autoscaling decisions: {@code cpuMillicoresUsed}
  * divided by the module descriptor's requested CPU gives the observed CPU utilization used as a
- * scaling signal, alongside request rate, error rate, and queue depth. The six-argument constructor
- * defaults all five to {@code 0} for call sites that only track lifecycle/health, not scaling
- * metrics. {@code errorRatePerSecond} was added after the other four -- appended last, with the
- * pre-existing ten-argument constructor preserved as an overload, so every call site built against
- * the earlier shape keeps compiling unchanged.
+ * scaling signal, alongside request rate, error rate, and queue depth. All five default to {@code
+ * 0} via {@link #builder}, for the call sites that only track lifecycle/health and never see a
+ * metrics report.
  *
  * <p>{@code ports}, keyed by the {@code vessel.env} variable name each was declared under (e.g.
  * {@code "HTTP_PORT"}), carries a vessel instance's own agent-allocated or fixed port numbers --
@@ -48,6 +48,20 @@ import java.util.Optional;
  * ever lands both on the very same node -- every {@code *Reconciler}/{@code
  * ServiceEndpointResolver} match against this record's own {@code deploymentName}/{@code
  * instanceIndex} also checks {@code tenantId} for exactly this reason.
+ *
+ * <p>{@code isolationTier} and {@code resourceLimit} are the declared values from the running
+ * module's own descriptor, relayed so a reader has a denominator for {@code cpuMillicoresUsed}/
+ * {@code memoryBytesUsed} -- a usage figure with no ceiling beside it is a number, not a judgement.
+ * Both are {@link Optional#empty()} for a vessel instance, which is an OS process with no module
+ * descriptor behind it at all.
+ *
+ * <p>A consumer must read {@code resourceLimit} against {@code isolationTier} or it will mislead.
+ * At {@link IsolationTier#TIER_2} one instance owns its worker JVM, so the declared limit is that
+ * instance's own enforced {@code -Xmx} ceiling and a used/limit ratio is correct. At {@link
+ * IsolationTier#TIER_1} several instances share one worker JVM whose heap was sized for whichever
+ * instance happened to spawn it, so the declared limit is what the manifest asked for, not a bound
+ * anything applies to this instance -- rendering it as a ratio there draws a ceiling that does not
+ * exist.
  */
 public record InstanceObservation(
     String deploymentName,
@@ -64,7 +78,9 @@ public record InstanceObservation(
     Map<String, Integer> ports,
     long volumeUsageBytes,
     Optional<String> workerId,
-    Optional<String> tenantId) {
+    Optional<String> tenantId,
+    Optional<IsolationTier> isolationTier,
+    Optional<ResourceSpec> resourceLimit) {
 
   public InstanceObservation {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -92,190 +108,171 @@ public record InstanceObservation(
     if (tenantId == null) {
       throw new IllegalArgumentException("tenantId must not be null; use Optional.empty()");
     }
+    if (isolationTier == null) {
+      throw new IllegalArgumentException("isolationTier must not be null; use Optional.empty()");
+    }
+    if (resourceLimit == null) {
+      throw new IllegalArgumentException("resourceLimit must not be null; use Optional.empty()");
+    }
     ports = Map.copyOf(ports);
   }
 
-  /** Back-compat: defaults {@code tenantId} to {@link Optional#empty()}. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond,
-      Map<String, Integer> ports,
-      long volumeUsageBytes,
-      Optional<String> workerId) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        volumeUsageBytes,
-        workerId,
-        Optional.empty());
+  /**
+   * Starts an observation from the five identifying facts plus liveness -- everything a node can
+   * always report about an instance it supervises. Every remaining field is a measurement or a
+   * declaration that may genuinely be unavailable (a node that has had no metrics report yet, a
+   * vessel with no module descriptor), so each defaults to zero/empty and is set only when known.
+   * Required-in-the-factory rather than a builder setter: an observation naming no instance is not
+   * a thing that should be constructible.
+   */
+  public static Builder builder(
+      final String deploymentName,
+      final int instanceIndex,
+      final ModuleId moduleId,
+      final String lifecycleState,
+      final boolean alive,
+      final boolean ready) {
+    return new Builder(deploymentName, instanceIndex, moduleId, lifecycleState, alive, ready);
   }
 
-  /** Back-compat: defaults {@code workerId} and {@code tenantId} to {@link Optional#empty()}. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond,
-      Map<String, Integer> ports,
-      long volumeUsageBytes) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        volumeUsageBytes,
-        Optional.empty());
-  }
+  /** Mutable while assembling one {@link InstanceObservation}; the record it builds is not. */
+  public static final class Builder {
 
-  /** Back-compat: defaults {@code volumeUsageBytes} to 0. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond,
-      Map<String, Integer> ports) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        ports,
-        0L);
-  }
+    private final String deploymentName;
+    private final int instanceIndex;
+    private final ModuleId moduleId;
+    private final String lifecycleState;
+    private final boolean alive;
+    private final boolean ready;
 
-  /** Back-compat: defaults {@code ports} to an empty map. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed,
-      double errorRatePerSecond) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        errorRatePerSecond,
-        Map.of());
-  }
+    private double requestRatePerSecond;
+    private int queueDepth;
+    private long cpuMillicoresUsed;
+    private long memoryBytesUsed;
+    private double errorRatePerSecond;
+    private Map<String, Integer> ports = Map.of();
+    private long volumeUsageBytes;
+    private Optional<String> workerId = Optional.empty();
+    private Optional<String> tenantId = Optional.empty();
+    private Optional<IsolationTier> isolationTier = Optional.empty();
+    private Optional<ResourceSpec> resourceLimit = Optional.empty();
 
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready) {
-    this(
-        deploymentName, instanceIndex, moduleId, lifecycleState, alive, ready, 0.0, 0, 0L, 0L, 0.0);
-  }
+    private Builder(
+        final String deploymentName,
+        final int instanceIndex,
+        final ModuleId moduleId,
+        final String lifecycleState,
+        final boolean alive,
+        final boolean ready) {
+      this.deploymentName = deploymentName;
+      this.instanceIndex = instanceIndex;
+      this.moduleId = moduleId;
+      this.lifecycleState = lifecycleState;
+      this.alive = alive;
+      this.ready = ready;
+    }
 
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        0L,
-        0L,
-        0.0);
-  }
+    /** The four autoscaling signals, which a worker reports together in one metrics tick. */
+    public Builder load(
+        final double requestRatePerSecond,
+        final double errorRatePerSecond,
+        final int queueDepth,
+        final long cpuMillicoresUsed,
+        final long memoryBytesUsed) {
+      this.requestRatePerSecond = requestRatePerSecond;
+      this.errorRatePerSecond = errorRatePerSecond;
+      this.queueDepth = queueDepth;
+      this.cpuMillicoresUsed = cpuMillicoresUsed;
+      this.memoryBytesUsed = memoryBytesUsed;
+      return this;
+    }
 
-  /** The pre-{@code errorRatePerSecond} full-detail shape, kept for existing call sites. */
-  public InstanceObservation(
-      String deploymentName,
-      int instanceIndex,
-      ModuleId moduleId,
-      String lifecycleState,
-      boolean alive,
-      boolean ready,
-      double requestRatePerSecond,
-      int queueDepth,
-      long cpuMillicoresUsed,
-      long memoryBytesUsed) {
-    this(
-        deploymentName,
-        instanceIndex,
-        moduleId,
-        lifecycleState,
-        alive,
-        ready,
-        requestRatePerSecond,
-        queueDepth,
-        cpuMillicoresUsed,
-        memoryBytesUsed,
-        0.0);
+    public Builder requestRatePerSecond(final double requestRatePerSecond) {
+      this.requestRatePerSecond = requestRatePerSecond;
+      return this;
+    }
+
+    public Builder errorRatePerSecond(final double errorRatePerSecond) {
+      this.errorRatePerSecond = errorRatePerSecond;
+      return this;
+    }
+
+    public Builder queueDepth(final int queueDepth) {
+      this.queueDepth = queueDepth;
+      return this;
+    }
+
+    public Builder cpuMillicoresUsed(final long cpuMillicoresUsed) {
+      this.cpuMillicoresUsed = cpuMillicoresUsed;
+      return this;
+    }
+
+    public Builder memoryBytesUsed(final long memoryBytesUsed) {
+      this.memoryBytesUsed = memoryBytesUsed;
+      return this;
+    }
+
+    public Builder ports(final Map<String, Integer> ports) {
+      this.ports = ports;
+      return this;
+    }
+
+    public Builder volumeUsageBytes(final long volumeUsageBytes) {
+      this.volumeUsageBytes = volumeUsageBytes;
+      return this;
+    }
+
+    public Builder workerId(final Optional<String> workerId) {
+      this.workerId = workerId;
+      return this;
+    }
+
+    public Builder tenantId(final Optional<String> tenantId) {
+      this.tenantId = tenantId;
+      return this;
+    }
+
+    public Builder isolationTier(final Optional<IsolationTier> isolationTier) {
+      this.isolationTier = isolationTier;
+      return this;
+    }
+
+    public Builder resourceLimit(final Optional<ResourceSpec> resourceLimit) {
+      this.resourceLimit = resourceLimit;
+      return this;
+    }
+
+    /**
+     * The tier and ceiling a module instance was admitted under, taken together because they are
+     * only meaningful read against each other -- a limit says something different at TIER_1, where
+     * the worker JVM is shared, than at TIER_2, where the instance owns it.
+     */
+    public Builder declaredResources(
+        final IsolationTier isolationTier, final ResourceSpec resourceLimit) {
+      this.isolationTier = Optional.of(isolationTier);
+      this.resourceLimit = Optional.of(resourceLimit);
+      return this;
+    }
+
+    public InstanceObservation build() {
+      return new InstanceObservation(
+          deploymentName,
+          instanceIndex,
+          moduleId,
+          lifecycleState,
+          alive,
+          ready,
+          requestRatePerSecond,
+          queueDepth,
+          cpuMillicoresUsed,
+          memoryBytesUsed,
+          errorRatePerSecond,
+          ports,
+          volumeUsageBytes,
+          workerId,
+          tenantId,
+          isolationTier,
+          resourceLimit);
+    }
   }
 }

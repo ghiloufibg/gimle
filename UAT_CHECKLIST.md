@@ -6,22 +6,22 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 778
+- **Total requirements**: 786
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 651
-- **Release-readiness (automated coverage)**: 16.3%
+- **Not covered by automated test**: 659
+- **Release-readiness (automated coverage)**: 16.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 51 | 14 | 37 | 27.5% |
+| gimle-core | 52 | 14 | 38 | 26.9% |
 | gimle-module | 27 | 12 | 15 | 44.4% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 54 | 6 | 48 | 11.1% |
+| gimle-agent | 56 | 6 | 50 | 10.7% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 110 | 17 | 93 | 15.5% |
+| gimle-controlplane | 114 | 17 | 97 | 14.9% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -41,7 +41,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
-| gimle-skald | 5 | 0 | 5 | 0.0% |
+| gimle-skald | 6 | 0 | 6 | 0.0% |
 
 ## Checklist
 
@@ -153,6 +153,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-032 | Instance lifecycle event log model | Given a TRANSITION_FAILED event, When constructed, Then it carries a non-empty causeSummary alongside a stable id. | No |
 | [ ] | GIMLE-737 | Logs can be filtered by level threshold and text at the reader, on every surface | Given a log containing lines at several levels When it is read with a level threshold of WARN and a text filter Then only matching WARN and ERROR lines are returned And the same query against a gone node's shipped history returns the same lines And a query matching nothing reports that rather than returning silence | No |
+| [ ] | GIMLE-779 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling | No |
 
 #### Observability / Logging
 
@@ -578,6 +579,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-748 | A closed Bifrost service listener never serves one more connection | Given a Bifrost listener for a Service When that Service disappears from the source Then a subsequent connection attempt is refused rather than proxied | No |
+| [ ] | GIMLE-782 | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead | No |
 
 #### Networking / Services
 
@@ -697,6 +699,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-118 | Vessel process supervision (plain-jar workload as its own dedicated process) | Given an assignment carries a VesselSpec When reconcileVesselAssignment runs (entirely separate from the module path) Then startVesselInstance spawns `java <ResourceLimiter flags> <vessel.jvmFlags> -jar <jar> <vessel.args>` via VesselProcessSupervisor And stdout/stderr is captured unconditionally as this instance's own APPLICATION log (no JSON-sniffing, unlike a real worker) And a crash restarts via the same RestartTracker-driven backoff/give-up policy as WorkerProcessSupervisor | No |
 | [ ] | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Given a running cluster from topology "minimal", And module "greeter-provider" version "1.0.0" deployed with 1 replica as "sleipnir-greeter", Then within 60s deployment "sleipnir-greeter" is ACTIVE, And within 30s node "node-0" logs "AOT cache ineligible: directory on worker classpath", And node "node-0" has no AOT cache files. | Yes |
 | [ ] | GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | Given a Vessel instance already running under a fixed key with a given vessel: configuration; When the control plane's assignment for that key is re-polled with the same moduleId/artifactPath but an edited vessel: block (env, args, jvmFlags, files, probes, or resource request/limit); Then the agent detects the drift and restarts the process with the new configuration. Given a Vessel instance already running under a fixed key; When the control plane's assignment for that key is re-polled with an identical vessel: block; Then the agent does not restart the process. Given a hosted-module instance already running under a fixed key; When its assignment is re-polled with an unrelated vessel() value present but the same moduleId/artifactPath; Then requiresReplacement still returns false, since module runtime config comes from the artifact's own gimle-module.yaml rather than from vessel(). | No |
+| [ ] | GIMLE-786 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Given an agent with a declared Tier-1 shared-worker heap budget When a TIER_1 instance spawns a worker Then that worker is sized from the budget, not from the instance's own declared limit Given a shared worker whose residents' declared memory limits already fill its heap When another TIER_1 instance of the same tenant is assigned to that node Then it is not packed into that worker and gets a fresh one instead | No |
 
 #### Worker Supervision / Config
 
@@ -1206,6 +1209,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-730 | NetworkPolicy edits are version-guarded and can add or remove one allow-list entry at a time | Given a network policy allowing one caller tenant When a second caller tenant is added through the amend flag And a concurrent edit is attempted against the version it started from Then the concurrent edit is rejected with status 409 And both amendments are visible through a different control-plane replica | Yes |
 | [ ] | GIMLE-731 | A NetworkPolicy may only name tenants that exist | Given a cluster with no tenant named partner When a network policy allowing caller tenant partner is created Then the create is rejected with status 400 naming the unknown tenant | Yes |
+| [ ] | GIMLE-785 | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Given an Ingress declaring a SERVICE route for a tenant When a gateway configured with a control-plane endpoint reloads its routes Then the declared route is served alongside the gateway's own config-declared routes And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting | No |
 
 #### Networking / Services
 
@@ -1317,6 +1321,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-216 | Required node-label placement constraint | Given a manifest declares placement.requiredLabels; When placement runs; Then only nodes carrying every required label are candidates; fails outright if none qualify. | No |
 | [ ] | GIMLE-218 | DaemonSet eligible-node enumeration (`eligibleNodes`) | Given several nodes, some cordoned, some missing required labels; When DaemonSetReconciler computes eligible nodes; Then every node passing tier/cordon/tenant/label filters is returned, no single-winner pick. | No |
 | [ ] | GIMLE-744 | Placement and quota failures name the resource dimension, the numbers and the shortfall | Given a deployment requesting more memory than any node has free When placement is attempted Then the failure names memory, the shortfall, and the roomiest candidate node And a tier that no node supports says so instead of reporting a capacity shortfall | No |
+| [ ] | GIMLE-783 | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Given a cluster with no free capacity running only default-priority workloads When a deployment declaring a higher placement priority cannot be placed Then strictly-lower-priority instances are evicted to free room for it And an equal-or-higher-priority instance is never evicted | No |
 
 #### Scheduling / Multi-tenancy
 
@@ -1349,6 +1354,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-704 | Certificate-request approval and node/operator join are recorded in the durable audit trail | Given an operator with CERTIFICATE_REQUEST:APPROVE permission approves a tenant-client CSR; When the approval completes; Then a durable audit event records the approval, allowed=true. Given a node presents an invalid or already-consumed bootstrap token; When the join request is rejected; Then a durable audit event records the rejection, attributed to the bootstrap-token principal. Given an operator submits a join CSR; When the request is accepted as pending; Then a durable audit event records the submission before any approval decision is made. | No |
+| [ ] | GIMLE-781 | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | Given a control plane serving its API When one source issues requests faster than its configured budget allows Then further requests from that source are refused with 429 and a Retry-After And requests from other sources, including node agents' own heartbeats, are unaffected | No |
 
 #### Security / PKI
 
@@ -1388,6 +1394,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-728 | Overlapping Services are announced with a response warning rather than silently allowed | Given a Service fronting a deployment When a second Service is declared fronting the same deployment Then the create succeeds And the response carries a warning naming the first Service and the shared deployment | No |
 | [ ] | GIMLE-729 | A Service's targetPort is authoritative when declared and genuinely absent when not | Given a deployment whose instance reports two ports When a Service is declared fronting it with the second port as targetPort Then the Service resolves exactly one endpoint on that port And a Service declaring a port no instance reports resolves no endpoints and was warned about at creation | No |
+
+#### Service fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-780 | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | Given a deployment with an instance running on a node When an operator reads that instance's fabric endpoint through the control plane Then the address its worker actually bound is returned, resolved from the hosting node's own agent And an instance whose worker has not yet handshaked is reported as retryable rather than missing | No |
 
 #### Storage / Operations
 
@@ -2290,6 +2302,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-611 | Midgard Docker dev-cluster distribution archive | Given the unpacked gimle-midgard archive on a machine with Docker, When docker compose up -d runs, Then one container boots a store, control plane, Fafnir, Muninn, Andvari, and a node agent via hilmir up, and the web console serves on the published port 8080. Given the container is up with seeding enabled, When the entrypoint's seed step runs, Then the bundled example jars are pushed to the artifact registry and their v1 coordinate-only deployments reach ACTIVE. Given a running Midgard container, When docker stop is issued, Then the entrypoint tears the cluster down via hilmir down before exiting. | No |
 
 ### gimle-skald
+
+#### Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-784 | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | Given the Skald DaemonSet and its UDP Service applied to a running cluster When an operator queries the Service's stable ClusterIP for a cluster name Then the answer comes from a Skald instance the platform scheduled and supervises And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted | No |
 
 #### Service Discovery / DNS
 

@@ -30,6 +30,8 @@ import com.gimle.controlplane.galdr.CustomResourceManifestParser;
 import com.gimle.controlplane.galdr.GaldrJson;
 import com.gimle.controlplane.galdr.GaldrKinds;
 import com.gimle.controlplane.galdr.KindDefinitionParser;
+import com.gimle.controlplane.ingress.IngressRegistry;
+import com.gimle.controlplane.ingress.IngressWriteResult;
 import com.gimle.controlplane.muninn.MuninnClient;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyPatch;
 import com.gimle.controlplane.networkpolicy.NetworkPolicyRegistry;
@@ -62,6 +64,7 @@ import com.gimle.core.config.ConfigEntry;
 import com.gimle.core.exception.GimleCodecException;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.exception.GimleRaftException;
+import com.gimle.core.ingress.IngressRule;
 import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.logging.LogFileReader;
 import com.gimle.core.logging.LogFilter;
@@ -116,11 +119,13 @@ import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.DisruptionBudget;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ParsedManifest;
+import com.gimle.mimir.manifest.ServiceProtocol;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
@@ -324,6 +329,7 @@ public final class ApiServer implements AutoCloseable {
   // gimle-agent's own poller (GET /networkpolicies below), never by a reconciler -- nothing in this
   // process itself needs to act on a NetworkPolicySpec, only relay it downstream unchanged.
   private final NetworkPolicyRegistry networkPolicyRegistry;
+  private final IngressRegistry ingressRegistry;
   // Same delegate-to-the-store shape as networkPolicyRegistry above -- see AlertRuleRegistry's own
   // javadoc. Read by ControlPlaneMain's own AlertReconciler, evaluated on the same reconcile tick
   // every other resource kind here converges on.
@@ -358,6 +364,23 @@ public final class ApiServer implements AutoCloseable {
       new RequestRateLimiter(
           Integer.getInteger(CSR_CLUSTER_BURST_PROPERTY, 1_000),
           Duration.ofMillis(Long.getLong(CSR_CLUSTER_REFILL_MILLIS_PROPERTY, 50L)));
+  // Bounds how fast any single source may be served *at all*, whatever route it calls and whether
+  // or not it authenticates -- the backstop the CSR buckets above only ever provided for one route.
+  // Hooked into #instrument, so every registered context is covered and a new route cannot forget
+  // to opt in.
+  //
+  // Keyed by remote address only, with deliberately no cluster-wide companion bucket, which is the
+  // one place this differs from the CSR pair above. A shared bucket would let a single flooding
+  // source spend the budget every other caller draws from -- including the node agents' own
+  // heartbeats, whose starvation the control plane reads as nodes going dark and answers with mass
+  // rescheduling. That converts a flood from one source into a cluster-wide outage, which is worse
+  // than the unbounded surface it set out to fix. CSR can afford a shared bucket because
+  // submissions are rare and bounded by fleet size; ordinary API traffic is neither.
+  //
+  // Sized as a flood backstop rather than a quota: a node agent's heartbeat/assignment polling, an
+  // operator's bulk apply, and a console page load's asset burst all sit far below it, so the
+  // limit is only ever reached by traffic no legitimate caller generates.
+  private final Optional<RequestRateLimiter> requestRateLimiter = buildRequestRateLimiter();
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
   private final Instant startedAt = Instant.now();
   // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
@@ -472,6 +495,7 @@ public final class ApiServer implements AutoCloseable {
         new CronJobReconciler(storeClient, storeClient, Clock.systemUTC(), this.artifactResolver);
     this.serviceRegistry = new ServiceRegistry(storeClient, storeClient);
     this.networkPolicyRegistry = new NetworkPolicyRegistry(storeClient);
+    this.ingressRegistry = new IngressRegistry(storeClient);
     this.alertRuleRegistry = new AlertRuleRegistry(storeClient, storeClient);
     this.configMapStore = new ConfigMapStore(storeClient);
     this.configVersionStore = new ConfigVersionStore(storeClient);
@@ -555,12 +579,16 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/statefulsets/", instrument("statefulsets", this::handleStatefulSet));
     target.createContext("/statefulsets", instrument("statefulsets", this::handleStatefulSetsList));
     target.createContext("/endpoints/", instrument("endpoints", this::handleEndpoints));
+    target.createContext(
+        "/instances/", instrument("instances", this::handleInstanceFabricEndpoint));
     target.createContext("/services/", instrument("services", this::handleService));
     target.createContext("/services", instrument("services", this::handleServicesCollection));
     target.createContext(
         "/networkpolicies/", instrument("networkpolicies", this::handleNetworkPolicy));
     target.createContext(
         "/networkpolicies", instrument("networkpolicies", this::handleNetworkPoliciesCollection));
+    target.createContext("/ingresses/", instrument("ingresses", this::handleIngress));
+    target.createContext("/ingresses", instrument("ingresses", this::handleIngressesCollection));
     target.createContext(
         "/networkpostures", instrument("networkpostures", this::handleNetworkPosturesList));
     target.createContext("/alertrules/", instrument("alertrules", this::handleAlertRule));
@@ -653,6 +681,12 @@ public final class ApiServer implements AutoCloseable {
       String verb = exchange.getRequestMethod();
       long startNanos = System.nanoTime();
       try {
+        Optional<Instant> retryAt = rateLimited(exchange);
+        if (retryAt.isPresent()) {
+          respondThrottled(exchange, retryAt.get());
+          exchange.close();
+          return;
+        }
         delegate.handle(exchange);
       } finally {
         Duration latency = Duration.ofNanos(System.nanoTime() - startNanos);
@@ -2033,6 +2067,16 @@ public final class ApiServer implements AutoCloseable {
     boolean sessionAffinity = Boolean.TRUE.equals(body.get("sessionAffinity"));
     Optional<String> externalName =
         body.get("externalName") instanceof String s ? Optional.of(s) : Optional.empty();
+    ServiceProtocol protocol;
+    try {
+      protocol =
+          body.get("protocol") instanceof String p
+              ? ServiceProtocol.valueOf(p.toUpperCase(Locale.ROOT))
+              : ServiceProtocol.TCP;
+    } catch (IllegalArgumentException e) {
+      respond(exchange, 400, "protocol must be TCP or UDP");
+      return;
+    }
 
     // No re-tenanting guard needed here (unlike this method's own history before Service names
     // were tenant-scoped): a PUT always targets the submitted tenant's own (tenantId, name) key,
@@ -2042,7 +2086,14 @@ public final class ApiServer implements AutoCloseable {
     if (authorized && !rejectIfReservedSystemTenant(exchange, tenantId)) {
       ServiceSpec spec =
           new ServiceSpec(
-              name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName);
+              name,
+              tenantId,
+              deploymentNames,
+              port,
+              targetPort,
+              sessionAffinity,
+              externalName,
+              protocol);
       // Computed against the Service set as it stands *before* this one lands, so a re-submit
       // never reads as overlapping itself, and attached before respond() writes the headers out.
       List<String> advisories =
@@ -2181,6 +2232,7 @@ public final class ApiServer implements AutoCloseable {
     map.put("port", spec.port());
     spec.targetPort().ifPresent(targetPort -> map.put("targetPort", targetPort));
     map.put("sessionAffinity", spec.sessionAffinity());
+    map.put("protocol", spec.protocol().name());
     List<Map<String, Object>> endpoints = new ArrayList<>();
     for (ServiceEndpoint endpoint :
         ServiceEndpointResolver.resolve(storeClient, spec).endpoints()) {
@@ -2203,6 +2255,7 @@ public final class ApiServer implements AutoCloseable {
     spec.targetPort().ifPresent(targetPort -> map.put("targetPort", targetPort));
     map.put("sessionAffinity", spec.sessionAffinity());
     spec.externalName().ifPresent(externalName -> map.put("externalName", externalName));
+    map.put("protocol", spec.protocol().name());
     return map;
   }
 
@@ -2352,6 +2405,158 @@ public final class ApiServer implements AutoCloseable {
    * which isn't a {@link WorkloadSpec} itself either and so travels as plain JSON rather than a
    * {@code kind:}-dispatched manifest.
    */
+  // ---- /ingresses, /ingresses/{name} ----
+
+  private void handleIngressesCollection(HttpExchange exchange) {
+    try {
+      switch (exchange.getRequestMethod()) {
+        case "POST" -> handlePostIngress(exchange);
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.READ, Optional.empty())) {
+            List<Map<String, Object>> body = new ArrayList<>();
+            for (IngressSpec spec : ingressRegistry.list()) {
+              body.add(ingressToJson(spec));
+            }
+            respondJson(exchange, 200, body);
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("ingresses request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleIngress(HttpExchange exchange) {
+    try {
+      String name = pathSegmentAfter(exchange, "/ingresses/");
+      if (name.isBlank()) {
+        respond(exchange, 400, "missing ingress name");
+        return;
+      }
+      Optional<String> tenantId = workloadTenantHint(exchange);
+      switch (exchange.getRequestMethod()) {
+        case "GET" -> {
+          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.READ, tenantId)) {
+            Optional<IngressSpec> spec = ingressRegistry.get(tenantId.orElseThrow(), name);
+            if (spec.isEmpty()) {
+              respond(exchange, 404, "no such ingress: " + name);
+            } else {
+              respondJson(exchange, 200, ingressToJson(spec.get()));
+            }
+          }
+        }
+        case "DELETE" -> {
+          if (requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, tenantId)) {
+            ingressRegistry.remove(tenantId.orElseThrow(), name);
+            respondJson(exchange, 200, Map.of("deleted", true));
+          }
+        }
+        default -> respond(exchange, 405, "method not allowed");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("ingress request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  /**
+   * A route's own validation lives in {@link IngressRule}'s compact constructor, so a malformed
+   * declaration is an {@link IllegalArgumentException} the caller sees as a 400 naming the field --
+   * rather than a route that parses and then silently never matches, which is the failure mode a
+   * flat config string has.
+   */
+  private void handlePostIngress(HttpExchange exchange) throws IOException {
+    Map<?, ?> body = (Map<?, ?>) Json.parse(readBody(exchange));
+    String name = (String) body.get("name");
+    if (name == null || name.isBlank()) {
+      respond(exchange, 400, "missing ingress name");
+      return;
+    }
+    String tenantId = (String) body.get("tenantId");
+    if (tenantId == null || tenantId.isBlank()) {
+      respond(exchange, 400, "missing tenantId");
+      return;
+    }
+    if (!requireAuthorized(exchange, ResourceKind.INGRESS, Verb.WRITE, Optional.of(tenantId))) {
+      return;
+    }
+    List<IngressRule> routes = new ArrayList<>();
+    for (Map<String, Object> route : Json.asObjectList(body.get("routes"))) {
+      routes.add(ingressRuleFromJson(route));
+    }
+    OptionalInt expectedVersion =
+        body.get("expectedVersion") instanceof Number n
+            ? OptionalInt.of(n.intValue())
+            : OptionalInt.empty();
+    IngressWriteResult result =
+        ingressRegistry.put(new IngressSpec(name, tenantId, routes), expectedVersion);
+    switch (result) {
+      case IngressWriteResult.Written written ->
+          respondJson(exchange, 200, ingressToJson(written.spec()));
+      case IngressWriteResult.VersionConflict conflict ->
+          respondJson(
+              exchange,
+              409,
+              Map.of("error", "version conflict", "currentVersion", conflict.currentVersion()));
+      case IngressWriteResult.Contended unused ->
+          respond(exchange, 503, "ingress " + name + " is being written by another caller");
+    }
+  }
+
+  private static IngressRule ingressRuleFromJson(Map<String, Object> route) {
+    IngressRule.Kind kind =
+        IngressRule.Kind.valueOf(String.valueOf(route.get("kind")).toUpperCase(Locale.ROOT));
+    return new IngressRule(
+        Optional.ofNullable((String) route.get("host")),
+        (String) route.get("path"),
+        Boolean.TRUE.equals(route.get("prefix")),
+        kind,
+        Optional.ofNullable((String) route.get("serviceName")),
+        Optional.ofNullable((String) route.get("deploymentName")),
+        Optional.ofNullable((String) route.get("portName")),
+        Optional.ofNullable((String) route.get("interfaceName")),
+        route.get("majorVersion") instanceof Number n ? n.intValue() : 0,
+        Optional.ofNullable((String) route.get("methodName")),
+        Optional.ofNullable((String) route.get("paramType")));
+  }
+
+  private static Map<String, Object> ingressToJson(IngressSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", spec.name());
+    map.put("tenantId", spec.tenantId());
+    map.put("version", spec.version());
+    List<Map<String, Object>> routes = new ArrayList<>();
+    for (IngressRule route : spec.routes()) {
+      Map<String, Object> entry = new LinkedHashMap<>();
+      route.host().ifPresent(host -> entry.put("host", host));
+      entry.put("path", route.path());
+      entry.put("prefix", route.prefix());
+      entry.put("kind", route.kind().name());
+      route.serviceName().ifPresent(v -> entry.put("serviceName", v));
+      route.deploymentName().ifPresent(v -> entry.put("deploymentName", v));
+      route.portName().ifPresent(v -> entry.put("portName", v));
+      route.interfaceName().ifPresent(v -> entry.put("interfaceName", v));
+      if (route.kind() == IngressRule.Kind.FABRIC) {
+        entry.put("majorVersion", route.majorVersion());
+      }
+      route.methodName().ifPresent(v -> entry.put("methodName", v));
+      route.paramType().ifPresent(v -> entry.put("paramType", v));
+      routes.add(entry);
+    }
+    map.put("routes", routes);
+    return map;
+  }
+
   private void handleNetworkPoliciesCollection(HttpExchange exchange) {
     try {
       switch (exchange.getRequestMethod()) {
@@ -3868,6 +4073,79 @@ public final class ApiServer implements AutoCloseable {
    * still goes through the ordinary path unchanged. {@code /endpoints/*} is GET-only, so there is
    * no verb to branch on the way {@code decideAllowed} does for {@code /secrets/*}'s write/delete.
    */
+  // ---- /instances/{deploymentName}/{instanceIndex}/fabric-endpoint ----
+
+  /**
+   * Where one instance is reachable on the service fabric -- the address a {@code FabricClient}
+   * dials to invoke a service on it directly, rather than through {@code FabricServiceRegistry}'s
+   * own locality-preferring selection.
+   *
+   * <p>Only the agent supervising the instance holds this: it arrives on the worker's own {@code
+   * Hello} handshake and lives in that agent's memory. This route resolves which node that is and
+   * proxies there, the same API-server-to-kubelet shape {@code /logs/instances/...} already uses,
+   * so a caller needs only the workload name and index rather than having to know the placement.
+   *
+   * <p>Read-only and diagnostic. It exposes no capability a caller does not already have -- an
+   * instance's fabric listener authenticates and authorizes every inbound call itself, and dialing
+   * it directly is precisely what {@code FabricServer}'s own listener-side tenant re-check exists
+   * to defend against, which is why that defence could not be exercised end to end while the
+   * address stayed undiscoverable.
+   */
+  private void handleInstanceFabricEndpoint(HttpExchange exchange) {
+    try {
+      handleInstanceFabricEndpointRequest(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("fabric-endpoint request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleInstanceFabricEndpointRequest(HttpExchange exchange) throws IOException {
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    String tail = pathSegmentAfter(exchange, "/instances/");
+    String[] parts = tail.split("/");
+    if (parts.length != 3 || !"fabric-endpoint".equals(parts[2])) {
+      respond(
+          exchange, 404, "expected /instances/{deploymentName}/{instanceIndex}/fabric-endpoint");
+      return;
+    }
+    String deploymentName = parts[0];
+    int instanceIndex;
+    try {
+      instanceIndex = Integer.parseInt(parts[1]);
+    } catch (NumberFormatException e) {
+      respond(exchange, 400, "invalid instanceIndex");
+      return;
+    }
+
+    Optional<String> tenantId = workloadTenantHint(exchange);
+    Optional<InstancePlacement> placement =
+        resolveInstancePlacement(tenantId, deploymentName, instanceIndex);
+    if (placement.isEmpty()) {
+      // Authorize before answering: without this, an unauthorized caller could probe which
+      // (name, index) pairs exist by telling 404 apart from 403. DEPLOYMENT is the right kind to
+      // check against for a workload whose kind we could not determine, since it is the least
+      // privileged of the four an instance can belong to.
+      if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenantId)) {
+        respond(exchange, 404, "no placement found for " + deploymentName + "#" + instanceIndex);
+      }
+      return;
+    }
+    if (!requireAuthorized(exchange, placement.get().kind(), Verb.READ, tenantId)) {
+      return;
+    }
+    proxyToAgent(
+        exchange,
+        placement.get().nodeId(),
+        "/fabric-endpoints/" + deploymentName + "/" + instanceIndex,
+        null);
+  }
+
   private boolean authorizeEndpointsRead(
       HttpExchange exchange, ResourceKind resourceKind, Optional<String> tenantId) {
     if (exchange instanceof HttpsExchange) {
@@ -4572,22 +4850,46 @@ public final class ApiServer implements AutoCloseable {
   }
 
   private static InstanceObservation observationFromJson(Map<?, ?> map) {
-    return new InstanceObservation(
-        (String) map.get("deploymentName"),
-        ((Number) map.get("instanceIndex")).intValue(),
-        moduleIdFromJson((Map<?, ?>) map.get("moduleId")),
-        (String) map.get("lifecycleState"),
-        (Boolean) map.get("alive"),
-        (Boolean) map.get("ready"),
-        numberField(map, "requestRatePerSecond", 0.0).doubleValue(),
-        numberField(map, "queueDepth", 0).intValue(),
-        numberField(map, "cpuMillicoresUsed", 0L).longValue(),
-        numberField(map, "memoryBytesUsed", 0L).longValue(),
-        numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
-        portsFromJson(map.get("ports")),
-        numberField(map, "volumeUsageBytes", 0L).longValue(),
-        Optional.ofNullable((String) map.get("workerId")),
-        Optional.ofNullable((String) map.get("tenantId")));
+    return InstanceObservation.builder(
+            (String) map.get("deploymentName"),
+            ((Number) map.get("instanceIndex")).intValue(),
+            moduleIdFromJson((Map<?, ?>) map.get("moduleId")),
+            (String) map.get("lifecycleState"),
+            (Boolean) map.get("alive"),
+            (Boolean) map.get("ready"))
+        .load(
+            numberField(map, "requestRatePerSecond", 0.0).doubleValue(),
+            numberField(map, "errorRatePerSecond", 0.0).doubleValue(),
+            numberField(map, "queueDepth", 0).intValue(),
+            numberField(map, "cpuMillicoresUsed", 0L).longValue(),
+            numberField(map, "memoryBytesUsed", 0L).longValue())
+        .ports(portsFromJson(map.get("ports")))
+        .volumeUsageBytes(numberField(map, "volumeUsageBytes", 0L).longValue())
+        .workerId(Optional.ofNullable((String) map.get("workerId")))
+        .tenantId(Optional.ofNullable((String) map.get("tenantId")))
+        .isolationTier(isolationTierFromJson(map.get("isolationTier")))
+        .resourceLimit(
+            map.get("resourceLimit") instanceof Map<?, ?> limit
+                ? resourceSpecFromJson(limit)
+                : Optional.empty())
+        .build();
+  }
+
+  /**
+   * Absent whenever the reporting agent held no module descriptor for the instance -- a vessel is
+   * an OS process and has none. An unrecognized tier name is treated as absent rather than failing
+   * the whole heartbeat: this field is advisory, and one unreadable value must not cost the control
+   * plane every other observation in the payload.
+   */
+  private static Optional<IsolationTier> isolationTierFromJson(Object raw) {
+    if (!(raw instanceof String name)) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(IsolationTier.valueOf(name));
+    } catch (IllegalArgumentException e) {
+      return Optional.empty();
+    }
   }
 
   /** {@code ports}, when present, is a vessel instance's own declared-port-name -> number map. */
@@ -4626,6 +4928,8 @@ public final class ApiServer implements AutoCloseable {
     }
     obs.workerId().ifPresent(id -> map.put("workerId", id));
     obs.tenantId().ifPresent(id -> map.put("tenantId", id));
+    obs.isolationTier().ifPresent(tier -> map.put("isolationTier", tier.name()));
+    obs.resourceLimit().ifPresent(limit -> map.put("resourceLimit", resourceSpecToJson(limit)));
     return map;
   }
 
@@ -8032,39 +8336,53 @@ public final class ApiServer implements AutoCloseable {
    */
   private String resolveInstanceNodeId(
       Optional<String> tenantId, String deploymentName, int instanceIndex) {
-    Optional<String> deployment =
+    return resolveInstancePlacement(tenantId, deploymentName, instanceIndex)
+        .map(InstancePlacement::nodeId)
+        .orElse(null);
+  }
+
+  /**
+   * Which node hosts an instance, and which workload kind put it there -- the kind matters because
+   * DaemonSet and StatefulSet are independently withholdable RBAC grants, so a route authorizing a
+   * read of one instance must check the grant its owning workload actually falls under rather than
+   * assume DEPLOYMENT.
+   */
+  private record InstancePlacement(String nodeId, ResourceKind kind) {}
+
+  private Optional<InstancePlacement> resolveInstancePlacement(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    Optional<InstancePlacement> deployment =
         storeClient.listAssignmentsFor(tenantId, deploymentName).stream()
             .filter(a -> a.instanceIndex() == instanceIndex)
-            .map(InstanceAssignment::nodeId)
+            .map(a -> new InstancePlacement(a.nodeId(), ResourceKind.DEPLOYMENT))
             .findFirst();
     if (deployment.isPresent()) {
-      return deployment.get();
+      return deployment;
     }
-    Optional<String> statefulSet =
+    Optional<InstancePlacement> statefulSet =
         storeClient.listStatefulSetAssignmentsFor(tenantId, deploymentName).stream()
             .filter(a -> a.instanceIndex() == instanceIndex)
-            .map(StatefulSetAssignment::nodeId)
+            .map(a -> new InstancePlacement(a.nodeId(), ResourceKind.STATEFULSET))
             .findFirst();
     if (statefulSet.isPresent()) {
-      return statefulSet.get();
+      return statefulSet;
     }
     // A DaemonSet instance's own "index" is always 0 (one instance per node, see
     // DaemonSetAssignment's own javadoc) -- instanceIndex must match that convention to resolve,
     // the same way a Job's own attempt number must match below.
     if (instanceIndex == 0) {
-      Optional<String> daemonSet =
+      Optional<InstancePlacement> daemonSet =
           storeClient.listDaemonSetAssignmentsFor(tenantId, deploymentName).stream()
-              .map(DaemonSetAssignment::nodeId)
+              .map(a -> new InstancePlacement(a.nodeId(), ResourceKind.DAEMONSET))
               .findFirst();
       if (daemonSet.isPresent()) {
-        return daemonSet.get();
+        return daemonSet;
       }
     }
     return storeClient.listJobRunsFor(tenantId, deploymentName).stream()
         .filter(run -> run.attempt() == instanceIndex)
-        .map(JobRun::nodeId)
-        .findFirst()
-        .orElse(null);
+        .map(run -> new InstancePlacement(run.nodeId(), ResourceKind.JOB))
+        .findFirst();
   }
 
   /**
@@ -8362,6 +8680,26 @@ public final class ApiServer implements AutoCloseable {
 
   private static final Duration LEAF_VALIDITY = Duration.ofDays(397);
   // How many submissions one address may spend at once, and how fast it earns another.
+  static final String RATE_LIMIT_ENABLED_PROPERTY = "gimle.controlplane.rateLimit.enabled";
+  static final String RATE_LIMIT_BURST_PROPERTY = "gimle.controlplane.rateLimit.burstPerAddress";
+  static final String RATE_LIMIT_REFILL_MILLIS_PROPERTY =
+      "gimle.controlplane.rateLimit.refillMillisPerAddress";
+
+  /**
+   * Empty when {@code gimle.controlplane.rateLimit.enabled} is set to {@code false} -- an explicit
+   * operator decision to run the API unbounded, for a benchmark or a single-tenant lab where the
+   * limit is only noise. On by default: an unbounded write path is the gap, not the limit.
+   */
+  private static Optional<RequestRateLimiter> buildRequestRateLimiter() {
+    if (!Boolean.parseBoolean(System.getProperty(RATE_LIMIT_ENABLED_PROPERTY, "true"))) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        new RequestRateLimiter(
+            Integer.getInteger(RATE_LIMIT_BURST_PROPERTY, 600),
+            Duration.ofMillis(Long.getLong(RATE_LIMIT_REFILL_MILLIS_PROPERTY, 5L))));
+  }
+
   static final String CSR_BURST_PER_ADDRESS_PROPERTY = "gimle.controlplane.csr.burstPerAddress";
   static final String CSR_REFILL_MILLIS_PER_ADDRESS_PROPERTY =
       "gimle.controlplane.csr.refillMillisPerAddress";
@@ -8430,6 +8768,15 @@ public final class ApiServer implements AutoCloseable {
    * threat this bounds, but exempting one would mean deciding that before the body is read, and the
    * limits are set far above any rate a real node's own join or rotation traffic reaches.
    */
+  /**
+   * Empty while this caller may be served; otherwise when it may try again. Charged before the
+   * route runs and before any authentication, since the point is to bound work done on behalf of a
+   * caller whose identity establishing would itself be the work.
+   */
+  private Optional<Instant> rateLimited(HttpExchange exchange) {
+    return requestRateLimiter.flatMap(limiter -> limiter.acquire(remoteAddressKey(exchange)));
+  }
+
   private Optional<Instant> csrRateLimited(HttpExchange exchange) {
     Optional<Instant> addressRetryAt = csrAddressRateLimiter.acquire(remoteAddressKey(exchange));
     if (addressRetryAt.isPresent()) {

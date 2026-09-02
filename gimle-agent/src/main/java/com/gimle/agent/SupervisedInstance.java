@@ -1,6 +1,7 @@
 package com.gimle.agent;
 
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.os.VolumeHandle;
 import java.net.InetSocketAddress;
@@ -48,6 +49,19 @@ final class SupervisedInstance {
    * SupervisedInstance} directly with no real worker behind it at all.
    */
   final String workerKey;
+
+  /**
+   * The size the worker JVM hosting this instance was actually spawned at -- its {@code -Xmx} and
+   * {@code ActiveProcessorCount}, not this instance's own declared limit, which under Tier 1
+   * density is only one of several claims against that one heap. Copied from the instance that
+   * spawned the worker when {@code AgentMain#installIntoExistingWorker} packs this one onto an
+   * existing JVM, exactly as {@link #workerKey} is, so it survives that spawning instance later
+   * being stopped while the worker (and this instance on it) lives on. Read back by {@code
+   * AgentMain#findReusableTier1Worker} to decide whether another instance's declared limit still
+   * fits alongside what this worker already carries. {@code null} for the unit tests that construct
+   * a {@link SupervisedInstance} with no real worker behind it at all.
+   */
+  final ResourceSpec workerLimit;
 
   volatile WorkerConnection connection;
   volatile String lifecycleState = "INSTALLED";
@@ -114,13 +128,16 @@ final class SupervisedInstance {
    */
   volatile Optional<String> aotCacheKey = Optional.empty();
 
-  /** {@code workerKey} defaults to {@code null} -- see that field's own javadoc. */
+  /**
+   * {@code workerKey} and {@code workerLimit} both default to {@code null} -- see those fields' own
+   * javadoc.
+   */
   SupervisedInstance(
       AssignedInstance assigned,
       WorkerProcessSupervisor supervisor,
       ControlChannelServer server,
       ModuleDescriptor descriptor) {
-    this(assigned, supervisor, server, descriptor, null);
+    this(assigned, supervisor, server, descriptor, null, null);
   }
 
   SupervisedInstance(
@@ -128,11 +145,13 @@ final class SupervisedInstance {
       WorkerProcessSupervisor supervisor,
       ControlChannelServer server,
       ModuleDescriptor descriptor,
-      String workerKey) {
+      String workerKey,
+      ResourceSpec workerLimit) {
     this.assigned = assigned;
     this.supervisor = supervisor;
     this.server = server;
     this.descriptor = descriptor;
     this.workerKey = workerKey;
+    this.workerLimit = workerLimit;
   }
 }

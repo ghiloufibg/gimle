@@ -334,6 +334,7 @@ public final class GimleCli {
           new CustomResourceCommand(client, output, out).applyKindDefinition(args, err);
       case "Service" -> new ServicesCommand(client, output, out).apply(args, err);
       case "NetworkPolicy" -> new NetworkPolicyCommand(client, output, out).apply(args, err);
+      case "Ingress" -> new IngressCommand(client, output, out).apply(args, err);
       case "Tenant" -> new TenantsCommand(client, output, out).apply(args, err);
       case "LimitRange" -> new LimitRangeCommand(client, output, out).apply(args, err);
       case "Role" -> new RolesCommand(client, output, out).apply(args, err);
@@ -593,6 +594,7 @@ public final class GimleCli {
       case "service", "services" -> new ServicesCommand(client, output, out).get(rest);
       case "networkpolicy", "networkpolicies" ->
           new NetworkPolicyCommand(client, output, out).get(rest);
+      case "ingress", "ingresses" -> new IngressCommand(client, output, out).get(rest);
       case "alertrule", "alertrules" -> new AlertRulesCommand(client, output, out).get(rest);
       case "tenant", "tenants" -> new TenantsCommand(client, output, out).get(rest);
       case "limitrange", "limitranges" -> new LimitRangeCommand(client, output, out).get(rest);
@@ -666,6 +668,7 @@ public final class GimleCli {
       case "service", "services" -> new ServicesCommand(client, output, out).delete(rest);
       case "networkpolicy", "networkpolicies" ->
           new NetworkPolicyCommand(client, output, out).delete(rest);
+      case "ingress", "ingresses" -> new IngressCommand(client, output, out).delete(rest);
       case "alertrule", "alertrules" -> new AlertRulesCommand(client, output, out).delete(rest);
       case "tenant", "tenants" ->
           new TenantsCommand(client, output, out).delete(requireOne(rest, "tenant"));

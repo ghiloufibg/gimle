@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 778,
+    "totalRequirements": 786,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 651,
-    "releaseReadinessPercent": 16.3
+    "notCoveredByAutomatedTest": 659,
+    "releaseReadinessPercent": 16.2
   },
   "items": [
     {
@@ -8560,6 +8560,94 @@
       "category": "Web Console / Frontend",
       "feature": "Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing",
       "step": "Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no entry for it in the group its catalog entry names",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-779",
+      "module": "gimle-core",
+      "category": "Observability",
+      "feature": "An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under",
+      "step": "Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-780",
+      "module": "gimle-controlplane",
+      "category": "Service fabric",
+      "feature": "An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster",
+      "step": "Given a deployment with an instance running on a node When an operator reads that instance's fabric endpoint through the control plane Then the address its worker actually bound is returned, resolved from the hosting node's own agent And an instance whose worker has not yet handshaked is reported as retryable rather than missing",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-781",
+      "module": "gimle-controlplane",
+      "category": "Security",
+      "feature": "Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission",
+      "step": "Given a control plane serving its API When one source issues requests faster than its configured budget allows Then further requests from that source are refused with 429 and a Retry-After And requests from other sources, including node agents' own heartbeats, are unaffected",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-782",
+      "module": "gimle-agent",
+      "category": "Networking",
+      "feature": "A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams",
+      "step": "Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-783",
+      "module": "gimle-controlplane",
+      "category": "Scheduling",
+      "feature": "Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full",
+      "step": "Given a cluster with no free capacity running only default-priority workloads When a deployment declaring a higher placement priority cannot be placed Then strictly-lower-priority instances are evicted to free room for it And an equal-or-higher-priority instance is never evicted",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-784",
+      "module": "gimle-skald",
+      "category": "Networking",
+      "feature": "Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind",
+      "step": "Given the Skald DaemonSet and its UDP Service applied to a running cluster When an operator queries the Service's stable ClusterIP for a cluster name Then the answer comes from a Skald instance the platform scheduled and supervises And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-785",
+      "module": "gimle-controlplane",
+      "category": "Networking",
+      "feature": "Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string",
+      "step": "Given an Ingress declaring a SERVICE route for a tenant When a gateway configured with a control-plane endpoint reloads its routes Then the declared route is served alongside the gateway's own config-declared routes And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-786",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "step": "Given an agent with a declared Tier-1 shared-worker heap budget When a TIER_1 instance spawns a worker Then that worker is sized from the budget, not from the instance's own declared limit Given a shared worker whose residents' declared memory limits already fill its heap When another TIER_1 instance of the same tenant is assigned to that node Then it is not packed into that worker and gets a fresh one instead",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -867,7 +867,7 @@
         "midgard"
       ],
       "objective": "Write a Deployment manifest from scratch (no copy-paste of a bundled example), `apply -f` it, watch it reach ACTIVE via `get deployments`, `get instances`, `gimle events`, and the console's Deployments/Instances/detail pages.",
-      "oracle": "Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree.",
+      "oracle": "Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree. Each instance's reported resource usage is shown against the limit and isolation tier it was admitted under, and a shared-worker (TIER_1) instance is not drawn as though that limit were its own enforced ceiling.",
       "requirements": [
         "GIMLE-371",
         "GIMLE-274",
@@ -880,7 +880,8 @@
         "GIMLE-439",
         "GIMLE-444",
         "GIMLE-753",
-        "GIMLE-157"
+        "GIMLE-157",
+        "GIMLE-779"
       ]
     },
     {
@@ -938,14 +939,15 @@
         "midgard"
       ],
       "objective": "Deploy the same module as Tier 1 (two replicas) and as Tier 2; inspect worker processes and `-Xmx` flags; kill the Tier-2 worker.",
-      "oracle": "Tier-1 replicas share one worker (same `workerId` in the console, up to the configured density cap); Tier 2 gets its own worker with `-Xmx` equal to its limit; killing it never touches the Tier-1 siblings.",
+      "oracle": "Tier-1 replicas share one worker (same `workerId` in the console, up to the configured density cap) whose `-Xmx` is the node's shared-worker budget rather than any one module's limit; Tier 2 gets its own worker with `-Xmx` equal to its limit; killing it never touches the Tier-1 siblings.",
       "requirements": [
         "GIMLE-004",
         "GIMLE-065",
         "GIMLE-110",
         "GIMLE-212",
         "GIMLE-647",
-        "GIMLE-746"
+        "GIMLE-746",
+        "GIMLE-786"
       ]
     },
     {
@@ -1247,11 +1249,12 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Request more memory than any node has free.",
-      "oracle": "A clear no-feasible-placement outcome naming the dimension, the numbers and the shortfall — not a stuck INSTALLED instance.",
+      "objective": "Request more memory than any node has free, at the default priority and then again with `placement.priority` set above what is already running; and once more at a priority equal to the residents'.",
+      "oracle": "A clear no-feasible-placement outcome naming the dimension, the numbers and the shortfall — not a stuck INSTALLED instance. The higher-priority submission instead displaces strictly-lower-priority instances and lands; the equal-priority one does not, and nothing is evicted for it.",
       "requirements": [
         "GIMLE-106",
-        "GIMLE-744"
+        "GIMLE-744",
+        "GIMLE-783"
       ]
     },
     {
@@ -1365,11 +1368,12 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Deploy twelve tiny Tier-1 modules under one tenant with the density knob set to 4.",
-      "oracle": "Instances pack four per worker and a fifth worker is spawned only when the cap is reached.",
+      "objective": "Deploy twelve tiny Tier-1 modules under one tenant with the density knob set to 4, then deploy modules whose declared `resources.limit.memory` sums past the shared-worker heap budget before that cap is reached, and one module declaring more heap than a whole budget.",
+      "oracle": "Tiny instances pack four per worker and a fifth worker is spawned only when the cap is reached; the larger modules stop packing on the summed-limit budget instead, spawning a fresh worker rather than being refused; a module larger than a whole budget gets a worker sized to its own declared limit and nothing is packed alongside it; every shared worker's `-Xmx` is the configured budget, identical whichever instance spawned it.",
       "requirements": [
         "GIMLE-110",
-        "GIMLE-746"
+        "GIMLE-746",
+        "GIMLE-786"
       ]
     },
     {
@@ -1396,8 +1400,8 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane. Then open the console's Skald DNS screen and track that responder's address.",
-      "oracle": "Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window. The console's Skald DNS screen derives the same names, shows zero A records for the empty Service, and reports that responder's directory age and consecutive poll failures from its own shipped gauges.",
+      "objective": "Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane. Then open the console's Skald DNS screen and track that responder's address. Then apply gimle-skald/deploy/'s DaemonSet and UDP Service, and repeat the same queries against the Service's own ClusterIP rather than the standalone process; stop one replica's control-plane polling and watch its readiness.",
+      "oracle": "Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window. The console's Skald DNS screen derives the same names, shows zero A records for the empty Service, and reports that responder's directory age and consecutive poll failures from its own shipped gauges. The deployed form answers identically through its Service; a replica whose directory goes stale leaves the Service's endpoint set without being restarted, and its /health stays green throughout.",
       "requirements": [
         "GIMLE-569",
         "GIMLE-620",
@@ -1406,7 +1410,8 @@
         "GIMLE-628",
         "GIMLE-686",
         "GIMLE-774",
-        "GIMLE-776"
+        "GIMLE-776",
+        "GIMLE-784"
       ]
     },
     {
@@ -1415,13 +1420,14 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Enable Bifrost on one agent; dial its local port for a Service repeatedly, then with ClientIP affinity, then from off-node via the NodePort-style exposure; delete the Service.",
-      "oracle": "Round-robin across live endpoints preferring local ones; affinity pins a client; off-node reaches the same backends; the listener closes on delete and never serves one more connection.",
+      "objective": "Enable Bifrost on one agent; dial its local port for a Service repeatedly, then with ClientIP affinity, then from off-node via the NodePort-style exposure; do the same against a second Service declaring `protocol: UDP` in front of a datagram workload, from two clients at once; delete the Service.",
+      "oracle": "Round-robin across live endpoints preferring local ones; affinity pins a client; off-node reaches the same backends; the listener closes on delete and never serves one more connection. The UDP Service relays datagrams and returns each reply to the client that sent the request, never to the other one.",
       "requirements": [
         "GIMLE-568",
         "GIMLE-626",
         "GIMLE-618",
-        "GIMLE-748"
+        "GIMLE-748",
+        "GIMLE-782"
       ]
     },
     {
@@ -1430,8 +1436,8 @@
       "environments": [
         "midgard"
       ],
-      "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path. Then open the console's Gateway screen against that same table, including one route pointing at a Service that does not exist.",
-      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready. The console's Gateway screen lists the same table it was given, names the route resolving to nothing and the rejected duplicate line, and never claims a FABRIC target resolves; its sidebar entry sits under an Edge group.",
+      "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path. Then open the console's Gateway screen against that same table, including one route pointing at a Service that does not exist. Then declare the same routes again as an `Ingress` resource instead of gateway.routes config, including one deliberately malformed route and one colliding with a config-declared path; re-submit the Ingress with a stale expectedVersion.",
+      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready. The console's Gateway screen lists the same table it was given, names the route resolving to nothing and the rejected duplicate line, and never claims a FABRIC target resolves; its sidebar entry sits under an Edge group. An Ingress-declared route behaves identically to the same route declared in config; the malformed one is refused at submission naming the field, not accepted and silently unmatched; the config-declared route wins the collision; the stale re-submit is refused rather than overwriting.",
       "requirements": [
         "GIMLE-570",
         "GIMLE-356",
@@ -1449,7 +1455,8 @@
         "GIMLE-775",
         "GIMLE-776",
         "GIMLE-777",
-        "GIMLE-778"
+        "GIMLE-778",
+        "GIMLE-785"
       ]
     },
     {
@@ -1472,7 +1479,7 @@
         "midgard",
         "vault"
       ],
-      "objective": "Create a NetworkPolicy denying tenant B from tenant A's service (tenant-wide, then per-deployment, then per-interface); attempt the call from a tenant-B module and by dialling the raw catalog address; edit the allow-list one entry at a time; name a nonexistent tenant; close a tenant before its first policy; restart the control plane.",
+      "objective": "Create a NetworkPolicy denying tenant B from tenant A's service (tenant-wide, then per-deployment, then per-interface); attempt the call from a tenant-B module and by dialling the instance directly, at the address `GET /instances/{name}/{index}/fabric-endpoint` reports; edit the allow-list one entry at a time; name a nonexistent tenant; close a tenant before its first policy; restart the control plane.",
       "oracle": "Refused with a legible reason at the caller; the listener side refuses the direct dial independently; scoped rules match only what they name; edits are version-guarded; the bad tenant is rejected; the closed tenant denies by default; the policy survives the restart; CLI and console Networking agree.",
       "requirements": [
         "GIMLE-579",
@@ -1484,7 +1491,8 @@
         "GIMLE-732",
         "GIMLE-192",
         "GIMLE-567",
-        "GIMLE-587"
+        "GIMLE-587",
+        "GIMLE-780"
       ]
     },
     {
@@ -1891,8 +1899,8 @@
         "vault",
         "midgard"
       ],
-      "objective": "Console sessions: log in, log out and replay the old cookie; wait out an expired session; fail login repeatedly; log into Fafnir's and Andvari's consoles separately.",
-      "oracle": "Logout revokes server-side (replay is 401); expiry is explained once in plain language; throttling kicks in with backoff; each console keeps its own session that is useless against the others.",
+      "objective": "Console sessions: log in, log out and replay the old cookie; wait out an expired session; fail login repeatedly; flood an ordinary read route from one source past its per-address budget while a second source keeps calling normally; log into Fafnir's and Andvari's consoles separately.",
+      "oracle": "Logout revokes server-side (replay is 401); expiry is explained once in plain language; throttling kicks in with backoff; the flooded source is refused with 429 and a Retry-After while the second source is served throughout, the cluster's own node heartbeats included; each console keeps its own session that is useless against the others.",
       "requirements": [
         "GIMLE-256",
         "GIMLE-435",
@@ -1904,7 +1912,8 @@
         "GIMLE-461",
         "GIMLE-467",
         "GIMLE-290",
-        "GIMLE-314"
+        "GIMLE-314",
+        "GIMLE-781"
       ]
     },
     {

@@ -411,7 +411,7 @@ placement:                     # optional, same shape as a deployment manifest's
 | `backoffLimit` | no | Maximum number of attempts before the job is marked permanently `FAILED`. Defaults to `6` (Kubernetes Job's own default) when omitted. |
 | `activeDeadlineSeconds` | no | Wall-clock ceiling across *every* attempt combined, not per-attempt — once exceeded the job is marked `FAILED` regardless of remaining `backoffLimit` headroom. Omit for no deadline. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted job. |
-| `placement.antiAffinity` / `placement.requiredLabels` | no | Same `PlacementConstraints` shape a deployment manifest's own `placement:` block uses. |
+| `placement.antiAffinity` / `placement.requiredLabels` / `placement.priority` | no | Same `PlacementConstraints` shape a deployment manifest's own `placement:` block uses. `priority` is the PriorityClass analogue (integer, default `0`, higher wins) and is only consulted when the cluster is out of room — see [Priority and preemption](../architecture/control-plane.md#priority-and-preemption). |
 
 A job's `phase` (`RUNNING`/`SUCCEEDED`/`FAILED`) and its current attempt's own placement/health are
 read-only, computed state — never part of the manifest you submit, the same way a deployment's own
@@ -551,6 +551,7 @@ disruption:                    # optional -- see the Deployment manifest's own d
 | `module.name` / `module.version` | yes | The module to run. |
 | `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
 | `placement.requiredLabels` | no | Same label-matching semantics as a Deployment/Job manifest's own field — a node missing even one required label is excluded. Omit for "every eligible node." |
+| `placement.priority` | no | Same PriorityClass-analogue meaning as a Deployment's own field. A DaemonSet instance is never itself a preemption victim — it exists precisely because its node does. |
 | `placement.antiAffinity` | rejected if present | Not a valid field on this manifest kind — `DaemonSetManifestParser` throws if the YAML sets it, rather than silently ignoring it. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted daemonset. |
 | `tolerateAllTaints` | no | Defaults to `false`. Set `true` to skip the node-taint filter entirely for this DaemonSet, reaching every eligible node regardless of tenant reservation — see above. |
@@ -603,7 +604,7 @@ tenantId: acme                 # optional -- omit for an untenanted statefulset
 | `module.name` / `module.version` | yes | The module to run. |
 | `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
 | `replicas` | yes | The index space is `0..replicas-1`. Unlike Deployment, never autoscaler-managed. |
-| `placement.antiAffinity` / `placement.requiredLabels` | no | Same `PlacementConstraints` shape a Deployment/Job manifest's own `placement:` block uses. |
+| `placement.antiAffinity` / `placement.requiredLabels` / `placement.priority` | no | Same `PlacementConstraints` shape a Deployment/Job manifest's own `placement:` block uses. |
 | `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted statefulset. |
 
 Deliberately does **not** carry its own `volume:` field — persistent storage is declared once, on

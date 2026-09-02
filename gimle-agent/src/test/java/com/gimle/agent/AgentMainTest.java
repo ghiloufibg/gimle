@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.module.HealthProbes;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
@@ -46,17 +47,26 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Regression: {@link AgentMain#prepareResourceLimit} must hand the limiter the manifest's resource
- * *limit*, not its request, and {@link AgentMain#buildWorkerCommand} must then carry that limit's
- * {@code -Xmx} into the spawned worker's command line. Both are exercised directly, not through the
- * full {@code startInstance}/process-spawning path, which {@code AgentWorkerIntegrationTest} and
- * {@code ResourceLimitEnforcementTest} already cover with a hand-built command that never goes
- * through either of these call sites.
+ * Regression: {@link AgentMain#prepareResourceLimit} must size a worker from the manifest's
+ * resource *limit* rather than its request at Tier 2, and from the node's shared-worker budget at
+ * Tier 1 where no single instance owns the heap; {@link AgentMain#buildWorkerCommand} must then
+ * carry that size's {@code -Xmx} into the spawned worker's command line. Both are exercised
+ * directly, not through the full {@code startInstance}/process-spawning path, which {@code
+ * AgentWorkerIntegrationTest} and {@code ResourceLimitEnforcementTest} already cover with a
+ * hand-built command that never goes through either of these call sites.
  */
 class AgentMainTest {
 
   private static final ResourceSpec REQUEST = new ResourceSpec("16Mi", "500m");
   private static final ResourceSpec LIMIT = new ResourceSpec("64Mi", "2000m");
+
+  /**
+   * The shared-worker budget an agent runs with when nothing overrides it -- read from the defaults
+   * rather than hand-written here, so a change to those defaults moves these tests with it instead
+   * of leaving them asserting against a number the agent no longer uses.
+   */
+  private static final Tier1WorkerBudget DEFAULT_TIER1_BUDGET =
+      Tier1WorkerBudget.parse(null, null, null);
 
   /**
    * The eight-arg {@link AgentMain#buildWorkerCommand} call every test below needs, with only the
@@ -89,12 +99,16 @@ class AgentMainTest {
   }
 
   private static ModuleDescriptor descriptorWithDistinctRequestAndLimit() {
+    return descriptorWithDistinctRequestAndLimit(IsolationTier.TIER_1);
+  }
+
+  private static ModuleDescriptor descriptorWithDistinctRequestAndLimit(IsolationTier tier) {
     return new ModuleDescriptor(
         "hello-module",
         Version.parse("1.0.0"),
         List.of(),
         List.of(),
-        IsolationTier.TIER_1,
+        tier,
         REQUEST,
         LIMIT,
         HealthProbes.NONE,
@@ -104,23 +118,41 @@ class AgentMainTest {
   }
 
   @Test
-  void prepare_resource_limit_hands_the_limiter_the_descriptors_limit_not_its_request() {
-    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+  void a_tier2_worker_is_sized_by_the_descriptors_limit_not_its_request() {
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit(IsolationTier.TIER_2);
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
 
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
 
     assertEquals(LIMIT.memoryBytes(), handle.limit().memoryBytes());
     assertEquals(LIMIT.cpuMillicores(), handle.limit().cpuMillicores());
   }
 
   @Test
+  void a_tier1_worker_is_sized_by_the_shared_budget_not_by_whichever_instance_spawned_it() {
+    // The heap of a shared worker is not any one instance's to set: several instances run behind
+    // it, and sizing it from the first arrival is what made every later arrival's declared limit
+    // both unenforced and unpredictable.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit(IsolationTier.TIER_1);
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
+
+    assertEquals(DEFAULT_TIER1_BUDGET.heapBytes(), handle.limit().memoryBytes());
+    assertEquals(DEFAULT_TIER1_BUDGET.cpuMillicores(), handle.limit().cpuMillicores());
+  }
+
+  @Test
   void the_spawned_command_carries_the_manifests_limit_not_its_request() {
-    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit(IsolationTier.TIER_2);
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -142,7 +174,8 @@ class AgentMainTest {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -162,7 +195,8 @@ class AgentMainTest {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -196,7 +230,8 @@ class AgentMainTest {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -230,7 +265,8 @@ class AgentMainTest {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -256,7 +292,8 @@ class AgentMainTest {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -310,7 +347,8 @@ class AgentMainTest {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -333,7 +371,8 @@ class AgentMainTest {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -350,7 +389,8 @@ class AgentMainTest {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
     ResourceLimitHandle handle =
-        AgentMain.prepareResourceLimit(resourceLimiter, "hello-deployment#0", descriptor);
+        AgentMain.prepareResourceLimit(
+            resourceLimiter, "hello-deployment#0", descriptor, DEFAULT_TIER1_BUDGET);
     AssignedInstance assigned =
         new AssignedInstance(
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
@@ -402,6 +442,43 @@ class AgentMainTest {
 
     assertEquals(250L, observation.get("cpuMillicoresUsed"));
     assertEquals(1_048_576L, observation.get("memoryBytesUsed"));
+  }
+
+  @Test
+  void observation_json_reports_the_declared_isolation_tier_and_resource_limit() {
+    // Without these, a reader has usage numbers and no ceiling to read them against -- 142Mi tells
+    // an operator nothing about whether the instance is comfortable or about to die.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "orders-service", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "ACTIVE";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals("TIER_1", observation.get("isolationTier"));
+    // The limit, never the request: the request is a scheduling input, the limit is the ceiling
+    // the instance actually runs under.
+    assertEquals(Map.of("memory", "64Mi", "cpu", "2000m"), observation.get("resourceLimit"));
+  }
+
+  @Test
+  void observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held() {
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "orders-service",
+            0,
+            new ModuleId("com.acme.orders", Version.parse("1.0.0")),
+            "/does/not/matter.jar",
+            Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, null);
+    instance.lifecycleState = "ACTIVE";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertFalse(observation.containsKey("isolationTier"));
+    assertFalse(observation.containsKey("resourceLimit"));
   }
 
   @Test
@@ -569,6 +646,33 @@ class AgentMainTest {
     return instance;
   }
 
+  /** The same, for a worker whose real spawn-time sizing the budget check has to read back. */
+  private static SupervisedInstance supervisedInstance(
+      AssignedInstance assigned,
+      ModuleDescriptor descriptor,
+      WorkerConnection connection,
+      ResourceSpec workerLimit) {
+    SupervisedInstance instance =
+        new SupervisedInstance(assigned, null, null, descriptor, "worker", workerLimit);
+    instance.connection = connection;
+    return instance;
+  }
+
+  private static ModuleDescriptor descriptorWithLimit(String name, String memory, String cpu) {
+    return new ModuleDescriptor(
+        name,
+        Version.parse("1.0.0"),
+        List.of(),
+        List.of(),
+        IsolationTier.TIER_1,
+        new ResourceSpec("4Mi", "100m"),
+        new ResourceSpec(memory, cpu),
+        HealthProbes.NONE,
+        Optional.empty(),
+        Optional.empty(),
+        Map.of());
+  }
+
   @Test
   void a_tier1_instance_reuses_an_existing_tier1_worker_of_the_same_tenant() {
     WorkerConnection sharedConnection = fakeConnection();
@@ -586,7 +690,11 @@ class AgentMainTest {
 
     Optional<SupervisedInstance> reusable =
         AgentMain.findReusableTier1Worker(
-            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
+            newAssigned,
+            newDescriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            DEFAULT_TIER1_BUDGET);
 
     assertTrue(reusable.isPresent());
     assertEquals(existing, reusable.get());
@@ -609,7 +717,11 @@ class AgentMainTest {
 
     Optional<SupervisedInstance> reusable =
         AgentMain.findReusableTier1Worker(
-            tier2Assigned, tier2Descriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
+            tier2Assigned,
+            tier2Descriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            DEFAULT_TIER1_BUDGET);
 
     assertFalse(reusable.isPresent());
   }
@@ -631,7 +743,11 @@ class AgentMainTest {
 
     Optional<SupervisedInstance> reusable =
         AgentMain.findReusableTier1Worker(
-            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
+            newAssigned,
+            newDescriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            DEFAULT_TIER1_BUDGET);
 
     assertFalse(reusable.isPresent());
   }
@@ -653,7 +769,11 @@ class AgentMainTest {
 
     Optional<SupervisedInstance> reusable =
         AgentMain.findReusableTier1Worker(
-            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
+            newAssigned,
+            newDescriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            DEFAULT_TIER1_BUDGET);
 
     assertTrue(reusable.isPresent());
   }
@@ -676,7 +796,11 @@ class AgentMainTest {
 
     Optional<SupervisedInstance> reusable =
         AgentMain.findReusableTier1Worker(
-            replicaOne, descriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
+            replicaOne,
+            descriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            DEFAULT_TIER1_BUDGET);
 
     assertFalse(reusable.isPresent());
   }
@@ -701,7 +825,11 @@ class AgentMainTest {
 
     Optional<SupervisedInstance> reusable =
         AgentMain.findReusableTier1Worker(
-            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
+            newAssigned,
+            newDescriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            DEFAULT_TIER1_BUDGET);
 
     assertFalse(reusable.isPresent());
   }
@@ -722,9 +850,149 @@ class AgentMainTest {
 
     Optional<SupervisedInstance> reusable =
         AgentMain.findReusableTier1Worker(
-            newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY);
+            newAssigned,
+            newDescriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            DEFAULT_TIER1_BUDGET);
 
     assertFalse(reusable.isPresent());
+  }
+
+  @Test
+  void a_worker_is_not_reused_once_the_residents_declared_limits_fill_its_heap() {
+    // The density cap counts instances; this weighs them. A worker under its instance count but
+    // already committed to its whole heap must not take another claim -- admitting it would mean
+    // every co-tenant simultaneously reaching the bound its own manifest promises is the case that
+    // OOMs the JVM they share.
+    Tier1WorkerBudget budget = Tier1WorkerBudget.parse("256Mi", "4000m", "32Mi");
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor residentDescriptor = descriptorWithLimit("resident", "200Mi", "500m");
+    AssignedInstance residentAssigned =
+        assignedInstance("resident-deployment", residentDescriptor, Optional.of("acme"));
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "resident-deployment#0",
+        supervisedInstance(
+            residentAssigned,
+            residentDescriptor,
+            sharedConnection,
+            budget.sizeFor(residentDescriptor)));
+
+    ModuleDescriptor candidateDescriptor = descriptorWithLimit("candidate", "64Mi", "500m");
+    AssignedInstance candidateAssigned =
+        assignedInstance("candidate-deployment", candidateDescriptor, Optional.of("acme"));
+
+    // 200Mi + 64Mi = 264Mi against a 256Mi worker with 32Mi held back for the JVM itself.
+    assertFalse(
+        AgentMain.findReusableTier1Worker(
+                candidateAssigned,
+                candidateDescriptor,
+                supervised,
+                AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+                budget)
+            .isPresent());
+  }
+
+  @Test
+  void a_worker_is_reused_while_the_declared_limits_still_fit_inside_its_heap() {
+    Tier1WorkerBudget budget = Tier1WorkerBudget.parse("256Mi", "4000m", "32Mi");
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor residentDescriptor = descriptorWithLimit("resident", "128Mi", "500m");
+    AssignedInstance residentAssigned =
+        assignedInstance("resident-deployment", residentDescriptor, Optional.of("acme"));
+    SupervisedInstance resident =
+        supervisedInstance(
+            residentAssigned,
+            residentDescriptor,
+            sharedConnection,
+            budget.sizeFor(residentDescriptor));
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put("resident-deployment#0", resident);
+
+    ModuleDescriptor candidateDescriptor = descriptorWithLimit("candidate", "64Mi", "500m");
+    AssignedInstance candidateAssigned =
+        assignedInstance("candidate-deployment", candidateDescriptor, Optional.of("acme"));
+
+    // 128Mi + 64Mi = 192Mi, inside the 224Mi left once the overhead reserve is held back.
+    assertEquals(
+        Optional.of(resident),
+        AgentMain.findReusableTier1Worker(
+            candidateAssigned,
+            candidateDescriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            budget));
+  }
+
+  @Test
+  void a_module_larger_than_the_whole_budget_gets_a_worker_to_itself() {
+    // The inverse of the arbitrary-sizing bug: a module declaring more heap than a shared worker
+    // holds must not be strangled by that budget, so it gets a worker sized to its own manifest --
+    // and that worker is then, correctly, full, since the one instance on it has already claimed
+    // every byte it was given.
+    Tier1WorkerBudget budget = Tier1WorkerBudget.parse("128Mi", "4000m", "32Mi");
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor residentDescriptor = descriptorWithLimit("resident", "512Mi", "500m");
+    AssignedInstance residentAssigned =
+        assignedInstance("resident-deployment", residentDescriptor, Optional.of("acme"));
+    ResourceSpec workerSize = budget.sizeFor(residentDescriptor);
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "resident-deployment#0",
+        supervisedInstance(residentAssigned, residentDescriptor, sharedConnection, workerSize));
+
+    assertEquals(new ResourceSpec("544Mi", "4000m").memoryBytes(), workerSize.memoryBytes());
+
+    ModuleDescriptor candidateDescriptor = descriptorWithLimit("candidate", "8Mi", "500m");
+    AssignedInstance candidateAssigned =
+        assignedInstance("candidate-deployment", candidateDescriptor, Optional.of("acme"));
+
+    assertFalse(
+        AgentMain.findReusableTier1Worker(
+                candidateAssigned,
+                candidateDescriptor,
+                supervised,
+                AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+                budget)
+            .isPresent());
+  }
+
+  @Test
+  void a_worker_still_carries_its_recorded_size_once_the_instance_that_spawned_it_is_gone() {
+    // Tier 1 density keeps a worker alive past its spawning instance's teardown, so the sizing has
+    // to travel with every instance on it -- recomputing it from whoever happens to be left would
+    // silently re-answer the question with a different number.
+    Tier1WorkerBudget budget = Tier1WorkerBudget.parse("128Mi", "4000m", "32Mi");
+    WorkerConnection sharedConnection = fakeConnection();
+    ModuleDescriptor spawnerDescriptor = descriptorWithLimit("spawner", "512Mi", "500m");
+    ResourceLimitHandle spawned =
+        AgentMain.prepareResourceLimit(
+            new PortableJvmFlagsResourceLimiter(),
+            "spawner-deployment#0",
+            spawnerDescriptor,
+            budget);
+    ModuleDescriptor survivorDescriptor = descriptorWithLimit("survivor", "8Mi", "500m");
+    AssignedInstance survivorAssigned =
+        assignedInstance("survivor-deployment", survivorDescriptor, Optional.of("acme"));
+    SupervisedInstance survivor =
+        supervisedInstance(survivorAssigned, survivorDescriptor, sharedConnection, spawned.limit());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put("survivor-deployment#0", survivor);
+
+    ModuleDescriptor candidateDescriptor = descriptorWithLimit("candidate", "256Mi", "500m");
+    AssignedInstance candidateAssigned =
+        assignedInstance("candidate-deployment", candidateDescriptor, Optional.of("acme"));
+
+    // Only the 544Mi the departed spawner's worker was actually sized at leaves room for this.
+    assertEquals(
+        Optional.of(survivor),
+        AgentMain.findReusableTier1Worker(
+            candidateAssigned,
+            candidateDescriptor,
+            supervised,
+            AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+            budget));
   }
 
   // ---- Tier 1 density: the gimle.agent.maxTier1Density knob ----
@@ -770,7 +1038,9 @@ class AgentMainTest {
         assignedInstance("consumer-deployment", newDescriptor, Optional.empty());
 
     assertFalse(
-        AgentMain.findReusableTier1Worker(newAssigned, newDescriptor, supervised, 1).isPresent());
+        AgentMain.findReusableTier1Worker(
+                newAssigned, newDescriptor, supervised, 1, DEFAULT_TIER1_BUDGET)
+            .isPresent());
   }
 
   @Test
@@ -792,7 +1062,11 @@ class AgentMainTest {
 
     assertTrue(
         AgentMain.findReusableTier1Worker(
-                newAssigned, newDescriptor, supervised, AgentMain.DEFAULT_MAX_TIER1_DENSITY + 1)
+                newAssigned,
+                newDescriptor,
+                supervised,
+                AgentMain.DEFAULT_MAX_TIER1_DENSITY + 1,
+                DEFAULT_TIER1_BUDGET)
             .isPresent());
   }
 

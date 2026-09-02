@@ -22,8 +22,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Gimlé's per-node service proxy, the kube-proxy analogue: polls a {@link ServiceSource} on a fixed
- * interval and keeps one loopback {@link ServiceListener} bound per currently-known service,
- * closing listeners for services that disappeared and binding new ones for services that appeared.
+ * interval and keeps one loopback {@link ServiceRelay} bound per currently-known service (a {@link
+ * ServiceListener} for a TCP Service, a {@link UdpServiceListener} for a UDP one), closing
+ * listeners for services that disappeared and binding new ones for services that appeared.
  * Level-triggered like the control plane's own reconcilers -- each poll recomputes the desired
  * listener set from scratch off whatever {@link ServiceSource} reports right now, rather than
  * diffing against a remembered previous poll, so a missed or failed tick self-heals on the next one
@@ -40,7 +41,7 @@ public final class BifrostProxy implements AutoCloseable {
   private final ServiceSource source;
   private final NetworkPolicySource networkPolicySource;
   private final BifrostSettings settings;
-  private final Map<String, ServiceListener> listeners = new ConcurrentHashMap<>();
+  private final Map<String, ServiceRelay> listeners = new ConcurrentHashMap<>();
   private volatile ScheduledExecutorService scheduler;
 
   /** Convenience: no {@link NetworkPolicySource} means every service is always unrestricted. */
@@ -129,7 +130,7 @@ public final class BifrostProxy implements AutoCloseable {
 
     for (String existingName : List.copyOf(listeners.keySet())) {
       if (!currentNames.contains(existingName)) {
-        ServiceListener removed = listeners.remove(existingName);
+        ServiceRelay removed = listeners.remove(existingName);
         if (removed != null) {
           removed.close();
           log.info("bifrost closed listener for removed service {}", existingName);
@@ -153,7 +154,7 @@ public final class BifrostProxy implements AutoCloseable {
         continue;
       }
       ServiceEndpoints endpoints = spec.get();
-      ServiceListener listener = listeners.get(name);
+      ServiceRelay listener = listeners.get(name);
       if (listener == null) {
         // Wildcard-bound when exposing (the NodePort analogue -- reachable from off-node, one
         // port namespace shared across every exposed service), per-service loopback ClusterIP
@@ -163,14 +164,24 @@ public final class BifrostProxy implements AutoCloseable {
                 ? new InetSocketAddress((InetAddress) null, endpoints.port())
                 : new InetSocketAddress(LoopbackAddressAllocator.allocate(name), endpoints.port());
         try {
+          // A UDP Service gets a datagram relay, which deliberately takes no TLS context: there is
+          // no handshake to terminate, so a policy-restricted UDP Service can only ever fail
+          // closed -- see UdpServiceListener's own javadoc.
           listener =
-              new ServiceListener(name, bindAddress, settings.localNodeId(), settings.tlsContext());
+              endpoints.udp()
+                  ? new UdpServiceListener(name, bindAddress, settings.localNodeId())
+                  : new ServiceListener(
+                      name, bindAddress, settings.localNodeId(), settings.tlsContext());
         } catch (IOException e) {
           log.warn("bifrost failed to bind listener for service {}: {}", name, e.getMessage());
           continue;
         }
         listeners.put(name, listener);
-        log.info("bifrost bound service {} at {}", name, listener.boundAddress());
+        log.info(
+            "bifrost bound {} service {} at {}",
+            endpoints.udp() ? "UDP" : "TCP",
+            name,
+            listener.boundAddress());
       }
       listener.updateEndpoints(endpoints.endpoints());
       listener.setSessionAffinity(endpoints.sessionAffinity());
@@ -228,7 +239,7 @@ public final class BifrostProxy implements AutoCloseable {
 
   /** The synthesized ClusterIP:port a caller dials for {@code serviceName}, if currently bound. */
   public Optional<InetSocketAddress> boundAddressFor(String serviceName) {
-    ServiceListener listener = listeners.get(serviceName);
+    ServiceRelay listener = listeners.get(serviceName);
     return listener == null ? Optional.empty() : Optional.of(listener.boundAddress());
   }
 
@@ -238,7 +249,7 @@ public final class BifrostProxy implements AutoCloseable {
     if (current != null) {
       current.shutdownNow();
     }
-    for (ServiceListener listener : listeners.values()) {
+    for (ServiceRelay listener : listeners.values()) {
       listener.close();
     }
     listeners.clear();

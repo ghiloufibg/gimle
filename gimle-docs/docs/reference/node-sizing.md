@@ -25,12 +25,20 @@ See [Node topology](../architecture/node-topology.md) for the cluster-wide pictu
 
 Resource enforcement today is the portable `PortableJvmFlagsResourceLimiter` (`gimle-os`) — JVM
 flags only, no cgroups, identical on Linux/macOS/Windows. When the agent spawns a worker it derives
-two flags from the module's declared **`resources.limit`**:
+two flags from that worker's size:
 
 | Flag | Derived from |
 |---|---|
-| `-Xmx<bytes>` | `resources.limit.memory` |
-| `-XX:ActiveProcessorCount=<n>` | `ceil(resources.limit.cpu / 1000m)`, never below `1` |
+| `-Xmx<bytes>` | the worker's memory size |
+| `-XX:ActiveProcessorCount=<n>` | `ceil(the worker's cpu size / 1000m)`, never below `1` |
+
+Where that size comes from depends on the tier, because the two tiers differ in how many instances
+share one heap:
+
+| Tier | Worker sized from |
+|---|---|
+| **Tier 2** | the instance's own `resources.limit` — one instance per worker, so its declared limit *is* the worker's limit. |
+| **Tier 1** | the node's shared-worker budget (see [Tier 1 density](#tier-1-density) below), never any single instance's limit — several instances share one heap, so none of them owns it. |
 
 `resources.request` is a deliberately different figure: it is what the agent's `CapacityTracker`
 accounts against the machine's total memory and `availableProcessors() * 1000` millicores, and what
@@ -55,45 +63,69 @@ these must hold:
 - the same tenant, or both untenanted,
 - no two instances of the same module in one worker (that would corrupt `WorkerRuntime`'s
   per-`ModuleId` keying),
-- the worker is holding fewer instances than the density cap.
+- the worker is holding fewer instances than the density cap,
+- the `resources.limit.memory` of everything already in that worker, plus the arriving instance's
+  own, still fits in the worker's heap after the overhead reserve is held back.
+
+An instance that fails only the last two conditions is not rejected — it gets a fresh worker of its
+own instead.
 
 This is agent-local and invisible to the control plane. The scheduler reasons about node-level
 capacity only; it has no concept of which worker a Tier-1 instance lands in once placed.
 
-### The knob
+### The knobs
 
 | Property | Default | Meaning |
 |---|---|---|
 | `gimle.agent.maxTier1Density` | `4` | The most Tier-1 instances this agent will pack into one shared worker JVM before preferring a fresh one. |
+| `gimle.agent.tier1WorkerHeap` | `1Gi` | The heap every shared Tier-1 worker on this node is spawned with. |
+| `gimle.agent.tier1WorkerCpu` | `2000m` | The CPU size every shared Tier-1 worker is spawned with, which becomes its `-XX:ActiveProcessorCount`. |
+| `gimle.agent.tier1WorkerOverheadReserve` | `128Mi` | Held back from every shared worker's heap before any instance is admitted, for the worker JVM's own footprint. |
 
 ```bash
-java -Dgimle.agent.maxTier1Density=8 -cp ... com.gimle.agent.AgentMain node-1 http://...
+java -Dgimle.agent.maxTier1Density=8 \
+     -Dgimle.agent.tier1WorkerHeap=2Gi \
+     -cp ... com.gimle.agent.AgentMain node-1 http://...
 ```
 
-`1` disables packing entirely — every Tier-1 instance gets its own worker JVM, which is the same
-process topology Tier 2 gives, without Tier 2's own dedicated `-Xmx` per instance. A value of `0`,
-a negative number, or anything non-numeric **fails the agent at startup** rather than being ignored:
-an operator who set this meant to change the packing behavior, and a setting that silently does
-nothing is worse than a startup error that says exactly what is wrong.
+`maxTier1Density=1` disables packing entirely — every Tier-1 instance gets its own worker JVM, which
+is the same process topology Tier 2 gives, without Tier 2's own dedicated `-Xmx` per instance. A
+value of `0`, a negative number, anything non-numeric, an unparseable quantity, or a reserve as
+large as the heap **fails the agent at startup** rather than being ignored: an operator who set one
+of these meant to change the packing behavior, and a setting that silently does nothing is worse
+than a startup error that says exactly what is wrong.
 
-The default of `4` is a conservative starting point, not a measured optimum.
+The defaults are conservative starting points, not measured optima.
 
-### Choosing a value
+### How the budget is spent
 
-The decisive fact is that **a shared worker's ceiling is fixed at spawn time and never
-subdivided**. The first Tier-1 instance to land in a worker sizes it from its own
-`resources.limit`; every instance packed in afterwards runs inside that same `-Xmx`, and the
-worker's flags are not recomputed. So the arithmetic to do is:
+A shared worker is spawned at `tier1WorkerHeap`, and instances are admitted into it while the sum of
+their declared `resources.limit.memory` still fits in `tier1WorkerHeap - tier1WorkerOverheadReserve`.
+So the arithmetic to do is:
 
-> one worker's `-Xmx` must comfortably hold the *combined* live footprint of up to
-> `maxTier1Density` instances of that tenant's modules, plus the JVM's own overhead.
+> the declared limits of the modules you want packed together must sum to less than
+> `tier1WorkerHeap` minus the reserve, and their combined *live* footprint must comfortably fit the
+> same space.
+
+**Limits are summed, not requests.** Requests may be oversubscribed where each workload has its own
+enforced ceiling; here there is no per-instance ceiling to fall back on, so admitting on requests
+would make "every co-tenant reaches the bound its manifest promises" precisely the case that OOMs
+the worker.
+
+**CPU is not summed.** Heap runs out permanently and takes the JVM with it; CPU is time-shared and
+merely gets slower under contention, so two modules each declaring a whole worker's worth of CPU
+still pack together.
+
+**A module declaring more heap than a whole budget still gets what it asked for.** Its worker is
+spawned at its own limit plus the reserve rather than at `tier1WorkerHeap`, so a fixed budget never
+becomes a fixed ceiling that strangles a large module — and that worker is then correctly full, with
+no room for a co-tenant.
 
 Three practical consequences:
 
-1. **Raising density without raising `resources.limit` shrinks each instance's real share of
-   heap.** If your Tier-1 modules declare a limit sized for one instance, raising the cap to 8 is a
-   way to run out of heap, not a way to gain density. Raise the modules' declared limits, or leave
-   the cap alone.
+1. **Raising density without raising the worker heap gains you nothing.** The budget, not the count,
+   is what stops packing once the declared limits fill the heap. Raise `tier1WorkerHeap` alongside
+   the cap, or leave both alone.
 2. **Density multiplies the blast radius of one worker.** A worker JVM that dies — an OOM, a native
    crash, a `destroyForcibly` during self-healing — takes every instance packed into it down at
    once, and they are all restarted together. A cap of 1 trades density for an independent crash
@@ -103,9 +135,20 @@ Three practical consequences:
    platform's own answer is to move that module to Tier 2, where undeploy simply kills the JVM —
    see [Module system](../architecture/module-system.md).
 
-Start at the default, watch `gimle.module.metaspace.bytes` and each worker's reported heap usage
-(see [Observability](../architecture/observability.md)), and move the cap in one direction with the
-module limits adjusted to match, rather than tuning both at once.
+Start at the defaults, watch `gimle.module.metaspace.bytes` and each worker's reported heap usage
+(see [Observability](../architecture/observability.md)), and move the worker heap and the cap one at
+a time rather than tuning both at once.
+
+:::caution[Admission is a reservation, not a partition]
+
+A JVM has one heap. Summing declared limits keeps a shared worker from being *knowingly*
+oversubscribed, and it makes a Tier-1 `resources.limit` a real admission input rather than a number
+the runtime discards — but it does not bound any individual instance. A module that allocates past
+its own declared limit still draws on the whole worker heap and can still OOM the JVM its co-tenants
+are running in. A per-instance ceiling inside a shared JVM is not reachable with JVM flags at all,
+which is the reason Tier 2 exists.
+
+:::
 
 ### What density does *not* change
 
@@ -118,9 +161,12 @@ module limits adjusted to match, rather than tuning both at once.
 
 ## Node-level checklist
 
-- Total worker `resources.limit.memory` across the workers a node will host, plus per-process JVM
-  overhead, plus the agent's own heap, must fit in the machine — the `CapacityTracker` only guards
-  the *request* totals, not the limits.
+- Total worker heap across the workers a node will host — `tier1WorkerHeap` per shared worker plus
+  each Tier-2 instance's own `resources.limit.memory` — plus per-process JVM overhead, plus the
+  agent's own heap, must fit in the machine. The `CapacityTracker` only guards the *request*
+  totals, not the heaps, and `-Xmx` is a ceiling rather than a reservation, so these sums can
+  legitimately exceed physical memory; they are what the machine must survive if every worker fills
+  its heap at once.
 - `-XX:ActiveProcessorCount` is derived per worker and does not partition real cores: the sum
   across workers can exceed the machine's core count. Treat CPU limits as scheduling hints, not
   hard partitions, until kernel-level enforcement lands.

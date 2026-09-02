@@ -76,7 +76,9 @@ class HealthReconcilerTest {
         new NodeHeartbeat(
             nodeId,
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
-            List.of(new InstanceObservation(deploymentName, 0, ORDERS, state, alive, true))));
+            List.of(
+                InstanceObservation.builder(deploymentName, 0, ORDERS, state, alive, true)
+                    .build())));
   }
 
   @Test
@@ -148,7 +150,9 @@ class HealthReconcilerTest {
         new NodeHeartbeat(
             "node-a",
             new ResourceUsageSnapshot(1000, 0, 1000, 0),
-            List.of(new InstanceObservation("orders-service", 0, ORDERS, "ACTIVE", true, false))));
+            List.of(
+                InstanceObservation.builder("orders-service", 0, ORDERS, "ACTIVE", true, false)
+                    .build())));
 
     HealthReconciler reconciler = reconciler(store, clock);
     reconciler.reconcileOnce();

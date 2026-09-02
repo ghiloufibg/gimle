@@ -51,7 +51,7 @@ import org.slf4j.LoggerFactory;
  * opened while a caller's tenant was still permitted would keep flowing indefinitely after that
  * tenant is removed from the allow list or a new deny policy is added.
  */
-final class ServiceListener implements AutoCloseable {
+final class ServiceListener implements ServiceRelay {
 
   private static final Logger log = LoggerFactory.getLogger(ServiceListener.class);
 
@@ -106,17 +106,20 @@ final class ServiceListener implements AutoCloseable {
         Thread.ofVirtual().name("gimle-bifrost-listener-" + serviceName).start(this::acceptLoop);
   }
 
-  InetSocketAddress boundAddress() {
+  @Override
+  public InetSocketAddress boundAddress() {
     return boundAddress;
   }
 
   /** Replaces the live endpoint set a new connection will select over. */
-  void updateEndpoints(List<ServiceEndpoint> newEndpoints) {
+  @Override
+  public void updateEndpoints(List<ServiceEndpoint> newEndpoints) {
     this.endpoints = List.copyOf(newEndpoints);
   }
 
   /** Whether the Service currently declares ClientIP-style session affinity. */
-  void setSessionAffinity(boolean sessionAffinity) {
+  @Override
+  public void setSessionAffinity(boolean sessionAffinity) {
     this.sessionAffinity = sessionAffinity;
   }
 
@@ -128,7 +131,8 @@ final class ServiceListener implements AutoCloseable {
    * caller identity to check, and proxying anyway would silently bypass a policy the tenant
    * explicitly opted into).
    */
-  void setApplicableRules(List<NetworkPolicyRule> rules) {
+  @Override
+  public void setApplicableRules(List<NetworkPolicyRule> rules) {
     this.applicableRules = List.copyOf(rules);
     enforceCurrentPolicy();
   }

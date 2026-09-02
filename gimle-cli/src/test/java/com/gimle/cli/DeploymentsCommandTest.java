@@ -218,22 +218,9 @@ class DeploymentsCommandTest {
             "node-a",
             new ResourceUsageSnapshot(1000L, 0, 1000, 0),
             List.of(
-                new InstanceObservation(
-                    "billing",
-                    0,
-                    moduleId,
-                    "FAILED",
-                    true,
-                    false,
-                    0.0,
-                    0,
-                    0L,
-                    0L,
-                    0.0,
-                    Map.of(),
-                    0L,
-                    Optional.empty(),
-                    Optional.of(Tenant.DEFAULT_TENANT_ID)))));
+                InstanceObservation.builder("billing", 0, moduleId, "FAILED", true, false)
+                    .tenantId(Optional.of(Tenant.DEFAULT_TENANT_ID))
+                    .build())));
 
     outBuffer.reset();
     assertEquals(0, run("get", "deployments", "--server", serverAddress));

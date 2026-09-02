@@ -109,8 +109,9 @@ class DeploymentReconcilerRollingUpdateTest {
             nodeId,
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    deploymentName, instanceIndex, moduleId, "ACTIVE", true, true))));
+                InstanceObservation.builder(
+                        deploymentName, instanceIndex, moduleId, "ACTIVE", true, true)
+                    .build())));
   }
 
   /**
@@ -132,8 +133,9 @@ class DeploymentReconcilerRollingUpdateTest {
             indices.stream()
                 .map(
                     index ->
-                        new InstanceObservation(
-                            deploymentName, index, moduleId, "ACTIVE", true, true))
+                        InstanceObservation.builder(
+                                deploymentName, index, moduleId, "ACTIVE", true, true)
+                            .build())
                 .toList()));
   }
 

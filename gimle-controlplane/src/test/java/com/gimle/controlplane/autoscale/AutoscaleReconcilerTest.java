@@ -156,30 +156,14 @@ class AutoscaleReconcilerTest {
             "node-a",
             new ResourceUsageSnapshot(500L * 1024 * 1024, 0, 4000, 0),
             List.of(
-                new InstanceObservation(
-                    deploymentName,
-                    0,
-                    moduleId,
-                    "ACTIVE",
-                    true,
-                    true,
-                    requestRatePerSecond,
-                    queueDepth,
-                    cpuMillicoresUsed,
-                    0L,
-                    errorRatePerSecond),
-                new InstanceObservation(
-                    deploymentName,
-                    1,
-                    moduleId,
-                    "ACTIVE",
-                    true,
-                    true,
-                    requestRatePerSecond,
-                    queueDepth,
-                    cpuMillicoresUsed,
-                    0L,
-                    errorRatePerSecond))));
+                InstanceObservation.builder(deploymentName, 0, moduleId, "ACTIVE", true, true)
+                    .load(
+                        requestRatePerSecond, errorRatePerSecond, queueDepth, cpuMillicoresUsed, 0L)
+                    .build(),
+                InstanceObservation.builder(deploymentName, 1, moduleId, "ACTIVE", true, true)
+                    .load(
+                        requestRatePerSecond, errorRatePerSecond, queueDepth, cpuMillicoresUsed, 0L)
+                    .build())));
   }
 
   @Test

@@ -141,8 +141,11 @@ public final class DaemonSetManifestParser {
               + " stronger than anti-affinity; remove the field");
     }
     Optional<Set<String>> requiredLabels = ManifestFields.parseRequiredLabels(placement);
+    // antiAffinity is rejected above, but priority is meaningful here: a DaemonSet instance is
+    // never itself a preemption victim, yet it still has to be placeable on a node that is full.
+    int priority = ManifestFields.parsePlacement(root).priority();
     try {
-      return new PlacementConstraints(requiredLabels, false);
+      return new PlacementConstraints(requiredLabels, false, priority);
     } catch (IllegalArgumentException e) {
       throw new GimleManifestException("invalid placement: " + e.getMessage(), e);
     }

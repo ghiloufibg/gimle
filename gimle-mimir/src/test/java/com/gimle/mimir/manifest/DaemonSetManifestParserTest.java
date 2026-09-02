@@ -67,6 +67,47 @@ class DaemonSetManifestParserTest {
   }
 
   @Test
+  void parses_placement_priority_even_though_anti_affinity_is_rejected_here() {
+    // A DaemonSet instance is never itself a preemption victim, but it still has to be placeable
+    // on a node that is already full -- so priority is meaningful here even where antiAffinity is
+    // not, and dropping it would silently ignore what the manifest declared.
+    DaemonSetSpec spec =
+        DaemonSetManifestParser.parse(
+            yaml(
+                """
+                name: skald
+                module:
+                  name: com.gimle.skald
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/skald-1.0.0.jar
+                placement:
+                  priority: 1000
+                tenantId: gimle-system
+                """));
+
+    assertEquals(1000, spec.placement().priority());
+  }
+
+  @Test
+  void placement_priority_defaults_to_zero_when_undeclared() {
+    DaemonSetSpec spec =
+        DaemonSetManifestParser.parse(
+            yaml(
+                """
+                name: node-exporter
+                module:
+                  name: com.gimle.example.node-exporter
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
+                placement:
+                  requiredLabels:
+                    - gpu
+                """));
+
+    assertEquals(0, spec.placement().priority());
+  }
+
+  @Test
   void tolerate_all_taints_defaults_to_false() {
     DaemonSetSpec spec =
         DaemonSetManifestParser.parse(

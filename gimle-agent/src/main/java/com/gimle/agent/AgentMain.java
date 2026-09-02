@@ -162,13 +162,14 @@ public final class AgentMain {
   /**
    * The default Tier 1 density cap: the most Tier-1 instances this agent will pack into one shared
    * worker JVM before preferring a fresh one, unless {@link #MAX_TIER1_DENSITY_PROPERTY} says
-   * otherwise. Four is a deliberately conservative starting point rather than a measured optimum --
-   * every instance in a shared worker draws on that one JVM's single heap and CPU allocation, so
-   * the right value for a given node is a function of how much heap its workers are given and how
-   * much each hosted module actually uses. See {@link #findReusableTier1Worker} for the rest of the
-   * reuse decision (same node implicitly, since this only ever scans this agent's own {@code
-   * supervised} map; same tenant or both untenanted; never two instances of the same module, which
-   * would corrupt {@code WorkerRuntime}'s per-{@code ModuleId} keying).
+   * otherwise. A count, not a weight -- {@link Tier1WorkerBudget} is what stops a worker being
+   * oversubscribed by heap, and this bounds how many co-tenants share one JVM's scheduling,
+   * connection pool and crash domain regardless of how small each one's declared limit is. Four is
+   * a deliberately conservative starting point rather than a measured optimum. See {@link
+   * #findReusableTier1Worker} for the rest of the reuse decision (same node implicitly, since this
+   * only ever scans this agent's own {@code supervised} map; same tenant or both untenanted; never
+   * two instances of the same module, which would corrupt {@code WorkerRuntime}'s per-{@code
+   * ModuleId} keying; and the budget check above).
    */
   static final int DEFAULT_MAX_TIER1_DENSITY = 4;
 
@@ -275,6 +276,10 @@ public final class AgentMain {
     // here, before anything is supervised, so a bad value fails the agent at startup rather than
     // silently reverting to the default the first time a Tier-1 instance is placed.
     int maxTier1Density = parseMaxTier1Density(System.getProperty(MAX_TIER1_DENSITY_PROPERTY));
+    // How large each shared Tier 1 worker JVM is, and how much of it the instances packed into it
+    // may claim between them. Read here for the same reason the density cap is: a malformed value
+    // must fail the agent at startup, not the first time a Tier-1 instance is placed on it.
+    Tier1WorkerBudget tier1Budget = Tier1WorkerBudget.fromSystemProperties();
     // The NodePort analogue: wildcard-bind each Bifrost listener at its service's own port so
     // callers off this node can dial <nodeHost>:<servicePort>. Off by default -- loopback-only,
     // today's posture.
@@ -359,7 +364,21 @@ public final class AgentMain {
                                 instance.assigned.tenantId(),
                                 instance.assigned.deploymentName(),
                                 instance.assigned.instanceIndex()))
-                    .collect(Collectors.toUnmodifiableSet()));
+                    .collect(Collectors.toUnmodifiableSet()),
+            // Read live per request rather than snapshotted: an instance's fabric address only
+            // exists once its worker's Hello handshake lands, so a lookup a moment after placement
+            // must see the address the moment it arrives, not a copy taken before it did.
+            key -> {
+              SupervisedInstance instance = supervised.get(key);
+              if (instance == null) {
+                return Optional.empty();
+              }
+              return Optional.of(
+                  new InstanceFabricEndpoint(
+                      Optional.ofNullable(instance.fabricWorkerId),
+                      Optional.ofNullable(instance.fabricTcpAddress),
+                      instance.fabricUdsPath));
+            });
     logServer.start();
     String apiAddress = resolveAdvertisedHost() + ":" + logServer.port();
     log.info("agent {} serving logs at {}", nodeId, apiAddress);
@@ -552,7 +571,8 @@ public final class AgentMain {
             gossipMember,
             catalog,
             logRoot,
-            maxTier1Density);
+            maxTier1Density,
+            tier1Budget);
         sendHeartbeat(
             httpClient,
             baseUrl,
@@ -1095,7 +1115,22 @@ public final class AgentMain {
       observation.put("workerId", instance.fabricWorkerId);
     }
     instance.assigned.tenantId().ifPresent(tenantId -> observation.put("tenantId", tenantId));
+    // The declared tier and ceiling this instance was admitted under, relayed so a reader has a
+    // denominator for the usage numbers above. Read straight off the descriptor the agent already
+    // holds -- null only for a unit test that constructs a SupervisedInstance with no descriptor
+    // behind it, and omitted entirely in that case rather than sent as null.
+    if (instance.descriptor != null) {
+      observation.put("isolationTier", instance.descriptor.isolationTier().name());
+      observation.put("resourceLimit", resourceSpecJson(instance.descriptor.resourceLimit()));
+    }
     return observation;
+  }
+
+  private static Map<String, Object> resourceSpecJson(ResourceSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("memory", spec.memory());
+    map.put("cpu", spec.cpu());
+    return map;
   }
 
   /**
@@ -1444,7 +1479,8 @@ public final class AgentMain {
       GossipMember gossipMember,
       ServiceCatalog catalog,
       Path logRoot,
-      int maxTier1Density)
+      int maxTier1Density,
+      Tier1WorkerBudget tier1Budget)
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
@@ -1543,7 +1579,8 @@ public final class AgentMain {
                   assigned.moduleId(), descriptor.isolationTier());
             }
             Optional<SupervisedInstance> reusable =
-                findReusableTier1Worker(assigned, descriptor, supervised, maxTier1Density);
+                findReusableTier1Worker(
+                    assigned, descriptor, supervised, maxTier1Density, tier1Budget);
             if (reusable.isPresent()) {
               installIntoExistingWorker(
                   assigned,
@@ -1569,6 +1606,7 @@ public final class AgentMain {
                   javaExecutable,
                   commandTail,
                   resourceLimiter,
+                  tier1Budget,
                   sleipnirCache,
                   capacityTracker,
                   gossipMember,
@@ -2193,7 +2231,8 @@ public final class AgentMain {
       AssignedInstance assigned,
       ModuleDescriptor descriptor,
       Map<String, SupervisedInstance> supervised,
-      int maxTier1Density) {
+      int maxTier1Density,
+      Tier1WorkerBudget tier1Budget) {
     if (descriptor.isolationTier() != IsolationTier.TIER_1) {
       return Optional.empty();
     }
@@ -2215,7 +2254,17 @@ public final class AgentMain {
       boolean noModuleConflict =
           group.stream().noneMatch(i -> i.assigned.moduleId().equals(assigned.moduleId()));
       boolean underDensityLimit = group.size() < maxTier1Density;
-      if (allTier1 && sameTenant && noModuleConflict && underDensityLimit) {
+      // The density cap counts instances; this weighs them. Four 8Mi modules and four 900Mi
+      // modules are the same to a count and nothing alike to a heap, so a worker is reused only
+      // while every resident's declared limit plus the candidate's still fits inside the heap that
+      // worker was actually spawned with. Overflow is not a rejection: the caller falls through to
+      // spawning a fresh worker, which is where a claim that fits nowhere already goes.
+      boolean fitsWorkerBudget =
+          tier1Budget.admits(
+              workerSizeOf(group, tier1Budget),
+              group.stream().map(i -> i.descriptor).toList(),
+              descriptor);
+      if (allTier1 && sameTenant && noModuleConflict && underDensityLimit && fitsWorkerBudget) {
         return Optional.of(representative);
       }
     }
@@ -2223,13 +2272,36 @@ public final class AgentMain {
   }
 
   /**
+   * The heap and CPU the worker behind {@code group} was spawned with, recorded on every instance
+   * sharing it so the answer does not change when the instance that spawned it is stopped while the
+   * worker lives on. Falls back to the budget's nominal size only for a group assembled without a
+   * real spawn behind it, which in practice means a unit test.
+   */
+  private static ResourceSpec workerSizeOf(
+      List<SupervisedInstance> group, Tier1WorkerBudget tier1Budget) {
+    for (SupervisedInstance instance : group) {
+      if (instance.workerLimit != null) {
+        return instance.workerLimit;
+      }
+    }
+    return new ResourceSpec(
+        ResourceSpec.formatMemory(tier1Budget.heapBytes()),
+        ResourceSpec.formatCpu(tier1Budget.cpuMillicores()));
+  }
+
+  /**
    * Installs {@code assigned} into {@code existing}'s already-running worker over its already-open
    * connection -- no new {@link WorkerProcessSupervisor}, {@link ControlChannelServer}, or {@link
-   * ResourceLimitHandle}: the shared worker's {@code -Xmx} stays whatever it was sized for at spawn
-   * time (per-worker resource-limit subdivision is out of scope for this reduced form of density).
-   * {@code fabricWorkerId}/{@code fabricUdsPath}/{@code fabricTcpAddress} are copied from {@code
-   * existing} rather than waiting on a second {@code Hello} that will never arrive -- the worker
-   * already sent its one {@code Hello} for this connection before {@code existing} was ever placed.
+   * ResourceLimitHandle}: the shared worker keeps the {@code -Xmx} it was spawned with, which under
+   * {@link Tier1WorkerBudget} is the node's declared shared-worker size rather than any one
+   * instance's own limit. What makes that sound is the caller: {@link #findReusableTier1Worker}
+   * only offers a worker whose remaining budget still covers this instance's declared limit, so
+   * arriving here means the claim already fits. It is a reservation, not a partition -- one JVM has
+   * one heap, and a module that overruns its declared limit can still exhaust the worker its
+   * co-tenants are running in. {@code fabricWorkerId}/{@code fabricUdsPath}/{@code
+   * fabricTcpAddress} are copied from {@code existing} rather than waiting on a second {@code
+   * Hello} that will never arrive -- the worker already sent its one {@code Hello} for this
+   * connection before {@code existing} was ever placed.
    */
   private static void installIntoExistingWorker(
       AssignedInstance assigned,
@@ -2247,7 +2319,12 @@ public final class AgentMain {
       VolumeManager volumeManager) {
     SupervisedInstance instance =
         new SupervisedInstance(
-            assigned, existing.supervisor, existing.server, descriptor, existing.workerKey);
+            assigned,
+            existing.supervisor,
+            existing.server,
+            descriptor,
+            existing.workerKey,
+            existing.workerLimit);
     instance.connection = existing.connection;
     instance.fabricWorkerId = existing.fabricWorkerId;
     instance.fabricUdsPath = existing.fabricUdsPath;
@@ -2275,6 +2352,7 @@ public final class AgentMain {
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
+      Tier1WorkerBudget tier1Budget,
       SleipnirCache sleipnirCache,
       CapacityTracker capacityTracker,
       GossipMember gossipMember,
@@ -2290,7 +2368,8 @@ public final class AgentMain {
       throws IOException {
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
     ControlChannelServer server = new ControlChannelServer(socketPath);
-    ResourceLimitHandle handle = prepareResourceLimit(resourceLimiter, key, descriptor);
+    ResourceLimitHandle handle =
+        prepareResourceLimit(resourceLimiter, key, descriptor, tier1Budget);
     Path workerLogRoot = logRoot.resolve("workers").resolve(key);
     // Sleipnir: aotCacheKey is fixed for this instance's whole lifetime (computed once, purely a
     // function of commandTail), but aotCachePath is re-resolved by the supplier below on every
@@ -2347,7 +2426,7 @@ public final class AgentMain {
                     workerShippers));
 
     SupervisedInstance instance =
-        new SupervisedInstance(assigned, supervisor, server, descriptor, key);
+        new SupervisedInstance(assigned, supervisor, server, descriptor, key, handle.limit());
     instance.aotCacheKey = aotCacheKey;
     supervised.put(key, instance);
     try {
@@ -2542,17 +2621,26 @@ public final class AgentMain {
   }
 
   /**
-   * The manifest's *limit* is the hard ceiling a worker JVM must be spawned under (-Xmx, {@code
-   * ActiveProcessorCount}) -- {@code resourceRequest} is the deliberately different
-   * scheduling/capacity-accounting figure {@code capacityTracker.tryAssign} uses. A single-line
-   * choke point, extracted so a test can assert directly on which of the descriptor's two {@code
-   * ResourceSpec} fields reaches the limiter, rather than only being able to observe the limiter's
-   * own output (which is correct either way {@code PortableJvmFlagsResourceLimiterTest} already
-   * proves).
+   * The size a worker JVM is spawned under ({@code -Xmx}, {@code ActiveProcessorCount}) -- never
+   * {@code resourceRequest}, which is the deliberately different scheduling/capacity-accounting
+   * figure {@code capacityTracker.tryAssign} uses. The one choke point where that size is decided,
+   * extracted so a test can assert on it directly rather than only on the limiter's own output
+   * (which is correct either way {@code PortableJvmFlagsResourceLimiterTest} already proves).
    */
   static ResourceLimitHandle prepareResourceLimit(
-      ResourceLimiter resourceLimiter, String key, ModuleDescriptor descriptor) {
-    return resourceLimiter.prepare(key, descriptor.resourceLimit());
+      ResourceLimiter resourceLimiter,
+      String key,
+      ModuleDescriptor descriptor,
+      Tier1WorkerBudget tier1Budget) {
+    // A Tier 2 worker hosts exactly one instance, so its declared limit is the worker's limit. A
+    // Tier 1 worker hosts several behind one heap, so no single instance's limit can size it --
+    // it takes the node's declared shared-worker budget instead, and the instances packed into it
+    // are admitted against that size rather than silently reshaping it.
+    ResourceSpec limit =
+        descriptor.isolationTier() == IsolationTier.TIER_1
+            ? tier1Budget.sizeFor(descriptor)
+            : descriptor.resourceLimit();
+    return resourceLimiter.prepare(key, limit);
   }
 
   /**

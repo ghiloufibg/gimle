@@ -16,6 +16,7 @@ import com.gimle.mimir.manifest.AlertRuleSpec;
 import com.gimle.mimir.manifest.CronJobSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.JobSpec;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -52,6 +53,7 @@ public final class StateStore implements StoreReader {
   private final Map<String, Long> deploymentGenerations = new ConcurrentHashMap<>();
   private final Map<String, ServiceSpec> services = new ConcurrentHashMap<>();
   private final Map<String, NetworkPolicySpec> networkPolicies = new ConcurrentHashMap<>();
+  private final Map<String, IngressSpec> ingresses = new ConcurrentHashMap<>();
   private final Map<String, AlertRuleSpec> alertRules = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
   private final Map<String, JobSpec> jobSpecs = new ConcurrentHashMap<>();
@@ -303,6 +305,24 @@ public final class StateStore implements StoreReader {
 
   public void removeNetworkPolicy(String tenantId, String name) {
     networkPolicies.remove(scopedKey(tenantId, name));
+  }
+
+  // ---- ingresses ----
+
+  public void putIngress(IngressSpec spec) {
+    ingresses.put(scopedKey(spec.tenantId(), spec.name()), spec);
+  }
+
+  public Optional<IngressSpec> getIngress(String tenantId, String name) {
+    return Optional.ofNullable(ingresses.get(scopedKey(tenantId, name)));
+  }
+
+  public List<IngressSpec> listIngresses() {
+    return List.copyOf(ingresses.values());
+  }
+
+  public void removeIngress(String tenantId, String name) {
+    ingresses.remove(scopedKey(tenantId, name));
   }
 
   // ---- alert rules ----
@@ -1563,7 +1583,8 @@ public final class StateStore implements StoreReader {
         List.copyOf(workloadHealthStates.values()),
         Map.copyOf(sessionRevokedBeforeEpochMilli),
         List.copyOf(alertRules.values()),
-        Map.copyOf(deploymentLastScale));
+        Map.copyOf(deploymentLastScale),
+        List.copyOf(ingresses.values()));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1725,6 +1746,7 @@ public final class StateStore implements StoreReader {
     snapshot.auditEvents().forEach(this::putAuditEvent);
     snapshot.services().forEach(this::putService);
     snapshot.networkPolicies().forEach(this::putNetworkPolicy);
+    snapshot.ingresses().forEach(this::putIngress);
     snapshot.alertRules().forEach(this::putAlertRule);
     // Oldest-first, matching how putControllerRevision's own pruning expects to see them -- same
     // reasoning as the instanceEvents/auditEvents replay just above.

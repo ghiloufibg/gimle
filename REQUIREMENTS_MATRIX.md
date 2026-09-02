@@ -788,6 +788,14 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-776 | A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing | Networking / Services | Complete | Yes |
 | GIMLE-777 | A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog | Web Console / Frontend | Complete | Yes |
 | GIMLE-778 | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Web Console / Frontend | Complete | Yes |
+| GIMLE-779 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Observability | Complete | Yes |
+| GIMLE-780 | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | Service fabric | Complete | Yes |
+| GIMLE-781 | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | Security | Complete | Yes |
+| GIMLE-782 | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Networking | Complete | Yes |
+| GIMLE-783 | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Scheduling | Complete | Yes |
+| GIMLE-784 | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | Networking | Complete | Yes |
+| GIMLE-785 | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Networking | Complete | Yes |
+| GIMLE-786 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Worker Supervision | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -1478,6 +1486,23 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then only matching WARN and ERROR lines are returned
   And the same query against a gone node's shipped history returns the same lines
   And a query matching nothing reports that rather than returning silence
+  ```
+
+#### GIMLE-779 — An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under
+
+- **Category**: Observability
+- **User story**: As an operator reading an instance's memory and CPU usage, I want the declared limit and isolation tier alongside it, so I can tell whether 142Mi is comfortable or about to die instead of reading a number with no denominator.
+- **Status**: Implemented. `ModuleDescriptor` declares `isolationTier` and `resourceLimit` and both are load-bearing at runtime (`AgentMain.prepareResourceLimit` turns the limit into the worker JVM's own `-Xmx`/`-XX:ActiveProcessorCount`), but neither was ever persisted or served: `InstanceObservation` carried `cpuMillicoresUsed`/`memoryBytesUsed` with no ceiling to read them against and no tier, so `GET /deployments`, `/daemonsets`, `/statefulsets` and `/jobs` -- all four sharing the single `ApiServer.observationToJson` -- could report a usage number but never a judgement. Both are now relayed as `Optional` fields along the pipe that already runs agent -> control plane -> store: `AgentMain.observationJson` reads them off the `ModuleDescriptor` the agent already retains on `SupervisedInstance`, `ApiServer` reads/writes them in its one shared observation codec, and `DomainCodec` encodes them onto the Raft-replicated heartbeat. Empty for a vessel instance, which is an OS process with no module descriptor behind it. A consumer must render the limit per tier or it misleads: at TIER_2 one instance owns its worker JVM so a used/limit ratio is correct, while at TIER_1 several instances share a JVM whose heap was sized for whichever instance spawned it, so the declared limit is what the manifest asked for rather than a bound applied to that instance. The record's seven telescoping constructors (arities 6 through 17, the shape that let a new field be silently defaulted at a call site) were replaced by a single canonical constructor plus an `InstanceObservation.builder(...)` taking the six facts a node can always report, with every measurable or declarable field defaulting to zero/empty until set; all 45 construction sites now build through it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java` (`isolationTier`, `resourceLimit`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationToJson`, `observationFromJson`, `isolationTierFromJson`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`)
+- **Test coverage**: AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit
+  When a node agent heartbeats an observation for one of its instances
+  And an operator reads that deployment's status
+  Then the instance's observation carries both the declared tier and the declared limit
+  And an instance with no module descriptor behind it carries neither rather than an invented ceiling
   ```
 
 ### gimle-module
@@ -3406,6 +3431,40 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When a destroy is issued for sessions[0] naming tenant `globex`, or naming no tenant at all
   Then the agent answers 404 and the volume is still on disk
   And a second destroy of a volume already reclaimed answers 404 rather than reporting success again
+  ```
+
+#### GIMLE-782 — A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams
+
+- **Category**: Networking
+- **User story**: As an operator fronting a UDP workload (a DNS responder, a metrics receiver) with a Service, I want Bifrost to relay its datagrams and route each reply back to the client that sent the request, so a UDP workload is reachable through a Service at all.
+- **Status**: Implemented. `ServiceListener` relayed TCP only (`ServerSocket`/`Socket`), so no Service could front a DNS-shaped or any other datagram workload. `ServiceSpec` gained a `protocol` field (`ServiceProtocol.TCP|UDP`, the `Service.spec.ports[].protocol` analogue, TCP being what declaring none means), carried through `DomainCodec`, the `/services` API, the `/services/{name}/endpoints` payload Bifrost reads, and `gimle set service --protocol`. A UDP Service now binds `UdpServiceListener` instead. The hard part is reply routing: UDP has no connection, so every datagram arrives on one bound socket and the listener keeps a session per client address -- a dedicated upstream `DatagramSocket` connected to the selected backend plus a reader returning replies to that client -- reaped once idle past 60s, swept on the receive path rather than by a timer. Same shape kube-proxy's userspace UDP mode used. Two consequences documented rather than papered over: a session pins its backend for its lifetime whether or not `sessionAffinity` is declared (one upstream socket per client is what makes reply routing work; `sessionAffinity` instead decides how a *new* session picks its backend), and a UDP Service under a NetworkPolicy always fails closed, since a datagram relay has no handshake and no peer certificate from which to learn a caller's tenant -- the same permanent limit a plaintext TCP listener has, reached sooner because UDP has no TLS to opt into. Both listeners now sit behind a `ServiceRelay` interface so `BifrostProxy`'s poll loop drives either.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceProtocol.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java` (`protocol`), `gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceRelay.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`)
+- **Test coverage**: New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service declaring protocol UDP over a datagram workload
+  When two different clients each send a datagram to the Service's bound address
+  Then each client receives the reply to its own request
+  And a NetworkPolicy applying to that Service causes every datagram to be dropped instead
+  ```
+
+#### GIMLE-786 — Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits
+
+- **Category**: Worker Supervision
+- **User story**: As an operator declaring resources.limit on a Tier-1 module, I want a shared worker JVM to be sized by the node rather than by whichever instance happened to spawn it, and to admit further instances only while their declared limits still fit, so that a Tier-1 limit is a real admission input with a predictable worker behind it instead of a number the runtime discards.
+- **Status**: Fixed. A Tier-1 worker's -Xmx was whatever the first instance to land on it declared, and installIntoExistingWorker never re-derived one, so every later instance ran under an arbitrary ceiling: a small module could allocate far past its declared limit, and a large one was strangled by a ceiling it never asked for. Tier1WorkerBudget now holds the node's shared-worker heap/cpu (gimle.agent.tier1WorkerHeap, default 1Gi; gimle.agent.tier1WorkerCpu, default 2000m) and an overhead reserve held back for the worker JVM's own footprint (gimle.agent.tier1WorkerOverheadReserve, default 128Mi), all parsed and validated at agent startup. prepareResourceLimit sizes a TIER_1 worker from that budget (a TIER_2 worker still from the instance's own limit), never below the spawning instance's own declared limit plus the reserve so a large module is not strangled; findReusableTier1Worker additionally refuses reuse once the summed resources.limit.memory of the residents plus the candidate would exceed the heap the worker was actually spawned with, recorded on every instance sharing it (SupervisedInstance.workerLimit) so the answer survives the spawning instance being stopped. Limits are summed rather than requests, since a shared unpartitioned heap has no per-instance ceiling to fall back on; CPU is deliberately not summed, being time-shared rather than exhaustible. Overflow spawns a fresh worker rather than refusing the assignment. This is a reservation, not enforcement: one JVM has one heap, so a module overrunning its declared limit can still OOM its co-tenants, which remains the reason TIER_2 exists.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/Tier1WorkerBudget.java` (new), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`prepareResourceLimit`, `findReusableTier1Worker`, `workerSizeOf`, `installIntoExistingWorker`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`workerLimit`), `gimle-docs/docs/reference/node-sizing.md`
+- **Test coverage**: `Tier1WorkerBudgetTest` (8: default fallback, malformed quantity naming its property, a reserve as large as the heap rejected, budget sizing over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, cpu not summed); `AgentMainTest#a_tier1_worker_is_sized_by_the_shared_budget_not_by_whichever_instance_spawned_it`, `#a_tier2_worker_is_sized_by_the_descriptors_limit_not_its_request`, `#a_worker_is_not_reused_once_the_residents_declared_limits_fill_its_heap`, `#a_worker_is_reused_while_the_declared_limits_still_fit_inside_its_heap`, `#a_module_larger_than_the_whole_budget_gets_a_worker_to_itself`, `#a_worker_still_carries_its_recorded_size_once_the_instance_that_spawned_it_is_gone`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an agent with a declared Tier-1 shared-worker heap budget
+  When a TIER_1 instance spawns a worker
+  Then that worker is sized from the budget, not from the instance's own declared limit
+  Given a shared worker whose residents' declared memory limits already fill its heap
+  When another TIER_1 instance of the same tenant is assigned to that node
+  Then it is not packed into that worker and gets a fresh one instead
   ```
 
 ### gimle-mimir
@@ -6408,6 +6467,70 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When the control plane starts with `-Dgimle.controlplane.consoleAddons=skald`
   Then `GET /console/addons` reports `skald` enabled and `gateway` disabled, with no session required
   And starting it with an id the console does not bundle fails, naming every bundled id
+  ```
+
+#### GIMLE-780 — An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster
+
+- **Category**: Service fabric
+- **User story**: As an operator or a cluster test, I want to look up where a given instance is reachable on the service fabric, so I can dial it directly to diagnose it or to prove that its listener-side tenant and network-policy checks actually reject a call that bypasses the caller-side filter.
+- **Status**: Implemented. A worker JVM's fabric TCP address (and its Unix-domain-socket path) arrives on the worker's own `Hello` handshake and lived only in the supervising agent's memory, reachable nowhere but SWIM gossip between agents -- not through any control-plane API, log, or CLI. That made the address undiscoverable from outside the node, which in turn made two shipped security behaviours impossible to prove end to end: exercising `FabricServer`'s listener-side tenant re-check, and deployment-scoped `NetworkPolicySpec` enforcement, both of which require dialing an instance directly to bypass the caller-side filter. `AgentLogServer` gained `GET /fabric-endpoints/{deploymentName}/{instanceIndex}`, reading the live `SupervisedInstance` state per request, and `ApiServer` gained `GET /instances/{name}/{index}/fabric-endpoint`, which resolves the hosting node across all four placement kinds and proxies there -- the same API-server-to-kubelet shape `/logs/instances/...` already uses. The agent distinguishes three outcomes rather than one 404: not supervised here (404), supervised but pre-handshake (409, so a caller retries rather than re-resolving), or the address (200). Read authorization is checked against the grant the instance's own owning workload kind falls under (`resolveInstanceNodeId` was widened to `resolveInstancePlacement`, reporting the kind alongside the node), so a DaemonSet or StatefulSet instance needs that kind's independently withholdable grant; an unresolvable instance is authorized before being answered, so 404-vs-403 cannot be used to probe which instances exist. Grants no new capability -- a fabric listener authenticates and authorizes every inbound call itself.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/InstanceFabricEndpoint.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleFabricEndpoint`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (fabric-endpoint resolver), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleInstanceFabricEndpoint`, `resolveInstancePlacement`)
+- **Test coverage**: AgentLogServerTest gained a_supervised_instance_reports_the_fabric_address_its_worker_bound, a_worker_that_bound_no_domain_socket_omits_the_uds_path, an_instance_this_node_does_not_supervise_is_a_404, an_instance_whose_worker_has_not_handshaked_yet_is_a_409_not_a_404, and a_malformed_fabric_endpoint_path_is_rejected (including a path-traversal attempt). New ApiServerFabricEndpointTest covers proxying to the hosting node with the forwarded path asserted, StatefulSet-placed resolution (not only Deployment), a 404 that dials no agent, malformed paths, and method rejection.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment with an instance running on a node
+  When an operator reads that instance's fabric endpoint through the control plane
+  Then the address its worker actually bound is returned, resolved from the hosting node's own agent
+  And an instance whose worker has not yet handshaked is reported as retryable rather than missing
+  ```
+
+#### GIMLE-781 — Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission
+
+- **Category**: Security
+- **User story**: As a cluster operator, I want a single source unable to flood the control-plane API without bound, so a runaway client or a hostile one cannot exhaust the API server while leaving the cluster's own control traffic unaffected.
+- **Status**: Implemented. `RequestRateLimiter` existed and was wired to exactly two things: the CSR submission route's per-address and cluster buckets, plus `LoginThrottle` on failed logins. Every other route -- including every write that proposes into Raft -- was unbounded, authenticated or not. The limiter is now charged inside `ApiServer#instrument`, the single wrapper every registered context already passes through, so no route can forget to opt in and a new one is covered by construction. A refused caller gets 429 with `Retry-After`, the same response shape the CSR and login paths already return. Keyed by remote address with deliberately no cluster-wide companion bucket, unlike the CSR pair: a shared bucket would let one flooding source spend the budget node agents' heartbeats draw from, and the control plane reads starved heartbeats as nodes going dark and answers with mass rescheduling -- turning a single-source flood into a cluster-wide outage, worse than the unbounded surface it set out to fix. Sized as a flood backstop rather than a quota (600-token burst, 5ms refill, ~200/s sustained per address), far above an agent's polling, an operator's bulk apply, or a console page load; tunable via `gimle.controlplane.rateLimit.burstPerAddress`/`.refillMillisPerAddress` and disableable via `.enabled=false`, which is the right setting when pointing `ragnarok stress` at a cluster. Console static assets are served outside `instrument` and are not charged.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`instrument`, `rateLimited`, `buildRequestRateLimiter`), `gimle-core/src/main/java/com/gimle/core/throttle/RequestRateLimiter.java`
+- **Test coverage**: New ApiServerRateLimitTest covers a source outrunning its budget being refused with a positive Retry-After, the limit spanning routes (budget spent on one route refuses the next on another -- the property that makes the choke point worth hooking), a refilled bucket serving again rather than latching closed, the operator opt-out, and a guard on the sizing decision itself (60 consecutive default-configuration requests are not throttled).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a control plane serving its API
+  When one source issues requests faster than its configured budget allows
+  Then further requests from that source are refused with 429 and a Retry-After
+  And requests from other sources, including node agents' own heartbeats, are unaffected
+  ```
+
+#### GIMLE-783 — Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full
+
+- **Category**: Scheduling
+- **User story**: As a platform operator running a critical workload, I want it to be placeable on a full cluster by displacing workloads declared less important, so cluster-critical components are not left unplaced behind ordinary batch work.
+- **Status**: Implemented. The scheduler had no PriorityClass equivalent and documented preemption as out of scope, so nothing could guarantee a critical workload was placeable under resource pressure -- a full cluster simply left it unplaced. `PlacementConstraints` gained `priority` (integer, default 0, negatives allowed so a batch workload can be marked more evictable than the default), the PriorityClass analogue collapsed to the resolved integer rather than introduced as a separate cluster-scoped kind -- the same simplification `ServiceSpec` makes matching deployments by name instead of by label selector. Carried through the manifest parser, `DomainCodec`, and `PlacementConstraints.NONE`. `Scheduler#preemption` is a new pure decision returning which node to seat the workload on and which instances to evict first; it never evicts anything itself. Priority is consulted only after `place` has already failed, so while any node has room a workload lands there regardless of priorities -- raising a priority buys the ability to make room, never a better address. Victims are taken lowest-priority first and within one priority largest first, so the fewest instances are disturbed and the ones disturbed are those the cluster was told matter least. Four safety properties are enforced and tested: an equal-priority instance is never a victim (two peers would otherwise displace each other indefinitely), nothing is evicted when evicting everything eligible still would not fit, only Deployment instances are ever victims (a StatefulSet instance is pinned by a local volume eviction cannot move, a DaemonSet instance exists because its node does, a Job run is already finite), and an ineligible node is never preempted since the full tier/cordon/anti-affinity/taint/label walk runs first. `DeploymentReconciler` turns the decision into `RemoveAssignment` mutations and lets the ordinary placement path find the freed room on a later tick -- level-triggered, with no reservation carried through the store, which is why a preempting workload can occasionally need more than one tick to land. Residents are resolved by `ResidentInstances` only in the failure path, never on the hot reconcile path, and a resident whose artifact cannot be resolved is skipped so preemption under-evicts rather than evicting a reservation it could not confirm.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/PlacementConstraints.java` (`priority`), `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ManifestFields.java` (`priorityField`), `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/Scheduler.java` (`preemption`, `victimsOn`, `Preemption`), `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/ResidentInstance.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/schedule/ResidentInstances.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java` (`preemptForUnplaceable`)
+- **Test coverage**: New SchedulerPreemptionTest covers all ten decisions as a pure function over synthetic candidates: a higher-priority workload evicting a lower one, equal priority never being a victim, higher priority never being a victim, nothing evicted when evicting everything still would not fit, lowest-priority victims taken first, the node needing fewest evictions winning, a node with room needing no victims, an ineligible (cordoned) node never preempted however low its residents rank, multiple victims taken when one does not free enough, and CPU pressure alone being sufficient to preempt.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with no free capacity running only default-priority workloads
+  When a deployment declaring a higher placement priority cannot be placed
+  Then strictly-lower-priority instances are evicted to free room for it
+  And an equal-or-higher-priority instance is never evicted
+  ```
+
+#### GIMLE-785 — Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string
+
+- **Category**: Networking
+- **User story**: As an operator exposing workloads through a gateway, I want routes declared as a validated, listable, versioned resource rather than a config string, so a typo is rejected at submission instead of becoming a route that never matches.
+- **Status**: Implemented. `gateway.routes` was flat text pushed through `/config/*` -- the Ingress-shaped gap. A config value is opaque to the platform: validated only when a gateway happens to parse it, a typo surfacing as a route that silently never matches, no way to answer "what routes exist" without reading a string, and no version to compare so two operators editing it race. `IngressSpec` (gimle-mimir) is now a first-class Raft-replicated resource carrying a list of `IngressRule` (gimle-core, the wire type -- gimle-gateway depends on gimle-core and never on gimle-mimir's manifest types, the same split NetworkPolicyRule has from NetworkPolicySpec). Full store wiring: StateMutation.PutIngress/RemoveIngress, StateStore, StateSnapshot, DomainCodec, RaftCodec mutation tags and snapshot, StoreRpc/StoreCodec/StoreNode/StoreClient. `ApiServer` serves POST/GET/DELETE `/ingresses` under a new `ResourceKind.INGRESS` -- its own kind rather than folded into SERVICE, on the reasoning NETWORK_POLICY already establishes -- written through `IngressRegistry`'s lease-guarded compare-and-set, so a stale expectedVersion is a 409 rather than a lost update, and a malformed route is a 400 naming the field because IngressRule validates in its own compact constructor. A gateway configured with `gateway.controlPlaneEndpoint` polls `GET /ingresses` and merges declared routes into its existing level-triggered reload: each fetch returns the full set so a missed poll self-heals, and an unreachable control plane leaves the working table untouched rather than tearing it down. Config-declared routes win a collision on `(host, path, prefix)` -- an operator editing config on a live gateway is acting on the machine in front of them, and a cluster-wide resource silently overriding that would make the local edit look broken. Both declaration paths converge on the same GatewayRoute objects, so a route behaves identically however it was declared. CLI: `gimle get ingresses`, `delete ingress`, and `apply -f` for `kind: Ingress`; deliberately no flag-built `set ingress`, since a route's six kind-dependent fields read worse on a command line than in the manifest this kind exists to accept.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/ingress/IngressRule.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/IngressSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeIngressSpec`/`readIngressSpec`), `gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java` (MUT_PUT_INGRESS/MUT_REMOVE_INGRESS, snapshot), `gimle-controlplane/src/main/java/com/gimle/controlplane/ingress/IngressRegistry.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/ingresses`), `gimle-gateway/src/main/java/com/gimle/gateway/IngressRoutes.java`, `HttpIngressSource.java`, `GatewayHooks.java`, `gimle-cli/src/main/java/com/gimle/cli/IngressCommand.java`
+- **Test coverage**: New IngressRoutesTest asserts each of the three route kinds converts to exactly what the config parser produces for the equivalent line (the property that keeps a route behaving identically however declared), that a host constraint and a prefix both survive, that an unknown paramType is rejected rather than defaulted to NONE, that every declared ParamType converts, and that an empty declaration yields no routes. DomainCodecTest gained an_ingress_with_every_route_kind_round_trips, which mixes all three kinds in one spec so a codec reading fields back in the wrong order is caught.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an Ingress declaring a SERVICE route for a tenant
+  When a gateway configured with a control-plane endpoint reloads its routes
+  Then the declared route is served alongside the gateway's own config-declared routes
+  And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting
   ```
 
 ### gimle-fafnir
@@ -11717,4 +11840,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When a client resolves that Service name
   Then the responder answers NOERROR with zero answer records
   And a name that was never declared still answers NXDOMAIN
+  ```
+
+#### GIMLE-784 — Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind
+
+- **Category**: Networking
+- **User story**: As a cluster operator, I want cluster DNS to be an ordinary scheduled, self-healed, priority-carrying workload behind a Service, so it is managed by the platform rather than run and supervised out of band.
+- **Status**: Implemented. With a UDP Service (GIMLE-782) and a scheduler priority (GIMLE-783) both available, Skald can be deployed the way CoreDNS is rather than only as a standalone process kind: `gimle-skald/deploy/skald-daemonset.yaml` (a vessel DaemonSet at `placement.priority: 1000`, published as a BUNDLE artifact since Skald is not a self-contained jar) plus `skald-service.yaml` (`protocol: UDP`, whose synthesized ClusterIP is stable across nodes and restarts -- what makes it usable, since DNS clients do not discover their own resolver). Deploying it this way surfaced a real gap: `VesselProbeSpec` offers TCP and HTTP only, and a DNS-over-UDP responder is invisible to both, leaving a deployed Skald with nothing above the "process still running" floor. `SkaldHealthServer` (`--health-port`) answers `/health` and `/ready`, the same two endpoints CoreDNS carries for the same reason. The split is load-bearing: liveness stays green while the directory is merely stale, because a control-plane outage is not a fault restarting Skald would fix and treating it as one would restart every replica at once, while readiness closes on staleness so callers are steered to a replica holding current data. Two consumption bugs were found and fixed on the way: `DaemonSetManifestParser` dropped `placement.priority` on the floor (a DaemonSet is never itself a preemption victim, but it still has to be placeable on a full node), and the CLI's `apply -f` for a Service built its own body that never carried `protocol`, so a UDP Service could be created with `gimle set service --protocol` but not from a manifest. The standalone process kind remains the right choice for a cluster that needs DNS before it has a scheduler: a Skald workload needs the control plane already running, so nothing in that bring-up path may resolve through it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldHealthServer.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java` (`--health-port`), `gimle-skald/deploy/skald-daemonset.yaml`, `gimle-skald/deploy/skald-service.yaml`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java` (placement priority), `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`apply -f` protocol)
+- **Test coverage**: New SkaldHealthServerTest covers a fresh directory being both alive and ready, a stale one being unready but still alive (with the reason naming the threshold), a directory that has never polled successfully never opening readiness, readiness recovering once a poll succeeds, and the bound port being reported. DaemonSetManifestParserTest gained parses_placement_priority_even_though_anti_affinity_is_rejected_here and placement_priority_defaults_to_zero_when_undeclared.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the Skald DaemonSet and its UDP Service applied to a running cluster
+  When an operator queries the Service's stable ClusterIP for a cluster name
+  Then the answer comes from a Skald instance the platform scheduled and supervises
+  And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted
   ```

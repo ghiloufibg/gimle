@@ -491,7 +491,8 @@ class RaftCodecTest {
                     AlertRuleSpec.Comparator.GREATER_THAN,
                     5.0,
                     "https://hooks.example.com/greeter-alerts")),
-            Map.of("greeter", Instant.ofEpochMilli(2_000L)));
+            Map.of("greeter", Instant.ofEpochMilli(2_000L)),
+            List.of());
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);

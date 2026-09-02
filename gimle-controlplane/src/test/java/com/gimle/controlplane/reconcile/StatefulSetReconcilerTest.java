@@ -104,18 +104,14 @@ class StatefulSetReconcilerTest {
       }
     }
     merged.add(
-        new InstanceObservation(
-            assignment.statefulSetName(),
-            assignment.instanceIndex(),
-            assignment.moduleId(),
-            "ACTIVE",
-            true,
-            true,
-            0,
-            0,
-            0,
-            0,
-            0));
+        InstanceObservation.builder(
+                assignment.statefulSetName(),
+                assignment.instanceIndex(),
+                assignment.moduleId(),
+                "ACTIVE",
+                true,
+                true)
+            .build());
     store.putNodeHeartbeat(
         new NodeHeartbeat(
             assignment.nodeId(),
@@ -142,18 +138,14 @@ class StatefulSetReconcilerTest {
       }
     }
     merged.add(
-        new InstanceObservation(
-            assignment.statefulSetName(),
-            assignment.instanceIndex(),
-            assignment.moduleId(),
-            "ACTIVE",
-            true,
-            false,
-            0,
-            0,
-            0,
-            0,
-            0));
+        InstanceObservation.builder(
+                assignment.statefulSetName(),
+                assignment.instanceIndex(),
+                assignment.moduleId(),
+                "ACTIVE",
+                true,
+                false)
+            .build());
     store.putNodeHeartbeat(
         new NodeHeartbeat(
             assignment.nodeId(),
@@ -185,18 +177,14 @@ class StatefulSetReconcilerTest {
       }
     }
     merged.add(
-        new InstanceObservation(
-            assignment.statefulSetName(),
-            assignment.instanceIndex(),
-            assignment.moduleId(),
-            "FAILED",
-            true,
-            false,
-            0,
-            0,
-            0,
-            0,
-            0));
+        InstanceObservation.builder(
+                assignment.statefulSetName(),
+                assignment.instanceIndex(),
+                assignment.moduleId(),
+                "FAILED",
+                true,
+                false)
+            .build());
     store.putNodeHeartbeat(
         new NodeHeartbeat(
             assignment.nodeId(),

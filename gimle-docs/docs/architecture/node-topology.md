@@ -336,6 +336,39 @@ answers `NXDOMAIN` either way. `ControlPlaneServicePoller` also escalates its ow
 from `WARN` to `ERROR` once three polls have failed in a row, ahead of the `SERVFAIL` threshold, as
 an earlier operator-facing signal that this is no longer a single missed poll.
 
+### Skald as a managed workload
+
+Skald runs as its own process kind, but nothing requires it to. With a UDP `Service` and a scheduler
+priority both available, it can instead be deployed like any other workload — the CoreDNS shape —
+using the manifests under `gimle-skald/deploy/`:
+
+- A **DaemonSet**, so every node has a resolver reachable over loopback with no network hop. It is a
+  **vessel**, not a hosted module: Skald is an ordinary OS process with its own `main()`, not a
+  module meant to share a worker JVM. Because Skald is not a self-contained jar, it is published as
+  a `BUNDLE` artifact — `gimle artifactset` zips the platform archive's own `lib/` layout with a
+  generated `gimle-entrypoint.yaml` — rather than launched as `java -jar`.
+- A **UDP Service** in front of it. `protocol: UDP` is what makes Bifrost bind a datagram relay. The
+  synthesized ClusterIP is derived from the service name and is therefore stable across nodes and
+  restarts, which is what makes this usable at all: DNS clients do not perform service discovery to
+  find their own resolver, so the address has to be knowable in advance.
+- `placement.priority: 1000`, so cluster DNS makes room for itself under resource pressure instead
+  of sitting unplaced behind batch work.
+
+Running Skald this way needs one thing the standalone process does not: a health surface. The
+platform's vessel probes speak TCP and HTTP, and a DNS-over-UDP responder is invisible to both, so a
+deployed Skald would otherwise have nothing above the "process still running" floor. `--health-port`
+binds `SkaldHealthServer`, which answers `/health` and `/ready` — the same two endpoints, for the
+same reason, that CoreDNS carries. The split matters: `/health` stays green while the directory is
+merely stale, because a control-plane outage is not a fault restarting Skald would fix and treating
+it as one would restart every replica at once; `/ready` closes on staleness, taking that instance
+out of the Service's endpoint set so callers are steered to a replica still holding current data.
+
+**This cannot be the resolver the cluster's own control path depends on.** Skald-as-a-workload needs
+the control plane and its agents already running in order to be scheduled at all, so anything
+required to bring those up must not resolve through it — the same bootstrap constraint CoreDNS has,
+and the reason the standalone process kind remains the right choice for a cluster that wants DNS
+before it has a scheduler.
+
 ## Multi-machine deployment
 
 Nothing here is loopback-only — the `127.0.0.1` addresses in the local-dev walkthrough are

@@ -3,6 +3,8 @@ package com.gimle.mimir.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.ingress.IngressRule;
+import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
@@ -15,6 +17,7 @@ import com.gimle.core.vessel.VesselProbes;
 import com.gimle.core.vessel.VesselSpec;
 import com.gimle.mimir.manifest.DaemonSetSpec;
 import com.gimle.mimir.manifest.DeploymentSpec;
+import com.gimle.mimir.manifest.IngressSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.ControllerRevision;
@@ -252,19 +255,15 @@ class DomainCodecTest {
   @Test
   void an_instance_observation_with_ports_round_trips() throws Exception {
     InstanceObservation observation =
-        new InstanceObservation(
-            "billing-api",
-            0,
-            new ModuleId("com.acme.billing-api", Version.parse("2.3.1")),
-            "ACTIVE",
-            true,
-            true,
-            0.0,
-            0,
-            0L,
-            0L,
-            0.0,
-            Map.of("HTTP_PORT", 54321));
+        InstanceObservation.builder(
+                "billing-api",
+                0,
+                new ModuleId("com.acme.billing-api", Version.parse("2.3.1")),
+                "ACTIVE",
+                true,
+                true)
+            .ports(Map.of("HTTP_PORT", 54321))
+            .build();
 
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
@@ -277,23 +276,93 @@ class DomainCodecTest {
   }
 
   @Test
+  void an_ingress_with_every_route_kind_round_trips() throws Exception {
+    // All three kinds in one spec: each carries a different subset of the flat rule's fields, so a
+    // codec that read them back in the wrong order would only show up on a mixed spec like this.
+    IngressSpec ingress =
+        new IngressSpec(
+            "public",
+            "acme",
+            List.of(
+                IngressRule.service(Optional.of("shop.example"), "/api", true, "orders"),
+                IngressRule.vessel(Optional.empty(), "/app", false, "billing", "HTTP_PORT"),
+                IngressRule.fabric(
+                    Optional.empty(), "/greet", "com.acme.Greeter", 2, "greet", "STRING")),
+            7);
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeIngressSpec(new DataOutputStream(buffer), ingress);
+    IngressSpec roundTripped =
+        DomainCodec.readIngressSpec(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(ingress, roundTripped);
+    assertEquals(7, roundTripped.version());
+    assertEquals(Optional.of("shop.example"), roundTripped.routes().get(0).host());
+    assertTrue(roundTripped.routes().get(0).prefix());
+    assertEquals(2, roundTripped.routes().get(2).majorVersion());
+  }
+
+  @Test
+  void an_instance_observation_with_a_tier_and_resource_limit_round_trips() throws Exception {
+    InstanceObservation observation =
+        InstanceObservation.builder(
+                "billing-api",
+                0,
+                new ModuleId("com.acme.billing-api", Version.parse("2.3.1")),
+                "ACTIVE",
+                true,
+                true)
+            .declaredResources(IsolationTier.TIER_2, new ResourceSpec("256Mi", "1000m"))
+            .build();
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
+    InstanceObservation roundTripped =
+        DomainCodec.readInstanceObservation(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(observation, roundTripped);
+    assertEquals(Optional.of(IsolationTier.TIER_2), roundTripped.isolationTier());
+    assertEquals(Optional.of(new ResourceSpec("256Mi", "1000m")), roundTripped.resourceLimit());
+  }
+
+  @Test
+  void an_instance_observation_with_no_tier_or_limit_round_trips_as_empty() throws Exception {
+    // A vessel instance is an OS process with no module descriptor behind it, so it reports
+    // neither -- the codec must carry that absence rather than inventing a ceiling.
+    InstanceObservation observation =
+        InstanceObservation.builder(
+                "greeter",
+                0,
+                new ModuleId("com.acme.greeter", Version.parse("1.0.0")),
+                "ACTIVE",
+                true,
+                true)
+            .build();
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
+    InstanceObservation roundTripped =
+        DomainCodec.readInstanceObservation(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(Optional.empty(), roundTripped.isolationTier());
+    assertEquals(Optional.empty(), roundTripped.resourceLimit());
+  }
+
+  @Test
   void an_instance_observation_with_a_worker_id_round_trips() throws Exception {
     InstanceObservation observation =
-        new InstanceObservation(
-            "billing-api",
-            0,
-            new ModuleId("com.acme.billing-api", Version.parse("2.3.1")),
-            "ACTIVE",
-            true,
-            true,
-            0.0,
-            0,
-            0L,
-            0L,
-            0.0,
-            Map.of(),
-            0L,
-            Optional.of("worker-4821"));
+        InstanceObservation.builder(
+                "billing-api",
+                0,
+                new ModuleId("com.acme.billing-api", Version.parse("2.3.1")),
+                "ACTIVE",
+                true,
+                true)
+            .workerId(Optional.of("worker-4821"))
+            .build();
 
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
@@ -308,13 +377,14 @@ class DomainCodecTest {
   @Test
   void an_instance_observation_with_no_worker_id_round_trips_as_empty() throws Exception {
     InstanceObservation observation =
-        new InstanceObservation(
-            "greeter",
-            0,
-            new ModuleId("com.acme.greeter", Version.parse("1.0.0")),
-            "ACTIVE",
-            true,
-            true);
+        InstanceObservation.builder(
+                "greeter",
+                0,
+                new ModuleId("com.acme.greeter", Version.parse("1.0.0")),
+                "ACTIVE",
+                true,
+                true)
+            .build();
 
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
@@ -328,13 +398,14 @@ class DomainCodecTest {
   @Test
   void an_instance_observation_with_no_ports_round_trips_as_empty() throws Exception {
     InstanceObservation observation =
-        new InstanceObservation(
-            "greeter",
-            0,
-            new ModuleId("com.acme.greeter", Version.parse("1.0.0")),
-            "ACTIVE",
-            true,
-            true);
+        InstanceObservation.builder(
+                "greeter",
+                0,
+                new ModuleId("com.acme.greeter", Version.parse("1.0.0")),
+                "ACTIVE",
+                true,
+                true)
+            .build();
 
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
