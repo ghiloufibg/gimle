@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 777,
+    "totalRequirements": 778,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 650,
+    "notCoveredByAutomatedTest": 651,
     "releaseReadinessPercent": 16.3
   },
   "items": [
@@ -8549,6 +8549,17 @@
       "category": "Scheduling",
       "feature": "Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full",
       "step": "Given a cluster with no free capacity running only default-priority workloads When a deployment declaring a higher placement priority cannot be placed Then strictly-lower-priority instances are evicted to free room for it And an equal-or-higher-priority instance is never evicted",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-778",
+      "module": "gimle-skald",
+      "category": "Networking",
+      "feature": "Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind",
+      "step": "Given the Skald DaemonSet and its UDP Service applied to a running cluster When an operator queries the Service's stable ClusterIP for a cluster name Then the answer comes from a Skald instance the platform scheduled and supervises And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -1398,15 +1398,16 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane.",
-      "oracle": "Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window.",
+      "objective": "Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane. Then apply gimle-skald/deploy/'s DaemonSet and UDP Service, and repeat the same queries against the Service's own ClusterIP rather than the standalone process; stop one replica's control-plane polling and watch its readiness.",
+      "oracle": "Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window. The deployed form answers identically through its Service; a replica whose directory goes stale leaves the Service's endpoint set without being restarted, and its /health stays green throughout.",
       "requirements": [
         "GIMLE-569",
         "GIMLE-620",
         "GIMLE-721",
         "GIMLE-613",
         "GIMLE-628",
-        "GIMLE-686"
+        "GIMLE-686",
+        "GIMLE-778"
       ]
     },
     {

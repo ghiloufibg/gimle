@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 777
+- **Total requirements**: 778
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 650
+- **Not covered by automated test**: 651
 - **Release-readiness (automated coverage)**: 16.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -41,7 +41,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
-| gimle-skald | 5 | 0 | 5 | 0.0% |
+| gimle-skald | 6 | 0 | 6 | 0.0% |
 
 ## Checklist
 
@@ -2284,6 +2284,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-611 | Midgard Docker dev-cluster distribution archive | Given the unpacked gimle-midgard archive on a machine with Docker, When docker compose up -d runs, Then one container boots a store, control plane, Fafnir, Muninn, Andvari, and a node agent via hilmir up, and the web console serves on the published port 8080. Given the container is up with seeding enabled, When the entrypoint's seed step runs, Then the bundled example jars are pushed to the artifact registry and their v1 coordinate-only deployments reach ACTIVE. Given a running Midgard container, When docker stop is issued, Then the entrypoint tears the cluster down via hilmir down before exiting. | No |
 
 ### gimle-skald
+
+#### Networking
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-778 | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | Given the Skald DaemonSet and its UDP Service applied to a running cluster When an operator queries the Service's stable ClusterIP for a cluster name Then the answer comes from a Skald instance the platform scheduled and supervises And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted | No |
 
 #### Service Discovery / DNS
 

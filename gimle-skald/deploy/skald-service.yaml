@@ -1,0 +1,15 @@
+# The UDP Service fronting the Skald DaemonSet.
+#
+# `protocol: UDP` is what makes gimle-bifrost bind a datagram relay for this Service rather than a
+# stream listener. Bifrost synthesizes a stable per-service loopback ClusterIP derived from the
+# service name (LoopbackAddressAllocator), so the address is the same on every node and across
+# restarts -- which is what lets a resolver be pointed at it at all, since DNS clients do not
+# perform service discovery to find their own resolver.
+kind: Service
+name: skald
+tenantId: gimle-system
+deploymentNames: [skald]
+protocol: UDP
+# What callers dial. targetPort is the fixed port the DaemonSet's own vessel args bind.
+port: 53
+targetPort: 8600

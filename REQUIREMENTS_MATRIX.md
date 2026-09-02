@@ -787,6 +787,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-775 | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | Security | Complete | Yes |
 | GIMLE-776 | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Networking | Complete | Yes |
 | GIMLE-777 | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | Scheduling | Complete | Yes |
+| GIMLE-778 | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | Networking | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -11701,4 +11702,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When a client resolves that Service name
   Then the responder answers NOERROR with zero answer records
   And a name that was never declared still answers NXDOMAIN
+  ```
+
+#### GIMLE-778 — Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind
+
+- **Category**: Networking
+- **User story**: As a cluster operator, I want cluster DNS to be an ordinary scheduled, self-healed, priority-carrying workload behind a Service, so it is managed by the platform rather than run and supervised out of band.
+- **Status**: Implemented. With a UDP Service (GIMLE-776) and a scheduler priority (GIMLE-777) both available, Skald can be deployed the way CoreDNS is rather than only as a standalone process kind: `gimle-skald/deploy/skald-daemonset.yaml` (a vessel DaemonSet at `placement.priority: 1000`, published as a BUNDLE artifact since Skald is not a self-contained jar) plus `skald-service.yaml` (`protocol: UDP`, whose synthesized ClusterIP is stable across nodes and restarts -- what makes it usable, since DNS clients do not discover their own resolver). Deploying it this way surfaced a real gap: `VesselProbeSpec` offers TCP and HTTP only, and a DNS-over-UDP responder is invisible to both, leaving a deployed Skald with nothing above the "process still running" floor. `SkaldHealthServer` (`--health-port`) answers `/health` and `/ready`, the same two endpoints CoreDNS carries for the same reason. The split is load-bearing: liveness stays green while the directory is merely stale, because a control-plane outage is not a fault restarting Skald would fix and treating it as one would restart every replica at once, while readiness closes on staleness so callers are steered to a replica holding current data. Two consumption bugs were found and fixed on the way: `DaemonSetManifestParser` dropped `placement.priority` on the floor (a DaemonSet is never itself a preemption victim, but it still has to be placeable on a full node), and the CLI's `apply -f` for a Service built its own body that never carried `protocol`, so a UDP Service could be created with `gimle set service --protocol` but not from a manifest. The standalone process kind remains the right choice for a cluster that needs DNS before it has a scheduler: a Skald workload needs the control plane already running, so nothing in that bring-up path may resolve through it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-skald/src/main/java/com/gimle/skald/SkaldHealthServer.java`, `gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java` (`--health-port`), `gimle-skald/deploy/skald-daemonset.yaml`, `gimle-skald/deploy/skald-service.yaml`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java` (placement priority), `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`apply -f` protocol)
+- **Test coverage**: New SkaldHealthServerTest covers a fresh directory being both alive and ready, a stale one being unready but still alive (with the reason naming the threshold), a directory that has never polled successfully never opening readiness, readiness recovering once a poll succeeds, and the bound port being reported. DaemonSetManifestParserTest gained parses_placement_priority_even_though_anti_affinity_is_rejected_here and placement_priority_defaults_to_zero_when_undeclared.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the Skald DaemonSet and its UDP Service applied to a running cluster
+  When an operator queries the Service's stable ClusterIP for a cluster name
+  Then the answer comes from a Skald instance the platform scheduled and supervises
+  And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted
   ```

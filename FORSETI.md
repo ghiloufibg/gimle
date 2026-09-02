@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 777 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 778 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 192 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 166, uncited 0). |
-| **User-observable** | **516** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 516 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **517** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 517 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -127,7 +127,7 @@ not carry over to the new one.
 | **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 56 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 53 |
 | **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 37 |
-| **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 54 |
+| **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 55 |
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
 | **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 78 |
 | **ART** | Artifacts & Registry | A release engineer publishing module builds and expecting the registry to behave like Nexus. | A B | 8 | 25 |
@@ -233,7 +233,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | ID | Env | Objective | Oracle | Requirements |
 |---|---|---|---|---|
 | **NET-1** | A B | Create a Service fronting a three-replica deployment (and one fronting a hosted module that calls `reportPort`); scale up and down; declare then omit `targetPort`; create a second Service overlapping the first; drive it from the console's Networking screen too. | `service endpoints` tracks live replicas exactly; a hosted module's reported port resolves; `targetPort` is authoritative when declared and absent when not; the overlap is announced as a warning; CLI and console agree. | GIMLE-566, GIMLE-578, GIMLE-586, GIMLE-571, GIMLE-728, GIMLE-729 |
-| **NET-2** | B | Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane. | Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window. | GIMLE-569, GIMLE-620, GIMLE-721, GIMLE-613, GIMLE-628, GIMLE-686 |
+| **NET-2** | B | Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane. Then apply gimle-skald/deploy/'s DaemonSet and UDP Service, and repeat the same queries against the Service's own ClusterIP rather than the standalone process; stop one replica's control-plane polling and watch its readiness. | Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window. The deployed form answers identically through its Service; a replica whose directory goes stale leaves the Service's endpoint set without being restarted, and its /health stays green throughout. | GIMLE-569, GIMLE-620, GIMLE-721, GIMLE-613, GIMLE-628, GIMLE-686, GIMLE-778 |
 | **NET-3** | B | Enable Bifrost on one agent; dial its local port for a Service repeatedly, then with ClientIP affinity, then from off-node via the NodePort-style exposure; do the same against a second Service declaring `protocol: UDP` in front of a datagram workload, from two clients at once; delete the Service. | Round-robin across live endpoints preferring local ones; affinity pins a client; off-node reaches the same backends; the listener closes on delete and never serves one more connection. The UDP Service relays datagrams and returns each reply to the client that sent the request, never to the other one. | GIMLE-568, GIMLE-626, GIMLE-618, GIMLE-748, GIMLE-776 |
 | **NET-4** | A | Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path. | Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready. | GIMLE-570, GIMLE-356, GIMLE-357, GIMLE-358, GIMLE-360, GIMLE-362, GIMLE-363, GIMLE-364, GIMLE-366, GIMLE-367, GIMLE-684, GIMLE-679 |
 | **NET-5** | C | Turn on gateway TLS termination with two virtual hosts carrying different certificates. | Plaintext no longer answers; each host is served the certificate matching the client's SNI; fabric calls behind the gateway succeed over mTLS. | GIMLE-722, GIMLE-196 |
@@ -1271,4 +1271,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-775 | `gimle-controlplane` | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | observable | FLEET | SEC-9 |
 | GIMLE-776 | `gimle-agent` | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | observable | FLEET | NET-3 |
 | GIMLE-777 | `gimle-controlplane` | Workload priority with scheduler preemption, so a critical workload can make room rather than sitting unplaced when the cluster is full | observable | FLEET | SCHED-2 |
+| GIMLE-778 | `gimle-skald` | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | observable | FLEET | NET-2 |
 <!-- /forseti:generated -->

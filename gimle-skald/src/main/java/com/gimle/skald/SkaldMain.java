@@ -55,7 +55,7 @@ public final class SkaldMain {
       System.err.println(
           "usage: SkaldMain <dnsPort> --control-plane-endpoint <host:port>"
               + " [--poll-interval-seconds N] [--host <hostname>]"
-              + " [--muninn-endpoint host:port[,host:port...]]");
+              + " [--health-port N] [--muninn-endpoint host:port[,host:port...]]");
       System.exit(2);
       return;
     }
@@ -64,6 +64,9 @@ public final class SkaldMain {
     String selfHost = "127.0.0.1";
     Duration pollInterval = DEFAULT_POLL_INTERVAL;
     String muninnEndpointArg = System.getProperty("gimle.skald.muninnEndpoint");
+    // Absent means no health surface at all -- a standalone Skald process nobody probes needs
+    // none, and opening a port it never uses would be gratuitous.
+    int healthPort = -1;
     for (int i = 1; i < args.length; i++) {
       if ("--control-plane-endpoint".equals(args[i]) && i + 1 < args.length) {
         controlPlaneEndpoint = args[++i];
@@ -71,6 +74,8 @@ public final class SkaldMain {
         pollInterval = Duration.ofSeconds(Long.parseLong(args[++i]));
       } else if ("--host".equals(args[i]) && i + 1 < args.length) {
         selfHost = args[++i];
+      } else if ("--health-port".equals(args[i]) && i + 1 < args.length) {
+        healthPort = Integer.parseInt(args[++i]);
       } else if ("--muninn-endpoint".equals(args[i]) && i + 1 < args.length) {
         muninnEndpointArg = args[++i];
       }
@@ -93,6 +98,18 @@ public final class SkaldMain {
         new ControlPlaneServicePoller(catalogClient, directory, pollInterval);
     Duration staleThreshold = pollInterval.multipliedBy(STALE_THRESHOLD_POLL_MULTIPLIER);
     SkaldServer server = new SkaldServer(directory, dnsPort, staleThreshold);
+
+    // Only bound when asked for. What makes Skald probe-able as a managed workload: the platform's
+    // vessel probes speak TCP and HTTP, neither of which can reach a DNS-over-UDP responder, so a
+    // deployed Skald would otherwise have no health signal above "the process is still running".
+    SkaldHealthServer healthServer =
+        healthPort < 0 ? null : new SkaldHealthServer(directory, healthPort, staleThreshold);
+    if (healthServer != null) {
+      log.info(
+          "skald serving /health and /ready on HTTP port {} (readiness threshold: {})",
+          healthServer.port(),
+          staleThreshold);
+    }
 
     SkaldMetrics metrics = new SkaldMetrics(directory);
     // Optional system property/flag, matching gimle-fafnir's own gimle.fafnir.muninnEndpoint
@@ -125,6 +142,9 @@ public final class SkaldMain {
                     () -> {
                       server.close();
                       poller.close();
+                      if (healthServer != null) {
+                        healthServer.close();
+                      }
                       if (metricsShipper != null) {
                         metricsShipper.close();
                       }

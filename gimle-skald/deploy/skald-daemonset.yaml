@@ -1,0 +1,41 @@
+# Skald as a managed workload rather than its own process kind -- the CoreDNS shape.
+#
+# A DaemonSet, so every node gets a resolver reachable over loopback without a network hop, and a
+# vessel, because Skald is an ordinary OS process with its own main() rather than a module meant to
+# share a worker JVM. See gimle-docs/docs/architecture/service-fabric.md for the whole picture,
+# including why this cannot be the resolver the control plane itself depends on.
+kind: DaemonSet
+name: skald
+tenantId: gimle-system
+module:
+  name: com.gimle.skald
+  version: 1.0.0
+# Published as a BUNDLE artifact: Skald is not a self-contained jar, so `gimle artifactset` zips the
+# platform archive's own lib/ layout together with a generated gimle-entrypoint.yaml rather than
+# this being launched as `java -jar`.
+artifactPath: ""
+placement:
+  # Above the default 0 every ordinary workload gets, so cluster DNS makes room for itself under
+  # resource pressure instead of sitting unplaced behind batch work. Nothing else about scheduling
+  # changes: while any node has capacity, this lands there like anything else.
+  priority: 1000
+vessel:
+  args:
+    - "8600"
+    - "--control-plane-endpoint"
+    - "127.0.0.1:8080"
+    - "--health-port"
+    - "8601"
+  probes:
+    # A DNS-over-UDP responder is invisible to both probe kinds the platform offers, which is why
+    # Skald carries an HTTP health surface at all -- exactly CoreDNS's own reason for /health.
+    # Liveness stays green while the directory is merely stale: a control-plane outage is not a
+    # fault restarting this process would fix, and treating it as one would restart every replica
+    # in the cluster at once.
+    liveness: {http: /health, initialDelaySeconds: 5}
+    # Readiness closes when the directory goes stale, taking this instance out of the Service's
+    # endpoint set so callers are steered to a replica still holding current data.
+    readiness: {http: /ready, initialDelaySeconds: 5}
+  resources:
+    request: {memory: 64Mi, cpu: 50m}
+    limit:   {memory: 128Mi, cpu: 250m}

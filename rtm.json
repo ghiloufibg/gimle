@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 777,
+  "requirementCount": 778,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13460,6 +13460,25 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DeploymentReconciler.java` (`preemptForUnplaceable`)"
       ],
       "gapNote": "No .feature scenario fills a real cluster and then submits a higher-priority workload to observe eviction. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-778",
+      "module": "gimle-skald",
+      "feature": "Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind",
+      "category": "Networking",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. With a UDP Service (GIMLE-776) and a scheduler priority (GIMLE-777) both available, Skald can be deployed the way CoreDNS is rather than only as a standalone process kind: `gimle-skald/deploy/skald-daemonset.yaml` (a vessel DaemonSet at `placement.priority: 1000`, published as a BUNDLE artifact since Skald is not a self-contained jar) plus `skald-service.yaml` (`protocol: UDP`, whose synthesized ClusterIP is stable across nodes and restarts -- what makes it usable, since DNS clients do not discover their own resolver). Deploying it this way surfaced a real gap: `VesselProbeSpec` offers TCP and HTTP only, and a DNS-over-UDP responder is invisible to both, leaving a deployed Skald with nothing above the \"process still running\" floor. `SkaldHealthServer` (`--health-port`) answers `/health` and `/ready`, the same two endpoints CoreDNS carries for the same reason. The split is load-bearing: liveness stays green while the directory is merely stale, because a control-plane outage is not a fault restarting Skald would fix and treating it as one would restart every replica at once, while readiness closes on staleness so callers are steered to a replica holding current data. Two consumption bugs were found and fixed on the way: `DaemonSetManifestParser` dropped `placement.priority` on the floor (a DaemonSet is never itself a preemption victim, but it still has to be placeable on a full node), and the CLI's `apply -f` for a Service built its own body that never carried `protocol`, so a UDP Service could be created with `gimle set service --protocol` but not from a manifest. The standalone process kind remains the right choice for a cluster that needs DNS before it has a scheduler: a Skald workload needs the control plane already running, so nothing in that bring-up path may resolve through it.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "New SkaldHealthServerTest covers a fresh directory being both alive and ready, a stale one being unready but still alive (with the reason naming the threshold), a directory that has never polled successfully never opening readiness, readiness recovering once a poll succeeds, and the bound port being reported. DaemonSetManifestParserTest gained parses_placement_priority_even_though_anti_affinity_is_rejected_here and placement_priority_defaults_to_zero_when_undeclared.",
+      "sourceLocations": [
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldHealthServer.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/SkaldMain.java` (`--health-port`)",
+        "`gimle-skald/deploy/skald-daemonset.yaml`, `gimle-skald/deploy/skald-service.yaml`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/DaemonSetManifestParser.java` (placement priority)",
+        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`apply -f` protocol)"
+      ],
+      "gapNote": "No .feature scenario deploys Skald as a workload and resolves through its Service against a real cluster. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }
