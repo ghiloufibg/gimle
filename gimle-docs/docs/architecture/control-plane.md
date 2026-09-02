@@ -64,6 +64,27 @@ caller to a peer the way it once did, because there is no longer a fixed 1:1 rel
 an `ApiServer` replica and any particular store node to redirect to. Reads tolerate the same
 staleness they always did: any store endpoint may answer, with no linearizability guarantee.
 
+`GET /instances/{name}/{index}/fabric-endpoint` answers a different question that `/endpoints/{name}`
+cannot: where one instance's worker JVM is reachable on the **service fabric** — the TCP address a
+`FabricClient` dials to invoke a service on it directly, rather than through
+`FabricServiceRegistry`'s own locality-preferring selection. That address arrives on the worker's
+own `Hello` handshake and lives only in the supervising agent's memory, so this route resolves which
+node currently hosts the instance (across all four placement kinds, the same walk `/endpoints/{name}`
+does) and proxies the lookup to that node's agent — the same API-server-to-kubelet shape
+`/logs/instances/...` already uses, so a caller needs only the workload name and index rather than
+having to know the placement. Read authorization is checked against the grant the instance's own
+owning workload kind falls under, so a `DaemonSet` or `StatefulSet` instance needs that kind's
+independently withholdable grant rather than `DEPLOYMENT`'s.
+
+The agent distinguishes three outcomes rather than collapsing them into one `404`, because they
+tell a caller different things: `404` — this node does not supervise that instance, so look
+elsewhere; `409` — it does, but the worker's fabric handshake has not landed yet, so retry; `200` —
+here is `tcpAddress`/`tcpHost`/`tcpPort`, plus `workerId` and the `udsPath` a same-machine caller
+would prefer, when the worker bound one. The route is diagnostic and grants no new capability: an
+instance's fabric listener authenticates and authorizes every inbound call itself, and dialing it
+directly is exactly what `FabricServer`'s own listener-side tenant re-check defends against — a
+defence that could not be exercised end to end while the address stayed undiscoverable.
+
 `GET /endpoints/{name}` is a small, read-only view over the same assignment/heartbeat state
 `GET /deployments/{name}` already exposes, purpose-built for [vessel workloads](../reference/manifest-schema.md#vessel-workloads-vessel):
 for each live instance, its `nodeId`, the host that node registered at startup (`NodeRegistration.apiAddress`,

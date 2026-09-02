@@ -359,7 +359,21 @@ public final class AgentMain {
                                 instance.assigned.tenantId(),
                                 instance.assigned.deploymentName(),
                                 instance.assigned.instanceIndex()))
-                    .collect(Collectors.toUnmodifiableSet()));
+                    .collect(Collectors.toUnmodifiableSet()),
+            // Read live per request rather than snapshotted: an instance's fabric address only
+            // exists once its worker's Hello handshake lands, so a lookup a moment after placement
+            // must see the address the moment it arrives, not a copy taken before it did.
+            key -> {
+              SupervisedInstance instance = supervised.get(key);
+              if (instance == null) {
+                return Optional.empty();
+              }
+              return Optional.of(
+                  new InstanceFabricEndpoint(
+                      Optional.ofNullable(instance.fabricWorkerId),
+                      Optional.ofNullable(instance.fabricTcpAddress),
+                      instance.fabricUdsPath));
+            });
     logServer.start();
     String apiAddress = resolveAdvertisedHost() + ":" + logServer.port();
     log.info("agent {} serving logs at {}", nodeId, apiAddress);

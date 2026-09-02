@@ -553,6 +553,8 @@ public final class ApiServer implements AutoCloseable {
     target.createContext("/statefulsets/", instrument("statefulsets", this::handleStatefulSet));
     target.createContext("/statefulsets", instrument("statefulsets", this::handleStatefulSetsList));
     target.createContext("/endpoints/", instrument("endpoints", this::handleEndpoints));
+    target.createContext(
+        "/instances/", instrument("instances", this::handleInstanceFabricEndpoint));
     target.createContext("/services/", instrument("services", this::handleService));
     target.createContext("/services", instrument("services", this::handleServicesCollection));
     target.createContext(
@@ -3814,6 +3816,79 @@ public final class ApiServer implements AutoCloseable {
    * still goes through the ordinary path unchanged. {@code /endpoints/*} is GET-only, so there is
    * no verb to branch on the way {@code decideAllowed} does for {@code /secrets/*}'s write/delete.
    */
+  // ---- /instances/{deploymentName}/{instanceIndex}/fabric-endpoint ----
+
+  /**
+   * Where one instance is reachable on the service fabric -- the address a {@code FabricClient}
+   * dials to invoke a service on it directly, rather than through {@code FabricServiceRegistry}'s
+   * own locality-preferring selection.
+   *
+   * <p>Only the agent supervising the instance holds this: it arrives on the worker's own {@code
+   * Hello} handshake and lives in that agent's memory. This route resolves which node that is and
+   * proxies there, the same API-server-to-kubelet shape {@code /logs/instances/...} already uses,
+   * so a caller needs only the workload name and index rather than having to know the placement.
+   *
+   * <p>Read-only and diagnostic. It exposes no capability a caller does not already have -- an
+   * instance's fabric listener authenticates and authorizes every inbound call itself, and dialing
+   * it directly is precisely what {@code FabricServer}'s own listener-side tenant re-check exists
+   * to defend against, which is why that defence could not be exercised end to end while the
+   * address stayed undiscoverable.
+   */
+  private void handleInstanceFabricEndpoint(HttpExchange exchange) {
+    try {
+      handleInstanceFabricEndpointRequest(exchange);
+    } catch (IOException | RuntimeException e) {
+      log.warn("fabric-endpoint request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleInstanceFabricEndpointRequest(HttpExchange exchange) throws IOException {
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    String tail = pathSegmentAfter(exchange, "/instances/");
+    String[] parts = tail.split("/");
+    if (parts.length != 3 || !"fabric-endpoint".equals(parts[2])) {
+      respond(
+          exchange, 404, "expected /instances/{deploymentName}/{instanceIndex}/fabric-endpoint");
+      return;
+    }
+    String deploymentName = parts[0];
+    int instanceIndex;
+    try {
+      instanceIndex = Integer.parseInt(parts[1]);
+    } catch (NumberFormatException e) {
+      respond(exchange, 400, "invalid instanceIndex");
+      return;
+    }
+
+    Optional<String> tenantId = workloadTenantHint(exchange);
+    Optional<InstancePlacement> placement =
+        resolveInstancePlacement(tenantId, deploymentName, instanceIndex);
+    if (placement.isEmpty()) {
+      // Authorize before answering: without this, an unauthorized caller could probe which
+      // (name, index) pairs exist by telling 404 apart from 403. DEPLOYMENT is the right kind to
+      // check against for a workload whose kind we could not determine, since it is the least
+      // privileged of the four an instance can belong to.
+      if (requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenantId)) {
+        respond(exchange, 404, "no placement found for " + deploymentName + "#" + instanceIndex);
+      }
+      return;
+    }
+    if (!requireAuthorized(exchange, placement.get().kind(), Verb.READ, tenantId)) {
+      return;
+    }
+    proxyToAgent(
+        exchange,
+        placement.get().nodeId(),
+        "/fabric-endpoints/" + deploymentName + "/" + instanceIndex,
+        null);
+  }
+
   private boolean authorizeEndpointsRead(
       HttpExchange exchange, ResourceKind resourceKind, Optional<String> tenantId) {
     if (exchange instanceof HttpsExchange) {
@@ -8004,39 +8079,53 @@ public final class ApiServer implements AutoCloseable {
    */
   private String resolveInstanceNodeId(
       Optional<String> tenantId, String deploymentName, int instanceIndex) {
-    Optional<String> deployment =
+    return resolveInstancePlacement(tenantId, deploymentName, instanceIndex)
+        .map(InstancePlacement::nodeId)
+        .orElse(null);
+  }
+
+  /**
+   * Which node hosts an instance, and which workload kind put it there -- the kind matters because
+   * DaemonSet and StatefulSet are independently withholdable RBAC grants, so a route authorizing a
+   * read of one instance must check the grant its owning workload actually falls under rather than
+   * assume DEPLOYMENT.
+   */
+  private record InstancePlacement(String nodeId, ResourceKind kind) {}
+
+  private Optional<InstancePlacement> resolveInstancePlacement(
+      Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    Optional<InstancePlacement> deployment =
         storeClient.listAssignmentsFor(tenantId, deploymentName).stream()
             .filter(a -> a.instanceIndex() == instanceIndex)
-            .map(InstanceAssignment::nodeId)
+            .map(a -> new InstancePlacement(a.nodeId(), ResourceKind.DEPLOYMENT))
             .findFirst();
     if (deployment.isPresent()) {
-      return deployment.get();
+      return deployment;
     }
-    Optional<String> statefulSet =
+    Optional<InstancePlacement> statefulSet =
         storeClient.listStatefulSetAssignmentsFor(tenantId, deploymentName).stream()
             .filter(a -> a.instanceIndex() == instanceIndex)
-            .map(StatefulSetAssignment::nodeId)
+            .map(a -> new InstancePlacement(a.nodeId(), ResourceKind.STATEFULSET))
             .findFirst();
     if (statefulSet.isPresent()) {
-      return statefulSet.get();
+      return statefulSet;
     }
     // A DaemonSet instance's own "index" is always 0 (one instance per node, see
     // DaemonSetAssignment's own javadoc) -- instanceIndex must match that convention to resolve,
     // the same way a Job's own attempt number must match below.
     if (instanceIndex == 0) {
-      Optional<String> daemonSet =
+      Optional<InstancePlacement> daemonSet =
           storeClient.listDaemonSetAssignmentsFor(tenantId, deploymentName).stream()
-              .map(DaemonSetAssignment::nodeId)
+              .map(a -> new InstancePlacement(a.nodeId(), ResourceKind.DAEMONSET))
               .findFirst();
       if (daemonSet.isPresent()) {
-        return daemonSet.get();
+        return daemonSet;
       }
     }
     return storeClient.listJobRunsFor(tenantId, deploymentName).stream()
         .filter(run -> run.attempt() == instanceIndex)
-        .map(JobRun::nodeId)
-        .findFirst()
-        .orElse(null);
+        .map(run -> new InstancePlacement(run.nodeId(), ResourceKind.JOB))
+        .findFirst();
   }
 
   /**

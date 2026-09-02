@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 773
+- **Total requirements**: 774
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 646
+- **Not covered by automated test**: 647
 - **Release-readiness (automated coverage)**: 16.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 54 | 6 | 48 | 11.1% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 108 | 17 | 91 | 15.7% |
+| gimle-controlplane | 109 | 17 | 92 | 15.6% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -1388,6 +1388,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-728 | Overlapping Services are announced with a response warning rather than silently allowed | Given a Service fronting a deployment When a second Service is declared fronting the same deployment Then the create succeeds And the response carries a warning naming the first Service and the shared deployment | No |
 | [ ] | GIMLE-729 | A Service's targetPort is authoritative when declared and genuinely absent when not | Given a deployment whose instance reports two ports When a Service is declared fronting it with the second port as targetPort Then the Service resolves exactly one endpoint on that port And a Service declaring a port no instance reports resolves no endpoints and was warned about at creation | No |
+
+#### Service fabric
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-774 | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | Given a deployment with an instance running on a node When an operator reads that instance's fabric endpoint through the control plane Then the address its worker actually bound is returned, resolved from the hosting node's own agent And an instance whose worker has not yet handshaked is reported as retryable rather than missing | No |
 
 #### Storage / Operations
 

@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 773,
+    "totalRequirements": 774,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 646,
+    "notCoveredByAutomatedTest": 647,
     "releaseReadinessPercent": 16.4
   },
   "items": [
@@ -8505,6 +8505,17 @@
       "category": "Observability",
       "feature": "An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under",
       "step": "Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-774",
+      "module": "gimle-controlplane",
+      "category": "Service fabric",
+      "feature": "An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster",
+      "step": "Given a deployment with an instance running on a node When an operator reads that instance's fabric endpoint through the control plane Then the address its worker actually bound is returned, resolved from the hosting node's own agent And an instance whose worker has not yet handshaked is reported as retryable rather than missing",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

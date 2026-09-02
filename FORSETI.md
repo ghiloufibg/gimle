@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 773 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 774 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 192 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 166, uncited 0). |
-| **User-observable** | **512** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 512 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **513** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 513 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -127,7 +127,7 @@ not carry over to the new one.
 | **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 56 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 53 |
 | **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 36 |
-| **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 52 |
+| **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 53 |
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
 | **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 77 |
 | **ART** | Artifacts & Registry | A release engineer publishing module builds and expecting the registry to behave like Nexus. | A B | 8 | 25 |
@@ -237,7 +237,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **NET-3** | B | Enable Bifrost on one agent; dial its local port for a Service repeatedly, then with ClientIP affinity, then from off-node via the NodePort-style exposure; delete the Service. | Round-robin across live endpoints preferring local ones; affinity pins a client; off-node reaches the same backends; the listener closes on delete and never serves one more connection. | GIMLE-568, GIMLE-626, GIMLE-618, GIMLE-748 |
 | **NET-4** | A | Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path. | Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready. | GIMLE-570, GIMLE-356, GIMLE-357, GIMLE-358, GIMLE-360, GIMLE-362, GIMLE-363, GIMLE-364, GIMLE-366, GIMLE-367, GIMLE-684, GIMLE-679 |
 | **NET-5** | C | Turn on gateway TLS termination with two virtual hosts carrying different certificates. | Plaintext no longer answers; each host is served the certificate matching the client's SNI; fabric calls behind the gateway succeed over mTLS. | GIMLE-722, GIMLE-196 |
-| **NET-6** | A C | Create a NetworkPolicy denying tenant B from tenant A's service (tenant-wide, then per-deployment, then per-interface); attempt the call from a tenant-B module and by dialling the raw catalog address; edit the allow-list one entry at a time; name a nonexistent tenant; close a tenant before its first policy; restart the control plane. | Refused with a legible reason at the caller; the listener side refuses the direct dial independently; scoped rules match only what they name; edits are version-guarded; the bad tenant is rejected; the closed tenant denies by default; the policy survives the restart; CLI and console Networking agree. | GIMLE-579, GIMLE-572, GIMLE-574, GIMLE-623, GIMLE-730, GIMLE-731, GIMLE-732, GIMLE-192, GIMLE-567, GIMLE-587 |
+| **NET-6** | A C | Create a NetworkPolicy denying tenant B from tenant A's service (tenant-wide, then per-deployment, then per-interface); attempt the call from a tenant-B module and by dialling the instance directly, at the address `GET /instances/{name}/{index}/fabric-endpoint` reports; edit the allow-list one entry at a time; name a nonexistent tenant; close a tenant before its first policy; restart the control plane. | Refused with a legible reason at the caller; the listener side refuses the direct dial independently; scoped rules match only what they name; edits are version-guarded; the bad tenant is rejected; the closed tenant denies by default; the policy survives the restart; CLI and console Networking agree. | GIMLE-579, GIMLE-572, GIMLE-574, GIMLE-623, GIMLE-730, GIMLE-731, GIMLE-732, GIMLE-192, GIMLE-567, GIMLE-587, GIMLE-774 |
 | **NET-7** | B | Hold a Bifrost connection open, then apply a NetworkPolicy to that Service's tenant. | The open connection is closed and new ones are refused (fail-closed) with the documented log reason; endpoints are untouched. | GIMLE-575, GIMLE-668 |
 | **NET-8** | A | Run fraud-detection's three-hop chain and force one replica to start erroring, then heal it. | The breaker ejects it, traffic keeps flowing through healthy replicas, it is re-admitted once healthy; the breaker's state is visible in logs and shipped meters. | GIMLE-186, GIMLE-720 |
 | **NET-9** | A B | Place a provider/consumer pair co-located in one worker, as two Tier-2 workers on one machine, and on two machines; watch the same call each way. | All three tiers work transparently to the module; the direct tier shows no socket, the same-machine tier a Unix domain socket, the cross-machine tier TCP; the service is discoverable cluster-wide through the gossip catalog. | GIMLE-181, GIMLE-182, GIMLE-183, GIMLE-093, GIMLE-055, GIMLE-056, GIMLE-190 |
@@ -1267,4 +1267,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-771 | `gimle-agent` | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | observable | FLEET | BATCH-6 |
 | GIMLE-772 | `gimle-controlplane` | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | observable | FLEET | GOV-9 |
 | GIMLE-773 | `gimle-core` | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | observable | FLEET | DEP-1 |
+| GIMLE-774 | `gimle-controlplane` | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | observable | FLEET | NET-6 |
 <!-- /forseti:generated -->

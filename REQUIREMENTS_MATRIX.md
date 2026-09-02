@@ -783,6 +783,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-771 | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | Operations | Complete | Yes |
 | GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | Observability | Complete | Yes |
 | GIMLE-773 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Observability | Complete | Yes |
+| GIMLE-774 | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | Service fabric | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6388,6 +6389,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When an operator reads the per-deployment rollup
   Then two rows are returned, one naming each tenant, neither merged into a single average
   And an untenanted deployment named `api` is a third, distinct row carrying a null tenant
+  ```
+
+#### GIMLE-774 — An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster
+
+- **Category**: Service fabric
+- **User story**: As an operator or a cluster test, I want to look up where a given instance is reachable on the service fabric, so I can dial it directly to diagnose it or to prove that its listener-side tenant and network-policy checks actually reject a call that bypasses the caller-side filter.
+- **Status**: Implemented. A worker JVM's fabric TCP address (and its Unix-domain-socket path) arrives on the worker's own `Hello` handshake and lived only in the supervising agent's memory, reachable nowhere but SWIM gossip between agents -- not through any control-plane API, log, or CLI. That made the address undiscoverable from outside the node, which in turn made two shipped security behaviours impossible to prove end to end: exercising `FabricServer`'s listener-side tenant re-check, and deployment-scoped `NetworkPolicySpec` enforcement, both of which require dialing an instance directly to bypass the caller-side filter. `AgentLogServer` gained `GET /fabric-endpoints/{deploymentName}/{instanceIndex}`, reading the live `SupervisedInstance` state per request, and `ApiServer` gained `GET /instances/{name}/{index}/fabric-endpoint`, which resolves the hosting node across all four placement kinds and proxies there -- the same API-server-to-kubelet shape `/logs/instances/...` already uses. The agent distinguishes three outcomes rather than one 404: not supervised here (404), supervised but pre-handshake (409, so a caller retries rather than re-resolving), or the address (200). Read authorization is checked against the grant the instance's own owning workload kind falls under (`resolveInstanceNodeId` was widened to `resolveInstancePlacement`, reporting the kind alongside the node), so a DaemonSet or StatefulSet instance needs that kind's independently withholdable grant; an unresolvable instance is authorized before being answered, so 404-vs-403 cannot be used to probe which instances exist. Grants no new capability -- a fabric listener authenticates and authorizes every inbound call itself.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/InstanceFabricEndpoint.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentLogServer.java` (`handleFabricEndpoint`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (fabric-endpoint resolver), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleInstanceFabricEndpoint`, `resolveInstancePlacement`)
+- **Test coverage**: AgentLogServerTest gained a_supervised_instance_reports_the_fabric_address_its_worker_bound, a_worker_that_bound_no_domain_socket_omits_the_uds_path, an_instance_this_node_does_not_supervise_is_a_404, an_instance_whose_worker_has_not_handshaked_yet_is_a_409_not_a_404, and a_malformed_fabric_endpoint_path_is_rejected (including a path-traversal attempt). New ApiServerFabricEndpointTest covers proxying to the hosting node with the forwarded path asserted, StatefulSet-placed resolution (not only Deployment), a 404 that dials no agent, malformed paths, and method rejection.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment with an instance running on a node
+  When an operator reads that instance's fabric endpoint through the control plane
+  Then the address its worker actually bound is returned, resolved from the hosting node's own agent
+  And an instance whose worker has not yet handshaked is reported as retryable rather than missing
   ```
 
 ### gimle-fafnir

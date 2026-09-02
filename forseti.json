@@ -1466,7 +1466,7 @@
         "midgard",
         "vault"
       ],
-      "objective": "Create a NetworkPolicy denying tenant B from tenant A's service (tenant-wide, then per-deployment, then per-interface); attempt the call from a tenant-B module and by dialling the raw catalog address; edit the allow-list one entry at a time; name a nonexistent tenant; close a tenant before its first policy; restart the control plane.",
+      "objective": "Create a NetworkPolicy denying tenant B from tenant A's service (tenant-wide, then per-deployment, then per-interface); attempt the call from a tenant-B module and by dialling the instance directly, at the address `GET /instances/{name}/{index}/fabric-endpoint` reports; edit the allow-list one entry at a time; name a nonexistent tenant; close a tenant before its first policy; restart the control plane.",
       "oracle": "Refused with a legible reason at the caller; the listener side refuses the direct dial independently; scoped rules match only what they name; edits are version-guarded; the bad tenant is rejected; the closed tenant denies by default; the policy survives the restart; CLI and console Networking agree.",
       "requirements": [
         "GIMLE-579",
@@ -1478,7 +1478,8 @@
         "GIMLE-732",
         "GIMLE-192",
         "GIMLE-567",
-        "GIMLE-587"
+        "GIMLE-587",
+        "GIMLE-774"
       ]
     },
     {
