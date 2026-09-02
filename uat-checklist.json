@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 775,
+    "totalRequirements": 776,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 648,
+    "notCoveredByAutomatedTest": 649,
     "releaseReadinessPercent": 16.4
   },
   "items": [
@@ -8527,6 +8527,17 @@
       "category": "Security",
       "feature": "Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission",
       "step": "Given a control plane serving its API When one source issues requests faster than its configured budget allows Then further requests from that source are refused with 429 and a Retry-After And requests from other sources, including node agents' own heartbeats, are unaffected",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-776",
+      "module": "gimle-agent",
+      "category": "Networking",
+      "feature": "A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams",
+      "step": "Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

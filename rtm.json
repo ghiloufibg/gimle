@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 775,
+  "requirementCount": 776,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13420,6 +13420,26 @@
         "`gimle-core/src/main/java/com/gimle/core/throttle/RequestRateLimiter.java`"
       ],
       "gapNote": "No .feature scenario drives the API past its rate limit against a real cluster. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-776",
+      "module": "gimle-agent",
+      "feature": "A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams",
+      "category": "Networking",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. `ServiceListener` relayed TCP only (`ServerSocket`/`Socket`), so no Service could front a DNS-shaped or any other datagram workload. `ServiceSpec` gained a `protocol` field (`ServiceProtocol.TCP|UDP`, the `Service.spec.ports[].protocol` analogue, TCP being what declaring none means), carried through `DomainCodec`, the `/services` API, the `/services/{name}/endpoints` payload Bifrost reads, and `gimle set service --protocol`. A UDP Service now binds `UdpServiceListener` instead. The hard part is reply routing: UDP has no connection, so every datagram arrives on one bound socket and the listener keeps a session per client address -- a dedicated upstream `DatagramSocket` connected to the selected backend plus a reader returning replies to that client -- reaped once idle past 60s, swept on the receive path rather than by a timer. Same shape kube-proxy's userspace UDP mode used. Two consequences documented rather than papered over: a session pins its backend for its lifetime whether or not `sessionAffinity` is declared (one upstream socket per client is what makes reply routing work; `sessionAffinity` instead decides how a *new* session picks its backend), and a UDP Service under a NetworkPolicy always fails closed, since a datagram relay has no handshake and no peer certificate from which to learn a caller's tenant -- the same permanent limit a plaintext TCP listener has, reached sooner because UDP has no TLS to opt into. Both listeners now sit behind a `ServiceRelay` interface so `BifrostProxy`'s poll loop drives either.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing).",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceProtocol.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java` (`protocol`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceRelay.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`)"
+      ],
+      "gapNote": "No .feature scenario deploys a UDP workload behind a Service against a real cluster. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

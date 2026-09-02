@@ -1414,13 +1414,14 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Enable Bifrost on one agent; dial its local port for a Service repeatedly, then with ClientIP affinity, then from off-node via the NodePort-style exposure; delete the Service.",
-      "oracle": "Round-robin across live endpoints preferring local ones; affinity pins a client; off-node reaches the same backends; the listener closes on delete and never serves one more connection.",
+      "objective": "Enable Bifrost on one agent; dial its local port for a Service repeatedly, then with ClientIP affinity, then from off-node via the NodePort-style exposure; do the same against a second Service declaring `protocol: UDP` in front of a datagram workload, from two clients at once; delete the Service.",
+      "oracle": "Round-robin across live endpoints preferring local ones; affinity pins a client; off-node reaches the same backends; the listener closes on delete and never serves one more connection. The UDP Service relays datagrams and returns each reply to the client that sent the request, never to the other one.",
       "requirements": [
         "GIMLE-568",
         "GIMLE-626",
         "GIMLE-618",
-        "GIMLE-748"
+        "GIMLE-748",
+        "GIMLE-776"
       ]
     },
     {

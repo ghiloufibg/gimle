@@ -120,6 +120,7 @@ import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.ParsedManifest;
+import com.gimle.mimir.manifest.ServiceProtocol;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
@@ -2029,6 +2030,16 @@ public final class ApiServer implements AutoCloseable {
     boolean sessionAffinity = Boolean.TRUE.equals(body.get("sessionAffinity"));
     Optional<String> externalName =
         body.get("externalName") instanceof String s ? Optional.of(s) : Optional.empty();
+    ServiceProtocol protocol;
+    try {
+      protocol =
+          body.get("protocol") instanceof String p
+              ? ServiceProtocol.valueOf(p.toUpperCase(Locale.ROOT))
+              : ServiceProtocol.TCP;
+    } catch (IllegalArgumentException e) {
+      respond(exchange, 400, "protocol must be TCP or UDP");
+      return;
+    }
 
     // No re-tenanting guard needed here (unlike this method's own history before Service names
     // were tenant-scoped): a PUT always targets the submitted tenant's own (tenantId, name) key,
@@ -2038,7 +2049,14 @@ public final class ApiServer implements AutoCloseable {
     if (authorized && !rejectIfReservedSystemTenant(exchange, tenantId)) {
       ServiceSpec spec =
           new ServiceSpec(
-              name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName);
+              name,
+              tenantId,
+              deploymentNames,
+              port,
+              targetPort,
+              sessionAffinity,
+              externalName,
+              protocol);
       // Computed against the Service set as it stands *before* this one lands, so a re-submit
       // never reads as overlapping itself, and attached before respond() writes the headers out.
       List<String> advisories =
@@ -2165,6 +2183,7 @@ public final class ApiServer implements AutoCloseable {
     map.put("port", spec.port());
     spec.targetPort().ifPresent(targetPort -> map.put("targetPort", targetPort));
     map.put("sessionAffinity", spec.sessionAffinity());
+    map.put("protocol", spec.protocol().name());
     List<Map<String, Object>> endpoints = new ArrayList<>();
     for (ServiceEndpoint endpoint :
         ServiceEndpointResolver.resolve(storeClient, spec).endpoints()) {
@@ -2187,6 +2206,7 @@ public final class ApiServer implements AutoCloseable {
     spec.targetPort().ifPresent(targetPort -> map.put("targetPort", targetPort));
     map.put("sessionAffinity", spec.sessionAffinity());
     spec.externalName().ifPresent(externalName -> map.put("externalName", externalName));
+    map.put("protocol", spec.protocol().name());
     return map;
   }
 

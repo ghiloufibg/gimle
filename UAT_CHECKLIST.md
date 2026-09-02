@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 775
+- **Total requirements**: 776
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 648
+- **Not covered by automated test**: 649
 - **Release-readiness (automated coverage)**: 16.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -18,7 +18,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 54 | 6 | 48 | 11.1% |
+| gimle-agent | 55 | 6 | 49 | 10.9% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
 | gimle-controlplane | 110 | 17 | 93 | 15.5% |
@@ -579,6 +579,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-748 | A closed Bifrost service listener never serves one more connection | Given a Bifrost listener for a Service When that Service disappears from the source Then a subsequent connection attempt is refused rather than proxied | No |
+| [ ] | GIMLE-776 | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead | No |
 
 #### Networking / Services
 

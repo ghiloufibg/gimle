@@ -94,7 +94,8 @@ public final class HttpServiceSource implements ServiceSource {
                 ? OptionalInt.of(targetPort.intValue())
                 : OptionalInt.empty(),
             Boolean.TRUE.equals(body.get("sessionAffinity")),
-            endpoints));
+            endpoints,
+            "UDP".equals(body.get("protocol"))));
   }
 
   private HttpResponse<String> send(URI uri, String operation)

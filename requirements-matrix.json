@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 775,
+  "requirementCount": 776,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15642,6 +15642,32 @@
         "When one source issues requests faster than its configured budget allows",
         "Then further requests from that source are refused with 429 and a Retry-After",
         "And requests from other sources, including node agents' own heartbeats, are unaffected"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-776",
+      "module": "gimle-agent",
+      "feature": "A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams",
+      "category": "Networking",
+      "userStory": "As an operator fronting a UDP workload (a DNS responder, a metrics receiver) with a Service, I want Bifrost to relay its datagrams and route each reply back to the client that sent the request, so a UDP workload is reachable through a Service at all.",
+      "statusDetail": "Implemented. `ServiceListener` relayed TCP only (`ServerSocket`/`Socket`), so no Service could front a DNS-shaped or any other datagram workload. `ServiceSpec` gained a `protocol` field (`ServiceProtocol.TCP|UDP`, the `Service.spec.ports[].protocol` analogue, TCP being what declaring none means), carried through `DomainCodec`, the `/services` API, the `/services/{name}/endpoints` payload Bifrost reads, and `gimle set service --protocol`. A UDP Service now binds `UdpServiceListener` instead. The hard part is reply routing: UDP has no connection, so every datagram arrives on one bound socket and the listener keeps a session per client address -- a dedicated upstream `DatagramSocket` connected to the selected backend plus a reader returning replies to that client -- reaped once idle past 60s, swept on the receive path rather than by a timer. Same shape kube-proxy's userspace UDP mode used. Two consequences documented rather than papered over: a session pins its backend for its lifetime whether or not `sessionAffinity` is declared (one upstream socket per client is what makes reply routing work; `sessionAffinity` instead decides how a *new* session picks its backend), and a UDP Service under a NetworkPolicy always fails closed, since a datagram relay has no handshake and no peer certificate from which to learn a caller's tenant -- the same permanent limit a plaintext TCP listener has, reached sooner because UDP has no TLS to opt into. Both listeners now sit behind a `ServiceRelay` interface so `BifrostProxy`'s poll loop drives either.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceProtocol.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java` (`protocol`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceRelay.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`)"
+      ],
+      "testCoverageDetail": "New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing).",
+      "gherkinSteps": [
+        "Given a Service declaring protocol UDP over a datagram workload",
+        "When two different clients each send a datagram to the Service's bound address",
+        "Then each client receives the reply to its own request",
+        "And a NetworkPolicy applying to that Service causes every datagram to be dropped instead"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

@@ -49,6 +49,7 @@ import com.gimle.mimir.manifest.JobTemplate;
 import com.gimle.mimir.manifest.LimitRangeSpec;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.ServiceProtocol;
 import com.gimle.mimir.manifest.ServiceSpec;
 import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.manifest.WorkloadSpec;
@@ -177,6 +178,7 @@ public final class DomainCodec {
     out.writeInt(spec.targetPort().orElse(0));
     out.writeBoolean(spec.sessionAffinity());
     writeOptionalString(out, spec.externalName());
+    out.writeUTF(spec.protocol().name());
   }
 
   public static ServiceSpec readServiceSpec(DataInputStream in) throws IOException {
@@ -193,8 +195,9 @@ public final class DomainCodec {
         rawTargetPort == 0 ? OptionalInt.empty() : OptionalInt.of(rawTargetPort);
     boolean sessionAffinity = in.readBoolean();
     Optional<String> externalName = readOptionalString(in);
+    ServiceProtocol protocol = ServiceProtocol.valueOf(in.readUTF());
     return new ServiceSpec(
-        name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName);
+        name, tenantId, deploymentNames, port, targetPort, sessionAffinity, externalName, protocol);
   }
 
   public static void writeNetworkPolicySpec(DataOutputStream out, NetworkPolicySpec spec)

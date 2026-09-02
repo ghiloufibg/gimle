@@ -785,6 +785,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-773 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Observability | Complete | Yes |
 | GIMLE-774 | An instance's own service-fabric address is readable through the control plane, so the fabric's listener-side defences can be exercised against a real cluster | Service fabric | Complete | Yes |
 | GIMLE-775 | Every control-plane API route is rate limited per source address, not only the unauthenticated CSR submission | Security | Complete | Yes |
+| GIMLE-776 | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Networking | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3420,6 +3421,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When a destroy is issued for sessions[0] naming tenant `globex`, or naming no tenant at all
   Then the agent answers 404 and the volume is still on disk
   And a second destroy of a volume already reclaimed answers 404 rather than reporting success again
+  ```
+
+#### GIMLE-776 — A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams
+
+- **Category**: Networking
+- **User story**: As an operator fronting a UDP workload (a DNS responder, a metrics receiver) with a Service, I want Bifrost to relay its datagrams and route each reply back to the client that sent the request, so a UDP workload is reachable through a Service at all.
+- **Status**: Implemented. `ServiceListener` relayed TCP only (`ServerSocket`/`Socket`), so no Service could front a DNS-shaped or any other datagram workload. `ServiceSpec` gained a `protocol` field (`ServiceProtocol.TCP|UDP`, the `Service.spec.ports[].protocol` analogue, TCP being what declaring none means), carried through `DomainCodec`, the `/services` API, the `/services/{name}/endpoints` payload Bifrost reads, and `gimle set service --protocol`. A UDP Service now binds `UdpServiceListener` instead. The hard part is reply routing: UDP has no connection, so every datagram arrives on one bound socket and the listener keeps a session per client address -- a dedicated upstream `DatagramSocket` connected to the selected backend plus a reader returning replies to that client -- reaped once idle past 60s, swept on the receive path rather than by a timer. Same shape kube-proxy's userspace UDP mode used. Two consequences documented rather than papered over: a session pins its backend for its lifetime whether or not `sessionAffinity` is declared (one upstream socket per client is what makes reply routing work; `sessionAffinity` instead decides how a *new* session picks its backend), and a UDP Service under a NetworkPolicy always fails closed, since a datagram relay has no handshake and no peer certificate from which to learn a caller's tenant -- the same permanent limit a plaintext TCP listener has, reached sooner because UDP has no TLS to opt into. Both listeners now sit behind a `ServiceRelay` interface so `BifrostProxy`'s poll loop drives either.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceProtocol.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java` (`protocol`), `gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceRelay.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`)
+- **Test coverage**: New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service declaring protocol UDP over a datagram workload
+  When two different clients each send a datagram to the Service's bound address
+  Then each client receives the reply to its own request
+  And a NetworkPolicy applying to that Service causes every datagram to be dropped instead
   ```
 
 ### gimle-mimir
