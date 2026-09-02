@@ -38,6 +38,7 @@ import { Route as InstancesIndexRouteImport } from './routes/instances.index'
 import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index'
 import { Route as DaemonsetsIndexRouteImport } from './routes/daemonsets.index'
 import { Route as CronjobsIndexRouteImport } from './routes/cronjobs.index'
+import { Route as AppsIndexRouteImport } from './routes/apps.index'
 import { Route as TenantsIdRouteImport } from './routes/tenants.$id'
 import { Route as StatefulsetsNameRouteImport } from './routes/statefulsets.$name'
 import { Route as NodesNodeIdRouteImport } from './routes/nodes.$nodeId'
@@ -49,6 +50,7 @@ import { Route as DaemonsetsNameRouteImport } from './routes/daemonsets.$name'
 import { Route as CronjobsNewRouteImport } from './routes/cronjobs.new'
 import { Route as CronjobsNameRouteImport } from './routes/cronjobs.$name'
 import { Route as InstancesNameIdxRouteImport } from './routes/instances.$name.$idx'
+import { Route as AppsKindNameRouteImport } from './routes/apps.$kind.$name'
 
 const VolumesRoute = VolumesRouteImport.update({
   id: '/volumes',
@@ -195,6 +197,11 @@ const CronjobsIndexRoute = CronjobsIndexRouteImport.update({
   path: '/cronjobs/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppsIndexRoute = AppsIndexRouteImport.update({
+  id: '/apps/',
+  path: '/apps/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TenantsIdRoute = TenantsIdRouteImport.update({
   id: '/tenants/$id',
   path: '/tenants/$id',
@@ -250,6 +257,11 @@ const InstancesNameIdxRoute = InstancesNameIdxRouteImport.update({
   path: '/instances/$name/$idx',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppsKindNameRoute = AppsKindNameRouteImport.update({
+  id: '/apps/$kind/$name',
+  path: '/apps/$kind/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -283,6 +295,7 @@ export interface FileRoutesByFullPath {
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/statefulsets/$name': typeof StatefulsetsNameRoute
   '/tenants/$id': typeof TenantsIdRoute
+  '/apps/': typeof AppsIndexRoute
   '/cronjobs/': typeof CronjobsIndexRoute
   '/daemonsets/': typeof DaemonsetsIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
@@ -291,6 +304,7 @@ export interface FileRoutesByFullPath {
   '/nodes/': typeof NodesIndexRoute
   '/statefulsets/': typeof StatefulsetsIndexRoute
   '/tenants/': typeof TenantsIndexRoute
+  '/apps/$kind/$name': typeof AppsKindNameRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
 }
 export interface FileRoutesByTo {
@@ -325,6 +339,7 @@ export interface FileRoutesByTo {
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/statefulsets/$name': typeof StatefulsetsNameRoute
   '/tenants/$id': typeof TenantsIdRoute
+  '/apps': typeof AppsIndexRoute
   '/cronjobs': typeof CronjobsIndexRoute
   '/daemonsets': typeof DaemonsetsIndexRoute
   '/deployments': typeof DeploymentsIndexRoute
@@ -333,6 +348,7 @@ export interface FileRoutesByTo {
   '/nodes': typeof NodesIndexRoute
   '/statefulsets': typeof StatefulsetsIndexRoute
   '/tenants': typeof TenantsIndexRoute
+  '/apps/$kind/$name': typeof AppsKindNameRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
 }
 export interface FileRoutesById {
@@ -368,6 +384,7 @@ export interface FileRoutesById {
   '/nodes/$nodeId': typeof NodesNodeIdRoute
   '/statefulsets/$name': typeof StatefulsetsNameRoute
   '/tenants/$id': typeof TenantsIdRoute
+  '/apps/': typeof AppsIndexRoute
   '/cronjobs/': typeof CronjobsIndexRoute
   '/daemonsets/': typeof DaemonsetsIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
@@ -376,6 +393,7 @@ export interface FileRoutesById {
   '/nodes/': typeof NodesIndexRoute
   '/statefulsets/': typeof StatefulsetsIndexRoute
   '/tenants/': typeof TenantsIndexRoute
+  '/apps/$kind/$name': typeof AppsKindNameRoute
   '/instances/$name/$idx': typeof InstancesNameIdxRoute
 }
 export interface FileRouteTypes {
@@ -412,6 +430,7 @@ export interface FileRouteTypes {
     | '/nodes/$nodeId'
     | '/statefulsets/$name'
     | '/tenants/$id'
+    | '/apps/'
     | '/cronjobs/'
     | '/daemonsets/'
     | '/deployments/'
@@ -420,6 +439,7 @@ export interface FileRouteTypes {
     | '/nodes/'
     | '/statefulsets/'
     | '/tenants/'
+    | '/apps/$kind/$name'
     | '/instances/$name/$idx'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -454,6 +474,7 @@ export interface FileRouteTypes {
     | '/nodes/$nodeId'
     | '/statefulsets/$name'
     | '/tenants/$id'
+    | '/apps'
     | '/cronjobs'
     | '/daemonsets'
     | '/deployments'
@@ -462,6 +483,7 @@ export interface FileRouteTypes {
     | '/nodes'
     | '/statefulsets'
     | '/tenants'
+    | '/apps/$kind/$name'
     | '/instances/$name/$idx'
   id:
     | '__root__'
@@ -496,6 +518,7 @@ export interface FileRouteTypes {
     | '/nodes/$nodeId'
     | '/statefulsets/$name'
     | '/tenants/$id'
+    | '/apps/'
     | '/cronjobs/'
     | '/daemonsets/'
     | '/deployments/'
@@ -504,6 +527,7 @@ export interface FileRouteTypes {
     | '/nodes/'
     | '/statefulsets/'
     | '/tenants/'
+    | '/apps/$kind/$name'
     | '/instances/$name/$idx'
   fileRoutesById: FileRoutesById
 }
@@ -539,6 +563,7 @@ export interface RootRouteChildren {
   NodesNodeIdRoute: typeof NodesNodeIdRoute
   StatefulsetsNameRoute: typeof StatefulsetsNameRoute
   TenantsIdRoute: typeof TenantsIdRoute
+  AppsIndexRoute: typeof AppsIndexRoute
   CronjobsIndexRoute: typeof CronjobsIndexRoute
   DaemonsetsIndexRoute: typeof DaemonsetsIndexRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
@@ -547,6 +572,7 @@ export interface RootRouteChildren {
   NodesIndexRoute: typeof NodesIndexRoute
   StatefulsetsIndexRoute: typeof StatefulsetsIndexRoute
   TenantsIndexRoute: typeof TenantsIndexRoute
+  AppsKindNameRoute: typeof AppsKindNameRoute
   InstancesNameIdxRoute: typeof InstancesNameIdxRoute
 }
 
@@ -755,6 +781,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CronjobsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/apps/': {
+      id: '/apps/'
+      path: '/apps'
+      fullPath: '/apps/'
+      preLoaderRoute: typeof AppsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tenants/$id': {
       id: '/tenants/$id'
       path: '/tenants/$id'
@@ -832,6 +865,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InstancesNameIdxRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/apps/$kind/$name': {
+      id: '/apps/$kind/$name'
+      path: '/apps/$kind/$name'
+      fullPath: '/apps/$kind/$name'
+      preLoaderRoute: typeof AppsKindNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -867,6 +907,7 @@ const rootRouteChildren: RootRouteChildren = {
   NodesNodeIdRoute: NodesNodeIdRoute,
   StatefulsetsNameRoute: StatefulsetsNameRoute,
   TenantsIdRoute: TenantsIdRoute,
+  AppsIndexRoute: AppsIndexRoute,
   CronjobsIndexRoute: CronjobsIndexRoute,
   DaemonsetsIndexRoute: DaemonsetsIndexRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
@@ -875,6 +916,7 @@ const rootRouteChildren: RootRouteChildren = {
   NodesIndexRoute: NodesIndexRoute,
   StatefulsetsIndexRoute: StatefulsetsIndexRoute,
   TenantsIndexRoute: TenantsIndexRoute,
+  AppsKindNameRoute: AppsKindNameRoute,
   InstancesNameIdxRoute: InstancesNameIdxRoute,
 }
 export const routeTree = rootRouteImport
