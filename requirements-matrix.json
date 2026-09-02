@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 772,
+  "requirementCount": 773,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15571,6 +15571,31 @@
         "When an operator reads the per-deployment rollup",
         "Then two rows are returned, one naming each tenant, neither merged into a single average",
         "And an untenanted deployment named `api` is a third, distinct row carrying a null tenant"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-773",
+      "module": "gimle-core",
+      "feature": "An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under",
+      "category": "Observability",
+      "userStory": "As an operator reading an instance's memory and CPU usage, I want the declared limit and isolation tier alongside it, so I can tell whether 142Mi is comfortable or about to die instead of reading a number with no denominator.",
+      "statusDetail": "Implemented. `ModuleDescriptor` declares `isolationTier` and `resourceLimit` and both are load-bearing at runtime (`AgentMain.prepareResourceLimit` turns the limit into the worker JVM's own `-Xmx`/`-XX:ActiveProcessorCount`), but neither was ever persisted or served: `InstanceObservation` carried `cpuMillicoresUsed`/`memoryBytesUsed` with no ceiling to read them against and no tier, so `GET /deployments`, `/daemonsets`, `/statefulsets` and `/jobs` -- all four sharing the single `ApiServer.observationToJson` -- could report a usage number but never a judgement. Both are now relayed as `Optional` fields along the pipe that already runs agent -> control plane -> store: `AgentMain.observationJson` reads them off the `ModuleDescriptor` the agent already retains on `SupervisedInstance`, `ApiServer` reads/writes them in its one shared observation codec, and `DomainCodec` encodes them onto the Raft-replicated heartbeat. Empty for a vessel instance, which is an OS process with no module descriptor behind it. A consumer must render the limit per tier or it misleads: at TIER_2 one instance owns its worker JVM so a used/limit ratio is correct, while at TIER_1 several instances share a JVM whose heap was sized for whichever instance spawned it, so the declared limit is what the manifest asked for rather than a bound applied to that instance.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java` (`isolationTier`, `resourceLimit`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationToJson`, `observationFromJson`, `isolationTierFromJson`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`)"
+      ],
+      "testCoverageDetail": "AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them.",
+      "gherkinSteps": [
+        "Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit",
+        "When a node agent heartbeats an observation for one of its instances",
+        "And an operator reads that deployment's status",
+        "Then the instance's observation carries both the declared tier and the declared limit",
+        "And an instance with no module descriptor behind it carries neither rather than an invented ceiling"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

@@ -37,7 +37,14 @@ also diffs `WorkerMetrics`' cumulative request/error counters against the previo
 real request-rate/error-rate figures (not just CPU/memory), plus each module's current
 `BoundedModuleScheduler` queue depth — all three travel through `ControlMessage.MetricsReport` to
 the node agent and on into `InstanceObservation`, the same heartbeat pipeline CPU/memory usage
-already rides. The control plane exposes a `GET /metrics` per-deployment rollup (owning tenant, average request
+already rides. Each observation also carries the declared `isolationTier` and `resources.limit` the
+instance was admitted under, read straight off the module descriptor the agent already holds, so a
+reader has a ceiling to judge the usage figures against rather than a bare number. Both are absent
+for a vessel instance, which is an OS process with no module descriptor behind it. Read the limit
+against the tier: at `TIER_2` the instance owns its worker JVM, so the declared limit is its own
+enforced `-Xmx` and a used/limit ratio is correct; at `TIER_1` several instances share a worker JVM
+sized for whichever instance spawned it, so the declared limit is what the manifest asked for, not a
+bound applied to that instance. The control plane exposes a `GET /metrics` per-deployment rollup (owning tenant, average request
 rate, average error rate, instance count) built from that same observation data, and the console's
 own Instances/Metrics screens surface both figures per instance and per deployment (an error-rate
 column on the Instances table, a total-error-rate stat tile and a ranked "instances with errors"

@@ -3,6 +3,7 @@ package com.gimle.mimir.codec;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ReclaimPolicy;
 import com.gimle.core.module.ResourceSpec;
@@ -274,6 +275,62 @@ class DomainCodecTest {
 
     assertEquals(observation, roundTripped);
     assertEquals(54321, roundTripped.ports().get("HTTP_PORT"));
+  }
+
+  @Test
+  void an_instance_observation_with_a_tier_and_resource_limit_round_trips() throws Exception {
+    InstanceObservation observation =
+        new InstanceObservation(
+            "billing-api",
+            0,
+            new ModuleId("com.acme.billing-api", Version.parse("2.3.1")),
+            "ACTIVE",
+            true,
+            true,
+            0.0,
+            0,
+            0L,
+            0L,
+            0.0,
+            Map.of(),
+            0L,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.of(IsolationTier.TIER_2),
+            Optional.of(new ResourceSpec("256Mi", "1000m")));
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
+    InstanceObservation roundTripped =
+        DomainCodec.readInstanceObservation(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(observation, roundTripped);
+    assertEquals(Optional.of(IsolationTier.TIER_2), roundTripped.isolationTier());
+    assertEquals(Optional.of(new ResourceSpec("256Mi", "1000m")), roundTripped.resourceLimit());
+  }
+
+  @Test
+  void an_instance_observation_with_no_tier_or_limit_round_trips_as_empty() throws Exception {
+    // A vessel instance is an OS process with no module descriptor behind it, so it reports
+    // neither -- the codec must carry that absence rather than inventing a ceiling.
+    InstanceObservation observation =
+        new InstanceObservation(
+            "greeter",
+            0,
+            new ModuleId("com.acme.greeter", Version.parse("1.0.0")),
+            "ACTIVE",
+            true,
+            true);
+
+    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+    DomainCodec.writeInstanceObservation(new DataOutputStream(buffer), observation);
+    InstanceObservation roundTripped =
+        DomainCodec.readInstanceObservation(
+            new DataInputStream(new ByteArrayInputStream(buffer.toByteArray())));
+
+    assertEquals(Optional.empty(), roundTripped.isolationTier());
+    assertEquals(Optional.empty(), roundTripped.resourceLimit());
   }
 
   @Test

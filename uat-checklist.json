@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 772,
+    "totalRequirements": 773,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 645,
-    "releaseReadinessPercent": 16.5
+    "notCoveredByAutomatedTest": 646,
+    "releaseReadinessPercent": 16.4
   },
   "items": [
     {
@@ -8494,6 +8494,17 @@
       "category": "Observability",
       "feature": "Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable",
       "step": "Given tenants `acme` and `globex` each running a deployment named `api` When an operator reads the per-deployment rollup Then two rows are returned, one naming each tenant, neither merged into a single average And an untenanted deployment named `api` is a third, distinct row carrying a null tenant",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-773",
+      "module": "gimle-core",
+      "category": "Observability",
+      "feature": "An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under",
+      "step": "Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

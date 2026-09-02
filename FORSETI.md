@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 772 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 773 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 192 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 166, uncited 0). |
-| **User-observable** | **511** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 511 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **512** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 512 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -124,7 +124,7 @@ not carry over to the new one.
 |---|---|---|---|---:|---:|
 | **OPS** | Ops — Platform operator | The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day. | A B C | 15 | 65 |
 | **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 6 | 49 |
-| **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 55 |
+| **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 56 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 53 |
 | **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 36 |
 | **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 52 |
@@ -185,7 +185,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 
 | ID | Env | Objective | Oracle | Requirements |
 |---|---|---|---|---|
-| **DEP-1** | A | Write a Deployment manifest from scratch (no copy-paste of a bundled example), `apply -f` it, watch it reach ACTIVE via `get deployments`, `get instances`, `gimle events`, and the console's Deployments/Instances/detail pages. | Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree. | GIMLE-371, GIMLE-274, GIMLE-219, GIMLE-045, GIMLE-084, GIMLE-032, GIMLE-377, GIMLE-437, GIMLE-439, GIMLE-444, GIMLE-753, GIMLE-157 |
+| **DEP-1** | A | Write a Deployment manifest from scratch (no copy-paste of a bundled example), `apply -f` it, watch it reach ACTIVE via `get deployments`, `get instances`, `gimle events`, and the console's Deployments/Instances/detail pages. | Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree. Each instance's reported resource usage is shown against the limit and isolation tier it was admitted under, and a shared-worker (TIER_1) instance is not drawn as though that limit were its own enforced ceiling. | GIMLE-371, GIMLE-274, GIMLE-219, GIMLE-045, GIMLE-084, GIMLE-032, GIMLE-377, GIMLE-437, GIMLE-439, GIMLE-444, GIMLE-753, GIMLE-157, GIMLE-773 |
 | **DEP-2** | A | Re-apply with a bumped version while a caller is hitting the service across workers. | Old and new coexist briefly, callers cut over version-aware with zero failed calls (same-worker and cross-worker alike), the old layer disposes; `deployment revisions` and the console's revision panel list both. | GIMLE-058, GIMLE-054, GIMLE-685, GIMLE-601, GIMLE-602, GIMLE-714, GIMLE-001 |
 | **DEP-3** | A | `deployment rollback --to-revision` to the first version, then from the console's revision panel. | The running version actually reverts (observable behaviour, not just the recorded manifest); the rollback itself becomes a new revision. | GIMLE-601, GIMLE-602, GIMLE-714 |
 | **DEP-4** | A | Redeploy the same Tier-1 module 25 times in a loop while watching the Metrics screen's worker metaspace/thread gauges and the count of meters per instance. | Metaspace stays flat (no sawtooth), no leak is reported in the worker log, the per-module meter set is evicted on each uninstall rather than accumulating. | GIMLE-048, GIMLE-085, GIMLE-712, GIMLE-353, GIMLE-097 |
@@ -1266,4 +1266,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-770 | `gimle-cli` | `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to | observable | FLEET | BATCH-6, GOV-9 |
 | GIMLE-771 | `gimle-agent` | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | observable | FLEET | BATCH-6 |
 | GIMLE-772 | `gimle-controlplane` | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | observable | FLEET | GOV-9 |
+| GIMLE-773 | `gimle-core` | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | observable | FLEET | DEP-1 |
 <!-- /forseti:generated -->

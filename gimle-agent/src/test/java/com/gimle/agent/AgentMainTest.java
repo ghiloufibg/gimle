@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.gimle.core.module.HealthProbes;
 import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleDescriptor;
+import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
@@ -402,6 +403,43 @@ class AgentMainTest {
 
     assertEquals(250L, observation.get("cpuMillicoresUsed"));
     assertEquals(1_048_576L, observation.get("memoryBytesUsed"));
+  }
+
+  @Test
+  void observation_json_reports_the_declared_isolation_tier_and_resource_limit() {
+    // Without these, a reader has usage numbers and no ceiling to read them against -- 142Mi tells
+    // an operator nothing about whether the instance is comfortable or about to die.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "orders-service", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
+    instance.lifecycleState = "ACTIVE";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals("TIER_1", observation.get("isolationTier"));
+    // The limit, never the request: the request is a scheduling input, the limit is the ceiling
+    // the instance actually runs under.
+    assertEquals(Map.of("memory", "64Mi", "cpu", "2000m"), observation.get("resourceLimit"));
+  }
+
+  @Test
+  void observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held() {
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "orders-service",
+            0,
+            new ModuleId("com.acme.orders", Version.parse("1.0.0")),
+            "/does/not/matter.jar",
+            Optional.empty());
+    SupervisedInstance instance = new SupervisedInstance(assigned, null, null, null);
+    instance.lifecycleState = "ACTIVE";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertFalse(observation.containsKey("isolationTier"));
+    assertFalse(observation.containsKey("resourceLimit"));
   }
 
   @Test

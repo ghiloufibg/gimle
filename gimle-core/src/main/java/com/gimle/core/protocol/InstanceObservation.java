@@ -1,6 +1,8 @@
 package com.gimle.core.protocol;
 
+import com.gimle.core.module.IsolationTier;
 import com.gimle.core.module.ModuleId;
+import com.gimle.core.module.ResourceSpec;
 import java.util.Map;
 import java.util.Optional;
 
@@ -48,6 +50,20 @@ import java.util.Optional;
  * ever lands both on the very same node -- every {@code *Reconciler}/{@code
  * ServiceEndpointResolver} match against this record's own {@code deploymentName}/{@code
  * instanceIndex} also checks {@code tenantId} for exactly this reason.
+ *
+ * <p>{@code isolationTier} and {@code resourceLimit} are the declared values from the running
+ * module's own descriptor, relayed so a reader has a denominator for {@code cpuMillicoresUsed}/
+ * {@code memoryBytesUsed} -- a usage figure with no ceiling beside it is a number, not a judgement.
+ * Both are {@link Optional#empty()} for a vessel instance, which is an OS process with no module
+ * descriptor behind it at all.
+ *
+ * <p>A consumer must read {@code resourceLimit} against {@code isolationTier} or it will mislead.
+ * At {@link IsolationTier#TIER_2} one instance owns its worker JVM, so the declared limit is that
+ * instance's own enforced {@code -Xmx} ceiling and a used/limit ratio is correct. At {@link
+ * IsolationTier#TIER_1} several instances share one worker JVM whose heap was sized for whichever
+ * instance happened to spawn it, so the declared limit is what the manifest asked for, not a bound
+ * anything applies to this instance -- rendering it as a ratio there draws a ceiling that does not
+ * exist.
  */
 public record InstanceObservation(
     String deploymentName,
@@ -64,7 +80,9 @@ public record InstanceObservation(
     Map<String, Integer> ports,
     long volumeUsageBytes,
     Optional<String> workerId,
-    Optional<String> tenantId) {
+    Optional<String> tenantId,
+    Optional<IsolationTier> isolationTier,
+    Optional<ResourceSpec> resourceLimit) {
 
   public InstanceObservation {
     if (deploymentName == null || deploymentName.isBlank()) {
@@ -92,10 +110,57 @@ public record InstanceObservation(
     if (tenantId == null) {
       throw new IllegalArgumentException("tenantId must not be null; use Optional.empty()");
     }
+    if (isolationTier == null) {
+      throw new IllegalArgumentException("isolationTier must not be null; use Optional.empty()");
+    }
+    if (resourceLimit == null) {
+      throw new IllegalArgumentException("resourceLimit must not be null; use Optional.empty()");
+    }
     ports = Map.copyOf(ports);
   }
 
-  /** Back-compat: defaults {@code tenantId} to {@link Optional#empty()}. */
+  /**
+   * For a call site with no module descriptor in hand -- a vessel instance, or an observation
+   * rebuilt from a payload that carried no declared tier/limit. Defaults both to {@link
+   * Optional#empty()}.
+   */
+  public InstanceObservation(
+      String deploymentName,
+      int instanceIndex,
+      ModuleId moduleId,
+      String lifecycleState,
+      boolean alive,
+      boolean ready,
+      double requestRatePerSecond,
+      int queueDepth,
+      long cpuMillicoresUsed,
+      long memoryBytesUsed,
+      double errorRatePerSecond,
+      Map<String, Integer> ports,
+      long volumeUsageBytes,
+      Optional<String> workerId,
+      Optional<String> tenantId) {
+    this(
+        deploymentName,
+        instanceIndex,
+        moduleId,
+        lifecycleState,
+        alive,
+        ready,
+        requestRatePerSecond,
+        queueDepth,
+        cpuMillicoresUsed,
+        memoryBytesUsed,
+        errorRatePerSecond,
+        ports,
+        volumeUsageBytes,
+        workerId,
+        tenantId,
+        Optional.empty(),
+        Optional.empty());
+  }
+
+  /** Defaults {@code tenantId} to {@link Optional#empty()}. */
   public InstanceObservation(
       String deploymentName,
       int instanceIndex,
@@ -129,7 +194,7 @@ public record InstanceObservation(
         Optional.empty());
   }
 
-  /** Back-compat: defaults {@code workerId} and {@code tenantId} to {@link Optional#empty()}. */
+  /** Defaults {@code workerId} and {@code tenantId} to {@link Optional#empty()}. */
   public InstanceObservation(
       String deploymentName,
       int instanceIndex,
@@ -161,7 +226,7 @@ public record InstanceObservation(
         Optional.empty());
   }
 
-  /** Back-compat: defaults {@code volumeUsageBytes} to 0. */
+  /** Defaults {@code volumeUsageBytes} to 0. */
   public InstanceObservation(
       String deploymentName,
       int instanceIndex,
@@ -191,7 +256,7 @@ public record InstanceObservation(
         0L);
   }
 
-  /** Back-compat: defaults {@code ports} to an empty map. */
+  /** Defaults {@code ports} to an empty map. */
   public InstanceObservation(
       String deploymentName,
       int instanceIndex,

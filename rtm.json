@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 772,
+  "requirementCount": 773,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13368,6 +13368,24 @@
         "`gimle-console/src/types/index.ts` (`DeploymentMetricsRollup.tenantId`)"
       ],
       "gapNote": "No .feature scenario reads GET /metrics; Holmgang asserts on the platform's own lifecycle event log rather than the rollup endpoint. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-773",
+      "module": "gimle-core",
+      "feature": "An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. `ModuleDescriptor` declares `isolationTier` and `resourceLimit` and both are load-bearing at runtime (`AgentMain.prepareResourceLimit` turns the limit into the worker JVM's own `-Xmx`/`-XX:ActiveProcessorCount`), but neither was ever persisted or served: `InstanceObservation` carried `cpuMillicoresUsed`/`memoryBytesUsed` with no ceiling to read them against and no tier, so `GET /deployments`, `/daemonsets`, `/statefulsets` and `/jobs` -- all four sharing the single `ApiServer.observationToJson` -- could report a usage number but never a judgement. Both are now relayed as `Optional` fields along the pipe that already runs agent -> control plane -> store: `AgentMain.observationJson` reads them off the `ModuleDescriptor` the agent already retains on `SupervisedInstance`, `ApiServer` reads/writes them in its one shared observation codec, and `DomainCodec` encodes them onto the Raft-replicated heartbeat. Empty for a vessel instance, which is an OS process with no module descriptor behind it. A consumer must render the limit per tier or it misleads: at TIER_2 one instance owns its worker JVM so a used/limit ratio is correct, while at TIER_1 several instances share a JVM whose heap was sized for whichever instance spawned it, so the declared limit is what the manifest asked for rather than a bound applied to that instance.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java` (`isolationTier`, `resourceLimit`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationToJson`, `observationFromJson`, `isolationTierFromJson`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`)"
+      ],
+      "gapNote": "No .feature scenario reads an instance observation's tier or limit off a workload status response; Holmgang's scenarios assert lifecycle state and placement, not the observation's own resource fields. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

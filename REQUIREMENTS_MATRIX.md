@@ -782,6 +782,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-770 | `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to | CLI | Complete | Yes |
 | GIMLE-771 | A volume destroy that removed nothing reports 404 instead of a false success, and a blank `?tenant=` is a real spelling of the untenanted namespace | Operations | Complete | Yes |
 | GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | Observability | Complete | Yes |
+| GIMLE-773 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Observability | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -1472,6 +1473,23 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then only matching WARN and ERROR lines are returned
   And the same query against a gone node's shipped history returns the same lines
   And a query matching nothing reports that rather than returning silence
+  ```
+
+#### GIMLE-773 — An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under
+
+- **Category**: Observability
+- **User story**: As an operator reading an instance's memory and CPU usage, I want the declared limit and isolation tier alongside it, so I can tell whether 142Mi is comfortable or about to die instead of reading a number with no denominator.
+- **Status**: Implemented. `ModuleDescriptor` declares `isolationTier` and `resourceLimit` and both are load-bearing at runtime (`AgentMain.prepareResourceLimit` turns the limit into the worker JVM's own `-Xmx`/`-XX:ActiveProcessorCount`), but neither was ever persisted or served: `InstanceObservation` carried `cpuMillicoresUsed`/`memoryBytesUsed` with no ceiling to read them against and no tier, so `GET /deployments`, `/daemonsets`, `/statefulsets` and `/jobs` -- all four sharing the single `ApiServer.observationToJson` -- could report a usage number but never a judgement. Both are now relayed as `Optional` fields along the pipe that already runs agent -> control plane -> store: `AgentMain.observationJson` reads them off the `ModuleDescriptor` the agent already retains on `SupervisedInstance`, `ApiServer` reads/writes them in its one shared observation codec, and `DomainCodec` encodes them onto the Raft-replicated heartbeat. Empty for a vessel instance, which is an OS process with no module descriptor behind it. A consumer must render the limit per tier or it misleads: at TIER_2 one instance owns its worker JVM so a used/limit ratio is correct, while at TIER_1 several instances share a JVM whose heap was sized for whichever instance spawned it, so the declared limit is what the manifest asked for rather than a bound applied to that instance.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java` (`isolationTier`, `resourceLimit`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationToJson`, `observationFromJson`, `isolationTierFromJson`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`)
+- **Test coverage**: AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit
+  When a node agent heartbeats an observation for one of its instances
+  And an operator reads that deployment's status
+  Then the instance's observation carries both the declared tier and the declared limit
+  And an instance with no module descriptor behind it carries neither rather than an invented ceiling
   ```
 
 ### gimle-module

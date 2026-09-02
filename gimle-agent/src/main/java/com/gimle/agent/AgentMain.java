@@ -1095,7 +1095,22 @@ public final class AgentMain {
       observation.put("workerId", instance.fabricWorkerId);
     }
     instance.assigned.tenantId().ifPresent(tenantId -> observation.put("tenantId", tenantId));
+    // The declared tier and ceiling this instance was admitted under, relayed so a reader has a
+    // denominator for the usage numbers above. Read straight off the descriptor the agent already
+    // holds -- null only for a unit test that constructs a SupervisedInstance with no descriptor
+    // behind it, and omitted entirely in that case rather than sent as null.
+    if (instance.descriptor != null) {
+      observation.put("isolationTier", instance.descriptor.isolationTier().name());
+      observation.put("resourceLimit", resourceSpecJson(instance.descriptor.resourceLimit()));
+    }
     return observation;
+  }
+
+  private static Map<String, Object> resourceSpecJson(ResourceSpec spec) {
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("memory", spec.memory());
+    map.put("cpu", spec.cpu());
+    return map;
   }
 
   /**

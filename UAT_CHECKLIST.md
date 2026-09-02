@@ -6,14 +6,14 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 772
+- **Total requirements**: 773
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 645
-- **Release-readiness (automated coverage)**: 16.5%
+- **Not covered by automated test**: 646
+- **Release-readiness (automated coverage)**: 16.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
-| gimle-core | 51 | 14 | 37 | 27.5% |
+| gimle-core | 52 | 14 | 38 | 26.9% |
 | gimle-module | 27 | 12 | 15 | 44.4% |
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
@@ -153,6 +153,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-032 | Instance lifecycle event log model | Given a TRANSITION_FAILED event, When constructed, Then it carries a non-empty causeSummary alongside a stable id. | No |
 | [ ] | GIMLE-737 | Logs can be filtered by level threshold and text at the reader, on every surface | Given a log containing lines at several levels When it is read with a level threshold of WARN and a text filter Then only matching WARN and ERROR lines are returned And the same query against a gone node's shipped history returns the same lines And a query matching nothing reports that rather than returning silence | No |
+| [ ] | GIMLE-773 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling | No |
 
 #### Observability / Logging
 

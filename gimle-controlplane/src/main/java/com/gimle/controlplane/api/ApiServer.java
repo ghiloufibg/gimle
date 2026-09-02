@@ -4533,7 +4533,28 @@ public final class ApiServer implements AutoCloseable {
         portsFromJson(map.get("ports")),
         numberField(map, "volumeUsageBytes", 0L).longValue(),
         Optional.ofNullable((String) map.get("workerId")),
-        Optional.ofNullable((String) map.get("tenantId")));
+        Optional.ofNullable((String) map.get("tenantId")),
+        isolationTierFromJson(map.get("isolationTier")),
+        map.get("resourceLimit") instanceof Map<?, ?> limit
+            ? resourceSpecFromJson(limit)
+            : Optional.empty());
+  }
+
+  /**
+   * Absent whenever the reporting agent held no module descriptor for the instance -- a vessel is
+   * an OS process and has none. An unrecognized tier name is treated as absent rather than failing
+   * the whole heartbeat: this field is advisory, and one unreadable value must not cost the control
+   * plane every other observation in the payload.
+   */
+  private static Optional<IsolationTier> isolationTierFromJson(Object raw) {
+    if (!(raw instanceof String name)) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(IsolationTier.valueOf(name));
+    } catch (IllegalArgumentException e) {
+      return Optional.empty();
+    }
   }
 
   /** {@code ports}, when present, is a vessel instance's own declared-port-name -> number map. */
@@ -4572,6 +4593,8 @@ public final class ApiServer implements AutoCloseable {
     }
     obs.workerId().ifPresent(id -> map.put("workerId", id));
     obs.tenantId().ifPresent(id -> map.put("tenantId", id));
+    obs.isolationTier().ifPresent(tier -> map.put("isolationTier", tier.name()));
+    obs.resourceLimit().ifPresent(limit -> map.put("resourceLimit", resourceSpecToJson(limit)));
     return map;
   }
 

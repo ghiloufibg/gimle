@@ -867,7 +867,7 @@
         "midgard"
       ],
       "objective": "Write a Deployment manifest from scratch (no copy-paste of a bundled example), `apply -f` it, watch it reach ACTIVE via `get deployments`, `get instances`, `gimle events`, and the console's Deployments/Instances/detail pages.",
-      "oracle": "Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree.",
+      "oracle": "Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree. Each instance's reported resource usage is shown against the limit and isolation tier it was admitted under, and a shared-worker (TIER_1) instance is not drawn as though that limit were its own enforced ceiling.",
       "requirements": [
         "GIMLE-371",
         "GIMLE-274",
@@ -880,7 +880,8 @@
         "GIMLE-439",
         "GIMLE-444",
         "GIMLE-753",
-        "GIMLE-157"
+        "GIMLE-157",
+        "GIMLE-773"
       ]
     },
     {
