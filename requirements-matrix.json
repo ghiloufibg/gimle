@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 772,
+  "requirementCount": 775,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15571,6 +15571,77 @@
         "When an operator reads the per-deployment rollup",
         "Then two rows are returned, one naming each tenant, neither merged into a single average",
         "And an untenanted deployment named `api` is a third, distinct row carrying a null tenant"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-773",
+      "module": "gimle-console",
+      "feature": "A Gateway console screen showing the declared route table and what each route currently resolves to",
+      "category": "Web Console / Frontend",
+      "userStory": "As an operator running the edge gateway, I want to see its whole route table and which routes currently point at nothing, so I find a broken route before a caller does instead of reading one gateway instance's log on one edge node.",
+      "statusDetail": "Complete. The screen reads the `gateway.routes` config key under tenant `gimle-system` -- the same key a gateway instance reads -- and parses it client-side with `gateway-routes.ts`, a TypeScript port of `GatewayRouteConfig`'s own line format (HOST segment, FABRIC/VESSEL/SERVICE kinds, `/*` prefix paths, duplicate-route rejection). Each route's target is then resolved against the control plane's own live state: a SERVICE route through `GET /services/{name}/endpoints`, a VESSEL route through `GET /endpoints/{name}` counting only instances that report both a node address and the route's own named port -- the same two things a gateway instance needs before it can proxy. A FABRIC route is reported as unresolvable rather than guessed at: the control plane holds no view of the fabric registry. Deliberately read-only (editing the table is `gimle set config`), and no change to `gimle-gateway` was needed for any of it. A line the gateway would reject is surfaced with its line number rather than dropped, since the gateway refuses the whole table on any one of them; an undeployed gateway and a missing `gateway.routes` key are each reported as a state, not an error.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/routes/gateway.tsx`",
+        "`gimle-console/src/stores/useGatewayStore.ts`",
+        "`gimle-console/src/lib/gateway-routes.ts`",
+        "`gimle-console/src/repositories/endpoints.ts`, `gimle-console/src/repositories/http/endpoints.ts`"
+      ],
+      "testCoverageDetail": "gateway-routes.test.ts covers one route of each kind, HOST constraints, `/*` prefix normalization, FABRIC's prefix rejection, every malformed-line shape, duplicate detection and the legitimate same-path/different-host and exact-beside-prefix pairs. useGatewayStore.test.ts covers a SERVICE route resolving to live endpoints (with its own tenant carried onto the endpoints read), a Service that does not exist versus one with no live endpoint, VESSEL counting only instances reporting the route's named port, a FABRIC route never claimed as resolved, one target's read failing without blanking the table, unparseable lines surfacing, an undeployed gateway reported as a state, a missing routes key, a failed config read as the screen's error, and a failed poll leaving the last good table in place. endpoints.test.ts covers the repository's own placed-but-unheartbeated and unknown-workload shapes.",
+      "gherkinSteps": [
+        "Given a `gateway.routes` config key declaring a SERVICE route whose Service no longer exists",
+        "When an operator opens the console's Gateway screen",
+        "Then that route is listed with its target named and reported as resolving to nothing",
+        "And a route whose Service has live endpoints shows how many, without either being read from a gateway instance"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-774",
+      "module": "gimle-console",
+      "feature": "A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness",
+      "category": "Service Discovery / DNS",
+      "userStory": "As an operator, I want to see which cluster DNS names would answer right now and with how many addresses, so I catch a name that resolves to nothing -- a refused connection rather than a clean 'no backend' -- without running `dig` against a Skald replica.",
+      "statusDetail": "Complete. Every row is derived from the same `GET /services/*` reads `ControlPlaneServicePoller` polls, put through the same `<service>[.<tenant>].svc.gimle.local` naming `ServiceDnsNames` builds, so the screen shows what Skald should be answering from the source Skald itself reads -- no change to `gimle-skald`. A name with zero A records is called out rather than hidden, and a Service whose endpoint read failed is marked unreadable rather than shown as empty. Responder health comes from the two gauges `SkaldMetrics` already registers (`gimle.skald.directory.staleness.seconds`, `gimle.skald.directory.consecutive.failures`), shipped to Muninn under the `SKALD` processKind Skald already uses and read back through `GET /metrics-history/SKALD/{host:port}` -- which required only adding `SKALD` to the console's own `ProcessKind` union and process picker, nothing exported anew. Nothing enumerates Skald replicas, so tracked responder addresses are an operator's own list, remembered in the browser. The screen states its own limit in place: this is derived truth, and a replica whose directory diverged in a way its staleness gauges don't capture would still read as agreeing.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/routes/skald.tsx`",
+        "`gimle-console/src/stores/useSkaldStore.ts`",
+        "`gimle-console/src/lib/skald-dns.ts`",
+        "`gimle-console/src/types/index.ts` (`ProcessKind`), `gimle-console/src/components/process-picker.tsx`"
+      ],
+      "testCoverageDetail": "skald-dns.test.ts covers the tenant-qualified, untenanted and case-folded name shapes. useSkaldStore.test.ts covers a zone name per Service with its A-record count and port, a name with no live endpoint kept visible, an unreadable endpoint set told apart from an empty one, a responder's newest staleness/failure gauges read from the SKALD metrics-history target, a responder that has shipped nothing, a failed responder read staying on its own row rather than erroring the screen, blank and duplicate responder addresses ignored, and a failed service list surfacing as the screen's error.",
+      "gherkinSteps": [
+        "Given a Service declared for tenant `acme` with no ready backing instance",
+        "When an operator opens the console's Skald DNS screen",
+        "Then `<service>.acme.svc.gimle.local` is listed with zero A records and named as having no ready instance",
+        "And a tracked responder's directory age and consecutive poll failures are shown from the gauges it ships to Muninn"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-775",
+      "module": "gimle-console",
+      "feature": "Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list",
+      "category": "Web Console / Frontend",
+      "userStory": "As a maintainer adding or removing a console screen for an optional component, I want the screen's route file to carry its own nav entry, so deleting that one file removes the screen and its link together instead of leaving the sidebar pointing at a route that no longer exists.",
+      "statusDetail": "Complete. `app-sidebar.tsx` previously held a flat array of every screen, which was both the one place a deleted route could still be named and, at twenty-odd entries, no longer scannable. A route file may now export a `navEntry` descriptor; `collectAddonNavEntries` globs the route directory for them and the sidebar concatenates whatever it finds onto its own core list, naming no addon itself. The glob deliberately excludes `__root.tsx` (which renders the sidebar) and is resolved on first render rather than at module scope, so the route modules it reaches into are fully initialized by the time it runs. The list is rendered in five groups -- Cluster, Workloads, Edge, Platform, System -- with an unknown group rendering once after every known one, so an addon can introduce its own without touching the grouping code.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/src/lib/nav.ts`, `gimle-console/src/lib/nav-addons.ts`",
+        "`gimle-console/src/components/app-sidebar.tsx`",
+        "`gimle-console/src/routes/gateway.tsx`, `gimle-console/src/routes/skald.tsx` (`navEntry`)"
+      ],
+      "testCoverageDetail": "nav.test.ts covers known groups rendering in declared order regardless of entry order, each group keeping its entries' declaration order, empty groups being dropped, and an unknown group rendering once after every known one. `collectAddonNavEntries` itself is deliberately uncovered -- it is an import.meta.glob over route modules, and exercising it would drag the whole rendering stack into a suite configured without one.",
+      "gherkinSteps": [
+        "Given a console route file exporting its own `navEntry` descriptor",
+        "When the console is built",
+        "Then that screen appears in the sidebar under the group its descriptor names",
+        "And deleting the route file removes both the route and its sidebar entry, with nothing left naming it"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

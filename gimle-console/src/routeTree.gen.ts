@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VolumesRouteImport } from './routes/volumes'
 import { Route as TracesRouteImport } from './routes/traces'
 import { Route as TopologyRouteImport } from './routes/topology'
+import { Route as SkaldRouteImport } from './routes/skald'
 import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as SecretmapsRouteImport } from './routes/secretmaps'
 import { Route as SealRouteImport } from './routes/seal'
@@ -20,6 +21,7 @@ import { Route as MetricsRouteImport } from './routes/metrics'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LimitrangesRouteImport } from './routes/limitranges'
+import { Route as GatewayRouteImport } from './routes/gateway'
 import { Route as CustomResourcesRouteImport } from './routes/custom-resources'
 import { Route as ControlplaneRouteImport } from './routes/controlplane'
 import { Route as ConfigmapsRouteImport } from './routes/configmaps'
@@ -63,6 +65,11 @@ const TopologyRoute = TopologyRouteImport.update({
   path: '/topology',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SkaldRoute = SkaldRouteImport.update({
+  id: '/skald',
+  path: '/skald',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SecretsRoute = SecretsRouteImport.update({
   id: '/secrets',
   path: '/secrets',
@@ -101,6 +108,11 @@ const LoginRoute = LoginRouteImport.update({
 const LimitrangesRoute = LimitrangesRouteImport.update({
   id: '/limitranges',
   path: '/limitranges',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GatewayRoute = GatewayRouteImport.update({
+  id: '/gateway',
+  path: '/gateway',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CustomResourcesRoute = CustomResourcesRouteImport.update({
@@ -248,6 +260,7 @@ export interface FileRoutesByFullPath {
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/custom-resources': typeof CustomResourcesRoute
+  '/gateway': typeof GatewayRoute
   '/limitranges': typeof LimitrangesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
@@ -256,6 +269,7 @@ export interface FileRoutesByFullPath {
   '/seal': typeof SealRoute
   '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
+  '/skald': typeof SkaldRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
   '/volumes': typeof VolumesRoute
@@ -288,6 +302,7 @@ export interface FileRoutesByTo {
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/custom-resources': typeof CustomResourcesRoute
+  '/gateway': typeof GatewayRoute
   '/limitranges': typeof LimitrangesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
@@ -296,6 +311,7 @@ export interface FileRoutesByTo {
   '/seal': typeof SealRoute
   '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
+  '/skald': typeof SkaldRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
   '/volumes': typeof VolumesRoute
@@ -329,6 +345,7 @@ export interface FileRoutesById {
   '/configmaps': typeof ConfigmapsRoute
   '/controlplane': typeof ControlplaneRoute
   '/custom-resources': typeof CustomResourcesRoute
+  '/gateway': typeof GatewayRoute
   '/limitranges': typeof LimitrangesRoute
   '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
@@ -337,6 +354,7 @@ export interface FileRoutesById {
   '/seal': typeof SealRoute
   '/secretmaps': typeof SecretmapsRoute
   '/secrets': typeof SecretsRoute
+  '/skald': typeof SkaldRoute
   '/topology': typeof TopologyRoute
   '/traces': typeof TracesRoute
   '/volumes': typeof VolumesRoute
@@ -371,6 +389,7 @@ export interface FileRouteTypes {
     | '/configmaps'
     | '/controlplane'
     | '/custom-resources'
+    | '/gateway'
     | '/limitranges'
     | '/login'
     | '/logs'
@@ -379,6 +398,7 @@ export interface FileRouteTypes {
     | '/seal'
     | '/secretmaps'
     | '/secrets'
+    | '/skald'
     | '/topology'
     | '/traces'
     | '/volumes'
@@ -411,6 +431,7 @@ export interface FileRouteTypes {
     | '/configmaps'
     | '/controlplane'
     | '/custom-resources'
+    | '/gateway'
     | '/limitranges'
     | '/login'
     | '/logs'
@@ -419,6 +440,7 @@ export interface FileRouteTypes {
     | '/seal'
     | '/secretmaps'
     | '/secrets'
+    | '/skald'
     | '/topology'
     | '/traces'
     | '/volumes'
@@ -451,6 +473,7 @@ export interface FileRouteTypes {
     | '/configmaps'
     | '/controlplane'
     | '/custom-resources'
+    | '/gateway'
     | '/limitranges'
     | '/login'
     | '/logs'
@@ -459,6 +482,7 @@ export interface FileRouteTypes {
     | '/seal'
     | '/secretmaps'
     | '/secrets'
+    | '/skald'
     | '/topology'
     | '/traces'
     | '/volumes'
@@ -492,6 +516,7 @@ export interface RootRouteChildren {
   ConfigmapsRoute: typeof ConfigmapsRoute
   ControlplaneRoute: typeof ControlplaneRoute
   CustomResourcesRoute: typeof CustomResourcesRoute
+  GatewayRoute: typeof GatewayRoute
   LimitrangesRoute: typeof LimitrangesRoute
   LoginRoute: typeof LoginRoute
   LogsRoute: typeof LogsRoute
@@ -500,6 +525,7 @@ export interface RootRouteChildren {
   SealRoute: typeof SealRoute
   SecretmapsRoute: typeof SecretmapsRoute
   SecretsRoute: typeof SecretsRoute
+  SkaldRoute: typeof SkaldRoute
   TopologyRoute: typeof TopologyRoute
   TracesRoute: typeof TracesRoute
   VolumesRoute: typeof VolumesRoute
@@ -545,6 +571,13 @@ declare module '@tanstack/react-router' {
       path: '/topology'
       fullPath: '/topology'
       preLoaderRoute: typeof TopologyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skald': {
+      id: '/skald'
+      path: '/skald'
+      fullPath: '/skald'
+      preLoaderRoute: typeof SkaldRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/secrets': {
@@ -601,6 +634,13 @@ declare module '@tanstack/react-router' {
       path: '/limitranges'
       fullPath: '/limitranges'
       preLoaderRoute: typeof LimitrangesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gateway': {
+      id: '/gateway'
+      path: '/gateway'
+      fullPath: '/gateway'
+      preLoaderRoute: typeof GatewayRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/custom-resources': {
@@ -804,6 +844,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConfigmapsRoute: ConfigmapsRoute,
   ControlplaneRoute: ControlplaneRoute,
   CustomResourcesRoute: CustomResourcesRoute,
+  GatewayRoute: GatewayRoute,
   LimitrangesRoute: LimitrangesRoute,
   LoginRoute: LoginRoute,
   LogsRoute: LogsRoute,
@@ -812,6 +853,7 @@ const rootRouteChildren: RootRouteChildren = {
   SealRoute: SealRoute,
   SecretmapsRoute: SecretmapsRoute,
   SecretsRoute: SecretsRoute,
+  SkaldRoute: SkaldRoute,
   TopologyRoute: TopologyRoute,
   TracesRoute: TracesRoute,
   VolumesRoute: VolumesRoute,

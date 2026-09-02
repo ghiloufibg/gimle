@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 772,
+  "requirementCount": 775,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13368,6 +13368,59 @@
         "`gimle-console/src/types/index.ts` (`DeploymentMetricsRollup.tenantId`)"
       ],
       "gapNote": "No .feature scenario reads GET /metrics; Holmgang asserts on the platform's own lifecycle event log rather than the rollup endpoint. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-773",
+      "module": "gimle-console",
+      "feature": "A Gateway console screen showing the declared route table and what each route currently resolves to",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: Complete. The screen reads the `gateway.routes` config key under tenant `gimle-system` -- the same key a gateway instance reads -- and parses it client-side with `gateway-routes.ts`, a TypeScript port of `GatewayRouteConfig`'s own line format (HOST segment, FABRIC/VESSEL/SERVICE kinds, `/*` prefix paths, duplicate-route rejection). Each route's target is then resolved against the control plane's own live state: a SERVICE route through `GET /services/{name}/endpoints`, a VESSEL route through `GET /endpoints/{name}` counting only instances that report both a node address and the route's own named port -- the same two things a gateway instance needs before it can proxy. A FABRIC route is reported as unresolvable rather than guessed at: the control plane holds no view of the fabric registry. Deliberately read-only (editing the table is `gimle set config`), and no change to `gimle-gateway` was needed for any of it. A line the gateway would reject is surfaced with its line number rather than dropped, since the gateway refuses the whole table on any one of them; an undeployed gateway and a missing `gateway.routes` key are each reported as a state, not an error.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gateway-routes.test.ts covers one route of each kind, HOST constraints, `/*` prefix normalization, FABRIC's prefix rejection, every malformed-line shape, duplicate detection and the legitimate same-path/different-host and exact-beside-prefix pairs. useGatewayStore.test.ts covers a SERVICE route resolving to live endpoints (with its own tenant carried onto the endpoints read), a Service that does not exist versus one with no live endpoint, VESSEL counting only instances reporting the route's named port, a FABRIC route never claimed as resolved, one target's read failing without blanking the table, unparseable lines surfacing, an undeployed gateway reported as a state, a missing routes key, a failed config read as the screen's error, and a failed poll leaving the last good table in place. endpoints.test.ts covers the repository's own placed-but-unheartbeated and unknown-workload shapes.",
+      "sourceLocations": [
+        "`gimle-console/src/routes/gateway.tsx`",
+        "`gimle-console/src/stores/useGatewayStore.ts`",
+        "`gimle-console/src/lib/gateway-routes.ts`",
+        "`gimle-console/src/repositories/endpoints.ts`, `gimle-console/src/repositories/http/endpoints.ts`"
+      ],
+      "gapNote": "No .feature scenario drives the console's Gateway screen; Holmgang's gateway coverage exercises the gateway's own dispatch over HTTP, not the console view of its route table. Vitest coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-774",
+      "module": "gimle-console",
+      "feature": "A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness",
+      "category": "Service Discovery / DNS",
+      "status": "New",
+      "statusNote": "New requirement: Complete. Every row is derived from the same `GET /services/*` reads `ControlPlaneServicePoller` polls, put through the same `<service>[.<tenant>].svc.gimle.local` naming `ServiceDnsNames` builds, so the screen shows what Skald should be answering from the source Skald itself reads -- no change to `gimle-skald`. A name with zero A records is called out rather than hidden, and a Service whose endpoint read failed is marked unreadable rather than shown as empty. Responder health comes from the two gauges `SkaldMetrics` already registers (`gimle.skald.directory.staleness.seconds`, `gimle.skald.directory.consecutive.failures`), shipped to Muninn under the `SKALD` processKind Skald already uses and read back through `GET /metrics-history/SKALD/{host:port}` -- which required only adding `SKALD` to the console's own `ProcessKind` union and process picker, nothing exported anew. Nothing enumerates Skald replicas, so tracked responder addresses are an operator's own list, remembered in the browser. The screen states its own limit in place: this is derived truth, and a replica whose directory diverged in a way its staleness gauges don't capture would still read as agreeing.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "skald-dns.test.ts covers the tenant-qualified, untenanted and case-folded name shapes. useSkaldStore.test.ts covers a zone name per Service with its A-record count and port, a name with no live endpoint kept visible, an unreadable endpoint set told apart from an empty one, a responder's newest staleness/failure gauges read from the SKALD metrics-history target, a responder that has shipped nothing, a failed responder read staying on its own row rather than erroring the screen, blank and duplicate responder addresses ignored, and a failed service list surfacing as the screen's error.",
+      "sourceLocations": [
+        "`gimle-console/src/routes/skald.tsx`",
+        "`gimle-console/src/stores/useSkaldStore.ts`",
+        "`gimle-console/src/lib/skald-dns.ts`",
+        "`gimle-console/src/types/index.ts` (`ProcessKind`), `gimle-console/src/components/process-picker.tsx`"
+      ],
+      "gapNote": "No .feature scenario drives the console's Skald DNS screen; Holmgang's Skald coverage queries a real responder over DNS rather than reading the console's derived name table. Vitest coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-775",
+      "module": "gimle-console",
+      "feature": "Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: Complete. `app-sidebar.tsx` previously held a flat array of every screen, which was both the one place a deleted route could still be named and, at twenty-odd entries, no longer scannable. A route file may now export a `navEntry` descriptor; `collectAddonNavEntries` globs the route directory for them and the sidebar concatenates whatever it finds onto its own core list, naming no addon itself. The glob deliberately excludes `__root.tsx` (which renders the sidebar) and is resolved on first render rather than at module scope, so the route modules it reaches into are fully initialized by the time it runs. The list is rendered in five groups -- Cluster, Workloads, Edge, Platform, System -- with an unknown group rendering once after every known one, so an addon can introduce its own without touching the grouping code.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "nav.test.ts covers known groups rendering in declared order regardless of entry order, each group keeping its entries' declaration order, empty groups being dropped, and an unknown group rendering once after every known one. `collectAddonNavEntries` itself is deliberately uncovered -- it is an import.meta.glob over route modules, and exercising it would drag the whole rendering stack into a suite configured without one.",
+      "sourceLocations": [
+        "`gimle-console/src/lib/nav.ts`, `gimle-console/src/lib/nav-addons.ts`",
+        "`gimle-console/src/components/app-sidebar.tsx`",
+        "`gimle-console/src/routes/gateway.tsx`, `gimle-console/src/routes/skald.tsx` (`navEntry`)"
+      ],
+      "gapNote": "No .feature scenario renders the console at all -- Holmgang drives the control-plane API, and the console's own browser coverage lives in gimle-console/e2e (Playwright, opt-in). Vitest coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

@@ -25,11 +25,12 @@ the three dedicated services rather than either client talking to them directly 
 
 ## Screens
 
-Twenty-six screens, each backed by a real `Http*Repository` hitting the control plane's own API — the
-same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth. Twenty-four
-live under the sidebar's "Cluster" group, `Logs` is reached contextually from an
-instance/deployment rather than its own top-level nav entry, and `Control plane` sits in its own
-"System" nav group, separate from the rest:
+Twenty-eight screens, each backed by a real `Http*Repository` hitting the control plane's own API —
+the same data the [CLI](../reference/cli-reference.md) reads, not a parallel source of truth.
+Twenty-seven carry a sidebar entry, grouped **Cluster** (what the cluster is doing), **Workloads**
+(what is deployed), **Edge** (how traffic reaches it), **Platform** (tenancy, configuration,
+identity) and **System** (the control plane process itself); `Logs` is reached contextually from an
+instance/deployment rather than its own top-level nav entry:
 
 | Screen | Shows |
 |---|---|
@@ -43,6 +44,8 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Instances | Per-instance detail: lifecycle state, health, resource usage, plus that instance's own lifecycle-event timeline — the "why did this instance restart" panel, below. The same paginated instance table backs the Nodes screen and every workload detail page, below. |
 | Custom Resources | Instances of cluster-defined [custom kinds](./custom-kinds.md): a kind picker fed by `/kinddefinitions`, an instance table honoring each definition's own `printColumns`, and a detail pane showing spec and status side by side with the generation/observedGeneration pair made visible — the at-a-glance "has the operator caught up" signal. Deliberately read-only; authoring stays in the CLI. |
 | Nodes | Registered node agents and their reported capacity, plus cordon/uncordon and per-tenant taint/untaint controls on the detail page — the UI equivalent of `gimle get nodes` and `gimle cordon/uncordon/taint/untaint`. Cordoning/tainting only ever affects future scheduling; neither evicts an already-running instance. |
+| Gateway | The [edge gateway](./service-fabric.md#the-gateway-module)'s declared route table, read from the `gateway.routes` config key under tenant `gimle-system` — the same key a gateway instance reads — with each route's target resolved against the control plane's own live endpoints. Names the two failures only a gateway instance's own log shows today: a route whose target Service or deployment resolves to nothing, and a route line the gateway rejects (it refuses the whole table on any one). Read-only; editing the table is `gimle set config`. A `FABRIC` route's target is never claimed to resolve — the control plane holds no view of the fabric registry. |
+| Skald DNS | Which `<service>.<tenant>.svc.gimle.local` names [Skald](./node-topology.md#skald) would answer right now, and with how many `A` records — derived from the same `GET /services/*` reads a Skald replica polls, so a name with zero addresses (DNS resolves, the connection refuses) is visible without running `dig` against a replica. Per-replica directory staleness and consecutive poll failures come from the two gauges `SkaldMetrics` already ships to Muninn, read back through `GET /metrics-history/SKALD/{host:port}`. |
 | Networking | Two tabs: [Services](./service-fabric.md#the-service-abstraction-a-stable-name-in-front-of-a-deployment) (the ClusterIP analogue — create/inspect/delete, plus each row's live backing endpoints) and NetworkPolicies (which other tenants may call a tenant's own Services) — the UI equivalent of `gimle get/set/delete service` and `gimle get/set/delete networkpolicy`. |
 | Topology | A real-time graph of the cluster's actual placement (which instances landed on which nodes/workers). |
 | Metrics | Cluster-wide derived signals (lifecycle mix, placement coverage, node capacity, backpressure, tenant quota pressure), the control plane's own per-deployment request/error-rate rollup (`GET /metrics`, below), and a per-process metrics-history time series, below. |
@@ -59,6 +62,39 @@ instance/deployment rather than its own top-level nav entry, and `Control plane`
 | Audit | Filterable, cursor-paged audit trail (principal, resource kind, verb, tenant, allow/deny), below. |
 | Logs | Live log tailing, level/text filtering, and crash-dump listing, below. |
 | Control plane | Scheduler, quota enforcer, and heartbeat-worker status at a glance, plus a link into the control plane's own log. In its own sidebar group since it reports on the control plane process itself rather than on a workload. |
+
+## Addon screens
+
+Gateway and Skald DNS are **addons**: screens for a component that is not part of a default cluster
+and cannot host a console of its own. Neither is a gap in those components — the gateway is a
+`DaemonSet` module (one jar per coordinate, so nothing else can join its layer, and its only
+listener *is* the data plane), and Skald speaks DNS over UDP/TCP with no HTTP surface at all. What
+makes a screen possible anyway is that both are downstream of state the control plane already
+serves: the gateway's route table is a config key, and Skald's answers are computed from
+`GET /services/*`. Reading those same two APIs shows what each process is working from without
+either process serving anything.
+
+The seam is the route file itself. TanStack Router regenerates its route tree from whatever sits in
+`src/routes/`, and an addon screen additionally exports its own sidebar descriptor:
+
+```tsx
+// src/routes/gateway.tsx
+export const navEntry: NavEntry = { title: "Gateway", url: "/gateway", icon: Waypoints, group: "Edge" };
+```
+
+`app-sidebar.tsx` folds in whatever descriptors are present rather than naming any of them, so
+deleting the route file removes the screen *and* its nav entry in one deletion, with no array left
+pointing at a route that no longer exists. Removing an addon is that file, its store, and its entry
+in `repositories/index.ts` — nothing on any running process to unwind, no server endpoint, no
+config key, no module.
+
+Both screens are honest about what they cannot show, in place rather than by omission:
+
+- **Which route table revision a gateway instance has actually applied** is known only to that
+  instance, and it exports no such reading. The screen shows what the gateway was *told*.
+- **A Skald replica's actual directory contents** would need a read-only status port on a process
+  that has no HTTP surface. The name table is therefore derived truth: a replica that diverged in a
+  way its own staleness gauges don't capture would still read as agreeing here.
 
 ## Auto-refresh
 
@@ -77,7 +113,7 @@ polling" means exactly that on every screen.
 
 The screens that poll are the ones showing cluster state that changes on its own: Overview,
 Topology, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances, Nodes, Tenants,
-Volumes, and Networking. Configuration and key-management screens (Config, ConfigMaps, Secrets,
+Volumes, Networking, Gateway, and Skald DNS. Configuration and key-management screens (Config, ConfigMaps, Secrets,
 SecretMaps, Seal Keys, LimitRanges, Access Control, Custom Resources, Artifacts) deliberately do
 not: their contents change only when a person changes them, they are edit surfaces where a re-read
 under a half-finished form is a hazard rather than a service, and Seal Keys in particular is a
@@ -122,7 +158,7 @@ before the UI did:
 
 - **Metrics history** (`GET /metrics-history/{processKind}/{processId}`, proxying to
   [Muninn](./node-topology.md#muninn)): a process picker
-  (`CONTROLPLANE`/`FAFNIR`/`STORE`/`AGENT`/`WORKER`) plus one time-series chart per meter name
+  (`CONTROLPLANE`/`FAFNIR`/`STORE`/`AGENT`/`WORKER`/`SKALD`) plus one time-series chart per meter name
   present in the fetched window, on the Metrics screen. There is no discovery API for which
   `processId` (a self-reported `host:port` string, e.g. a `ControlPlaneMain` replica's own
   `selfApiAddress`) exists — `CONTROLPLANE` defaults to `window.location.host` (accurate whenever

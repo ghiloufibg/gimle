@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 772,
+    "totalRequirements": 775,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 645,
-    "releaseReadinessPercent": 16.5
+    "notCoveredByAutomatedTest": 648,
+    "releaseReadinessPercent": 16.4
   },
   "items": [
     {
@@ -8494,6 +8494,39 @@
       "category": "Observability",
       "feature": "Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable",
       "step": "Given tenants `acme` and `globex` each running a deployment named `api` When an operator reads the per-deployment rollup Then two rows are returned, one naming each tenant, neither merged into a single average And an untenanted deployment named `api` is a third, distinct row carrying a null tenant",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-773",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "A Gateway console screen showing the declared route table and what each route currently resolves to",
+      "step": "Given a `gateway.routes` config key declaring a SERVICE route whose Service no longer exists When an operator opens the console's Gateway screen Then that route is listed with its target named and reported as resolving to nothing And a route whose Service has live endpoints shows how many, without either being read from a gateway instance",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-774",
+      "module": "gimle-console",
+      "category": "Service Discovery / DNS",
+      "feature": "A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness",
+      "step": "Given a Service declared for tenant `acme` with no ready backing instance When an operator opens the console's Skald DNS screen Then `<service>.acme.svc.gimle.local` is listed with zero A records and named as having no ready instance And a tracked responder's directory age and consecutive poll failures are shown from the gauges it ships to Muninn",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-775",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list",
+      "step": "Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

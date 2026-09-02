@@ -43,33 +43,46 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { groupNavEntries, type NavEntry } from "@/lib/nav";
+import { collectAddonNavEntries } from "@/lib/nav-addons";
 
-const items = [
-  { title: "Overview", url: "/", icon: LayoutDashboard, exact: true },
-  { title: "Metrics", url: "/metrics", icon: BarChart3 },
-  { title: "Traces", url: "/traces", icon: Activity },
-  { title: "Topology", url: "/topology", icon: Network },
-  { title: "Deployments", url: "/deployments", icon: Boxes },
-  { title: "Jobs", url: "/jobs", icon: ListChecks },
-  { title: "CronJobs", url: "/cronjobs", icon: Clock },
-  { title: "DaemonSets", url: "/daemonsets", icon: LayoutGrid },
-  { title: "StatefulSets", url: "/statefulsets", icon: Database },
-  { title: "Volumes", url: "/volumes", icon: HardDrive },
-  { title: "Instances", url: "/instances", icon: Cpu },
-  { title: "Custom Resources", url: "/custom-resources", icon: Puzzle },
-  { title: "Nodes", url: "/nodes", icon: Server },
-  { title: "Networking", url: "/networking", icon: Waypoints },
-  { title: "Tenants", url: "/tenants", icon: Users },
-  { title: "LimitRanges", url: "/limitranges", icon: Gauge },
-  { title: "Config", url: "/config", icon: Settings },
-  { title: "ConfigMaps", url: "/configmaps", icon: FileJson },
-  { title: "Secrets", url: "/secrets", icon: KeyRound },
-  { title: "SecretMaps", url: "/secretmaps", icon: KeySquare },
-  { title: "Seal Keys", url: "/seal", icon: Stamp },
-  { title: "Artifacts", url: "/artifacts", icon: Package },
-  { title: "Access Control", url: "/access-control", icon: ShieldCheck },
-  { title: "Audit", url: "/audit", icon: ScrollText },
+const coreItems: NavEntry[] = [
+  { title: "Overview", url: "/", icon: LayoutDashboard, group: "Cluster", exact: true },
+  { title: "Metrics", url: "/metrics", icon: BarChart3, group: "Cluster" },
+  { title: "Traces", url: "/traces", icon: Activity, group: "Cluster" },
+  { title: "Topology", url: "/topology", icon: Network, group: "Cluster" },
+  { title: "Nodes", url: "/nodes", icon: Server, group: "Cluster" },
+  { title: "Deployments", url: "/deployments", icon: Boxes, group: "Workloads" },
+  { title: "Jobs", url: "/jobs", icon: ListChecks, group: "Workloads" },
+  { title: "CronJobs", url: "/cronjobs", icon: Clock, group: "Workloads" },
+  { title: "DaemonSets", url: "/daemonsets", icon: LayoutGrid, group: "Workloads" },
+  { title: "StatefulSets", url: "/statefulsets", icon: Database, group: "Workloads" },
+  { title: "Volumes", url: "/volumes", icon: HardDrive, group: "Workloads" },
+  { title: "Instances", url: "/instances", icon: Cpu, group: "Workloads" },
+  { title: "Custom Resources", url: "/custom-resources", icon: Puzzle, group: "Workloads" },
+  { title: "Networking", url: "/networking", icon: Waypoints, group: "Edge" },
+  { title: "Tenants", url: "/tenants", icon: Users, group: "Platform" },
+  { title: "LimitRanges", url: "/limitranges", icon: Gauge, group: "Platform" },
+  { title: "Config", url: "/config", icon: Settings, group: "Platform" },
+  { title: "ConfigMaps", url: "/configmaps", icon: FileJson, group: "Platform" },
+  { title: "Secrets", url: "/secrets", icon: KeyRound, group: "Platform" },
+  { title: "SecretMaps", url: "/secretmaps", icon: KeySquare, group: "Platform" },
+  { title: "Seal Keys", url: "/seal", icon: Stamp, group: "Platform" },
+  { title: "Artifacts", url: "/artifacts", icon: Package, group: "Platform" },
+  { title: "Access Control", url: "/access-control", icon: ShieldCheck, group: "Platform" },
+  { title: "Audit", url: "/audit", icon: ScrollText, group: "Platform" },
+  { title: "Control plane", url: "/controlplane", icon: LayoutDashboard, group: "System" },
 ];
+
+// Addon entries are folded in in declaration order, so an addon screen is added and removed by its
+// own route file alone -- nothing here names it. Resolved on first render rather than at module
+// scope: the glob behind it reaches back into the route modules, one of which renders this sidebar.
+let cachedNavGroups: ReturnType<typeof groupNavEntries> | null = null;
+
+function navGroups() {
+  cachedNavGroups ??= groupNavEntries([...coreItems, ...collectAddonNavEntries()]);
+  return cachedNavGroups;
+}
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (r) => r.location.pathname });
@@ -104,46 +117,29 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Cluster</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {items.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url, item.exact)}
-                    tooltip={item.title}
-                  >
-                    <Link to={item.url} className="flex items-center gap-2">
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarGroupLabel>System</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === "/controlplane"}
-                  tooltip="Control plane"
-                >
-                  <Link to="/controlplane" className="flex items-center gap-2">
-                    <LayoutDashboard className="h-4 w-4" />
-                    <span>Control plane</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {navGroups().map(({ group, items }) => (
+          <SidebarGroup key={group}>
+            <SidebarGroupLabel>{group}</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {items.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive(item.url, item.exact)}
+                      tooltip={item.title}
+                    >
+                      <Link to={item.url} className="flex items-center gap-2">
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter>
         <div className="flex items-center justify-between px-1 group-data-[collapsible=icon]:justify-center">

@@ -1396,15 +1396,16 @@
       "environments": [
         "fleet"
       ],
-      "objective": "Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane.",
-      "oracle": "Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window.",
+      "objective": "Query Skald from a node: `A` and `SRV` for a Service, a headless Service, a Service with zero live endpoints, a nonexistent name, a large answer over UDP then TCP, an ExternalName Service; then stop the control plane. Then open the console's Skald DNS screen and track that responder's address.",
+      "oracle": "Live endpoints resolve; SRV and headless answers are correct; zero endpoints is NODATA, nonexistent is NXDOMAIN; truncation falls back to TCP; ExternalName answers a CNAME; with the control plane down answers degrade only after the documented staleness window. The console's Skald DNS screen derives the same names, shows zero A records for the empty Service, and reports that responder's directory age and consecutive poll failures from its own shipped gauges.",
       "requirements": [
         "GIMLE-569",
         "GIMLE-620",
         "GIMLE-721",
         "GIMLE-613",
         "GIMLE-628",
-        "GIMLE-686"
+        "GIMLE-686",
+        "GIMLE-774"
       ]
     },
     {
@@ -1428,8 +1429,8 @@
       "environments": [
         "midgard"
       ],
-      "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path.",
-      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready.",
+      "objective": "Deploy the gateway with a path route, a vhost-constrained route, a SERVICE route, a VESSEL route, a typed-argument fabric route and two routes sharing a prefix; edit the route table live; try a duplicate path. Then open the console's Gateway screen against that same table, including one route pointing at a Service that does not exist.",
+      "oracle": "Each request is dispatched by the right rule with longest-prefix matching; a wrong `Host` misses cleanly; typed arguments coerce; no-endpoint and connect failures map to specific status codes; the table reloads without restart; the duplicate is rejected at parse time; the gateway's own probes report ready. The console's Gateway screen lists the same table it was given, names the route resolving to nothing and the rejected duplicate line, and never claims a FABRIC target resolves; its sidebar entry sits under an Edge group.",
       "requirements": [
         "GIMLE-570",
         "GIMLE-356",
@@ -1442,7 +1443,9 @@
         "GIMLE-366",
         "GIMLE-367",
         "GIMLE-684",
-        "GIMLE-679"
+        "GIMLE-679",
+        "GIMLE-773",
+        "GIMLE-775"
       ]
     },
     {

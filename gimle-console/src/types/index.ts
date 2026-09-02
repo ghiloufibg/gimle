@@ -281,6 +281,19 @@ export interface Service {
   targetPort?: number;
 }
 
+/**
+ * One live instance of a named workload, as `GET /endpoints/{name}` reports it -- keyed by workload
+ * name rather than by a declared Service, and carrying every port that instance reported under the
+ * `vessel.env` variable name it was declared as. `host` is null until the node it was placed on has
+ * registered an API address; `ports` is empty until it has heartbeated an observation.
+ */
+export interface WorkloadEndpoint {
+  instanceIndex: number;
+  nodeId: string;
+  host: string | null;
+  ports: Record<string, number>;
+}
+
 /** `GET /services/{name}/endpoints` -- live, reconciler-independent, never cached alongside `Service`. */
 export interface ServiceEndpoints {
   name: string;
@@ -500,11 +513,12 @@ export interface Principal {
  * Process-scoped history (metrics + traces) -- GET /metrics-history/*, GET /traces-history/*
  * ------------------------------------------------------------------------ */
 
-// The five processKind values Muninn actually receives -- no discovery API exists for this list,
-// see components/process-picker.tsx's own note on why it's hardcoded rather than fetched. WORKER
-// is shipped one level below AGENT: a worker JVM has no host:port of its own, so its processId is
-// `{nodeId}:{workerId}` rather than a self-reported address.
-export type ProcessKind = "CONTROLPLANE" | "FAFNIR" | "STORE" | "AGENT" | "WORKER";
+// The processKind values Muninn actually receives -- no discovery API exists for this list, see
+// components/process-picker.tsx's own note on why it's hardcoded rather than fetched. WORKER is
+// shipped one level below AGENT: a worker JVM has no host:port of its own, so its processId is
+// `{nodeId}:{workerId}` rather than a self-reported address. SKALD ships under its own responder's
+// `host:dnsPort`, the address that replica answers DNS queries on.
+export type ProcessKind = "CONTROLPLANE" | "FAFNIR" | "STORE" | "AGENT" | "WORKER" | "SKALD";
 
 export interface ProcessTarget {
   processKind: ProcessKind;

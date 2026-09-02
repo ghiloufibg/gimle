@@ -24,7 +24,7 @@ import {
 // process' trace history (e.g. an instance's own "view worker traces" link), falling back to the
 // default target for a bare /traces navigation with no query string.
 export const processTargetSearchSchema = z.object({
-  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER"]),
+  processKind: z.enum(["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER", "SKALD"]),
   processId: z.string(),
 });
 export const processTargetSearchSchemaWithFallback = processTargetSearchSchema.catch(() =>

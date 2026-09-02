@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 772
+- **Total requirements**: 775
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 645
-- **Release-readiness (automated coverage)**: 16.5%
+- **Not covered by automated test**: 648
+- **Release-readiness (automated coverage)**: 16.4%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 41 | 0 | 41 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 49 | 0 | 49 | 0.0% |
+| gimle-console | 52 | 0 | 52 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -1947,6 +1947,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-647 | Console instances surface their own workerId, and deep-link into the Metrics/Traces WORKER process picker | Given a worker JVM's Hello handshake has completed, When its agent reports a heartbeat, Then the resulting InstanceObservation carries that worker's real workerId, round-tripping unchanged through the Raft wire format and the control-plane API. Given an instance has never had a worker report in (still INSTALLED, or hosted on a plain Vessel), When its observation is serialized at any layer, Then workerId is omitted/empty rather than a placeholder value. Given an instance detail page shows a real workerId, When the operator clicks "Worker metrics" or "Worker traces", Then the Metrics/Traces screen loads with the WORKER process picker already set to that exact `nodeId:workerId`, with no manual typing. | No |
 | [ ] | GIMLE-710 | The console's Metrics and Instances screens surface per-instance error rate, which the control plane already shipped on the wire but no console type or screen ever read | Given a deployment instance whose control-plane observation reports errorRatePerSecond=3.5; When the console's Instances screen loads that deployment's rows; Then the err/s column for that instance shows 3.50 and is visually flagged. Given the same instance; When the console's Metrics screen loads; Then the deployment appears in the 'Instances with errors' panel and contributes to the total error-rate stat tile. | No |
 
+#### Service Discovery / DNS
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-774 | A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness | Given a Service declared for tenant `acme` with no ready backing instance When an operator opens the console's Skald DNS screen Then `<service>.acme.svc.gimle.local` is listed with zero A records and named as having no ready instance And a tracked responder's directory age and consecutive poll failures are shown from the gauges it ships to Muninn | No |
+
 #### Web Console / Auth
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1997,6 +2003,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-758 | An expired console session is explained once, in plain language | Given a signed-in operator whose session has expired When any request returns 401 Then no technical toast is shown And the login screen explains that the session expired | No |
 | [ ] | GIMLE-759 | Console screens keep themselves current | Given a deployment scaled from another surface When its console screen is open with auto-refresh on Then the change appears without operator action And a poll never clobbers a form the operator is editing | No |
 | [ ] | GIMLE-769 | The Audit screen's since filter sends the timestamp format the API parses | Given an audit query narrowed by a since timestamp When it is sent from the console Then the control plane accepts it rather than answering 400 | No |
+| [ ] | GIMLE-773 | A Gateway console screen showing the declared route table and what each route currently resolves to | Given a `gateway.routes` config key declaring a SERVICE route whose Service no longer exists When an operator opens the console's Gateway screen Then that route is listed with its target named and reported as resolving to nothing And a route whose Service has live endpoints shows how many, without either being read from a gateway instance | No |
+| [ ] | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it | No |
 
 #### Web Console / Testing
 

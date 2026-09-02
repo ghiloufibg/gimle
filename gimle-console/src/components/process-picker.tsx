@@ -4,7 +4,14 @@ import { cn } from "@/lib/utils";
 import { useNodesStore } from "@/stores/useNodesStore";
 import type { ProcessKind, ProcessTarget } from "@/types";
 
-export const PROCESS_KINDS: ProcessKind[] = ["CONTROLPLANE", "FAFNIR", "STORE", "AGENT", "WORKER"];
+export const PROCESS_KINDS: ProcessKind[] = [
+  "CONTROLPLANE",
+  "FAFNIR",
+  "STORE",
+  "AGENT",
+  "WORKER",
+  "SKALD",
+];
 
 /**
  * A worker JVM's processId is `{nodeId}:{workerId}` -- workers have no host:port of their own the
