@@ -8,7 +8,7 @@ import {
   routeTarget,
   type GatewayRoute,
   type GatewayRouteError,
-} from "@/lib/gateway-routes";
+} from "@/addons/gateway/routes-config";
 
 /** The DaemonSet the gateway module is deployed as, and the tenant its config keys live under --
  * both fixed by gimle-gateway's own shipped manifest, not per-cluster settings. */

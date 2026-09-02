@@ -132,6 +132,14 @@ public final class BootstrapMojo extends AbstractMojo {
       defaultValue = "${project.basedir}/gimle-bootstrap")
   private String baseDir;
 
+  /**
+   * Comma-separated console addon ids the bootstrapped control plane advertises ({@code none} for
+   * no addon at all) -- unset by default, which advertises every addon the bundled console carries,
+   * so a bootstrapped cluster shows the same screens a plain {@code gimle:controlplane} does.
+   */
+  @Parameter(property = "gimle.controlplane.consoleAddons")
+  private String consoleAddons;
+
   @Parameter(property = "gimle.bootstrap.deployExamples", defaultValue = "true")
   private boolean deployExamples;
 
@@ -437,6 +445,9 @@ public final class BootstrapMojo extends AbstractMojo {
       // finds the file, no Account is ever seeded while the store has zero accounts, and that
       // printed password can never actually log in.
       extraJvmArgs.add("-Dgimle.bootstrap.accountFile=" + tlsDir.resolve("bootstrap-account.yaml"));
+    }
+    if (consoleAddons != null && !consoleAddons.isBlank()) {
+      extraJvmArgs.add("-Dgimle.controlplane.consoleAddons=" + consoleAddons);
     }
     return spawnGimleProcess(
         tls,

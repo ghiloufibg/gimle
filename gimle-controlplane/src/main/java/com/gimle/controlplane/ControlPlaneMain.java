@@ -134,6 +134,19 @@ public final class ControlPlaneMain {
       return;
     }
 
+    // Resolved before anything binds a port: this runs on the main thread, and once the API
+    // server is up its own non-daemon threads would keep the JVM alive through an exception
+    // thrown out of main -- leaving a control plane serving with a misconfigured console rather
+    // than failing to start, which is the opposite of what this property promises.
+    final ConsoleAddons consoleAddons;
+    try {
+      consoleAddons = ConsoleAddons.fromSystemProperty(ControlPlaneMain.class.getClassLoader());
+    } catch (RuntimeException e) {
+      System.err.println(e.getMessage());
+      System.exit(2);
+      return;
+    }
+
     System.setProperty("gimle.process.role", "CONTROLPLANE");
     System.setProperty("gimle.node.id", selfHost + ":" + port);
     Path logRoot = Path.of(System.getProperty("gimle.log.root", "gimle-logs"));
@@ -365,8 +378,13 @@ public final class ControlPlaneMain {
     Optional<Path> consoleRoot =
         BundledSpa.resolve(ControlPlaneMain.class.getClassLoader(), "console/index.html");
     if (consoleRoot.isPresent()) {
-      apiServer.serveConsole(consoleRoot.get());
-      log.info("serving bundled web console at /console");
+      apiServer.serveConsole(consoleRoot.get(), consoleAddons);
+      log.info(
+          "serving bundled web console at /console (addons bundled: {}, advertised: {})",
+          consoleAddons.bundledIds().isEmpty()
+              ? "none"
+              : String.join(", ", consoleAddons.bundledIds()),
+          consoleAddons.bundledIds().stream().filter(consoleAddons::isEnabled).toList());
     } else {
       log.info("no bundled web console found on the classpath; /console disabled");
     }

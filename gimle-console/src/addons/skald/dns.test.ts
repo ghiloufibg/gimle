@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { skaldDnsName, SKALD_ZONE_SUFFIX } from "./skald-dns";
+import { skaldDnsName, SKALD_ZONE_SUFFIX } from "./dns";
 
 describe("skaldDnsName", () => {
   it("qualifies a tenant-scoped Service with its tenant label", () => {

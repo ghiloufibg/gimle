@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 776,
+  "requirementCount": 778,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13439,6 +13439,42 @@
         "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`"
       ],
       "gapNote": "NET-2 and NET-4 both drive the real behaviour this fixes (Skald resolving a Service, the gateway serving a SERVICE route), but no .feature scenario asserts the tenant-scoped case specifically. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-777",
+      "module": "gimle-controlplane",
+      "feature": "A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: Complete. `-Dgimle.controlplane.consoleAddons` takes a comma-separated list of addon ids; the literal `none` advertises none, and an unset property advertises every addon the bundled console carries (a console screen opens no listener and holds no state, so unlike an actual subsystem there is no cost to being on -- the property exists to turn a screen off for a deployment that does not want it). The catalog it is validated against is the console's own `console/addons.json`, read off the classpath beside the bundled SPA rather than a list maintained in Java that could drift from what the console ships; an id that is not bundled fails startup naming every bundled id. `GET /console/addons` answers the per-addon verdict, registered as its own context (the JDK HttpServer matches the longest registered path, so it wins over the `/console` static prefix) behind no RBAC gate and no session, since it says which screens exist rather than what they contain. A console built with no catalog bundles nothing -- an empty set, never a startup failure.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "ConsoleAddonsTest covers the default advertising every bundled id, a blank property reading as unset, `none` advertising nothing while still reporting what is bundled, a named subset, an unknown id failing and naming the bundled ids, a console with no catalog bundling nothing, the per-addon JSON verdict, and an unreadable catalog failing rather than silently bundling nothing. ApiServerTest gained console_addons_are_advertised_to_an_unauthenticated_reader, proving the route answers with no session and no client certificate.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ConsoleAddons.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`serveConsole`, `handleConsoleAddons`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`",
+        "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ControlPlaneMojo.java`, `BootstrapMojo.java`"
+      ],
+      "gapNote": "Holmgang never opens a browser, so console behaviour is structurally outside its reach; the control-plane half is reachable but no .feature scenario reads GET /console/addons. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-778",
+      "module": "gimle-console",
+      "feature": "Console addons are a catalog, a registry and an Addons sidebar group, with a disabled addon explaining itself instead of 404ing",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: Complete. Replaces the earlier per-route `navEntry` + `import.meta.glob` seam with the registry shape the platform's own addon design specifies, so every addon is added the same way. `public/addons.json` is the single bundled catalog (copied verbatim into the jar as `console/addons.json`, which the control plane validates its property against); `src/addons/index.ts` adds only the icon component JSON cannot carry; each addon's store, model and screen live under `src/addons/<id>/` with a thin route file mounting it inside `AddonRoute`. `useAddonsStore` reads `GET /console/addons` once beside the auth session; the sidebar's Addons group renders only advertised entries and hides when none are, and an unadvertised addon's route renders a panel naming `-Dgimle.controlplane.consoleAddons` rather than a 404, so a shared link still explains itself. An unreachable or older control plane advertises nothing rather than failing the console.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "useAddonsStore.test.ts covers advertising only enabled ids (a disabled id hides its entry), a failed read and a 404 both advertising nothing rather than throwing, and the read happening once rather than per mount; the same file asserts the registry and addons.json agree on ids, that every catalogued addon carries an icon, that each addon's route matches its own route file's URL, and that an unknown id is refused. nav.test.ts covers the Addons group's placement among the known groups and empty groups being dropped.",
+      "sourceLocations": [
+        "`gimle-console/public/addons.json`, `gimle-console/src/addons/index.ts`",
+        "`gimle-console/src/addons/addon-route.tsx`, `gimle-console/src/addons/gateway/**`, `gimle-console/src/addons/skald/**`",
+        "`gimle-console/src/stores/useAddonsStore.ts`",
+        "`gimle-console/src/components/app-sidebar.tsx`, `gimle-console/src/lib/nav.ts`"
+      ],
+      "gapNote": "Holmgang never opens a browser, so console behaviour is structurally outside its reach; the control-plane half is reachable but no .feature scenario reads GET /console/addons. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

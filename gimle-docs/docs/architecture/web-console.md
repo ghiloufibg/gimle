@@ -65,36 +65,53 @@ instance/deployment rather than its own top-level nav entry:
 
 ## Addon screens
 
-Gateway and Skald DNS are **addons**: screens for a component that is not part of a default cluster
-and cannot host a console of its own. Neither is a gap in those components — the gateway is a
-`DaemonSet` module (one jar per coordinate, so nothing else can join its layer, and its only
-listener *is* the data plane), and Skald speaks DNS over UDP/TCP with no HTTP surface at all. What
-makes a screen possible anyway is that both are downstream of state the control plane already
-serves: the gateway's route table is a config key, and Skald's answers are computed from
-`GET /services/*`. Reading those same two APIs shows what each process is working from without
-either process serving anything.
+Gateway and Skald DNS are **addons**: screens for an optional component, which ship inside the same
+console bundle as every other screen but are only reachable when the control plane serving that
+bundle advertises them. Neither component could host a console of its own — the gateway is a
+`DaemonSet` module (one jar per coordinate, and its only listener *is* the data plane), and Skald
+speaks DNS over UDP/TCP with no HTTP surface at all — but both are downstream of state the control
+plane already serves, so a screen reading those same APIs shows what each process is working from
+without either process serving anything.
 
-The seam is the route file itself. TanStack Router regenerates its route tree from whatever sits in
-`src/routes/`, and an addon screen additionally exports its own sidebar descriptor:
+Three pieces make an addon:
 
-```tsx
-// src/routes/gateway.tsx
-export const navEntry: NavEntry = { title: "Gateway", url: "/gateway", icon: Waypoints, group: "Edge" };
-```
+| Piece | Where | What it decides |
+|---|---|---|
+| Catalog | `gimle-console/public/addons.json` | which addons are **bundled**: id, title, description, route |
+| Registry | `gimle-console/src/addons/index.ts` | adds only what JSON cannot carry — the icon component |
+| Property | `-Dgimle.controlplane.consoleAddons` | which bundled addons this deployment **advertises** |
 
-`app-sidebar.tsx` folds in whatever descriptors are present rather than naming any of them, so
-deleting the route file removes the screen *and* its nav entry in one deletion, with no array left
-pointing at a route that no longer exists. Removing an addon is that file, its store, and its entry
-in `repositories/index.ts` — nothing on any running process to unwind, no server endpoint, no
-config key, no module.
+The catalog is one file, not two lists: Vite copies `public/` into `dist/` verbatim, so the same
+`addons.json` lands in the jar at `console/addons.json`, where `ControlPlaneMain` reads it to
+validate the property. Neither side hand-maintains a list the other could drift from, and a Vitest
+case asserts the registry and the catalog agree on ids.
 
-Both screens are honest about what they cannot show, in place rather than by omission:
+At startup the control plane resolves the property against that catalog and hands the result to
+`ApiServer.serveConsole`; `GET /console/addons` then answers
+`{"addons":[{"id":"gateway","enabled":true}, …]}`. That route is registered as its own context (the
+JDK's `HttpServer` matches the longest registered path, so it wins over the `/console` static
+prefix) and sits behind no RBAC gate and no session: it says which screens exist, not what they
+contain, and the console reads it before anyone has signed in. Every screen it names still enforces
+its own reads through the ordinary authorized routes.
+
+The console reads it once, alongside the auth session, into `useAddonsStore`. The sidebar's
+**Addons** group renders only advertised entries and hides itself when none are; a route for an
+addon that is not advertised renders a panel naming the property that would turn it on, never a
+404, so a shared link still explains itself. A control plane too old to serve the route, or simply
+unreachable, is treated as advertising nothing — the same posture the auth store takes on a failed
+session read — so the console still loads.
+
+An addon's own code lives under `src/addons/<id>/` (its store, its model, its screen), with a thin
+file under `src/routes/` that mounts the screen inside `AddonRoute`. Removing an addon is that
+folder, its route file, and its catalog entry — nothing on any running process to unwind, no server
+endpoint of its own, no config key, no module.
+
+Both screens state their own limits in place rather than by omission:
 
 - **Which route table revision a gateway instance has actually applied** is known only to that
   instance, and it exports no such reading. The screen shows what the gateway was *told*.
 - **A Skald replica's actual directory contents** would need a read-only status port on a process
-  that has no HTTP surface. The name table is therefore derived truth: a replica that diverged in a
-  way its own staleness gauges don't capture would still read as agreeing here.
+  that has no HTTP surface. The name table is therefore derived truth.
 
 ## Auto-refresh
 

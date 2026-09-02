@@ -7,8 +7,8 @@ vi.mock("@/repositories", () => ({
 
 import { metricsHistoryRepo, servicesRepo } from "@/repositories";
 import { ApiError } from "@/repositories/http/apiClient";
-import { SKALD_FAILURES_METRIC, SKALD_STALENESS_METRIC } from "@/lib/skald-dns";
-import { useSkaldStore } from "./useSkaldStore";
+import { SKALD_FAILURES_METRIC, SKALD_STALENESS_METRIC } from "@/addons/skald/dns";
+import { useSkaldStore } from "./store";
 import type { MetricsHistoryLine } from "@/types";
 
 function gauge(name: string, value: number, timestamp: string): MetricsHistoryLine {

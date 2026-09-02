@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 776
+- **Total requirements**: 778
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 649
-- **Release-readiness (automated coverage)**: 16.4%
+- **Not covered by automated test**: 651
+- **Release-readiness (automated coverage)**: 16.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 54 | 6 | 48 | 11.1% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 109 | 17 | 92 | 15.6% |
+| gimle-controlplane | 110 | 17 | 93 | 15.5% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 41 | 0 | 41 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 52 | 0 | 52 | 0.0% |
+| gimle-console | 53 | 0 | 53 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -1401,6 +1401,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-743 | The unauthenticated CSR bootstrap endpoint is rate limited | Given a fleet of agents bootstrapping simultaneously from one address When they submit CSRs at shipped defaults Then every submission is accepted And a flood past the configured burst is refused with 429 and a Retry-After | No |
 
+#### Web Console / Frontend
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-777 | A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog | Given a console bundling the `gateway` and `skald` addons When the control plane starts with `-Dgimle.controlplane.consoleAddons=skald` Then `GET /console/addons` reports `skald` enabled and `gateway` disabled, with no session required And starting it with an id the console does not bundle fails, naming every bundled id | No |
+
 #### Workloads / CronJob
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -2006,6 +2012,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-769 | The Audit screen's since filter sends the timestamp format the API parses | Given an audit query narrowed by a since timestamp When it is sent from the console Then the control plane accepts it rather than answering 400 | No |
 | [ ] | GIMLE-773 | A Gateway console screen showing the declared route table and what each route currently resolves to | Given a `gateway.routes` config key declaring a SERVICE route whose Service no longer exists When an operator opens the console's Gateway screen Then that route is listed with its target named and reported as resolving to nothing And a route whose Service has live endpoints shows how many, without either being read from a gateway instance | No |
 | [ ] | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it | No |
+| [ ] | GIMLE-778 | Console addons are a catalog, a registry and an Addons sidebar group, with a disabled addon explaining itself instead of 404ing | Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no Addons group at all | No |
 
 #### Web Console / Testing
 

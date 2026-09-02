@@ -58,6 +58,15 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
   @Parameter(property = "gimle.controlplane.audit.readResourceKinds")
   private String auditReadResourceKinds;
 
+  /**
+   * Comma-separated console addon ids to advertise ({@code none} for no addon at all) -- unset by
+   * default, which advertises every addon the bundled console carries. Forwarded as a plain {@code
+   * -D} system property, the same way {@code auditReadResourceKinds} above is, rather than as a
+   * flag the process would have to learn.
+   */
+  @Parameter(property = "gimle.controlplane.consoleAddons")
+  private String consoleAddons;
+
   @Parameter(defaultValue = "${project.runtimeClasspathElements}", readonly = true, required = true)
   private List<String> runtimeClasspathElements;
 
@@ -75,6 +84,9 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
     }
     if (auditReadResourceKinds != null && !auditReadResourceKinds.isBlank()) {
       command.add("-Dgimle.controlplane.audit.readResourceKinds=" + auditReadResourceKinds);
+    }
+    if (consoleAddons != null && !consoleAddons.isBlank()) {
+      command.add("-Dgimle.controlplane.consoleAddons=" + consoleAddons);
     }
     command.add("-cp");
     command.add(String.join(File.pathSeparator, runtimeClasspathElements));

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.controlplane.ConsoleAddons;
 import com.gimle.controlplane.testsupport.InProcessFafnir;
 import com.gimle.controlplane.testsupport.InProcessStore;
 import com.gimle.core.module.IsolationTier;
@@ -23,6 +24,8 @@ import com.gimle.mimir.store.StateStore;
 import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -2177,12 +2180,38 @@ class ApiServerTest {
   }
 
   @Test
+  void console_addons_are_advertised_to_an_unauthenticated_reader() throws Exception {
+    Path consoleRoot = tempDir.resolve("console-addons-dist");
+    Files.createDirectories(consoleRoot);
+    Files.writeString(consoleRoot.resolve("index.html"), "<html>shell</html>");
+    Path catalog = tempDir.resolve("catalog");
+    Files.createDirectories(catalog.resolve("console"));
+    Files.writeString(
+        catalog.resolve("console").resolve("addons.json"),
+        """
+        {"addons": [{"id": "gateway", "title": "Gateway", "description": "d", "route": "/gateway"}]}
+        """);
+    try (URLClassLoader loader = new URLClassLoader(new URL[] {catalog.toUri().toURL()}, null)) {
+      server.serveConsole(consoleRoot, ConsoleAddons.resolve(loader, "none"));
+    }
+
+    // No session, no client certificate: this route says which screens exist, not what they hold.
+    HttpResponse<String> response =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/console/addons")).GET().build());
+
+    assertEquals(200, response.statusCode());
+    assertEquals(
+        List.of(Map.of("id", "gateway", "enabled", false)),
+        Json.asObject(Json.parse(response.body())).get("addons"));
+  }
+
+  @Test
   void console_static_files_are_served_once_wired() throws Exception {
     Path consoleRoot = tempDir.resolve("console-dist");
     Files.createDirectories(consoleRoot);
     Files.writeString(consoleRoot.resolve("index.html"), "<html>shell</html>");
     Files.writeString(consoleRoot.resolve("app.js"), "console.log('hi');");
-    server.serveConsole(consoleRoot);
+    server.serveConsole(consoleRoot, ConsoleAddons.resolve(getClass().getClassLoader(), null));
 
     HttpResponse<String> asset =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/console/app.js")).GET().build());
@@ -2407,7 +2436,7 @@ class ApiServerTest {
     Path consoleRoot = tempDir.resolve("console-dist-root-redirect");
     Files.createDirectories(consoleRoot);
     Files.writeString(consoleRoot.resolve("index.html"), "<html>shell</html>");
-    server.serveConsole(consoleRoot);
+    server.serveConsole(consoleRoot, ConsoleAddons.resolve(getClass().getClassLoader(), null));
 
     HttpResponse<String> response =
         send(HttpRequest.newBuilder(URI.create(baseUrl + "/")).GET().build());

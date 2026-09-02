@@ -1,5 +1,6 @@
 package com.gimle.controlplane.api;
 
+import com.gimle.controlplane.ConsoleAddons;
 import com.gimle.controlplane.admission.AdmissionChain;
 import com.gimle.controlplane.admission.AdmissionDecision;
 import com.gimle.controlplane.admission.ConfigMapRefsPlugin;
@@ -377,6 +378,7 @@ public final class ApiServer implements AutoCloseable {
   // the original constructor argument again.
   private final int boundPort;
   private volatile Optional<Path> consoleStaticRoot = Optional.empty();
+  private volatile Optional<ConsoleAddons> consoleAddons = Optional.empty();
 
   /**
    * Ephemeral session-signing key, never persisted -- fine for tests and any caller that doesn't
@@ -634,7 +636,7 @@ public final class ApiServer implements AutoCloseable {
           "/bootstrap/tokens", instrument("bootstrap-tokens", this::handleBootstrapTokens));
     }
     if (consoleStaticRoot.isPresent()) {
-      registerConsole(target, consoleStaticRoot.get());
+      registerConsole(target, consoleStaticRoot.get(), consoleAddons.orElseThrow());
     }
   }
 
@@ -694,16 +696,43 @@ public final class ApiServer implements AutoCloseable {
    * context at all and fell through to the JDK server's own {@code 404}, which is what a person
    * actually gets when they type the console's host with no path.
    */
-  public void serveConsole(Path staticRoot) throws IOException {
+  public void serveConsole(Path staticRoot, ConsoleAddons addons) throws IOException {
     consoleStaticRoot = Optional.of(staticRoot);
-    registerConsole(server, staticRoot);
+    consoleAddons = Optional.of(addons);
+    registerConsole(server, staticRoot, addons);
   }
 
-  private static void registerConsole(HttpServer target, Path staticRoot) throws IOException {
+  private static void registerConsole(HttpServer target, Path staticRoot, ConsoleAddons addons)
+      throws IOException {
     String shellFileName =
         Files.isRegularFile(staticRoot.resolve("_shell.html")) ? "_shell.html" : "index.html";
+    // Registered before the static prefix only for readability -- the JDK's own HttpServer matches
+    // the longest registered path, so this wins over "/console" whatever the order.
+    target.createContext("/console/addons", exchange -> handleConsoleAddons(exchange, addons));
     target.createContext("/console", new SpaStaticHandler(staticRoot, shellFileName));
     target.createContext("/", new RootRedirectHandler("/console"));
+  }
+
+  /**
+   * {@code GET /console/addons} -- which bundled console addons this process advertises.
+   *
+   * <p>Deliberately behind no RBAC gate and reachable with no session: it says which screens exist,
+   * not what they contain, and the console reads it before anyone has signed in. Every screen it
+   * names still enforces its own reads through the ordinary authorized routes.
+   */
+  private static void handleConsoleAddons(HttpExchange exchange, ConsoleAddons addons) {
+    try {
+      if (!"GET".equals(exchange.getRequestMethod())) {
+        respond(exchange, 405, "method not allowed");
+        return;
+      }
+      respondJson(exchange, 200, addons.toJson());
+    } catch (IOException | RuntimeException e) {
+      log.warn("console addons request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
   }
 
   /** A fresh temp path per JVM run -- the ephemeral constructor never intends key reuse anyway. */

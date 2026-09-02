@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { MetricsHistoryLine } from "@/types";
 import { metricsHistoryRepo, servicesRepo } from "@/repositories";
 import { describeApiError, storeErrorMessage } from "@/lib/api-error";
-import { skaldDnsName, SKALD_FAILURES_METRIC, SKALD_STALENESS_METRIC } from "@/lib/skald-dns";
+import { skaldDnsName, SKALD_FAILURES_METRIC, SKALD_STALENESS_METRIC } from "@/addons/skald/dns";
 
 const RESPONDERS_KEY = "gimle.console.skald.responders";
 

@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 776,
+    "totalRequirements": 778,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 649,
-    "releaseReadinessPercent": 16.4
+    "notCoveredByAutomatedTest": 651,
+    "releaseReadinessPercent": 16.3
   },
   "items": [
     {
@@ -8538,6 +8538,28 @@
       "category": "Networking / Services",
       "feature": "A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing",
       "step": "Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-777",
+      "module": "gimle-controlplane",
+      "category": "Web Console / Frontend",
+      "feature": "A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog",
+      "step": "Given a console bundling the `gateway` and `skald` addons When the control plane starts with `-Dgimle.controlplane.consoleAddons=skald` Then `GET /console/addons` reports `skald` enabled and `gateway` disabled, with no session required And starting it with an id the console does not bundle fails, naming every bundled id",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-778",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Console addons are a catalog, a registry and an Addons sidebar group, with a disabled addon explaining itself instead of 404ing",
+      "step": "Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no Addons group at all",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

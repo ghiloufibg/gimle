@@ -43,8 +43,9 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { ADDONS } from "@/addons";
 import { groupNavEntries, type NavEntry } from "@/lib/nav";
-import { collectAddonNavEntries } from "@/lib/nav-addons";
+import { useAddonsStore } from "@/stores/useAddonsStore";
 
 const coreItems: NavEntry[] = [
   { title: "Overview", url: "/", icon: LayoutDashboard, group: "Cluster", exact: true },
@@ -60,7 +61,7 @@ const coreItems: NavEntry[] = [
   { title: "Volumes", url: "/volumes", icon: HardDrive, group: "Workloads" },
   { title: "Instances", url: "/instances", icon: Cpu, group: "Workloads" },
   { title: "Custom Resources", url: "/custom-resources", icon: Puzzle, group: "Workloads" },
-  { title: "Networking", url: "/networking", icon: Waypoints, group: "Edge" },
+  { title: "Networking", url: "/networking", icon: Network, group: "Edge" },
   { title: "Tenants", url: "/tenants", icon: Users, group: "Platform" },
   { title: "LimitRanges", url: "/limitranges", icon: Gauge, group: "Platform" },
   { title: "Config", url: "/config", icon: Settings, group: "Platform" },
@@ -74,17 +75,21 @@ const coreItems: NavEntry[] = [
   { title: "Control plane", url: "/controlplane", icon: LayoutDashboard, group: "System" },
 ];
 
-// Addon entries are folded in in declaration order, so an addon screen is added and removed by its
-// own route file alone -- nothing here names it. Resolved on first render rather than at module
-// scope: the glob behind it reaches back into the route modules, one of which renders this sidebar.
-let cachedNavGroups: ReturnType<typeof groupNavEntries> | null = null;
-
-function navGroups() {
-  cachedNavGroups ??= groupNavEntries([...coreItems, ...collectAddonNavEntries()]);
-  return cachedNavGroups;
+/** Core screens plus whichever addons the control plane advertises -- nothing here names an addon,
+ * so the registry and the server's own answer are the only two things that decide. */
+function useNavGroups() {
+  const enabledAddons = useAddonsStore((s) => s.enabledIds);
+  const addonItems: NavEntry[] = ADDONS.filter((a) => enabledAddons.includes(a.id)).map((a) => ({
+    title: a.title,
+    url: a.route,
+    icon: a.icon,
+    group: "Addons",
+  }));
+  return groupNavEntries([...coreItems, ...addonItems]);
 }
 
 export function AppSidebar() {
+  const navGroups = useNavGroups();
   const pathname = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
   const principal = useAuthStore((s) => s.principal);
@@ -117,7 +122,7 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        {navGroups().map(({ group, items }) => (
+        {navGroups.map(({ group, items }) => (
           <SidebarGroup key={group}>
             <SidebarGroupLabel>{group}</SidebarGroupLabel>
             <SidebarGroupContent>

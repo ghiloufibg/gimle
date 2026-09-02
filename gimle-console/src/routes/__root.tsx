@@ -16,6 +16,7 @@ import { DisplayPanel } from "@/components/display-panel";
 import { Toaster } from "@/components/ui/sonner";
 import { useThemeStore } from "@/stores/useThemeStore";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { useAddonsStore } from "@/stores/useAddonsStore";
 
 function NotFoundComponent() {
   return (
@@ -89,12 +90,16 @@ function RootComponent() {
   const navigate = useNavigate();
   const initTheme = useThemeStore((s) => s.init);
   const initAuth = useAuthStore((s) => s.init);
+  const initAddons = useAddonsStore((s) => s.init);
   const authStatus = useAuthStore((s) => s.status);
 
   useEffect(() => {
     initTheme();
     void initAuth();
-  }, [initTheme, initAuth]);
+    // One read, beside the session read: the property behind it is read once at the control
+    // plane's own startup, so there is nothing to re-poll.
+    void initAddons();
+  }, [initTheme, initAuth, initAddons]);
 
   useEffect(() => {
     if (authStatus === "unauthenticated" && pathname !== "/login") {

@@ -5,7 +5,7 @@ import {
   routeTarget,
   type ServiceRoute,
   type VesselRoute,
-} from "./gateway-routes";
+} from "./routes-config";
 
 describe("parseGatewayRoutes", () => {
   it("parses one route of each kind", () => {

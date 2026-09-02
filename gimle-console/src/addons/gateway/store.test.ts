@@ -9,7 +9,7 @@ vi.mock("@/repositories", () => ({
 
 import { configRepo, daemonSetsRepo, endpointsRepo, servicesRepo } from "@/repositories";
 import { ApiError } from "@/repositories/http/apiClient";
-import { GATEWAY_PORT_KEY, GATEWAY_ROUTES_KEY, useGatewayStore } from "./useGatewayStore";
+import { GATEWAY_PORT_KEY, GATEWAY_ROUTES_KEY, useGatewayStore } from "./store";
 import type { ConfigEntry, DaemonSet } from "@/types";
 
 function configEntry(key: string, value: string): ConfigEntry {

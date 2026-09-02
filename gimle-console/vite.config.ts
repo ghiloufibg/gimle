@@ -62,6 +62,9 @@ export default defineConfig(({ command }) => ({
       "/config": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/logs": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/auth": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
+      // So local development against a real control plane sees the real advertised set; with none
+      // reachable the store treats the failed read as "nothing advertised" and the console loads.
+      "/console/addons": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/metrics-history": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/traces-history": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,
       "/audit": `http://localhost:${process.env.GIMLE_CONTROLPLANE_PORT ?? "8081"}`,

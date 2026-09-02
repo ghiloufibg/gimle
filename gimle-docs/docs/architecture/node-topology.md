@@ -135,6 +135,20 @@ read against the `gimle-mimir` cluster it depends on, answering `503` rather tha
 dependency is unreachable — failing closed on a downstream outage rather than only reporting this
 process's own liveness.
 
+It also serves the bundled [web console](./web-console.md) at `/console`, and decides which of that
+console's bundled addon screens it advertises:
+
+| Property | Value | Default |
+|---|---|---|
+| `gimle.controlplane.consoleAddons` | Comma-separated addon ids to advertise, e.g. `gateway,skald`. The literal `none` advertises no addon at all. | Every addon the bundled console carries. |
+
+An id the console does not bundle fails startup with a message naming the bundled ids, the same
+fail-fast posture this process takes on any other bad argument, rather than starting up silently
+advertising nothing. The property is read once at startup, like every other one in this family, and
+the catalog it is validated against is the console's own `console/addons.json`, read off the
+classpath beside the bundled SPA — never a list maintained in Java that could drift from what the
+console actually ships.
+
 ## Store
 
 One or more JVMs, Raft-replicated for HA (`gimle-mimir`). The etcd-equivalent piece: owns the

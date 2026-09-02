@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 776,
+  "requirementCount": 778,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15666,6 +15666,54 @@
         "When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name",
         "Then the route is served from a live endpoint instead of answering 502",
         "And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-777",
+      "module": "gimle-controlplane",
+      "feature": "A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog",
+      "category": "Web Console / Frontend",
+      "userStory": "As an operator running a control plane, I want to decide which optional console screens that deployment offers, and to be told at startup if I name one that does not exist, rather than discovering a silently missing screen later.",
+      "statusDetail": "Complete. `-Dgimle.controlplane.consoleAddons` takes a comma-separated list of addon ids; the literal `none` advertises none, and an unset property advertises every addon the bundled console carries (a console screen opens no listener and holds no state, so unlike an actual subsystem there is no cost to being on -- the property exists to turn a screen off for a deployment that does not want it). The catalog it is validated against is the console's own `console/addons.json`, read off the classpath beside the bundled SPA rather than a list maintained in Java that could drift from what the console ships; an id that is not bundled fails startup naming every bundled id. `GET /console/addons` answers the per-addon verdict, registered as its own context (the JDK HttpServer matches the longest registered path, so it wins over the `/console` static prefix) behind no RBAC gate and no session, since it says which screens exist rather than what they contain. A console built with no catalog bundles nothing -- an empty set, never a startup failure.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ConsoleAddons.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`serveConsole`, `handleConsoleAddons`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java`",
+        "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/ControlPlaneMojo.java`, `BootstrapMojo.java`"
+      ],
+      "testCoverageDetail": "ConsoleAddonsTest covers the default advertising every bundled id, a blank property reading as unset, `none` advertising nothing while still reporting what is bundled, a named subset, an unknown id failing and naming the bundled ids, a console with no catalog bundling nothing, the per-addon JSON verdict, and an unreadable catalog failing rather than silently bundling nothing. ApiServerTest gained console_addons_are_advertised_to_an_unauthenticated_reader, proving the route answers with no session and no client certificate.",
+      "gherkinSteps": [
+        "Given a console bundling the `gateway` and `skald` addons",
+        "When the control plane starts with `-Dgimle.controlplane.consoleAddons=skald`",
+        "Then `GET /console/addons` reports `skald` enabled and `gateway` disabled, with no session required",
+        "And starting it with an id the console does not bundle fails, naming every bundled id"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-778",
+      "module": "gimle-console",
+      "feature": "Console addons are a catalog, a registry and an Addons sidebar group, with a disabled addon explaining itself instead of 404ing",
+      "category": "Web Console / Frontend",
+      "userStory": "As an operator following a link to a console screen the deployment does not offer, I want the page to tell me which property turns it on, instead of showing me a 404 that looks like a broken link.",
+      "statusDetail": "Complete. Replaces the earlier per-route `navEntry` + `import.meta.glob` seam with the registry shape the platform's own addon design specifies, so every addon is added the same way. `public/addons.json` is the single bundled catalog (copied verbatim into the jar as `console/addons.json`, which the control plane validates its property against); `src/addons/index.ts` adds only the icon component JSON cannot carry; each addon's store, model and screen live under `src/addons/<id>/` with a thin route file mounting it inside `AddonRoute`. `useAddonsStore` reads `GET /console/addons` once beside the auth session; the sidebar's Addons group renders only advertised entries and hides when none are, and an unadvertised addon's route renders a panel naming `-Dgimle.controlplane.consoleAddons` rather than a 404, so a shared link still explains itself. An unreachable or older control plane advertises nothing rather than failing the console.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-console/public/addons.json`, `gimle-console/src/addons/index.ts`",
+        "`gimle-console/src/addons/addon-route.tsx`, `gimle-console/src/addons/gateway/**`, `gimle-console/src/addons/skald/**`",
+        "`gimle-console/src/stores/useAddonsStore.ts`",
+        "`gimle-console/src/components/app-sidebar.tsx`, `gimle-console/src/lib/nav.ts`"
+      ],
+      "testCoverageDetail": "useAddonsStore.test.ts covers advertising only enabled ids (a disabled id hides its entry), a failed read and a 404 both advertising nothing rather than throwing, and the read happening once rather than per mount; the same file asserts the registry and addons.json agree on ids, that every catalogued addon carries an icon, that each addon's route matches its own route file's URL, and that an unknown id is refused. nav.test.ts covers the Addons group's placement among the known groups and empty groups being dropped.",
+      "gherkinSteps": [
+        "Given a control plane advertising no console addons",
+        "When an operator opens a bundled addon's route directly",
+        "Then the page names the property that would enable it rather than answering 404",
+        "And the sidebar shows no Addons group at all"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
