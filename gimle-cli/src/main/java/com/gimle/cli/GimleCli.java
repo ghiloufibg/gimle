@@ -732,10 +732,11 @@ public final class GimleCli {
   /**
    * Resolves {@code -h}/{@code --help} to the narrowest usage text available for where it appeared:
    * a bare verb ({@code gimle get -h}) gets that verb's own resource listing; a verb plus a
-   * resource noun ({@code gimle get deployments -h}) gets just that one form. Falls back to the
-   * full top-level usage for a verb this table doesn't recognize, which only ever happens when a
-   * genuinely unknown verb was typed alongside {@code -h} -- the same case that verb's own dispatch
-   * would reject anyway.
+   * resource noun ({@code gimle get deployments -h}) gets just that one form. A verb this table
+   * doesn't recognize is checked against the discovered {@link CliExtension}s before falling back
+   * to the full top-level usage -- this table is built statically and has no way to know about a
+   * verb contributed by a provider on the path, the same reason {@link #usage()} itself folds
+   * extension lines in separately rather than listing them here.
    */
   private static String scopedUsage(String verb, List<String> rest) {
     String noun = firstNonHelpToken(rest);
@@ -772,8 +773,19 @@ public final class GimleCli {
       case "taint" -> "usage: gimle taint <nodeId> <tenantId>";
       case "untaint" -> "usage: gimle untaint <nodeId> <tenantId>";
       case "cert" -> CertCommand.usage();
-      default -> usage();
+      default -> CliExtensions.find(verb).map(GimleCli::extensionUsage).orElseGet(GimleCli::usage);
     };
+  }
+
+  /**
+   * A discovered extension's own {@link CliExtension#usageLine()} is written to read naturally
+   * inside {@code usage()}'s own verb listing (right-padded before its parenthetical description,
+   * matching that listing's column alignment) -- not as a standalone {@code -h} line, where that
+   * padding would show up as a run of literal spaces. Collapsed to single spaces here rather than
+   * asking every extension to format two different strings for two different contexts.
+   */
+  private static String extensionUsage(CliExtension extension) {
+    return "usage: gimle " + extension.usageLine().replaceAll("\\s{2,}", " ").trim();
   }
 
   /** Appended to the {@code get} form of every noun {@link #WATCHABLE_NOUNS} lists. */

@@ -48,6 +48,18 @@ class CliExtensionSeamTest {
   }
 
   @Test
+  void gimle_help_on_a_discovered_verb_shows_its_own_usage_not_the_full_listing() {
+    int exitCode = GimleCli.run(new String[] {"seam-echo", "-h"}, out, err);
+
+    assertEquals(0, exitCode, errBuffer.toString(StandardCharsets.UTF_8));
+    assertEquals("usage: gimle seam-echo [args...]", stdout().trim());
+    // The defect this guards: before an extension's verb was consulted here, "-h" on any verb
+    // this switch didn't statically know about -- including a genuinely discovered one -- fell
+    // through to the entire multi-verb top-level listing instead of one scoped line.
+    assertFalse(stdout().contains("usage: gimle <verb> <resource>"), stdout());
+  }
+
+  @Test
   void the_reader_handed_to_an_extension_exposes_reads_only() {
     // A compile-time property, asserted structurally rather than by calling anything: nothing on
     // ClusterReader can mutate cluster state, so an extension has no write path to reach for.
