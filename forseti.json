@@ -867,7 +867,7 @@
         "midgard"
       ],
       "objective": "Write a Deployment manifest from scratch (no copy-paste of a bundled example), `apply -f` it, watch it reach ACTIVE via `get deployments`, `get instances`, `gimle events`, and the console's Deployments/Instances/detail pages.",
-      "oracle": "Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree. Each instance's reported resource usage is shown against the limit and isolation tier it was admitted under, and a shared-worker (TIER_1) instance is not drawn as though that limit were its own enforced ceiling.",
+      "oracle": "Every lifecycle transition (INSTALLED→RESOLVED→STARTING→ACTIVE) is a durable event visible in the CLI timeline and the instance detail page; table and JSON output agree. Each instance's reported resource usage is shown against the limit and isolation tier it was admitted under, and a shared-worker (TIER_1) instance is not drawn as though that limit were its own enforced ceiling. The Applications screen reads the same deployment as Healthy/Synced once it is placed, and names the reason whenever it does not.",
       "requirements": [
         "GIMLE-371",
         "GIMLE-274",
@@ -881,7 +881,8 @@
         "GIMLE-444",
         "GIMLE-753",
         "GIMLE-157",
-        "GIMLE-779"
+        "GIMLE-779",
+        "GIMLE-787"
       ]
     },
     {
@@ -1084,7 +1085,8 @@
         "GIMLE-236",
         "GIMLE-680",
         "GIMLE-440",
-        "GIMLE-713"
+        "GIMLE-713",
+        "GIMLE-787"
       ]
     },
     {
@@ -2185,7 +2187,7 @@
       "environments": [
         "midgard"
       ],
-      "objective": "Walk every console route as a normal logged-in user: Overview, HUD/Signal toggle, theme, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances (with node/tenant filters), Nodes, Tenants, Config, ConfigMaps, Secrets, SecretMaps, Networking, Access-Control, Artifacts, Audit, Control-Plane, Metrics, Traces, Topology, Logs, Custom Resources, Volumes, LimitRanges, Seal.",
+      "objective": "Walk every console route as a normal logged-in user: Overview, HUD/Signal toggle, theme, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances (with node/tenant filters), Nodes, Tenants, Config, ConfigMaps, Secrets, SecretMaps, Networking, Access-Control, Artifacts, Audit, Control-Plane, Metrics, Traces, Topology, Logs, Custom Resources, Volumes, LimitRanges, Seal, Applications (health/sync verdicts, filters, and one application's resource tree).",
       "oracle": "No route errors, blanks or contradicts the CLI's view of the same data.",
       "requirements": [
         "GIMLE-437",
@@ -2211,7 +2213,8 @@
         "GIMLE-585",
         "GIMLE-593",
         "GIMLE-586",
-        "GIMLE-587"
+        "GIMLE-587",
+        "GIMLE-787"
       ]
     },
     {
@@ -2357,7 +2360,8 @@
         "GIMLE-662",
         "GIMLE-663",
         "GIMLE-664",
-        "GIMLE-625"
+        "GIMLE-625",
+        "GIMLE-787"
       ]
     },
     {

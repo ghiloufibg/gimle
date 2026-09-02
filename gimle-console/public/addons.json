@@ -1,6 +1,13 @@
 {
   "addons": [
     {
+      "id": "applications",
+      "title": "Applications",
+      "description": "Every deployable resource as an application: health, sync against its manifest, and what is running where.",
+      "route": "/apps",
+      "group": "Workloads"
+    },
+    {
       "id": "gateway",
       "title": "Gateway",
       "description": "The edge gateway's declared route table and what each route currently resolves to.",

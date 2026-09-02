@@ -796,6 +796,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-784 | Skald can run as a managed DaemonSet workload behind a UDP Service, not only as its own process kind | Networking | Complete | Yes |
 | GIMLE-785 | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Networking | Complete | Yes |
 | GIMLE-786 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Worker Supervision | Complete | Yes |
+| GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Web Console / Frontend | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -10253,6 +10254,31 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When an operator opens a bundled addon's route directly
   Then the page names the property that would enable it rather than answering 404
   And the sidebar shows no entry for it in the group its catalog entry names
+  ```
+
+#### GIMLE-787 — An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator, I want one screen listing every deployable resource -- Deployment, StatefulSet, DaemonSet, Job, CronJob and every custom kind -- with a health verdict on what is actually running kept apart from a sync verdict on whether the cluster matches the manifest, so that I can tell a fully-placed workload with a crashed replica apart from one mid-rollout whose placed replicas are all fine, and follow either down to the instances and nodes involved.
+- **Status**: Complete. The two verdicts are derived client-side from data already on the wire, with no control-plane change: health from each instance's lifecycle state and its two probes (ACTIVE-but-not-alive is degraded, ACTIVE-but-not-ready is progressing), sync from placement against the manifest (admission blocked, anything unplaced, or a placed count either side of the desired one). Lifecycle never affects sync, so an application stays Synced through a crash loop -- the desired state was reached, it just is not healthy. Each kind keeps its own rules: a SUCCEEDED Job is Healthy because its desired state is having run; a CronJob takes its verdict from the newest Job it generated, matched on the reconciler's own `<name>-<epochSeconds>` naming plus tenant rather than a bare prefix; a custom resource is judged by `status.observedGeneration` against `generation`, claiming nothing when no operator has reported. Every non-green verdict carries typed conditions naming the reason. The detail screen lays the resource tree out as tier/row coordinates in a pure function -- services and the current revision under the application, instances under the revision, and machine nodes shared by the replicas that landed on them -- drawn as absolutely-positioned cards with SVG connectors, so no graph library is needed and the geometry is testable without a DOM. Bundled as a console addon: one `addons.json` entry is all the control plane needs to gate it behind `-Dgimle.controlplane.consoleAddons`, with no Java change.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/addons/applications/model.ts`, `build.ts`, `tree.ts`, `store.ts`, `gimle-console/src/addons/applications/kinds/replicated.ts`, `kinds/jobs.ts`, `kinds/custom.ts`, `gimle-console/src/addons/applications/screen.tsx`, `detail.tsx`, `components/*`, `gimle-console/src/routes/apps.index.tsx`, `gimle-console/src/routes/apps.$kind.$name.tsx`, `gimle-console/public/addons.json`
+- **Test coverage**: 47 Vitest cases across the addon. kinds/replicated.test.ts covers every row of both truth tables (each lifecycle state, both probe failures, quota and LimitRange violations carrying the server's own reason, unplaced counts, scale-up and scale-down, nothing-placed reading Unknown rather than Healthy) plus Service attachment being matched on name and tenant together. kinds/jobs.test.ts covers the four Job phases, a retry in flight, a RUNNING Job with nothing placed reading OutOfSync, generated-Job matching rejecting a same-prefix hand-applied Job and another tenant's, a CronJob taking its verdict from the newest run, and the five-run cap. kinds/custom.test.ts covers caught-up, behind, no status, and a status without the convention. model.test.ts covers worst-first ordering being stable between polls, every filter including a custom kind's own name and the untenanted bucket. tree.test.ts covers one card per lane, parents centred over their children, two replicas on one machine yielding a single node card, machine cards never overlapping, every edge's endpoints existing, and the per-kind tree shapes. store.test.ts covers error surfacing, a poll never raising `loading` and keeping the last good list, revision history only for a revisioned kind, a stale revision response being discarded, and a rollback re-reading the cluster.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Deployment whose replicas are all placed but one instance is FAILED
+  When I open the Applications screen
+  Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node
+  Given a Deployment placing 1 of 2 desired replicas, that one healthy
+  Then it reads Progressing on health and OutOfSync on sync
+  Given a Job that has SUCCEEDED
+  Then it reads Healthy, because a Job's desired state is having run
+  Given a CronJob whose newest generated Job FAILED
+  Then it reads Degraded, naming that Job
+  Given a custom resource whose status reports an observedGeneration behind its generation
+  Then it reads Progressing and OutOfSync, naming both generations
+  Given a control plane whose consoleAddons property does not name this addon
+  Then the sidebar carries no Applications entry and its route explains which property would enable it
   ```
 
 ### gimle-fafnir-console

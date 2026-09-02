@@ -1,4 +1,4 @@
-import { Globe, Waypoints, type LucideIcon } from "lucide-react";
+import { Globe, Layers, Waypoints, type LucideIcon } from "lucide-react";
 
 import catalog from "../../public/addons.json";
 
@@ -30,6 +30,7 @@ export interface Addon {
  * -- the icon component -- so neither side can drift from a list the other owns.
  */
 const ICONS: Record<string, LucideIcon> = {
+  applications: Layers,
   gateway: Waypoints,
   skald: Globe,
 };

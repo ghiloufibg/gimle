@@ -170,3 +170,25 @@ test("logs screen live-tails the consumer's real fabric call to the provider", a
     timeout: 30_000,
   });
 });
+
+// The Applications addon is bundled in this same console, so it is advertised unless the control
+// plane's own consoleAddons property excludes it -- GreeterSmokeClusterSupport sets no such
+// property, so the default (every bundled addon) applies and the screen is reachable here.
+test("applications screen reads the deployed greeter pair as healthy and synced", async ({
+  page,
+}) => {
+  await expectVisibleEventually(page, "/console/apps", "greeter-consumer-deployment");
+  const tile = page.getByRole("link", { name: /greeter-consumer-deployment/ }).first();
+  await expect(tile.getByText("Healthy")).toBeVisible();
+  await expect(tile.getByText("Synced")).toBeVisible();
+});
+
+test("an application's resource tree names the node its instance landed on", async ({ page }) => {
+  await expectVisibleEventually(
+    page,
+    "/console/apps/deployment/greeter-consumer-deployment",
+    "greeter-consumer-deployment",
+  );
+  await expect(page.getByText("ACTIVE", { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("smoke-node-1").first()).toBeVisible();
+});
