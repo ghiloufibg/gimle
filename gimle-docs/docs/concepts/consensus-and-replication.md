@@ -130,6 +130,21 @@ majority of peers within the last `CHECK_QUORUM_WINDOW` (300ms). If it hasn't �
 minority side of a network partition, say — it steps itself down to `FOLLOWER` immediately, rather
 than continuing to believe it's in charge.
 
+That window governs a leader already exchanging heartbeats. Getting those exchanges *started* is a
+different and much slower one-off, and conflating the two is its own outage: a freshly elected
+leader has no open connections to anyone, so every peer socket must be opened from scratch — a TCP
+connect, and under mTLS a full TLS handshake on top of it — before a single round trip can complete.
+`PeerConnection` allows one attempt a connect timeout plus a read timeout to finish or fail, orders
+of magnitude longer than 300ms. Judged against the steady-state window, a new leader whose first
+connects are merely slow (a loaded machine, or a peer still starting up underneath a rolling
+platform upgrade) is indistinguishable from one whose peers are all gone, and demotes on its first
+tick — and its successor inherits the same empty table and does the same thing, so the cluster
+elects leaders indefinitely without any of them surviving long enough to serve a write. So until a
+tenure has reached a majority even once, `LEADERSHIP_CONTACT_GRACE` applies instead: one full
+attempt's worth of time, after which silence is real evidence rather than an answer that hasn't
+arrived yet. Once contact is established the ordinary 300ms window takes over, so a leader that
+genuinely loses its majority still steps down within it.
+
 This is worth sitting with, because Gimlé's own test suite caught a real bug here that's a
 genuinely instructive distributed-systems lesson: a node bootstrapped alone (a fresh single-node
 cluster, term 1) can become leader without ever winning a contested election. If that node later

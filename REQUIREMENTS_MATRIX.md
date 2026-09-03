@@ -3593,14 +3593,15 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-145 — Check-Quorum Leader Self-Demotion
 
 - **Category**: Raft Consensus
-- **User story**: As a cluster operator, I want a leader isolated in a minority partition to step down on its own without observing a higher term.
+- **User story**: As a cluster operator, I want a leader isolated in a minority partition to step down on its own without observing a higher term, while a leader that simply has not finished opening its peer connections yet is not mistaken for one.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `RaftNode#checkQuorumTick`, `#CHECK_QUORUM_WINDOW`
-- **Test coverage**: `RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`
+- **Source location(s)**: `RaftNode#checkQuorumTick`, `#CHECK_QUORUM_WINDOW`, `#LEADERSHIP_CONTACT_GRACE`, `PeerConnection#worstCaseCallDuration`
+- **Test coverage**: `RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`; `RaftNodeVirtualTimeTest#election_timeout_and_check_quorum_self_demotion_both_fire_purely_from_advancing_virtual_time`
 - **Gherkin scenario**:
   ```gherkin
-  Given a leader can no longer reach a majority of peers; When the check-quorum window elapses with no successful RPC round trip; Then the leader steps down to follower on its own.
+  Given a leader that has already reached a majority of peers; When the check-quorum window elapses with no successful RPC round trip; Then the leader steps down to follower on its own.
+  Given a newly elected leader whose first peer RPCs have not completed yet; When only the check-quorum window has elapsed; Then it stays leader until one full peer-RPC attempt could have finished or failed, and only then steps down.
   ```
 
 #### GIMLE-146 — Etcd-Style Live Membership Change (AddServer/RemoveServer)
@@ -9009,14 +9010,15 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-397 — Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)
 
 - **Category**: Release Management
-- **User story**: As an operator rolling out a new platform build, I want to restart one machine's stateless processes one role at a time, with the store restart refusing to break Raft quorum.
+- **User story**: As an operator rolling out a new platform build, I want to restart one machine's stateless processes one role at a time, with a store restart refusing to break Raft quorum and refusing to report success until the cluster serves through a leader again.
 - **Status**: Complete
 - **Confidence**: High
-- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`, `RoleRestarter.java`, `MachineLauncher.restartRole`/`requireStoreQuorumMaintained`
-- **Test coverage**: `UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple)
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`, `RoleRestarter.java`, `MachineLauncher.restartRole`/`requireStoreQuorumMaintained`/`awaitStoreLeaderServing`
+- **Test coverage**: `UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple, incl. `#a_store_whose_port_is_open_but_serves_nothing_is_not_accepted_as_a_restored_cluster`)
 - **Gherkin scenario**:
   ```gherkin
   Given a machine hosting a store replica among a quorum, When "hilmir upgrade-cluster --machine m1 --new-classpath <cp>", Then only STORE/MUNINN/ANDVARI/FAFNIR/CONTROL_PLANE are restartable (AGENT rejected outright); a store restart is refused if it would break quorum.
+  Given a store replica has been restarted and its port is open again, When the store cluster still cannot serve a leader-routed read, Then upgrade-cluster fails the step rather than reporting it healthy and continuing the rollout.
   ```
 
 #### GIMLE-398 — Bundle-based fresh release deployment (`hilmir deploy`)

@@ -9,6 +9,7 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.time.Duration;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.net.SocketFactory;
 
@@ -43,6 +44,18 @@ public final class PeerConnection implements RaftPeerClient, AutoCloseable {
    */
   private static final int READ_TIMEOUT_MILLIS =
       Integer.getInteger("gimle.raft.readTimeoutMillis", 5_000);
+
+  /**
+   * The longest a single {@link #call} can take before it either answers or gives up: a full
+   * connect timeout (a reconnect after the previous socket died) followed by a full read timeout
+   * (the reopened connection then going silent). Exposed for {@link RaftNode}'s check-quorum
+   * bookkeeping, which must never conclude a peer has gone silent faster than one attempt can
+   * possibly report that peer's fate -- doing so turns "we have not heard back yet" into "this peer
+   * is gone."
+   */
+  static Duration worstCaseCallDuration() {
+    return Duration.ofMillis((long) CONNECT_TIMEOUT_MILLIS + READ_TIMEOUT_MILLIS);
+  }
 
   private final SocketAddress address;
   private final ReentrantLock lock = new ReentrantLock();

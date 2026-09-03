@@ -99,11 +99,35 @@ class RaftNodeVirtualTimeTest {
       // role flip observed above, on that same background thread) actually land.
       Thread.sleep(20);
 
-      // The peer never once acknowledges a real RPC (see votingButUnreachablePeer), so advancing
-      // straight past the 300ms check-quorum window must trip self-demotion on the very first
-      // tick -- again without spending any real time waiting for it.
+      // The peer never once acknowledges a real RPC (see votingButUnreachablePeer), but a leader
+      // this new has not yet had time to learn that: its very first attempt to reach the peer is
+      // allowed to run far longer than the 300ms check-quorum window before it reports anything
+      // at all, so the window alone must not be read as evidence the peer is gone.
       scheduler.advance(Duration.ofMillis(300));
-      awaitTrue(() -> !node.isLeader(), Duration.ofSeconds(2));
+      Thread.sleep(20);
+      assertTrue(node.isLeader(), "a brand-new leader must not self-demote within one window");
+
+      // Still true an order of magnitude later, while a single peer RPC could legitimately still
+      // be in flight. This is the whole defect: judged against the 300ms window instead, every
+      // leader demotes on its first tick and its successor repeats it, so a cluster whose peers
+      // are merely slow to accept connections -- a loaded machine, or one restarting underneath a
+      // rolling platform upgrade -- elects leaders indefinitely without any of them surviving
+      // long enough to serve a write.
+      scheduler.advance(Duration.ofSeconds(3));
+      Thread.sleep(20);
+      assertTrue(
+          node.isLeader(), "a new leader must survive while its first RPCs could be in flight");
+
+      // Once one full attempt has had time to finish or fail, silence becomes real evidence and
+      // the self-demotion does fire. Stepped in small increments rather than one long jump: this
+      // stub still grants votes, so a demoted node re-elects itself and begins a fresh grace, and
+      // a single advance long enough to cover the grace can land either side of that cycle.
+      boolean selfDemoted = false;
+      for (int step = 0; step < 200 && !selfDemoted; step++) {
+        scheduler.advance(Duration.ofMillis(100));
+        selfDemoted = !node.isLeader();
+      }
+      assertTrue(selfDemoted, "a leader whose peer never answers must still self-demote");
     } finally {
       node.close();
     }

@@ -266,24 +266,37 @@ left completely untouched. A failure restarting any one role stops the whole run
 never silently continues to the next role and reports success.
 
 **Store restarts are quorum-gated.** Killing a store replica can break a cluster-wide property —
-Raft quorum — not just that one machine's own state, so before (and again after) restarting a store
-role, `upgrade-cluster` polls every *other* store replica's readiness and refuses to proceed unless a
-majority of the total store replica count is reachable. This protects against an operator
-accidentally restarting two store machines "at once" via two concurrent invocations, or restarting
-the last-standing majority member. A single-replica store has no other replicas to protect and is
-always permitted to restart — refusing would make it permanently un-upgradable, not safer. Non-store
-roles have no equivalent cluster-wide property to protect; the ordinary per-process readiness wait is
-sufficient there.
+Raft quorum — not just that one machine's own state, so a store role restart is gated twice, on two
+different questions.
 
-**Known assumption, not a proven guarantee:** a restarted store process rejoins its Raft cluster with
-the same peer id and the same static `--peers` list the topology already declares, which is an
-ordinary peer reconnecting rather than a membership change — `gimle-mimir`'s `StateStore`/`RaftLog`
-reload their state from disk on construction, and this is covered by `StateStoreTest`'s own reload
-tests. What is *not* yet covered by any single end-to-end test, in this codebase or in
-`gimle-smoke-tests`, is killing and restarting the *same* store node and asserting it rejoins as a
-follower and catches up — every existing kill test permanently removes a node from its own cluster
-instead. `upgrade-cluster`'s store-restart path currently rests on the disk-reload guarantee alone,
-not on a dedicated same-node kill-and-rejoin test.
+Before (and again after) the restart, `upgrade-cluster` polls every *other* store replica's
+readiness and refuses to proceed unless a majority of the total store replica count is reachable.
+This protects against an operator accidentally restarting two store machines "at once" via two
+concurrent invocations, or restarting the last-standing majority member. A single-replica store has
+no other replicas to protect and is always permitted to restart — refusing would make it permanently
+un-upgradable, not safer.
+
+Then, after the replacement is listening, `upgrade-cluster` additionally waits until the store
+cluster actually serves a leader-routed read again, and fails the command if it does not within 90
+seconds. Port reachability alone cannot answer this: a fresh store process opens its port the moment
+it binds, well before it has rejoined Raft, caught its log up, or the cluster has elected a leader.
+Without this second gate a rollout reports the step healthy and moves straight on to the next
+machine, and taking another replica down during that window is exactly the quorum loss the first
+gate exists to prevent. Failing loudly is deliberate: an operator told a step succeeded continues
+the rollout, which is the action that turns a slow recovery into an outage.
+
+Non-store roles have no equivalent cluster-wide property to protect; the ordinary per-process
+readiness wait is sufficient there.
+
+**Known assumption, partially proven:** a restarted store process rejoins its Raft cluster with the
+same peer id and the same static `--peers` list the topology already declares, which is an ordinary
+peer reconnecting rather than a membership change — `gimle-mimir`'s `StateStore`/`RaftLog` reload
+their state from disk on construction, and this is covered by `StateStoreTest`'s own reload tests.
+The leader-serving gate above now checks the *cluster's* recovery on every real store restart, so a
+rollout can no longer proceed past a store that failed to rejoin. What is still not covered by any
+single end-to-end test, in this codebase or in `gimle-smoke-tests`, is killing and restarting the
+*same* store node and asserting it specifically rejoins as a follower and catches up — every
+existing kill test permanently removes a node from its own cluster instead.
 
 ## Store membership verbs
 
