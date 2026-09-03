@@ -23,12 +23,19 @@ node/operator CSR flow). What's new is **group membership**, stamped into a cert
 |---|---|
 | `NODE_CLIENT` | `gimle:nodes` |
 | `OPERATOR_CLIENT` | `gimle:operators` |
+| `TENANT_CLIENT` | `gimle:tenant:<id>` |
+| `WORKER_CLIENT` | `gimle:workers`, plus `gimle:tenant:<id>` for a tenanted worker |
 
 This is deliberate, not incidental: a CSR's own requested Subject is never trusted for `O=` — a
-`NODE_CLIENT` CSR that self-declares `O=gimle:operators` is still signed with `O=gimle:nodes`. Only
-the requester's `CN=` (a label, not a privilege) survives from the CSR itself. Rotation is
+`NODE_CLIENT` CSR that self-declares `O=gimle:operators` is still signed with `O=gimle:nodes`, and a
+`WORKER_CLIENT` CSR that self-declares `O=gimle:nodes` is still signed with `O=gimle:workers`. Only
+the requester's `CN=` (a label, not a privilege) survives from the CSR itself — and for a worker
+even that is checked, since the CN must be prefixed by the requesting node's own id. Rotation is
 unaffected: it already requires the renewal CSR's Subject to exactly match the presented
-certificate's own, so a certificate's group survives rotation for free.
+certificate's own, so a certificate's group survives rotation for free. Reading a certificate back
+into a `Principal` is one implementation, `CertificateIdentity` in `gimle-core`, on public JDK APIs
+only, so a worker JVM — which carries no `gimle-pki`/Bouncy Castle at all — derives exactly the
+identity the control plane stamped.
 
 ## Authorization: `Role`, `RoleBinding`, `Authorizer`
 
@@ -164,9 +171,13 @@ server-stamped `O=gimle:tenant:<id>` — like `gimle:operators`/`gimle:nodes`, t
 taken from the CSR's own subject, which is exactly what makes it a trustworthy claim. Its consumer
 today is `gimle-bifrost`'s TLS-terminating identity-verifying mode (see
 [Service fabric](./service-fabric.md)), which reads the group off a verified client certificate to
-enforce a `NetworkPolicySpec`'s allow list against opaque proxied traffic — the same tenant claim
-the fabric wire protocol carries in-band, expressed at the transport layer for callers outside the
-fabric.
+enforce a `NetworkPolicySpec`'s allow list against opaque proxied traffic. **Worker certificates**
+carry the same claim for callers *inside* the fabric: every worker JVM presents a `WORKER_CLIENT`
+certificate (`O=gimle:workers` plus `O=gimle:tenant:<id>`) its node agent obtained for it, minted
+only for a tenant the scheduler actually placed on that node, and a receiving `FabricServer` reads
+the caller's tenant off that verified certificate rather than off the tenant the frame claims for
+itself — see [Transport security](./transport-security.md#per-worker-certificates) and
+[Service fabric](./service-fabric.md).
 
 **Certificate revocation** is the portable answer to a compromised leaf, with no CRL/OCSP
 infrastructure: `gimle cert revoke <serialHex>` (`PUT /certificates/revoked/{serial}`, guarded by

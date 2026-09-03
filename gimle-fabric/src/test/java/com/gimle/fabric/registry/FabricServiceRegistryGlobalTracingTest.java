@@ -29,6 +29,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Exercises a real cross-worker fabric call end to end against a real installed OTel SDK -- the P3
@@ -45,6 +48,10 @@ import org.junit.jupiter.api.parallel.Isolated;
  * with this module's other tests, which touch it via its default lazy no-op init.
  */
 @Isolated
+// Reads gimle.transport.protocol (through FabricClient/FabricServer) without ever setting it: a
+// READ lock lets these plaintext classes run concurrently with each other while excluding any
+// class that mutates the JVM-global TLS properties mid-run (see FabricTransportTlsTest).
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class FabricServiceRegistryGlobalTracingTest {
 
   private static final ModuleId OWNER =

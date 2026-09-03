@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 787,
+  "requirementCount": 788,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -9778,16 +9778,17 @@
       "module": "gimle-fabric",
       "feature": "Fabric listener-side tenant re-check on inbound service calls",
       "category": "Fabric / Multi-tenancy",
-      "status": "New",
-      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "status": "Modified",
+      "statusNote": "originally added with the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work; modified to read a caller's tenant off the verified client certificate on TLS connections and refuse a disagreeing wire claim -- the wire field was previously the only input and was never verified against anything.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario drives two tenants' modules through a real cluster and asserts a cross-tenant fabric call that bypasses FabricServiceRegistry's own caller-side filter is still rejected by the receiving worker. To close: a scenario would need two tenant-scoped modules, one exporting a tenant-restricted service and one holding another tenant's identity, plus a step that dials the raw ServiceEndpoint address directly (not through the registry's own lookup) to prove FabricServer's own listener-side re-check independently rejects it -- something no current .feature file attempts.",
-      "otherTestCoverage": "`FabricServerTest` (4 tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage",
+      "gapNote": "No Holmgang scenario drives two tenants' modules through a real TLS cluster and asserts that a cross-tenant fabric call forging another tenant's callerTenantId over a raw connection is refused by the receiving worker's certificate check. To close: a scenario would need two tenant-scoped modules in TLS mode, one exporting a tenant-restricted service, plus a step that dials the raw ServiceEndpoint address with the other tenant's worker certificate and a forged claim -- something no current .feature file attempts.",
+      "otherTestCoverage": "`FabricServerTlsIdentityTest` (6 tests over real mTLS: forged claim refused naming the certified tenant, matching claim served, claimless caller identified by certificate, export re-check runs against the certified tenant, no-tenant certificate cannot claim one, Unix-socket hop still serves the frame's claim); `FabricServerTest` (4 plaintext-path tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage",
       "sourceLocations": [
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`",
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java`",
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tls/CertificateIdentity.java`",
         "`gimle-core/src/main/java/com/gimle/core/exception/GimleFabricAuthorizationException.java`"
       ]
     },
@@ -13654,6 +13655,27 @@
         "`gimle-console/public/addons.json`"
       ],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser, so console-level behaviour is structurally outside its reach -- the same gap GIMLE-447 (Topology) and GIMLE-773/774 (the Gateway and Skald addon screens) record. Verifying this end to end needs a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one."
+    },
+    {
+      "id": "GIMLE-788",
+      "module": "gimle-agent",
+      "feature": "Per-worker certificates: node-minted worker identity carrying the worker's tenant",
+      "category": "Security / Identity",
+      "status": "New",
+      "statusNote": "newly added to close the fabric caller-identity gap: workers previously inherited the agent's node certificate wholesale",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "mtls.feature's \"The cluster functions end to end over mutual TLS\" deploys a tenant module over TLS, which after this change cannot reach ACTIVE without a WORKER_CLIENT issuance -- and a live run of that scenario does reach ACTIVE with the agent logging \"issued worker certificate\" -- but the scenario as a whole currently fails on its final log step for a reason unrelated to this requirement: the harness's /logs/instances follow request carries no ?tenant=, and the control plane defaults an omitted tenant to `default`, so a holmgang-tenant instance's log is never found (MinimalTopologyIT fails identically in plaintext). No scenario step asserts the issued identity itself (its groups, or a refused issuance for an unassigned tenant) either.",
+      "otherTestCoverage": "`WorkerClientCsrTest` (6 tests against a real mTLS ApiServer: issuance for an assigned tenant with server-stamped groups and a worker certificate refused as a node; unassigned tenant, foreign-node CN, operator caller, and anonymous caller each refused; untenanted worker gets only gimle:workers); `WorkerCertificatesTest` (5 tests against a real CA: issue-once/reuse, untenanted submission, renewal of a due certificate only, refused issuance leaves nothing behind, per-worker directories); `AgentMainTest` (worker's own cert/key plus shared CA forwarded, never the node's; stable flags carry no TLS material); `SubjectsTest`; `CertificateIdentityTest`.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/CsrPurpose.java`",
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tls/CertificateIdentity.java`",
+        "`gimle-pki/src/main/java/com/gimle/pki/Subjects.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/WorkerCertificates.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ]
     }
   ]
 }

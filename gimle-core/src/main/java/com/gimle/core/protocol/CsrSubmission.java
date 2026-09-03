@@ -9,7 +9,9 @@ import java.util.Optional;
  * instead, never a token) and for a rotation request (authenticated by the caller's own still-valid
  * mTLS certificate instead, presented at the transport layer rather than in this body). {@code
  * tenantId} is present exactly for a {@link CsrPurpose#TENANT_CLIENT} request -- the tenant whose
- * membership group the issued certificate will carry.
+ * membership group the issued certificate will carry -- and optionally for a {@link
+ * CsrPurpose#WORKER_CLIENT} one, where absent means the worker hosts an untenanted deployment and
+ * its certificate carries no tenant group at all.
  */
 public record CsrSubmission(
     CsrPurpose purpose, String csrPem, Optional<String> bootstrapToken, Optional<String> tenantId) {

@@ -12,12 +12,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * The listener half of the retry story, exercised over a real socket rather than against {@link
  * InvocationDeduplicator} directly: a retry always arrives on a brand-new connection (the client
  * opens one per attempt), so suppression has to be a property of the listener, not of a connection.
  */
+// Reads gimle.transport.protocol (through FabricClient/FabricServer) without ever setting it: a
+// READ lock lets these plaintext classes run concurrently with each other while excluding any
+// class that mutates the JVM-global TLS properties mid-run (see FabricTransportTlsTest).
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class FabricServerDeduplicationTest {
 
   private static final ModuleId OWNER =

@@ -189,11 +189,19 @@ deployments (`deploymentNames`) and to named exported service interfaces (`servi
 point a misbehaving caller cannot skip — for caller-tenant-wide rules (a caller-deployment-scoped
 egress rule names an identity the wire doesn't carry, so it can only ever be proven to apply at the
 caller). Independently of `NetworkPolicySpec`, `FabricServer.dispatch` also re-checks a target's own
-`ServiceExport.allowedTenantIds` against the caller's wire-carried tenant identity before invoking
-it — closing the bypass where a caller dials the raw catalog address directly instead of going
-through the caller-side filter. Both are the same "forwarded claim, independently re-checked at the
-far end" posture Fafnir/Muninn/Andvari each apply to identity, applied to cross-tenant fabric
-traffic.
+`ServiceExport.allowedTenantIds` against the caller's tenant before invoking it — closing the bypass
+where a caller dials the raw catalog address directly instead of going through the caller-side
+filter. On a TLS hop that tenant is read off the connection's verified client certificate — the
+per-worker `O=gimle:tenant:<id>` certificate every worker JVM presents, see
+[Transport security](./transport-security.md#per-worker-certificates) — never off the
+`callerTenantId` the frame claims for itself: that field is written by the caller, and a worker
+able to open a raw connection could write any tenant into it. A frame whose claim disagrees with
+the certificate is refused outright rather than believed either way, so a forgery is visible, not
+quietly corrected. The frame's own claim is what the listener has to go on only where the transport
+carries no identity — the always-plaintext same-machine Unix-domain-socket hop, or a cluster that
+never opted into TLS — the same trust-the-transport posture every other plaintext surface here
+takes. Both checks are the same "verify at the far end" posture Fafnir/Muninn/Andvari each apply
+to identity, applied to cross-tenant fabric traffic.
 
 ### Ingress: routes as a resource
 

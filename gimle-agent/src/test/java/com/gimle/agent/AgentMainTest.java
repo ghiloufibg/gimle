@@ -88,6 +88,7 @@ class AgentMainTest {
         Path.of("gimle-logs", "workers", "hello-deployment#0"),
         nodeId,
         assigned,
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -286,8 +287,15 @@ class AgentMainTest {
     }
   }
 
+  /**
+   * The worker presents its own certificate, never this agent's node certificate: the cert/key
+   * paths in the spawned command are the per-worker material {@code WorkerCertificates} issued, and
+   * only the cluster CA file is the agent's own. A node certificate handed down to every worker
+   * would let hosted-module code act as the node, and would give a receiving fabric listener no
+   * tenant to read off the connection.
+   */
   @Test
-  void the_spawned_command_forwards_this_agents_own_tls_material_when_tls_is_enabled(
+  void the_spawned_command_forwards_the_workers_own_certificate_and_the_shared_ca_under_tls(
       @TempDir Path tempDir) throws IOException {
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
@@ -299,6 +307,68 @@ class AgentMainTest {
             "hello-deployment", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
     // TlsSettings only checks Files.isRegularFile, never parses PEM content, so empty files are
     // enough here -- no need to mint real certificate material from gimle-pki for this test.
+    Path nodeCertFile = Files.createFile(tempDir.resolve("node.crt"));
+    Path nodeKeyFile = Files.createFile(tempDir.resolve("node.key"));
+    Path caFile = Files.createFile(tempDir.resolve("ca.crt"));
+    WorkerCertificates.Material workerMaterial =
+        new WorkerCertificates.Material(
+            tempDir.resolve("workers/hello-deployment#0/worker.crt"),
+            tempDir.resolve("workers/hello-deployment#0/worker.key"));
+    String previousProtocol = System.getProperty("gimle.transport.protocol");
+    String previousCert = System.getProperty("gimle.tls.certFile");
+    String previousKey = System.getProperty("gimle.tls.keyFile");
+    String previousCa = System.getProperty("gimle.tls.caFile");
+    try {
+      System.setProperty("gimle.transport.protocol", "tls");
+      System.setProperty("gimle.tls.certFile", nodeCertFile.toString());
+      System.setProperty("gimle.tls.keyFile", nodeKeyFile.toString());
+      System.setProperty("gimle.tls.caFile", caFile.toString());
+
+      List<String> command =
+          AgentMain.buildWorkerCommand(
+              "java",
+              List.of("-cp", "worker.jar", "com.gimle.worker.WorkerMain"),
+              resourceLimiter,
+              handle,
+              Path.of("gimle-logs", "workers", "hello-deployment#0"),
+              "node-1",
+              assigned,
+              Optional.empty(),
+              Optional.of(workerMaterial));
+
+      assertTrue(
+          command.contains("-Dgimle.transport.protocol=tls"),
+          "expected the transport protocol forwarded verbatim; command=" + command);
+      assertTrue(
+          command.contains("-Dgimle.tls.certFile=" + workerMaterial.certFile()),
+          "expected the worker's own cert file path; command=" + command);
+      assertTrue(
+          command.contains("-Dgimle.tls.keyFile=" + workerMaterial.keyFile()),
+          "expected the worker's own key file path; command=" + command);
+      assertTrue(
+          command.contains("-Dgimle.tls.caFile=" + caFile),
+          "expected the shared CA file path forwarded verbatim; command=" + command);
+      assertTrue(
+          command.stream().noneMatch(flag -> flag.endsWith("=" + nodeCertFile)),
+          "the agent's own node certificate must never reach a worker; command=" + command);
+      assertTrue(
+          command.stream().noneMatch(flag -> flag.endsWith("=" + nodeKeyFile)),
+          "the agent's own node key must never reach a worker; command=" + command);
+    } finally {
+      restoreProperty("gimle.transport.protocol", previousProtocol);
+      restoreProperty("gimle.tls.certFile", previousCert);
+      restoreProperty("gimle.tls.keyFile", previousKey);
+      restoreProperty("gimle.tls.caFile", previousCa);
+    }
+  }
+
+  /**
+   * TLS material is per worker, so it can never sit in the flags every worker shares -- those feed
+   * the Sleipnir AOT cache key, which must not change from one instance to the next.
+   */
+  @Test
+  void stable_worker_flags_carry_no_tls_material_even_under_tls(@TempDir Path tempDir)
+      throws IOException {
     Path certFile = Files.createFile(tempDir.resolve("node.crt"));
     Path keyFile = Files.createFile(tempDir.resolve("node.key"));
     Path caFile = Files.createFile(tempDir.resolve("ca.crt"));
@@ -312,20 +382,14 @@ class AgentMainTest {
       System.setProperty("gimle.tls.keyFile", keyFile.toString());
       System.setProperty("gimle.tls.caFile", caFile.toString());
 
-      List<String> command = buildDefaultWorkerCommand(resourceLimiter, handle, assigned);
+      List<String> flags = AgentMain.stableWorkerFlags();
 
       assertTrue(
-          command.contains("-Dgimle.transport.protocol=tls"),
-          "expected the transport protocol forwarded verbatim; command=" + command);
+          flags.stream().noneMatch(flag -> flag.startsWith("-Dgimle.tls.")),
+          "expected no TLS material in the stable flags; flags=" + flags);
       assertTrue(
-          command.contains("-Dgimle.tls.certFile=" + certFile),
-          "expected the cert file path forwarded verbatim; command=" + command);
-      assertTrue(
-          command.contains("-Dgimle.tls.keyFile=" + keyFile),
-          "expected the key file path forwarded verbatim; command=" + command);
-      assertTrue(
-          command.contains("-Dgimle.tls.caFile=" + caFile),
-          "expected the CA file path forwarded verbatim; command=" + command);
+          flags.stream().noneMatch(flag -> flag.startsWith("-Dgimle.transport.protocol")),
+          "expected no transport flag in the stable flags; flags=" + flags);
     } finally {
       restoreProperty("gimle.transport.protocol", previousProtocol);
       restoreProperty("gimle.tls.certFile", previousCert);
@@ -405,7 +469,8 @@ class AgentMainTest {
             Path.of("gimle-logs", "workers", "hello-deployment#0"),
             "node-1",
             assigned,
-            Optional.of(cachePath));
+            Optional.of(cachePath),
+            Optional.empty());
 
     int cacheFlagIndex = command.indexOf("-XX:AOTCache=" + cachePath);
     assertTrue(cacheFlagIndex >= 0, "expected -XX:AOTCache=<path>; command=" + command);

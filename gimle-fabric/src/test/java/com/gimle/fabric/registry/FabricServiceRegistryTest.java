@@ -29,7 +29,14 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
+// Reads gimle.transport.protocol (through FabricClient/FabricServer) without ever setting it: a
+// READ lock lets these plaintext classes run concurrently with each other while excluding any
+// class that mutates the JVM-global TLS properties mid-run (see FabricTransportTlsTest).
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class FabricServiceRegistryTest {
 
   private static final ServiceExport GREETER_EXPORT =
