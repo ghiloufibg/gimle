@@ -11,6 +11,7 @@ import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.SortKey;
 import com.gimle.hugin.model.WorkloadKind;
 import com.gimle.hugin.model.WorkloadRow;
 import java.time.Instant;
@@ -259,12 +260,79 @@ class ClusterScreenTest {
   }
 
   @Test
+  void sorting_by_a_metric_puts_the_worst_instance_on_the_first_row() {
+    ui.cycleSort();
+    ui.cycleSort();
+    ui.cycleSort();
+
+    List<String> lines = render(snapshot(), new Viewport(140, 30));
+
+    assertEquals(SortKey.ERROR_RATE, ui.sortKey());
+    assertTrue(lineContaining(lines, "INSTANCES").contains("by err/s"), lines.toString());
+    String firstRow = lines.get(lines.indexOf(lineContaining(lines, "WORKLOAD")) + 1);
+    assertTrue(firstRow.contains("greeter-consumer"), firstRow);
+  }
+
+  @Test
+  void the_default_ordering_is_by_name_and_says_nothing_about_itself() {
+    List<String> lines = render(snapshot(), new Viewport(140, 30));
+
+    assertEquals(SortKey.NAME, ui.sortKey());
+    assertFalse(lineContaining(lines, "INSTANCES").contains(" by "), lines.toString());
+  }
+
+  @Test
+  void the_cluster_key_bar_still_fits_an_eighty_column_terminal() {
+    // The bar grows every time a binding is added; once it exceeds the width the frame cuts its
+    // tail, and the tail is where "q quit" lives.
+    List<String> lines = render(snapshot(), new Viewport(80, 30));
+
+    String bar = lines.getLast();
+    assertTrue(bar.contains("q quit"), bar);
+    assertTrue(Ansi.visibleWidth(bar) <= 80, bar);
+  }
+
+  @Test
+  void tab_moves_the_cursor_to_the_node_table_and_only_one_table_shows_a_cursor() {
+    // Selection is a background fill, so this needs a painter that emits colour to see it at all.
+    ClusterScreen colour = new ClusterScreen(new Painter(ColorMode.TRUECOLOR));
+    String selectionFill = "48;2;18;48;64";
+
+    List<String> beforeTab = colour.render(snapshot(), ui, new Viewport(140, 30), false, NOW);
+    assertTrue(rowsWith(beforeTab, selectionFill).stream().anyMatch(r -> r.contains("checkout")));
+
+    ui.toggleFocus();
+    List<String> afterTab = colour.render(snapshot(), ui, new Viewport(140, 30), false, NOW);
+
+    assertEquals(UiState.Focus.NODES, ui.focus());
+    List<String> highlighted = rowsWith(afterTab, selectionFill);
+    assertEquals(1, highlighted.size(), highlighted.toString());
+    // Two highlighted rows would leave an operator guessing which one enter acts on.
+    assertTrue(highlighted.getFirst().contains("node-alpha"), highlighted.toString());
+  }
+
+  private static List<String> rowsWith(final List<String> lines, final String sequence) {
+    return lines.stream().filter(line -> line.contains(sequence)).toList();
+  }
+
+  @Test
   void the_instance_table_labels_each_row_with_the_kind_of_workload_it_belongs_to() {
     List<String> lines = render(snapshot(), new Viewport(140, 30));
 
     String header = lineContaining(lines, "WORKLOAD");
     assertTrue(header.contains("KIND"), header);
     assertTrue(lineContaining(lines, "checkout-api").contains("DEPLOY"), lines.toString());
+  }
+
+  @Test
+  void a_wide_terminal_names_each_rows_tenant_and_a_narrow_one_spends_the_width_on_the_name() {
+    List<String> wide = render(snapshot(), new Viewport(180, 30));
+    assertTrue(lineContaining(wide, "WORKLOAD").contains("TENANT"));
+
+    // Same rule the KIND column follows: a column that reads the same on every row of a
+    // single-tenant cluster is not worth truncating the one that identifies the row.
+    List<String> narrow = render(snapshot(), new Viewport(120, 30));
+    assertFalse(lineContaining(narrow, "WORKLOAD").contains("TENANT"));
   }
 
   @Test
@@ -404,7 +472,10 @@ class ClusterScreenTest {
         assignedMemoryGib * 1024L * 1024L * 1024L,
         totalMemoryGib * 1024L * 1024L * 1024L,
         2,
-        Optional.of(NOW.minusSeconds(heartbeatAgeSeconds)));
+        Optional.of(NOW.minusSeconds(heartbeatAgeSeconds)),
+        List.of("TIER_1", "TIER_2"),
+        List.of("zone=eu-west"),
+        cordoned ? List.of("acme") : List.of());
   }
 
   private static InstanceRow instance(

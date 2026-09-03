@@ -158,15 +158,16 @@ final class StatusBar {
     return keyBar(
         painter,
         viewport,
+        // Trimmed to what fits an 80-column terminal without the tail being cut: a key bar whose
+        // "q quit" falls off the right edge is worse than one that lists fewer keys. The full set,
+        // r included, is one "?" away.
         List.of(
-            "↑↓ move",
-            "⏎ inspect",
-            "s services",
-            "/ filter",
-            "p pause",
-            "r refresh",
-            "? help",
-            "q quit"));
+            "↑↓ move", "⏎ inspect", "s svc", "o sort", "/ filter", "p pause", "? help", "q quit"));
+  }
+
+  static String nodeKeys(final Painter painter, final Viewport viewport) {
+    return keyBar(
+        painter, viewport, List.of("esc back", "p pause", "r refresh", "? help", "q quit"));
   }
 
   static String instanceKeys(final Painter painter, final Viewport viewport) {

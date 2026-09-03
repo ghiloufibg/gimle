@@ -1,9 +1,15 @@
 package com.gimle.hugin.render;
 
+import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ResourceSpec;
+import com.gimle.hugin.model.CrashDump;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
 import com.gimle.hugin.model.LifecycleEventRow;
 import com.gimle.hugin.model.LogLine;
+import com.gimle.hugin.model.MetricSeries;
+import com.gimle.hugin.model.MetricsHistory;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -15,9 +21,18 @@ import java.util.Locale;
  * The drill-down: what this instance is and how it is doing, the last few lifecycle transitions,
  * and a live tail of its own logging. Like the cluster view, a pure function of what it is given.
  *
- * <p>The detail pane shows only what the control plane actually serves for an instance. Resource
- * limits and isolation tier come from the module's own descriptor, which no read route exposes, so
- * they are absent here rather than approximated from something else.
+ * <p>The detail pane shows only what the control plane actually serves for an instance, and reads
+ * the declared limit differently per tier, because the platform enforces it differently: a
+ * dedicated worker JVM is started with that memory figure as its own {@code -Xmx}, so measured
+ * memory against it is a real headroom reading and gets a gauge. A shared worker JVM has one heap
+ * for every instance on it, so the same figure is only what the scheduler admitted against -- shown
+ * as text, with no gauge that would imply a ceiling this instance can individually hit.
+ *
+ * <p>Two of the panes appear only when there is something behind them. Shipped meter history is
+ * optional -- a cluster running no observability sink has none -- so a measured row carries a
+ * sparkline where one exists and is otherwise the row it has always been, never an empty chart. A
+ * crash dump listing is the same: a section for an instance that has one, and no section at all for
+ * the overwhelming majority that never will.
  */
 public final class InstanceScreen {
 
@@ -26,6 +41,23 @@ public final class InstanceScreen {
 
   /** How many events the pane shows before the log tail takes the rest of the screen. */
   private static final int MAX_EVENTS = 5;
+
+  /** Width of the memory headroom bar, matching the gauges the cluster view draws for a node. */
+  private static final int GAUGE_CELLS = 12;
+
+  /** Width of a measured row's sparkline, and the column every one of them starts at. */
+  private static final int SPARK_CELLS = 16;
+
+  private static final int SPARK_COLUMN = 28;
+
+  /**
+   * The worker meters drawn as history, named exactly as the worker's own registry registers them.
+   */
+  private static final String REQUEST_COUNT_METER = "gimle.module.request.count";
+
+  private static final String REQUEST_ERRORS_METER = "gimle.module.request.errors";
+
+  private static final String METASPACE_METER = "gimle.module.metaspace.bytes";
 
   private final Painter painter;
 
@@ -39,11 +71,16 @@ public final class InstanceScreen {
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
+    // The render loop is the only place holding both the row and the watcher, so this is where the
+    // watcher learns which instance it is drawing. A volatile publish, not a request.
+    watcher.observe(row);
+
     List<String> lines = new ArrayList<>();
     lines.add(header(row, viewport, paused));
     lines.add("");
-    lines.addAll(detail(row));
+    lines.addAll(detail(row, watcher.metrics()));
     lines.add("");
+    lines.addAll(crashDumps(watcher.crashDumps(), now));
 
     List<LifecycleEventRow> events = watcher.events();
     lines.add(sectionLabel("RECENT EVENTS"));
@@ -69,11 +106,7 @@ public final class InstanceScreen {
       lines.add(logLine(line, viewport));
     }
 
-    while (lines.size() < viewport.rows() - 1) {
-      lines.add("");
-    }
-    lines.add(StatusBar.instanceKeys(painter, viewport));
-    return Frame.fit(lines, viewport);
+    return Frame.fitWithKeyBar(lines, StatusBar.instanceKeys(painter, viewport), viewport);
   }
 
   private String header(final InstanceRow row, final Viewport viewport, final boolean paused) {
@@ -96,7 +129,7 @@ public final class InstanceScreen {
     return line.fillTo(viewport.columns(), bar).build();
   }
 
-  private List<String> detail(final InstanceRow row) {
+  private List<String> detail(final InstanceRow row, final MetricsHistory history) {
     List<String> lines = new ArrayList<>();
     lines.add(sectionLabel("INSTANCE"));
     StatusVariant state = StatusVariant.ofLifecycleState(row.lifecycleState());
@@ -108,20 +141,46 @@ public final class InstanceScreen {
     lines.add(field("module", row.moduleCoordinate().orElse(Text.ABSENT), Style.PLAIN));
     lines.add(field("worker", row.workerId().orElse(Text.ABSENT), Style.PLAIN));
     lines.add("");
+    lines.addAll(isolation(row));
+    lines.add("");
     lines.add(sectionLabel("MEASURED"));
     if (!row.observed()) {
       lines.add(muted("  placed, but this node has not reported on it yet"));
       return lines;
     }
-    lines.add(field("memory", Text.bytes(row.memoryBytesUsed()), Style.PLAIN));
+    lines.add(memoryField(row));
     lines.add(field("cpu", Text.millicores(row.cpuMillicoresUsed()), Style.PLAIN));
-    lines.add(field("req/s", Text.rate(row.requestRatePerSecond()), Style.PLAIN));
+    // Both counters are cumulative totals, so their history only means anything as the per-second
+    // change between consecutive snapshots -- the same reading the live column beside it shows.
+    lines.add(
+        field(
+            "req/s",
+            Text.rate(row.requestRatePerSecond()),
+            Style.PLAIN,
+            rates(history, REQUEST_COUNT_METER),
+            StatusVariant.INFO));
     lines.add(
         field(
             "err/s",
             Text.rate(row.errorRatePerSecond()),
-            row.errorRatePerSecond() > 0 ? Style.fg(Palette.BAD) : Style.PLAIN));
+            row.errorRatePerSecond() > 0 ? Style.fg(Palette.BAD) : Style.PLAIN,
+            rates(history, REQUEST_ERRORS_METER),
+            StatusVariant.BAD));
     lines.add(field("queue", String.valueOf(row.queueDepth()), Style.PLAIN));
+    // The module's own classloader footprint, and the one memory reading a worker actually ships.
+    // Its own line rather than an addition to "memory" above, which reads the whole worker JVM.
+    history
+        .series(METASPACE_METER)
+        .filter(series -> !series.isEmpty())
+        .ifPresent(
+            series ->
+                lines.add(
+                    field(
+                        "metaspace",
+                        Text.bytes((long) series.latest()),
+                        Style.PLAIN,
+                        series.values(),
+                        StatusVariant.OK)));
     // Both are absent on most instances -- a module that only answers over the fabric reports no
     // port, and one with no volume reports no usage -- so each earns its line only when there is
     // something to put on it, rather than standing as a permanent em dash.
@@ -134,11 +193,124 @@ public final class InstanceScreen {
     return lines;
   }
 
+  private List<String> isolation(final InstanceRow row) {
+    List<String> lines = new ArrayList<>();
+    lines.add(sectionLabel("ISOLATION"));
+    lines.add(
+        field(
+            "tier",
+            row.isolationTier().map(InstanceScreen::tierText).orElse(Text.ABSENT),
+            row.isolationTier().isPresent() ? Style.PLAIN : Style.fg(Palette.MUTED)));
+    lines.add(
+        field(
+            "limit",
+            row.resourceLimit().map(InstanceScreen::limitText).orElse(Text.ABSENT),
+            row.resourceLimit().isPresent() ? Style.PLAIN : Style.fg(Palette.MUTED)));
+    if (row.resourceLimit().isPresent()
+        && row.isolationTier().orElse(null) == IsolationTier.TIER_1) {
+      lines.add(
+          new Line(painter)
+              .pad(12)
+              .add("admission bound, not a per-instance ceiling", Style.fg(Palette.MUTED))
+              .build());
+    }
+    return lines;
+  }
+
+  private static String tierText(final IsolationTier tier) {
+    return switch (tier) {
+      case TIER_1 -> "TIER_1  shared worker JVM";
+      case TIER_2 -> "TIER_2  dedicated worker JVM";
+      case TIER_3 -> "TIER_3  namespaced worker JVM";
+    };
+  }
+
+  private static String limitText(final ResourceSpec limit) {
+    return limit.memory() + " memory · " + limit.cpu() + " cpu";
+  }
+
+  /**
+   * Memory used, with the headroom bar drawn only where the limit is one this instance can reach on
+   * its own -- a dedicated worker JVM, whose heap it does not share with anything.
+   */
+  private String memoryField(final InstanceRow row) {
+    String used = Text.bytes(row.memoryBytesUsed());
+    if (row.isolationTier().orElse(null) != IsolationTier.TIER_2 || row.resourceLimit().isEmpty()) {
+      return field("memory", used, Style.PLAIN);
+    }
+    long limitBytes = row.resourceLimit().orElseThrow().memoryBytes();
+    double fraction = Text.fraction(row.memoryBytesUsed(), limitBytes);
+    Line line =
+        new Line(painter)
+            .cell("memory", 10, Style.fg(Palette.MUTED_FOREGROUND))
+            .pad(2)
+            .add(used + " of " + Text.bytes(limitBytes), Style.PLAIN)
+            .pad(2);
+    Gauge.draw(line, fraction, GAUGE_CELLS);
+    return line.add(String.format(Locale.ROOT, " %.0f%%", fraction * 100), Style.PLAIN).build();
+  }
+
+  private static List<Double> rates(final MetricsHistory history, final String meterName) {
+    return history.series(meterName).map(MetricSeries::ratesPerSecond).orElse(List.of());
+  }
+
   private String field(final String label, final String value, final Style style) {
+    return field(label, value, style, List.of(), StatusVariant.MUTED);
+  }
+
+  /**
+   * A measured row, with the meter's own shipped history beside it when there is any. With none --
+   * the case on every cluster shipping nowhere -- this is byte for byte the row without it, rather
+   * than a chart drawing a flat zero it has no reading for.
+   */
+  private String field(
+      final String label,
+      final String value,
+      final Style style,
+      final List<Double> history,
+      final StatusVariant variant) {
+    Line line =
+        new Line(painter)
+            .cell(label, 10, Style.fg(Palette.MUTED_FOREGROUND))
+            .pad(2)
+            .add(value, style);
+    if (!history.isEmpty()) {
+      line.padTo(Math.max(SPARK_COLUMN, line.width() + 2));
+      Sparkline.draw(line, history, SPARK_CELLS, variant);
+    }
+    return line.build();
+  }
+
+  /**
+   * The crash dumps the instance's node kept, listed only when there are any. Names are shown, not
+   * contents: a dump is hundreds of lines of native frames, and what the pane is for is telling an
+   * operator that one exists and where to go and read it.
+   */
+  private List<String> crashDumps(final List<CrashDump> dumps, final Instant now) {
+    if (dumps.isEmpty()) {
+      return List.of();
+    }
+    List<String> lines = new ArrayList<>();
+    lines.add(sectionLabel("CRASH DUMPS"));
+    for (CrashDump dump : dumps) {
+      lines.add(crashDumpLine(dump, now));
+    }
+    lines.add("");
+    return lines;
+  }
+
+  private String crashDumpLine(final CrashDump dump, final Instant now) {
+    String age =
+        dump.lastModified()
+            .map(at -> Text.age(Duration.between(at, now)) + " ago")
+            .orElse(Text.ABSENT);
     return new Line(painter)
-        .cell(label, 10, Style.fg(Palette.MUTED_FOREGROUND))
         .pad(2)
-        .add(value, style)
+        .cell(dump.name(), 24, Style.fg(Palette.BAD))
+        .pad(2)
+        .rightCell(Text.bytes(dump.sizeBytes()), 8, Style.PLAIN)
+        .pad(2)
+        .add(age, Style.fg(Palette.MUTED_FOREGROUND))
         .build();
   }
 

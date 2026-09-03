@@ -61,12 +61,20 @@ public record ClusterSnapshot(
     return fetchedAt.map(at -> Duration.between(at, now));
   }
 
-  public List<InstanceRow> instancesMatching(final String filter) {
-    if (filter == null || filter.isBlank()) {
-      return instances;
-    }
-    String needle = filter.toLowerCase(Locale.ROOT);
-    return instances.stream().filter(row -> row.searchText().contains(needle)).toList();
+  /**
+   * The rows to draw, in the order to draw them. Filtering and ordering live together in one method
+   * because two callers need the same answer -- the screen that renders the rows and the key
+   * handler that moves the cursor through them -- and a cursor stepping through a differently
+   * ordered list than the one on screen would land on a row the operator did not select.
+   */
+  public List<InstanceRow> instancesMatching(final String filter, final SortKey sort) {
+    List<InstanceRow> matching =
+        filter == null || filter.isBlank()
+            ? instances
+            : instances.stream()
+                .filter(row -> row.searchText().contains(filter.toLowerCase(Locale.ROOT)))
+                .toList();
+    return matching.stream().sorted(sort.comparator()).toList();
   }
 
   public List<NodeRow> nodesMatching(final String filter) {

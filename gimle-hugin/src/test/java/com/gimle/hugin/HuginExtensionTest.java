@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -52,7 +53,7 @@ class HuginExtensionTest {
   }
 
   @Test
-  void an_argument_is_rejected_with_usage_rather_than_ignored() {
+  void an_unknown_argument_is_rejected_with_usage_rather_than_ignored() {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
     CliException thrown =
@@ -61,11 +62,37 @@ class HuginExtensionTest {
             () ->
                 new HuginExtension()
                     .run(
-                        List.of("--interval=5s"),
+                        List.of("--follow"),
                         new UnusedReader(),
                         new PrintStream(buffer, true, StandardCharsets.UTF_8)));
 
     assertTrue(thrown.getMessage().contains("usage: gimle top"), thrown.getMessage());
+  }
+
+  @Test
+  void a_refresh_interval_is_accepted_and_defaults_to_two_seconds() {
+    assertEquals(Duration.ofSeconds(2), HuginExtension.parseInterval(List.of()));
+    assertEquals(Duration.ofSeconds(10), HuginExtension.parseInterval(List.of("--interval=10")));
+  }
+
+  @Test
+  void an_interval_that_is_not_a_number_says_so_rather_than_printing_usage() {
+    // A well-formed flag carrying a bad value has a specific thing wrong with it, and saying which
+    // is more use than restating the whole verb's usage.
+    CliException thrown =
+        assertThrows(
+            CliException.class, () -> HuginExtension.parseInterval(List.of("--interval=5s")));
+
+    assertTrue(thrown.getMessage().contains("whole number of seconds"), thrown.getMessage());
+  }
+
+  @Test
+  void an_interval_outside_the_useful_range_is_rejected_at_both_ends() {
+    for (String out : List.of("--interval=0", "--interval=61")) {
+      CliException thrown =
+          assertThrows(CliException.class, () -> HuginExtension.parseInterval(List.of(out)));
+      assertTrue(thrown.getMessage().contains("between 1 and 60"), thrown.getMessage());
+    }
   }
 
   /** Never called: the argument check happens before anything touches the control plane. */

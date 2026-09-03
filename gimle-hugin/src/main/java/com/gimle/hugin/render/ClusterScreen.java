@@ -4,6 +4,7 @@ import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.SortKey;
 import com.gimle.hugin.model.WorkloadRow;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -49,14 +50,15 @@ public final class ClusterScreen {
     if (nodes.isEmpty()) {
       lines.add(emptyNote(snapshot.nodes().isEmpty() ? "no nodes registered" : "no nodes match"));
     }
-    for (NodeRow node : nodes) {
-      lines.add(nodeLine(node, viewport, now));
+    int nodeSelection = ui.focus() == UiState.Focus.NODES ? ui.nodeSelectionIndex(nodes) : -1;
+    for (int index = 0; index < nodes.size(); index++) {
+      lines.add(nodeLine(nodes.get(index), index == nodeSelection, viewport, now));
     }
     lines.add("");
 
-    List<InstanceRow> instances = snapshot.instancesMatching(ui.filter());
+    List<InstanceRow> instances = snapshot.instancesMatching(ui.filter(), ui.sortKey());
     lines.add(
-        sectionLabel("INSTANCES", instances.size(), snapshot.instances().size(), ui.filter()));
+        instancesLabel(instances.size(), snapshot.instances().size(), ui.filter(), ui.sortKey()));
     lines.add(instanceHeader(viewport));
 
     int available =
@@ -71,7 +73,9 @@ public final class ClusterScreen {
       lines.add(
           emptyNote(snapshot.instances().isEmpty() ? "no instances placed" : "no instances match"));
     }
-    int selection = ui.selectionIndex(instances);
+    // Only the focused table shows a cursor: two highlighted rows on one screen would leave an
+    // operator guessing which of them `enter` is about to act on.
+    int selection = ui.focus() == UiState.Focus.INSTANCES ? ui.selectionIndex(instances) : -1;
     int firstVisible = scrollOffset(selection, instances.size(), available);
     for (int index = firstVisible;
         index < Math.min(instances.size(), firstVisible + available);
@@ -139,6 +143,23 @@ public final class ClusterScreen {
     return line.build();
   }
 
+  /** The instances label, plus the current ordering whenever it is not the default one. */
+  private String instancesLabel(
+      final int shown, final int total, final String filter, final SortKey sort) {
+    Line line = new Line(painter).add("INSTANCES", Style.fg(Palette.HUD).asBold());
+    if (!filter.isBlank()) {
+      line.padTo("INSTANCES".length() + 4)
+          .add("filter ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(filter, Style.fg(Palette.PRIMARY))
+          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+    }
+    if (sort != SortKey.NAME) {
+      line.add("  by ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(sort.label(), Style.fg(Palette.PRIMARY));
+    }
+    return line.build();
+  }
+
   private String emptyNote(final String message) {
     return new Line(painter).add("  " + message, Style.fg(Palette.MUTED)).build();
   }
@@ -163,14 +184,17 @@ public final class ClusterScreen {
         .build();
   }
 
-  private String nodeLine(final NodeRow node, final Viewport viewport, final Instant now) {
+  private String nodeLine(
+      final NodeRow node, final boolean selected, final Viewport viewport, final Instant now) {
     NodeLayout layout = NodeLayout.forWidth(viewport.columns());
     String state = node.state(now);
+    Style base = selected ? Style.fg(Palette.FOREGROUND).on(Palette.SELECTION) : Style.PLAIN;
     Line line =
         new Line(painter)
-            .cell(node.nodeId(), layout.id())
+            .cell(node.nodeId(), layout.id(), base)
             .pad(2)
-            .cell(state, layout.state(), Style.fg(StatusVariant.ofNodeState(state)))
+            .cell(
+                state, layout.state(), selected ? base : Style.fg(StatusVariant.ofNodeState(state)))
             .pad(2);
     resourceGauge(
         line,
@@ -225,6 +249,9 @@ public final class ClusterScreen {
     InstanceLayout layout = InstanceLayout.forWidth(viewport.columns());
     Style style = Style.fg(Palette.MUTED_FOREGROUND);
     Line line = new Line(painter).cell("WORKLOAD", layout.deployment(), style).pad(layout.gap());
+    if (layout.tenant() > 0) {
+      line.cell("TENANT", layout.tenant(), style).pad(layout.gap());
+    }
     if (layout.kind() > 0) {
       line.cell("KIND", layout.kind(), style).pad(layout.gap());
     }
@@ -278,6 +305,10 @@ public final class ClusterScreen {
       final Style metricStyle) {
     Line line =
         new Line(painter).cell(row.deploymentName(), layout.deployment(), base).pad(layout.gap());
+    if (layout.tenant() > 0) {
+      line.cell(row.tenantId().orElse(Text.ABSENT), layout.tenant(), kindStyle(base))
+          .pad(layout.gap());
+    }
     if (layout.kind() > 0) {
       line.cell(row.kind().label(), layout.kind(), kindStyle(base)).pad(layout.gap());
     }

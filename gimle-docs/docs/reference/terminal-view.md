@@ -10,9 +10,10 @@ answering it — which is what you want while watching a change settle.
 
 ```bash
 gimle top --server 127.0.0.1:8080
+gimle top --interval=10 --server 127.0.0.1:8080
 ```
 
-It refreshes every two seconds, needs an interactive terminal, and quits on `q` leaving the
+It refreshes every two seconds by default (`--interval=SECS`, 1 to 60), needs an interactive terminal, and quits on `q` leaving the
 terminal exactly as it found it.
 
 ## What it shows
@@ -24,9 +25,11 @@ terminal exactly as it found it.
 - A node table: state (`READY`, `CORDONED`, `STALE`, `UNKNOWN`), CPU and memory against capacity
   with a bar each, how many instances are placed there, and heartbeat age.
 - An instance table: workload, kind, index, node, lifecycle state, readiness, request rate, error
-  rate, queue depth, memory and CPU. Deployments, DaemonSets and StatefulSets share one flat
-  name-ordered table rather than three grouped blocks — the `KIND` column tells them apart, and it
-  is dropped below 100 columns so the workload name keeps the width instead.
+  rate, queue depth, memory and CPU. Deployments, DaemonSets, StatefulSets and live Job runs share
+  one flat table rather than four grouped blocks — the `KIND` column tells them apart, and it is
+  dropped below 100 columns so the workload name keeps the width instead. `o` cycles the ordering
+  through name, state and each metric; every metric sorts worst-first, because the reason to sort
+  by one is to put the worst instance on the first row.
 - A `NOT SETTLED` block, drawn only when something is: any workload short of the replicas it asked
   for, over its tenant's quota, or rejected by a LimitRange, with the reason the control plane
   gives. A healthy cluster shows nothing here at all.
@@ -38,6 +41,17 @@ doing nothing.
 Replicas the scheduler placed *nowhere* have no row to appear in, so the status line carries an
 `unplaced N` count of its own — without it, a deployment asking for four and running two would look
 like a healthy pair.
+
+**Node view** — `tab` moves the cursor to the node table, then `⏎`:
+
+- The node's state and heartbeat age, its CPU and memory against capacity, the isolation tiers it
+  accepts, its labels and its taints — a taint being the reason a node is skipped for a tenant it
+  would otherwise fit.
+- Every instance currently placed there.
+- It costs no reads of its own: every field is already in the `GET /nodes` response the cluster
+  view polls, so it cannot fail separately from the view that opened it.
+
+Only the focused table shows a cursor, so it is never ambiguous which one `⏎` will act on.
 
 **Instance view** — `⏎` on a selected row:
 
@@ -64,7 +78,9 @@ like a healthy pair.
 | Key | Does |
 | --- | --- |
 | `↑` `↓` / `j` `k` | move the selection |
-| `⏎` | inspect the selected instance |
+| `⏎` | inspect whatever the cursor is on |
+| `tab` | move the cursor between the node and instance tables |
+| `o` | cycle the sort: name, state, then each metric worst-first |
 | `s` | services and the endpoints they resolve to |
 | `esc` | back to the cluster view |
 | `/` | filter; `enter` applies, `esc` clears |
@@ -107,9 +123,10 @@ carries meaning on its own:
   the JVM needs `--enable-native-access=ALL-UNNAMED`. The `bin/gimle` launcher in every
   distribution archive already passes it; a hand-rolled `java -cp ... com.gimle.cli.GimleCli`
   invocation needs it added.
-- **No Jobs or CronJobs.** The instance table covers Deployments, DaemonSets and StatefulSets,
-  which all report a live instance list of the same shape. A Job reports a run and an attempt
-  instead, which is a different thing to draw; use `gimle get jobs` for those.
+- **A CronJob never appears as itself.** It runs nothing directly — each firing materializes an
+  ordinary Job — so its firings appear in the table as Jobs. A Job's live run does appear, keyed by
+  its attempt, which is the same wire field as an instance's index; a run that has already finished
+  is left out rather than drawn as one still waiting to start.
 - **A DaemonSet never reads as short of replicas.** Its desired count is "one per eligible node",
   which the control plane does not compute and therefore does not serve — so a DaemonSet missing
   from a node is not something this view can report, and it does not invent a number to imply

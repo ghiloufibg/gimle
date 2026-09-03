@@ -14,9 +14,11 @@ public final class HelpOverlay {
   private static final List<String[]> BINDINGS =
       List.of(
           new String[] {"↑ ↓ / j k", "move the selection"},
-          new String[] {"⏎", "inspect the selected instance"},
+          new String[] {"⏎", "inspect whatever the cursor is on"},
+          new String[] {"tab", "move the cursor between the node and instance tables"},
           new String[] {"s", "services and the endpoints they resolve to"},
           new String[] {"esc", "back to the cluster view"},
+          new String[] {"o", "cycle the sort: name, state, then each metric worst-first"},
           new String[] {"/", "filter; enter applies, esc clears"},
           new String[] {"p", "pause / resume refresh"},
           new String[] {"r", "refresh now"},

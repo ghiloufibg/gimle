@@ -2,6 +2,7 @@ package com.gimle.hugin.model;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -17,7 +18,10 @@ public record NodeRow(
     long assignedMemoryBytes,
     long totalMemoryBytes,
     int instanceCount,
-    Optional<Instant> lastHeartbeatAt) {
+    Optional<Instant> lastHeartbeatAt,
+    List<String> supportedTiers,
+    List<String> labels,
+    List<String> taints) {
 
   /**
    * Matches {@code NodesCommand}'s own threshold, which in turn matches the console's, so a node
@@ -32,6 +36,9 @@ public record NodeRow(
     if (lastHeartbeatAt == null) {
       throw new IllegalArgumentException("lastHeartbeatAt must not be null; use Optional.empty()");
     }
+    supportedTiers = List.copyOf(supportedTiers);
+    labels = List.copyOf(labels);
+    taints = List.copyOf(taints);
   }
 
   /**

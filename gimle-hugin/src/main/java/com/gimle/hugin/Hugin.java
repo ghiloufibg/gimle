@@ -7,12 +7,14 @@ import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
 import com.gimle.hugin.model.LogCategory;
+import com.gimle.hugin.model.NodeRow;
 import com.gimle.hugin.model.ServicePoller;
 import com.gimle.hugin.model.ServiceReader;
 import com.gimle.hugin.model.SnapshotReader;
 import com.gimle.hugin.render.ClusterScreen;
 import com.gimle.hugin.render.HelpOverlay;
 import com.gimle.hugin.render.InstanceScreen;
+import com.gimle.hugin.render.NodeScreen;
 import com.gimle.hugin.render.Painter;
 import com.gimle.hugin.render.ServiceScreen;
 import com.gimle.hugin.render.Viewport;
@@ -34,7 +36,7 @@ import java.util.Optional;
 public final class Hugin {
 
   /** Fixed for now, and the same interval the design settled on: it matches what a poll costs. */
-  private static final Duration REFRESH_INTERVAL = Duration.ofSeconds(2);
+  private final Duration refreshInterval;
 
   /**
    * How long a frame waits for a key before repainting anyway. Short enough that a live log tail
@@ -52,21 +54,28 @@ public final class Hugin {
 
   private LogCategory logCategory = LogCategory.APPLICATION;
   private InstanceWatcher watcher;
+  private final NodeScreen nodeScreen;
   private ServicePoller servicePoller;
   private boolean running = true;
 
-  public Hugin(final ClusterReader reader, final TerminalSession terminal, final Painter painter) {
+  public Hugin(
+      final ClusterReader reader,
+      final TerminalSession terminal,
+      final Painter painter,
+      final Duration refreshInterval) {
     this.reader = reader;
+    this.refreshInterval = refreshInterval;
     this.terminal = terminal;
     this.clusterScreen = new ClusterScreen(painter);
     this.instanceScreen = new InstanceScreen(painter);
     this.serviceScreen = new ServiceScreen(painter);
+    this.nodeScreen = new NodeScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
   }
 
   public void run() {
     try (ClusterPoller poller =
-        new ClusterPoller(new SnapshotReader(reader), REFRESH_INTERVAL, reader.serverAddress())) {
+        new ClusterPoller(new SnapshotReader(reader), refreshInterval, reader.serverAddress())) {
       poller.start();
       while (running) {
         ClusterSnapshot snapshot = poller.current();
@@ -87,6 +96,18 @@ public final class Hugin {
     }
     if (ui.viewingServices() && servicePoller != null) {
       return serviceScreen.render(servicePoller.current(), viewport, servicePoller.paused(), now);
+    }
+    Optional<NodeRow> inspectedNode =
+        ui.inspectingNode()
+            .flatMap(
+                nodeId ->
+                    snapshot.nodes().stream().filter(n -> n.nodeId().equals(nodeId)).findFirst());
+    if (inspectedNode.isPresent()) {
+      return nodeScreen.render(inspectedNode.get(), snapshot, viewport, paused, now);
+    }
+    // The node was open and has since left the cluster, the same way an inspected instance can.
+    if (ui.inspectingNode().isPresent()) {
+      ui.closeNodeInspection();
     }
     Optional<InstanceRow> inspected = ui.inspecting().flatMap(snapshot::find);
     if (inspected.isPresent() && watcher != null) {
@@ -120,6 +141,10 @@ public final class Hugin {
       handleServicesKey(key, servicePoller);
       return;
     }
+    if (ui.inspectingNode().isPresent()) {
+      handleNodeKey(key, poller);
+      return;
+    }
     if (ui.inspectingInstance()) {
       handleInstanceKey(key, poller);
       return;
@@ -129,17 +154,35 @@ public final class Hugin {
 
   private void handleClusterKey(
       final Key key, final ClusterSnapshot snapshot, final ClusterPoller poller) {
-    List<InstanceRow> rows = snapshot.instancesMatching(ui.filter());
-    if (key.is(Key.Kind.UP) || key.isChar('k')) {
-      ui.moveSelection(rows, -1);
+    List<InstanceRow> rows = snapshot.instancesMatching(ui.filter(), ui.sortKey());
+    List<NodeRow> nodeRows = snapshot.nodesMatching(ui.filter());
+    boolean onNodes = ui.focus() == UiState.Focus.NODES;
+    if (key.is(Key.Kind.TAB)) {
+      ui.toggleFocus();
+    } else if (key.is(Key.Kind.UP) || key.isChar('k')) {
+      moveCursor(onNodes, rows, nodeRows, -1);
     } else if (key.is(Key.Kind.DOWN) || key.isChar('j')) {
-      ui.moveSelection(rows, 1);
+      moveCursor(onNodes, rows, nodeRows, 1);
     } else if (key.isChar('g')) {
-      ui.selectFirst(rows);
+      if (onNodes) {
+        ui.selectFirstNode(nodeRows);
+      } else {
+        ui.selectFirst(rows);
+      }
     } else if (key.isChar('G')) {
-      ui.selectLast(rows);
+      if (onNodes) {
+        ui.selectLastNode(nodeRows);
+      } else {
+        ui.selectLast(rows);
+      }
     } else if (key.is(Key.Kind.ENTER)) {
-      openInspection(rows);
+      if (onNodes) {
+        ui.inspectSelectedNode(nodeRows);
+      } else {
+        openInspection(rows);
+      }
+    } else if (key.isChar('o')) {
+      ui.cycleSort();
     } else if (key.isChar('s')) {
       openServices();
     } else if (key.isChar('/')) {
@@ -197,6 +240,32 @@ public final class Hugin {
     }
   }
 
+  private void moveCursor(
+      final boolean onNodes,
+      final List<InstanceRow> rows,
+      final List<NodeRow> nodeRows,
+      final int delta) {
+    if (onNodes) {
+      ui.moveNodeSelection(nodeRows, delta);
+    } else {
+      ui.moveSelection(rows, delta);
+    }
+  }
+
+  private void handleNodeKey(final Key key, final ClusterPoller poller) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      ui.closeNodeInspection();
+    } else if (key.isChar('p')) {
+      poller.togglePaused();
+    } else if (key.isChar('r')) {
+      poller.refreshNow();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
   private void openInspection(final List<InstanceRow> rows) {
     ui.inspectSelected(rows);
     ui.inspecting().ifPresent(this::watch);
@@ -216,7 +285,7 @@ public final class Hugin {
     ui.showServices();
     closeServicePoller();
     servicePoller =
-        new ServicePoller(new ServiceReader(reader), REFRESH_INTERVAL, reader.serverAddress());
+        new ServicePoller(new ServiceReader(reader), refreshInterval, reader.serverAddress());
     servicePoller.start();
   }
 

@@ -8,6 +8,7 @@ import com.gimle.hugin.render.Painter;
 import com.gimle.hugin.term.JLineTerminalSession;
 import com.gimle.hugin.term.TerminalSession;
 import java.io.PrintStream;
+import java.time.Duration;
 import java.util.List;
 
 /**
@@ -20,6 +21,10 @@ import java.util.List;
  */
 public final class HuginExtension implements CliExtension {
 
+  private static final Duration DEFAULT_INTERVAL = Duration.ofSeconds(2);
+  private static final long MIN_INTERVAL_SECONDS = 1;
+  private static final long MAX_INTERVAL_SECONDS = 60;
+
   @Override
   public String verb() {
     return "top";
@@ -27,18 +32,48 @@ public final class HuginExtension implements CliExtension {
 
   @Override
   public String usageLine() {
-    return "top                     (live cluster view; read-only, q to quit)";
+    return "top [--interval=SECS]   (live cluster view; read-only, q to quit)";
   }
 
   @Override
   public void run(final List<String> args, final ClusterReader reader, final PrintStream out) {
-    if (!args.isEmpty()) {
-      throw new CliException("usage: gimle top   (no arguments; press ? in the view for keys)");
-    }
+    Duration interval = parseInterval(args);
     Painter painter = new Painter(detectColorMode());
     try (TerminalSession terminal = JLineTerminalSession.open()) {
-      new Hugin(reader, terminal, painter).run();
+      new Hugin(reader, terminal, painter, interval).run();
     }
+  }
+
+  /**
+   * The one flag this verb takes. Bounded at both ends deliberately: below a second the view spends
+   * more time polling than an operator can read, and beyond a minute it stops being a live view of
+   * anything.
+   */
+  static Duration parseInterval(final List<String> args) {
+    Duration interval = DEFAULT_INTERVAL;
+    for (String arg : args) {
+      if (!arg.startsWith("--interval=")) {
+        throw new CliException(
+            "usage: gimle top [--interval=SECS]   (press ? in the view for keys)");
+      }
+      long seconds;
+      try {
+        seconds = Long.parseLong(arg.substring("--interval=".length()).trim());
+      } catch (NumberFormatException e) {
+        throw new CliException("--interval must be a whole number of seconds, got: " + arg, e);
+      }
+      if (seconds < MIN_INTERVAL_SECONDS || seconds > MAX_INTERVAL_SECONDS) {
+        throw new CliException(
+            "--interval must be between "
+                + MIN_INTERVAL_SECONDS
+                + " and "
+                + MAX_INTERVAL_SECONDS
+                + " seconds, got: "
+                + seconds);
+      }
+      interval = Duration.ofSeconds(seconds);
+    }
+    return interval;
   }
 
   /**

@@ -361,6 +361,49 @@ class SnapshotReaderTest {
     assertEquals(0L, row.volumeUsageBytes());
   }
 
+  @Test
+  void a_jobs_live_run_appears_as_an_instance_keyed_by_its_attempt() {
+    // The platform treats a run's attempt as the wire instanceIndex, so a live run is an instance
+    // in every respect the view depends on -- including the routes its drill-down reads.
+    Map<String, Object> run =
+        new LinkedHashMap<>(Fixtures.instance(0, "node-alpha", "ACTIVE", 0, 0));
+    run.remove("instanceIndex");
+    run.put("attempt", 2);
+    FakeClusterReader reader =
+        new FakeClusterReader()
+            .withList("/nodes", List.of(Fixtures.node("node-alpha", 0, 4000, 0, 8)))
+            .withList(
+                "/jobs",
+                List.of(Map.of("spec", Map.of("name", "report-nightly"), "currentRun", run)));
+
+    ClusterSnapshot snapshot = new SnapshotReader(reader).read();
+
+    InstanceRow row = snapshot.instances().getFirst();
+    assertEquals(WorkloadKind.JOB, row.kind());
+    assertEquals("report-nightly", row.deploymentName());
+    assertEquals(2, row.instanceIndex());
+    // A Job has no replica count to fall short of, so it contributes no settled/unsettled reading.
+    assertTrue(snapshot.workloads().isEmpty());
+  }
+
+  @Test
+  void a_finished_job_run_is_left_out_rather_than_drawn_as_one_still_waiting_to_start() {
+    FakeClusterReader reader =
+        new FakeClusterReader()
+            .withList("/nodes", List.of(Fixtures.node("node-alpha", 0, 4000, 0, 8)))
+            .withList(
+                "/jobs",
+                List.of(
+                    Map.of(
+                        "spec", Map.of("name", "report-nightly"),
+                        "currentRun",
+                            Map.of("attempt", 1, "nodeId", "node-alpha", "reason", "COMPLETED"))));
+
+    ClusterSnapshot snapshot = new SnapshotReader(reader).read();
+
+    assertTrue(snapshot.instances().isEmpty(), snapshot.instances().toString());
+  }
+
   private static Map<String, Object> withIsolation(
       final String tier, final Map<String, Object> limit) {
     Map<String, Object> instance =

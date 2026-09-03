@@ -6,11 +6,18 @@ package com.gimle.hugin.model;
  * with, never part of its identity -- but an operator reading a mixed table still needs to know
  * whether the row in front of them is a replica of something scaled, or one of a set pinned to a
  * node.
+ *
+ * <p>A Job is here on the strength of the platform's own equivalence: a run's {@code attempt} is
+ * the same wire field as an instance's {@code instanceIndex}, so a live run is an instance in every
+ * respect that matters here, including the routes its drill-down reads. A CronJob is deliberately
+ * absent -- it never runs anything itself, each firing materializes an ordinary Job, and those
+ * appear here as Jobs.
  */
 public enum WorkloadKind {
   DEPLOYMENT("/deployments", "DEPLOY"),
   DAEMON_SET("/daemonsets", "DAEMON"),
-  STATEFUL_SET("/statefulsets", "STATEFUL");
+  STATEFUL_SET("/statefulsets", "STATEFUL"),
+  JOB("/jobs", "JOB");
 
   private final String route;
   private final String label;

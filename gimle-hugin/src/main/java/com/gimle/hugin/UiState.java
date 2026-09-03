@@ -2,6 +2,8 @@ package com.gimle.hugin;
 
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
+import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.SortKey;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,12 +19,22 @@ import java.util.Optional;
  */
 public final class UiState {
 
+  /** Which of the cluster view's two tables the cursor and {@code enter} currently act on. */
+  public enum Focus {
+    INSTANCES,
+    NODES
+  }
+
+  private Focus focus = Focus.INSTANCES;
+  private Optional<String> selectedNode = Optional.empty();
+  private Optional<String> inspectingNode = Optional.empty();
   private Optional<InstanceKey> selected = Optional.empty();
   private Optional<InstanceKey> inspecting = Optional.empty();
   private String filter = "";
   private boolean filterEditing;
   private boolean helpVisible;
   private boolean viewingServices;
+  private SortKey sortKey = SortKey.NAME;
 
   public Optional<InstanceKey> selected() {
     return selected;
@@ -46,6 +58,87 @@ public final class UiState {
 
   public boolean helpVisible() {
     return helpVisible;
+  }
+
+  public Focus focus() {
+    return focus;
+  }
+
+  public void toggleFocus() {
+    focus = focus == Focus.INSTANCES ? Focus.NODES : Focus.INSTANCES;
+  }
+
+  public Optional<String> selectedNode() {
+    return selectedNode;
+  }
+
+  public Optional<String> inspectingNode() {
+    return inspectingNode;
+  }
+
+  public boolean inspectingNode(final String nodeId) {
+    return inspectingNode.filter(nodeId::equals).isPresent();
+  }
+
+  /**
+   * Where the node cursor sits, by the same "follow the thing, not the row number" rule the
+   * instance cursor uses -- a node leaving the list drops the cursor to the first row rather than
+   * to nothing.
+   */
+  public int nodeSelectionIndex(final List<NodeRow> rows) {
+    if (rows.isEmpty()) {
+      return -1;
+    }
+    if (selectedNode.isPresent()) {
+      for (int index = 0; index < rows.size(); index++) {
+        if (rows.get(index).nodeId().equals(selectedNode.get())) {
+          return index;
+        }
+      }
+    }
+    return 0;
+  }
+
+  public void moveNodeSelection(final List<NodeRow> rows, final int delta) {
+    if (rows.isEmpty()) {
+      selectedNode = Optional.empty();
+      return;
+    }
+    int target = Math.clamp((long) nodeSelectionIndex(rows) + delta, 0, rows.size() - 1);
+    selectedNode = Optional.of(rows.get(target).nodeId());
+  }
+
+  public void selectFirstNode(final List<NodeRow> rows) {
+    selectedNode = rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst().nodeId());
+  }
+
+  public void selectLastNode(final List<NodeRow> rows) {
+    selectedNode = rows.isEmpty() ? Optional.empty() : Optional.of(rows.getLast().nodeId());
+  }
+
+  /** Opens the node drill-down on whatever node is selected. A no-op when none is. */
+  public void inspectSelectedNode(final List<NodeRow> rows) {
+    int index = nodeSelectionIndex(rows);
+    if (index >= 0) {
+      inspectingNode = Optional.of(rows.get(index).nodeId());
+    }
+  }
+
+  public void closeNodeInspection() {
+    inspectingNode = Optional.empty();
+  }
+
+  public SortKey sortKey() {
+    return sortKey;
+  }
+
+  /**
+   * Cycles the ordering. The selection is held as an instance key rather than a row index, so it
+   * follows its own instance to wherever the new ordering puts it instead of staying on a row
+   * number that now means something else.
+   */
+  public void cycleSort() {
+    sortKey = sortKey.next();
   }
 
   public boolean viewingServices() {

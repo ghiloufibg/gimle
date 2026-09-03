@@ -122,6 +122,15 @@
       <artifactId>gimle-cli</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- The terminal view's rendering is a pure snapshot-to-lines function, so its scenarios drive
+         the real readers and screens against a real booted cluster and assert on the frames. No
+         terminal is involved: what a scenario cannot reach is the JLine adapter, which is kept as
+         thin as possible for exactly that reason. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-hugin</artifactId>
+      <scope>test</scope>
+    </dependency>
     <!-- LaunchPlanner/Topology: this class now builds a gimle-hilmir Topology from ClusterSpec and
          hands it to LaunchPlanner rather than hand-building process commands itself. -->
     <dependency>

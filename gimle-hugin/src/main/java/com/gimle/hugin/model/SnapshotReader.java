@@ -42,7 +42,11 @@ public final class SnapshotReader {
     byKind.forEach(
         (kind, payloads) -> {
           instances.addAll(readInstances(kind, payloads));
-          workloads.addAll(readWorkloads(kind, payloads));
+          // A Job declares no replica count to fall short of -- it runs once, retrying up to its
+          // own backoff limit -- so it has no settled/unsettled reading to contribute.
+          if (kind != WorkloadKind.JOB) {
+            workloads.addAll(readWorkloads(kind, payloads));
+          }
         });
     instances.sort(
         Comparator.comparing((InstanceRow row) -> row.deploymentName())
@@ -109,7 +113,10 @@ public final class SnapshotReader {
               number(capacity.get("assignedMemoryBytes")),
               number(capacity.get("totalMemoryBytes")),
               instancesPerNode.getOrDefault(nodeId, 0),
-              instant(node.get("lastHeartbeatAt"))));
+              instant(node.get("lastHeartbeatAt")),
+              strings(object(node.get("capabilities")).get("supportedTiers")),
+              strings(object(node.get("capabilities")).get("labels")),
+              strings(node.get("taints"))));
     }
     rows.sort(Comparator.comparing(NodeRow::nodeId));
     return rows;
@@ -125,7 +132,7 @@ public final class SnapshotReader {
       if (deploymentName.isBlank()) {
         continue;
       }
-      for (Object rawInstance : array(deployment.get("instances"))) {
+      for (Object rawInstance : runsOrInstances(kind, deployment)) {
         Map<String, Object> instance = object(rawInstance);
         String nodeId = string(instance.get("nodeId"));
         if (nodeId.isBlank()) {
@@ -245,6 +252,31 @@ public final class SnapshotReader {
       }
     }
     return Optional.empty();
+  }
+
+  /**
+   * A Job's live run stands where every other kind's instance list does. A run that has finished
+   * carries a terminal reason instead of an observation, and is left out entirely: the table is of
+   * what is running now, and a completed run drawn as an unobserved instance would read as one
+   * still waiting to start.
+   */
+  private static List<?> runsOrInstances(
+      final WorkloadKind kind, final Map<String, Object> workload) {
+    if (kind != WorkloadKind.JOB) {
+      return array(workload.get("instances"));
+    }
+    Map<String, Object> run = object(workload.get("currentRun"));
+    if (!(run.get("observation") instanceof Map<?, ?>)) {
+      return List.of();
+    }
+    Map<String, Object> asInstance = new LinkedHashMap<>(run);
+    asInstance.put("instanceIndex", number(run.get("attempt")));
+    return List.of(asInstance);
+  }
+
+  /** A JSON array read as strings, dropping any element that is not one. */
+  private static List<String> strings(final Object value) {
+    return array(value).stream().filter(String.class::isInstance).map(String.class::cast).toList();
   }
 
   private static Map<String, Object> object(final Object value) {

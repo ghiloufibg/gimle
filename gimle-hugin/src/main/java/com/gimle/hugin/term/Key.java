@@ -19,6 +19,8 @@ public sealed interface Key {
     ENTER,
     ESCAPE,
     BACKSPACE,
+    /** Tab: moves the cursor between the cluster view's two tables. */
+    TAB,
     /** Ctrl-C: quit, exactly as {@code q} does, restoring the terminal on the way out. */
     INTERRUPT,
     /** The stream ended -- the terminal went away underneath us. */

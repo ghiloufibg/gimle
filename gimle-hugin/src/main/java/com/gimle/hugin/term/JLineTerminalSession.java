@@ -80,6 +80,7 @@ public final class JLineTerminalSession implements TerminalSession {
       case 3 -> Optional.of(Key.named(Key.Kind.INTERRUPT));
       case 13, 10 -> Optional.of(Key.named(Key.Kind.ENTER));
       case 127, 8 -> Optional.of(Key.named(Key.Kind.BACKSPACE));
+      case 9 -> Optional.of(Key.named(Key.Kind.TAB));
       case 27 -> Optional.of(escapeSequence());
       default -> Optional.of(Key.of((char) first));
     };
