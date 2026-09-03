@@ -818,7 +818,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-801 | A services screen showing each Service's live endpoint resolution | New | Covered | `terminal-view.feature` — "A Service resolving to no endpoints is reported as the finding it is" |
 | GIMLE-802 | An activity view of what has been done to the cluster, over the audit trail | New | Not Covered | — |
 | GIMLE-803 | The activity view reads three cluster records: authorization, lifecycle and alerts | New | Not Covered | — |
-| GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | New | Not Covered | — |
+| GIMLE-804 | The terminal view browses every collection the control plane lists, including registered custom kinds | New | Not Covered | — |
+| GIMLE-805 | The terminal view describes a selected resource as YAML without re-reading it | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -7306,15 +7307,6 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `src/components/CopyButton.tsx`
 
-#### GIMLE-804 — Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one
-
-- **Category**: Web Console / Frontend
-- **Status**: New  _(New requirement: closes M22 -- PushArtifactDialog stored a pushed jar under whatever coordinate the operator typed, with no cross-check against the jar's own descriptor. See requirements-matrix.json for the full description.)_
-- **Coverage**: Not Covered
-- **Gap note**: No Holmgang scenario exercises the Andvari console's Push dialog at all (Holmgang's Cucumber surface drives the platform API/CLI, not this console's own UI). Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
-- **Other test coverage (non-Holmgang, informational only)**: `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail.
-- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`
-
 ### gimle-saga-console
 
 #### GIMLE-475 — Runs list (no authentication)
@@ -8446,11 +8438,29 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's ActivityReaderTest (all three feeds' parses and their degraded shapes) and ActivityScreenTest (per-feed labelling, headings, colour and width).
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`
 
+#### GIMLE-804 — The terminal view browses every collection the control plane lists, including registered custom kinds
+
+- **Category**: CLI UX
+- **Status**: New  _(New requirement: a `:` prompt opens any kind the control plane lists as objects -- tenants, cronjobs, limitranges, networkpolicies, ingresses, roles, rolebindings, accounts, volumes, kinddefinitions -- plus whatever custom kinds the cluster registered, whose columns come from their own printColumns. ConfigMaps, secrets and the artifact catalog are absent because the API lists none of them as objects.)_
+- **Coverage**: Not Covered
+- **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered table. The collection routes themselves are reachable from a scenario; the browser that draws them is not.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's ResourceCatalogTest (resolution, custom-kind discovery, collision, degraded discovery, suggestions), ResourceReaderTest (column resolution, the wrapped collection, permission and failure paths), ResourceScreenTest (header, label, filter, permission message, width) and JsonPathTest (the dotted path walk).
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceCatalog.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ResourceScreen.java`
+
+#### GIMLE-805 — The terminal view describes a selected resource as YAML without re-reading it
+
+- **Category**: CLI UX
+- **Status**: New  _(New requirement: enter on a browser row renders that resource's own object as scrollable YAML, from the object the row already carries rather than a fresh read, so the table and the detail can never disagree about which read is current.)_
+- **Coverage**: Not Covered
+- **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's YamlTest (nesting, lists, empty containers, null, quoting, escaping) and DescribeScreenTest (the whole object, the title, scrolling and its clamps, width, colour).
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/render/Yaml.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/DescribeScreen.java`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**674 of 804 requirements are Not Covered.**
+**675 of 805 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8564,6 +8574,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-800 | gimle-hugin | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | CLI UX | gimle-hugin's SnapshotReaderTest (all three kinds in one ordered table, an unserved kind costing only its own rows, a DaemonSet's shortfall read from its computed desired count, and a workload carrying neither figure) and ClusterScreenTest (the KIND column, and its removal on a narrow terminal). |
 | GIMLE-802 | gimle-hugin | An activity view of what has been done to the cluster, over the audit trail | CLI UX | gimle-hugin's ActivityReaderTest and ActivityScreenTest. |
 | GIMLE-803 | gimle-hugin | The activity view reads three cluster records: authorization, lifecycle and alerts | CLI UX | gimle-hugin's ActivityReaderTest (all three feeds' parses and their degraded shapes) and ActivityScreenTest (per-feed labelling, headings, colour and width). |
+| GIMLE-804 | gimle-hugin | The terminal view browses every collection the control plane lists, including registered custom kinds | CLI UX | gimle-hugin's ResourceCatalogTest (resolution, custom-kind discovery, collision, degraded discovery, suggestions), ResourceReaderTest (column resolution, the wrapped collection, permission and failure paths), ResourceScreenTest (header, label, filter, permission message, width) and JsonPathTest (the dotted path walk). |
+| GIMLE-805 | gimle-hugin | The terminal view describes a selected resource as YAML without re-reading it | CLI UX | gimle-hugin's YamlTest (nesting, lists, empty containers, null, quoting, escaping) and DescribeScreenTest (the whole object, the title, scrolling and its clamps, width, colour). |
 | GIMLE-107 | gimle-agent | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Cgroup Management | `ResourceLimitEnforcementTest#a_spawned_jvm_honors_the_computed_memory_and_processor_ceiling` (gimle-agent, real subprocess); `PortableJvmFlagsResourceLimiterTest` (gimle-os) |
 | GIMLE-108 | gimle-agent | Tier 3 isolation rejection | Cgroup Management / Config | NONE recorded in the baseline |
 | GIMLE-639 | gimle-ragnarok | Chaos-plan and target YAML configuration for Fenrir/Surtr | Chaos Engineering | `ChaosPlanParserTest`, `TargetSpecParserTest` |
@@ -9101,7 +9113,6 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-777 | gimle-controlplane | A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog | Web Console / Frontend | ConsoleAddonsTest covers the default advertising every bundled id, a blank property reading as unset, `none` advertising nothing while still reporting what is bundled, a named subset, an unknown id failing and naming the bundled ids, a console with no catalog bundling nothing, the per-addon JSON verdict, and an unreadable catalog failing rather than silently bundling nothing. ApiServerTest gained console_addons_are_advertised_to_an_unauthenticated_reader, proving the route answers with no session and no client certificate. |
 | GIMLE-778 | gimle-console | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Web Console / Frontend | useAddonsStore.test.ts covers advertising only enabled ids (a disabled id hides its entry), a failed read and a 404 both advertising nothing rather than throwing, and the read happening once rather than per mount; the same file asserts the registry and addons.json agree on ids, that every catalogued addon carries an icon, that each addon's route matches its own route file's URL, and that an unknown id is refused. nav.test.ts covers the Addons group's placement among the known groups and empty groups being dropped. Two further cases pin that both edge addons name the `Edge` group and that every catalogued addon names a group the sidebar knows how to order. |
 | GIMLE-787 | gimle-console | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Web Console / Frontend | 47 Vitest cases across the addon. kinds/replicated.test.ts covers every row of both truth tables (each lifecycle state, both probe failures, quota and LimitRange violations carrying the server's own reason, unplaced counts, scale-up and scale-down, nothing-placed reading Unknown rather than Healthy) plus Service attachment being matched on name and tenant together. kinds/jobs.test.ts covers the four Job phases, a retry in flight, a RUNNING Job with nothing placed reading OutOfSync, generated-Job matching rejecting a same-prefix hand-applied Job and another tenant's, a CronJob taking its verdict from the newest run, and the five-run cap. kinds/custom.test.ts covers caught-up, behind, no status, and a status without the convention. model.test.ts covers worst-first ordering being stable between polls, every filter including a custom kind's own name and the untenanted bucket. tree.test.ts covers one card per lane, parents centred over their children, two replicas on one machine yielding a single node card, machine cards never overlapping, every edge's endpoints existing, and the per-kind tree shapes. store.test.ts covers error surfacing, a poll never raising `loading` and keeping the last good list, revision history only for a revisioned kind, a stale revision response being discarded, and a rollback re-reading the cluster. |
-| GIMLE-804 | gimle-andvari-console | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Web Console / Frontend | `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail. |
 | GIMLE-475 | gimle-saga-console | Runs list (no authentication) | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "listRuns fetches /api/runs and maps every entry" |
 | GIMLE-476 | gimle-saga-console | Live run detail with streaming test feed | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "followRunEvents streams new finished-test events and skips the already-known count" |
 | GIMLE-477 | gimle-saga-console | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | `src/repositories/http/mapping.test.ts` — "groups attachment events by kind and skips unparseable or unrecognized payloads", "accepts a payload shipped as an array of the shape" |

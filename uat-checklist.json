@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 804,
+    "totalRequirements": 805,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 674,
-    "releaseReadinessPercent": 16.2
+    "notCoveredByAutomatedTest": 675,
+    "releaseReadinessPercent": 16.1
   },
   "items": [
     {
@@ -8842,10 +8842,21 @@
     },
     {
       "id": "GIMLE-804",
-      "module": "gimle-andvari-console",
-      "category": "Web Console / Frontend",
-      "feature": "Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one",
-      "step": "Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed. Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before.",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view browses every collection the control plane lists, including registered custom kinds",
+      "step": "Given a cluster with tenants, roles and a registered custom kind When an operator opens `gimle top` and types `:tenants` Then the tenants collection is shown with the columns that kind declares",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-805",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view describes a selected resource as YAML without re-reading it",
+      "step": "Given the terminal view's resource browser open on a kind When an operator presses enter on a row Then that resource's whole object is shown as YAML, scrollable",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

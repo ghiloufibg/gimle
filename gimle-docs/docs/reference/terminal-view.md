@@ -13,10 +13,10 @@ gimle top --server 127.0.0.1:8080
 gimle top --interval=10 --server 127.0.0.1:8080
 ```
 
-It refreshes every two seconds by default (`--interval=SECS`, 1 to 60; the services and activity
-screens sit behind a five-second floor, since one costs a request per Service and the other only
-changes as fast as people do), needs an interactive terminal, and quits on `q` leaving the
-terminal exactly as it found it.
+It refreshes every two seconds by default (`--interval=SECS`, 1 to 60; the services, activity and
+resource screens sit behind a five-second floor, since one costs a request per Service and the
+others only change as fast as people do), needs an interactive terminal, and quits on `q` leaving
+the terminal exactly as it found it.
 
 ## What it shows
 
@@ -97,16 +97,59 @@ request per declared rule, since the rule list carries no firing state of its ow
   instead: an unreadable answer is never reported as zero, because zero is the finding.
 - Resolving endpoints costs one request per Service, so this screen polls only while it is open.
 
+**Resource browser** — `:` from any table, then a kind:
+
+Every collection the control plane lists, in one table whose columns come from the kind itself
+rather than from a layout written per kind. That is also what lets a kind this cluster registered
+after the view was written appear here at all.
+
+| `:` | Shows |
+| --- | --- |
+| `tenants` | id, isolation posture, live instance count against the quota's own maximum |
+| `cronjobs` | a CronJob *as itself* — its schedule, whether it is suspended, its concurrency policy |
+| `limitranges` | the per-tenant request/limit guardrails |
+| `networkpolicies` | which caller tenants a policy admits, and the deployments it is scoped to |
+| `ingresses` | the host each fronts and how many routes it declares |
+| `roles` `rolebindings` `accounts` | the RBAC record: who holds what, and under which role |
+| `volumes` | every allocated volume, its owning StatefulSet instance, node, and whether in use |
+| `kinddefinitions` | the custom kinds this cluster has registered |
+| *a registered kind* | reached by its plural, its kind name, or any short name it declared |
+
+A registered kind's columns are the print columns its own definition declares, after the name and
+tenant every custom resource carries — so what shows is what whoever registered the kind chose to
+surface, and the label says `registered kind` because two clusters can legitimately show the same
+kind differently. Nothing in this table is coloured: these are fields whose meaning the view does
+not know, and painting one would be inventing a judgement.
+
+Each kind is gated on its own permission, and a caller lacking one is told that rather than shown
+an empty table — an empty table reads as "this cluster has no tenants", which is a different and
+much more alarming claim. A mistyped kind is answered on the spot with the keys that share what was
+typed, not by the screen silently not changing.
+
+Two collections are absent, and both because of the API rather than a choice made here: ConfigMaps
+and secrets are addressable only one name at a time, with no route to list them; and the artifact
+catalog answers with bare module-id strings rather than objects, so it has no columns to draw.
+
+**Describe** — `⏎` on a row in the resource browser:
+
+- The whole object the collection route answered with, as YAML, scrollable with `↑↓` and `g`/`G`.
+  The fields no column had room for are the reason this pane exists.
+- It re-reads nothing. The row already carries the object it was drawn from, so the table and the
+  detail can never disagree about which read is current.
+- It is a rendering, not a manifest: it carries the status the control plane computes alongside the
+  spec that was submitted, and feeding it back to `gimle apply` is not something it promises.
+
 ## Keys
 
 | Key | Does |
 | --- | --- |
 | `↑` `↓` / `j` `k` | move the selection |
-| `⏎` | inspect whatever the cursor is on |
+| `⏎` | inspect whatever the cursor is on; describe it in the resource browser |
 | `tab` | move the cursor between the node and instance tables |
 | `o` | cycle the sort: name, state, then each metric worst-first |
 | `s` | services and the endpoints they resolve to |
 | `a` | cluster activity; `c` switches audit / lifecycle / alerts |
+| `:` | open a kind: `tenants`, `roles`, `volumes`, a registered kind… |
 | `m` | load older entries (activity view, audit and lifecycle feeds) |
 | `esc` | back to the cluster view |
 | `/` | filter; `enter` applies, `esc` clears |
@@ -150,10 +193,12 @@ carries meaning on its own:
   the JVM needs `--enable-native-access=ALL-UNNAMED`. The `bin/gimle` launcher in every
   distribution archive already passes it; a hand-rolled `java -cp ... com.gimle.cli.GimleCli`
   invocation needs it added.
-- **A CronJob never appears as itself.** It runs nothing directly — each firing materializes an
-  ordinary Job — so its firings appear in the table as Jobs. A Job's live run does appear, keyed by
-  its attempt, which is the same wire field as an instance's index; a run that has already finished
-  is left out rather than drawn as one still waiting to start.
+- **A CronJob never appears in the *instance* table as itself.** It runs nothing directly — each
+  firing materializes an ordinary Job — so its firings appear there as Jobs. A Job's live run does
+  appear, keyed by its attempt, which is the same wire field as an instance's index; a run that has
+  already finished is left out rather than drawn as one still waiting to start. The CronJob itself
+  — its schedule, whether it is suspended — is a declaration rather than something running, and is
+  read under `:cronjobs`.
 - **A DaemonSet's shortfall comes from the control plane, not from arithmetic here.** It declares
   no `replicas` of its own — its desired count is one per eligible node, which only the scheduler
   can work out — so the view reads the `desired` count the control plane publishes. A workload

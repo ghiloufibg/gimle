@@ -5,6 +5,7 @@ import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
 import com.gimle.hugin.model.NodeSortKey;
+import com.gimle.hugin.model.ResourceRow;
 import com.gimle.hugin.model.SortKey;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +41,13 @@ public final class UiState {
   private FeedMode feedMode = FeedMode.AUDIT;
   private SortKey sortKey = SortKey.NAME;
   private NodeSortKey nodeSortKey = NodeSortKey.ID;
+  private boolean commandEditing;
+  private String command = "";
+  private Optional<String> commandError = Optional.empty();
+  private boolean viewingResources;
+  private Optional<String> selectedResource = Optional.empty();
+  private Optional<String> describing = Optional.empty();
+  private int describeScroll;
 
   public Optional<InstanceKey> selected() {
     return selected;
@@ -59,6 +67,156 @@ public final class UiState {
 
   public boolean filterEditing() {
     return filterEditing;
+  }
+
+  // ---- the `:` command prompt ----
+
+  public boolean commandEditing() {
+    return commandEditing;
+  }
+
+  public String command() {
+    return command;
+  }
+
+  /**
+   * What the last submitted command was rejected for, if it was. Held rather than shown once and
+   * forgotten: the prompt closes on submit, so a message that vanished with it would leave an
+   * operator who mistyped looking at an unchanged screen with no idea why.
+   */
+  public Optional<String> commandError() {
+    return commandError;
+  }
+
+  public void beginCommand() {
+    commandEditing = true;
+    command = "";
+    commandError = Optional.empty();
+  }
+
+  public void appendToCommand(final char character) {
+    command += character;
+  }
+
+  public void backspaceCommand() {
+    if (!command.isEmpty()) {
+      command = command.substring(0, command.length() - 1);
+    }
+  }
+
+  public void cancelCommand() {
+    commandEditing = false;
+    command = "";
+  }
+
+  /** Closes the prompt, reporting why what was typed named no kind. */
+  public void failCommand(final String message) {
+    commandEditing = false;
+    command = "";
+    commandError = Optional.of(message);
+  }
+
+  /** Dismisses the message. Any keystroke after the failed one counts as having read it. */
+  public void clearCommandError() {
+    commandError = Optional.empty();
+  }
+
+  // ---- the resource browser and its describe pane ----
+
+  public boolean viewingResources() {
+    return viewingResources;
+  }
+
+  /** Opens the browser on a new kind, with the cursor and any previous error both reset. */
+  public void showResources() {
+    viewingResources = true;
+    selectedResource = Optional.empty();
+    describing = Optional.empty();
+    describeScroll = 0;
+    commandEditing = false;
+    commandError = Optional.empty();
+  }
+
+  public void closeResources() {
+    viewingResources = false;
+    selectedResource = Optional.empty();
+    describing = Optional.empty();
+  }
+
+  /**
+   * Where the cursor sits, by the same "follow the thing, not the row number" rule the other tables
+   * use: a resource that has left the list drops the cursor to the first row rather than off the
+   * end of one that has since got shorter.
+   */
+  public int resourceSelectionIndex(final List<ResourceRow> rows) {
+    if (rows.isEmpty()) {
+      return -1;
+    }
+    if (selectedResource.isPresent()) {
+      for (int index = 0; index < rows.size(); index++) {
+        if (rows.get(index).name().equals(selectedResource.get())) {
+          return index;
+        }
+      }
+    }
+    return 0;
+  }
+
+  public void moveResourceSelection(final List<ResourceRow> rows, final int delta) {
+    if (rows.isEmpty()) {
+      selectedResource = Optional.empty();
+      return;
+    }
+    int target = Math.clamp((long) resourceSelectionIndex(rows) + delta, 0, rows.size() - 1);
+    selectedResource = Optional.of(rows.get(target).name());
+  }
+
+  public void selectFirstResource(final List<ResourceRow> rows) {
+    selectedResource = rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst().name());
+  }
+
+  public void selectLastResource(final List<ResourceRow> rows) {
+    selectedResource = rows.isEmpty() ? Optional.empty() : Optional.of(rows.getLast().name());
+  }
+
+  public Optional<String> describing() {
+    return describing;
+  }
+
+  /** Opens the describe pane on whatever is selected. A no-op when nothing is. */
+  public void describeSelected(final List<ResourceRow> rows) {
+    int index = resourceSelectionIndex(rows);
+    if (index >= 0) {
+      describing = Optional.of(rows.get(index).name());
+      describeScroll = 0;
+    }
+  }
+
+  public void closeDescribe() {
+    describing = Optional.empty();
+    describeScroll = 0;
+  }
+
+  public void scrollDescribe(final int delta) {
+    describeScroll = Math.max(0, describeScroll + delta);
+  }
+
+  public void scrollDescribeToTop() {
+    describeScroll = 0;
+  }
+
+  /** Far enough that any document lands on its last page, clamped on read to whatever fits. */
+  public void scrollDescribeToBottom() {
+    describeScroll = Integer.MAX_VALUE - 1;
+  }
+
+  /**
+   * The first line to draw, clamped here rather than at every scroll: the document's length is only
+   * known at render time, and a scroll position stored past the end would otherwise show a blank
+   * pane until it was scrolled back.
+   */
+  public int describeOffset(final int total, final int available) {
+    return total <= available ? 0 : Math.clamp(describeScroll, 0, total - available);
   }
 
   public boolean helpVisible() {

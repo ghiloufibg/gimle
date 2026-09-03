@@ -813,7 +813,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-801 | A services screen showing each Service's live endpoint resolution | CLI UX | Complete | Unit only |
 | GIMLE-802 | An activity view of what has been done to the cluster, over the audit trail | CLI UX | Complete | Unit only |
 | GIMLE-803 | The activity view reads three cluster records: authorization, lifecycle and alerts | CLI UX | Complete | Unit only |
-| GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Web Console / Frontend | Fixed | Yes |
+| GIMLE-804 | The terminal view browses every collection the control plane lists, including registered custom kinds | CLI UX | Complete | Unit only |
+| GIMLE-805 | The terminal view describes a selected resource as YAML without re-reading it | CLI UX | Complete | Unit only |
 
 ## Detailed Requirements
 
@@ -10587,20 +10588,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard.
   ```
 
-#### GIMLE-804 — Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one
-
-- **Category**: Web Console / Frontend
-- **User story**: As a registry operator pushing a module jar through Andvari's console, I want the dialog to read the coordinate the jar itself declares and store it under that coordinate, so a typo or a copy-paste mistake in the moduleId/version fields can never land the jar under a coordinate that doesn't match what's actually inside it.
-- **Status**: Fixed (M22). PushArtifactDialog let an operator type any moduleId/version and pushed the selected jar under exactly that typed coordinate with zero cross-check against the jar's own descriptor -- upload succeeded silently, no warning, no diff shown, and the mismatched artifact lingered in the catalog until manually deleted; the control plane's own deploy-time check (ModuleArtifactReader, worker-side) only ever caught the mismatch later, at deploy time, with a generic error far removed from the console step that actually caused it. Andvari itself stays a deliberately dumb, unparsing store (see gimle-andvari's own design), so the fix belongs client-side, mirroring the guarantee `gimle artifact push` already gives via `ModuleArtifactReader`: a new client-side ZIP reader (`src/lib/zip.ts`, a purpose-built central-directory walk supporting the `stored`/`deflate` methods any JDK-produced jar uses -- no zip library dependency for one entry) reads the picked jar's own `META-INF/gimle/gimle-module.yaml` (`src/lib/moduleDescriptor.ts`, reading just the `name`/`version` scalars, not a full descriptor parse) the moment a jar is selected or dropped. When a descriptor is found, moduleId/version are auto-filled from it and the fields are locked (`disabled`/`readOnly`) so the operator can no longer type a conflicting value; a vessel-style jar with no bundled descriptor leaves the fields exactly as freely editable as before, with a note explaining why.
-- **Confidence**: High
-- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`
-- **Test coverage**: `zip.test.ts` (reads a deflate-compressed entry, a stored/uncompressed entry, the right entry among several, null for a missing entry and for a non-ZIP file); `moduleDescriptor.test.ts` (derives moduleId/version from a real descriptor -- including the exact art2:2.0.0-vs-wrongname:9.9.9 finding scenario, quoted scalars, a trailing comment, null for a vessel jar and for a descriptor missing a field).
-- **Gherkin scenario**:
-  ```gherkin
-  Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed.
-  Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before.
-  ```
-
 ### gimle-saga-console
 
 #### GIMLE-475 — Runs list (no authentication)
@@ -12184,4 +12171,34 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a cluster with a refused request, a failed instance transition and a firing alert rule
   When an operator presses `a` and cycles the feed with `c`
   Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line
+  ```
+
+#### GIMLE-804 — The terminal view browses every collection the control plane lists, including registered custom kinds
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to open any resource kind from the terminal view, so that reading a tenant, a role or a volume does not mean leaving the live view for a separate command.
+- **Status**: Complete. A `:` prompt opens a kind by key; the browser then reads that kind's own collection route and resolves the columns the kind declares. One screen and one reader serve every kind, because what differs between them is data -- a route and a list of columns -- not layout, which is also what lets a kind the cluster registered after this code was written render at all: `/kinddefinitions` is read once per session and each definition's own `printColumns` become that kind's columns, reachable by its plural, its kind name, or any short name it declared. A built-in key always wins a collision, so a registered kind cannot redirect a keystroke an operator already learned. The built-in set is every collection route that answers with objects: tenants, cronjobs, limitranges, networkpolicies, ingresses, roles, rolebindings, accounts, volumes and kinddefinitions. Two absences are properties of the API rather than choices: ConfigMaps and secrets are addressable only one name at a time with no collection route, and the artifact catalog answers with bare module-id strings rather than objects. Each kind is gated on its own permission and a caller lacking one is told that rather than shown an empty table, which would read as the collection being empty. A mistyped kind is answered with the keys sharing what was typed. Nothing in the table is coloured: these are fields whose meaning the view does not know, and painting one would be inventing a judgement. Like the services and activity screens the poll lives only as long as the screen.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceKind.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceCatalog.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ResourceScreen.java`
+- **Test coverage**: ResourceCatalogTest covers every built-in key resolving, a registered kind joining with its declared columns and short names, a registered kind failing to take over a built-in key, an unreadable /kinddefinitions still browsing every built-in, and a misspelling answered with near misses. ResourceReaderTest covers a kind's columns becoming cells in order, a row keeping the object it was built from, a missing field costing only its own cell, the wrapped /volumes collection, a refusal of permission reported as a state, and a custom kind's own print columns. ResourceScreenTest covers the header coming from the kind, the route being named, a registered kind saying so, the permission message, an empty collection, the filter, a blank cell reading as absent, and the frame fitting both an eighty-column terminal and a kind declaring five extra columns. JsonPathTest covers the dotted path walk and every value shape a cell can hold.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with tenants, roles and a registered custom kind
+  When an operator opens `gimle top` and types `:tenants`
+  Then the tenants collection is shown with the columns that kind declares
+  ```
+
+#### GIMLE-805 — The terminal view describes a selected resource as YAML without re-reading it
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see a resource's whole object from the browser, so that the fields no column had room for are one keystroke away rather than a separate command.
+- **Status**: Complete. `enter` on a browser row opens the object the collection route answered with, emitted as YAML and scrollable. It re-reads nothing: the row already carries the object it was drawn from, so the table and the detail can never disagree about which read is current, and a resource that leaves the collection drops back to the table the same way an inspected instance that leaves the cluster does. The emitter is written here rather than pulled from a YAML library -- the input is an already-parsed tree and the output is a few dozen lines a human reads once, which is not the kind of thing this module's one third-party dependency exists for. It is an emitter and never a parser, so quoting is conservative rather than minimal: a scalar is quoted whenever leaving it bare would let it read back as a number, a boolean, null, empty, or YAML punctuation. The pane is a rendering rather than a manifest -- it carries the status the control plane computes alongside the spec that was submitted -- and does not promise to be re-appliable.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/render/Yaml.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/DescribeScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`
+- **Test coverage**: YamlTest covers flat and nested objects, a list of objects putting its first key on the dash, empty containers staying on the key line, null, the conservative quoting rules, and escaping inside a value. DescribeScreenTest covers the whole object being shown, the title naming kind/resource/tenant, a document taller than the pane reporting which lines are showing, scrolling clamped at both ends, a document that fits not being reported as a window, the frame fitting, and no escape sequences without colour. UiStateTest covers the describe offset clamped to what the document actually has.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the terminal view's resource browser open on a kind
+  When an operator presses enter on a row
+  Then that resource's whole object is shown as YAML, scrollable
   ```

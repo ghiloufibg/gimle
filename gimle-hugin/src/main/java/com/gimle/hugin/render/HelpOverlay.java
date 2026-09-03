@@ -19,11 +19,13 @@ public final class HelpOverlay {
           new String[] {"s", "services and the endpoints they resolve to"},
           new String[] {"esc", "back to the cluster view"},
           new String[] {"a", "cluster activity; c switches audit / lifecycle / alerts"},
+          new String[] {":", "open a kind: tenants, roles, volumes, a registered kind…"},
           new String[] {"o", "cycle the sort: name, state, then each metric worst-first"},
           new String[] {"/", "filter; enter applies, esc clears"},
           new String[] {"p", "pause / resume refresh"},
           new String[] {"r", "refresh now"},
           new String[] {"c", "cycle the log category"},
+          new String[] {"⏎ (kind)", "describe the selected resource as YAML"},
           new String[] {"g / G", "jump to the top / bottom"},
           new String[] {"?", "this help"},
           new String[] {"q / ctrl-c", "quit, restoring the terminal"});

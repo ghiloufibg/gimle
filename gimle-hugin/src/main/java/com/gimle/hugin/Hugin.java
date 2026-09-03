@@ -9,16 +9,23 @@ import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
 import com.gimle.hugin.model.LogCategory;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.ResourceCatalog;
+import com.gimle.hugin.model.ResourceKind;
+import com.gimle.hugin.model.ResourceReader;
+import com.gimle.hugin.model.ResourceRow;
+import com.gimle.hugin.model.ResourceSnapshot;
 import com.gimle.hugin.model.ServiceReader;
 import com.gimle.hugin.model.ServiceSnapshot;
 import com.gimle.hugin.model.SnapshotPoller;
 import com.gimle.hugin.model.SnapshotReader;
 import com.gimle.hugin.render.ActivityScreen;
 import com.gimle.hugin.render.ClusterScreen;
+import com.gimle.hugin.render.DescribeScreen;
 import com.gimle.hugin.render.HelpOverlay;
 import com.gimle.hugin.render.InstanceScreen;
 import com.gimle.hugin.render.NodeScreen;
 import com.gimle.hugin.render.Painter;
+import com.gimle.hugin.render.ResourceScreen;
 import com.gimle.hugin.render.ServiceScreen;
 import com.gimle.hugin.render.Viewport;
 import com.gimle.hugin.term.Key;
@@ -61,6 +68,10 @@ public final class Hugin {
   private SnapshotPoller<ActivitySnapshot> activityPoller;
   private ActivityReader activityReader;
   private SnapshotPoller<ServiceSnapshot> servicePoller;
+  private final ResourceScreen resourceScreen;
+  private final DescribeScreen describeScreen;
+  private ResourceCatalog catalog;
+  private SnapshotPoller<ResourceSnapshot> resourcePoller;
   private boolean running = true;
 
   public Hugin(
@@ -76,6 +87,8 @@ public final class Hugin {
     this.serviceScreen = new ServiceScreen(painter);
     this.nodeScreen = new NodeScreen(painter);
     this.activityScreen = new ActivityScreen(painter);
+    this.resourceScreen = new ResourceScreen(painter);
+    this.describeScreen = new DescribeScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
   }
 
@@ -97,6 +110,7 @@ public final class Hugin {
       closeWatcher();
       closeServicePoller();
       closeActivityPoller();
+      closeResourcePoller();
     }
   }
 
@@ -106,9 +120,8 @@ public final class Hugin {
     if (ui.helpVisible()) {
       return helpOverlay.render(viewport);
     }
-    if (ui.viewingActivity() && activityPoller != null) {
-      return activityScreen.render(
-          activityPoller.current(), ui, viewport, activityPoller.paused(), now);
+    if (ui.viewingResources() && resourcePoller != null) {
+      return resourceFrame(resourcePoller.current(), viewport, now);
     }
     if (ui.viewingActivity() && activityPoller != null) {
       return activityScreen.render(
@@ -149,6 +162,12 @@ public final class Hugin {
       running = false;
       return;
     }
+    if (ui.commandEditing()) {
+      handleCommandKey(key);
+      return;
+    }
+    // Any key after a rejected command counts as having read why it was rejected.
+    ui.clearCommandError();
     if (ui.filterEditing()) {
       handleFilterKey(key);
       return;
@@ -159,16 +178,16 @@ public final class Hugin {
       ui.hideHelp();
       return;
     }
+    if (ui.viewingResources()) {
+      handleResourceKey(key);
+      return;
+    }
     if (ui.viewingActivity()) {
       handleActivityKey(key);
       return;
     }
     if (ui.viewingServices() && servicePoller != null) {
       handleServicesKey(key, servicePoller);
-      return;
-    }
-    if (ui.viewingActivity()) {
-      handleActivityKey(key);
       return;
     }
     if (ui.inspectingNode().isPresent()) {
@@ -222,6 +241,8 @@ public final class Hugin {
       openActivity();
     } else if (key.isChar('s')) {
       openServices();
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
     } else if (key.isChar('/')) {
       ui.beginFilter();
     } else if (key.is(Key.Kind.ESCAPE)) {
@@ -240,6 +261,8 @@ public final class Hugin {
   private void handleServicesKey(final Key key, final SnapshotPoller<ServiceSnapshot> poller) {
     if (key.is(Key.Kind.ESCAPE)) {
       closeServices();
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
     } else if (key.isChar('/')) {
       ui.beginFilter();
     } else if (key.isChar('p')) {
@@ -264,6 +287,140 @@ public final class Hugin {
       ui.toggleHelp();
     } else if (key.isChar('q')) {
       running = false;
+    }
+  }
+
+  /**
+   * The {@code :} prompt: type a kind, press enter, and the browser opens on it. Nothing is
+   * resolved until enter, so a half-typed kind never opens a screen and never costs a request.
+   */
+  private void handleCommandKey(final Key key) {
+    if (key.is(Key.Kind.ENTER)) {
+      openResources(ui.command());
+    } else if (key.is(Key.Kind.ESCAPE)) {
+      ui.cancelCommand();
+    } else if (key.is(Key.Kind.BACKSPACE)) {
+      ui.backspaceCommand();
+    } else if (key instanceof Key.Character character && character.value() >= ' ') {
+      ui.appendToCommand(character.value());
+    }
+  }
+
+  private void handleResourceKey(final Key key) {
+    if (ui.describing().isPresent()) {
+      handleDescribeKey(key);
+      return;
+    }
+    List<ResourceRow> rows = resourceRows();
+    if (key.is(Key.Kind.ESCAPE)) {
+      closeResources();
+    } else if (key.is(Key.Kind.UP) || key.isChar('k')) {
+      ui.moveResourceSelection(rows, -1);
+    } else if (key.is(Key.Kind.DOWN) || key.isChar('j')) {
+      ui.moveResourceSelection(rows, 1);
+    } else if (key.isChar('g')) {
+      ui.selectFirstResource(rows);
+    } else if (key.isChar('G')) {
+      ui.selectLastResource(rows);
+    } else if (key.is(Key.Kind.ENTER)) {
+      ui.describeSelected(rows);
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
+    } else if (key.isChar('p') && resourcePoller != null) {
+      resourcePoller.togglePaused();
+    } else if (key.isChar('r') && resourcePoller != null) {
+      resourcePoller.refreshNow();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  private void handleDescribeKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      ui.closeDescribe();
+    } else if (key.is(Key.Kind.UP) || key.isChar('k')) {
+      ui.scrollDescribe(-1);
+    } else if (key.is(Key.Kind.DOWN) || key.isChar('j')) {
+      ui.scrollDescribe(1);
+    } else if (key.isChar('g')) {
+      ui.scrollDescribeToTop();
+    } else if (key.isChar('G')) {
+      ui.scrollDescribeToBottom();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  /**
+   * The browser and the describe pane over it. The pane is drawn from the row the current poll
+   * carries rather than one captured when it was opened, so a resource that changes underneath
+   * shows its change; one that leaves the collection entirely drops back to the table, the same way
+   * an inspected instance that leaves the cluster does.
+   */
+  private List<String> resourceFrame(
+      final ResourceSnapshot snapshot, final Viewport viewport, final Instant now) {
+    Optional<ResourceRow> described = ui.describing().flatMap(snapshot::find);
+    if (described.isPresent()) {
+      return describeScreen.render(snapshot.kind(), described.get(), ui, viewport);
+    }
+    if (ui.describing().isPresent()) {
+      ui.closeDescribe();
+    }
+    return resourceScreen.render(snapshot, ui, viewport, resourcePoller.paused(), now);
+  }
+
+  private List<ResourceRow> resourceRows() {
+    return resourcePoller == null ? List.of() : resourcePoller.current().matching(ui.filter());
+  }
+
+  /**
+   * Opens the browser on the kind {@code typed} names. The catalog is discovered once per session
+   * and kept: it costs a read of the cluster's registered kinds, and those do not change between
+   * two presses of {@code :}.
+   *
+   * <p>Like the services and activity screens, the poll lives only as long as the screen showing it
+   * -- and here it is also the only reason any of these routes is called at all, several of which a
+   * given certificate may not be permitted to read.
+   */
+  private void openResources(final String typed) {
+    if (catalog == null) {
+      catalog = ResourceCatalog.discover(reader);
+    }
+    Optional<ResourceKind> kind = catalog.resolve(typed);
+    if (kind.isEmpty()) {
+      ui.failCommand(
+          "no kind named '"
+              + typed.trim()
+              + "'; try "
+              + String.join(", ", catalog.suggestionsFor(typed)));
+      return;
+    }
+    ui.showResources();
+    closeResourcePoller();
+    resourcePoller =
+        new SnapshotPoller<>(
+            new ResourceReader(reader, kind.get())::read,
+            ResourceSnapshot.connecting(reader.serverAddress(), kind.get()),
+            intervals.services(),
+            "hugin-resources");
+    resourcePoller.start();
+  }
+
+  private void closeResources() {
+    ui.closeResources();
+    closeResourcePoller();
+  }
+
+  private void closeResourcePoller() {
+    if (resourcePoller != null) {
+      resourcePoller.close();
+      resourcePoller = null;
     }
   }
 
@@ -294,6 +451,8 @@ public final class Hugin {
   private void handleActivityKey(final Key key) {
     if (key.is(Key.Kind.ESCAPE)) {
       closeActivity();
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
     } else if (key.isChar('/')) {
       ui.beginFilter();
     } else if (key.isChar('c')) {

@@ -3,10 +3,12 @@ package com.gimle.hugin.render;
 import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceRow;
+import com.gimle.hugin.model.ResourceSnapshot;
 import com.gimle.hugin.model.ServiceSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -78,6 +80,34 @@ final class StatusBar {
     if (unresolved > 0) {
       line.add("   ", bar)
           .add(unresolved + " unresolved", Style.fg(Palette.BAD).on(Palette.CARD).asBold());
+    }
+    if (paused) {
+      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
+    }
+    return line.fillTo(viewport.columns(), bar).build();
+  }
+
+  static String resources(
+      final Painter painter,
+      final ResourceSnapshot snapshot,
+      final Viewport viewport,
+      final boolean paused,
+      final Instant now) {
+    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
+    Line line =
+        new Line(painter)
+            .add(" ", bar)
+            .add("GIMLÉ", brand())
+            .add(" TOP", bar.asBold())
+            .add("   " + snapshot.kind().key().toUpperCase(Locale.ROOT), bar.asBold())
+            .add("   ", bar)
+            .add(snapshot.serverAddress(), bar);
+    appendConnection(line, snapshot.connected(), snapshot.staleReason(), snapshot.age(now), bar);
+    if (snapshot.permitted()) {
+      line.add("   " + snapshot.kind().label() + " ", bar)
+          .add(String.valueOf(snapshot.rows().size()), bar.asBold());
+    } else {
+      line.add("   not permitted", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
     }
     if (paused) {
       line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
@@ -160,7 +190,66 @@ final class StatusBar {
         .build();
   }
 
+  /**
+   * The {@code :} prompt, which replaces the key bar while a kind is being typed -- the same shape
+   * the filter prompt takes, so the one line at the bottom of the screen always means "you are
+   * typing something" rather than sometimes meaning it.
+   */
+  static String commandPrompt(final Painter painter, final UiState ui, final Viewport viewport) {
+    Style bar = Style.fg(Palette.FOREGROUND).on(Palette.CARD);
+    return new Line(painter)
+        .add(" :", Style.fg(Palette.PRIMARY).on(Palette.CARD))
+        .add(ui.command(), bar)
+        .add("▁", Style.fg(Palette.PRIMARY).on(Palette.CARD))
+        .add(
+            "   kind to open, enter to go, esc to cancel", Style.fg(Palette.MUTED).on(Palette.CARD))
+        .fillTo(viewport.columns(), bar)
+        .build();
+  }
+
+  /**
+   * What a rejected {@code :} is reported with, in the same place the prompt that produced it was
+   * typed. Shown on whichever screen was open when it happened, since the prompt never left that
+   * screen -- an operator who mistypes must not be answered by a view silently not changing.
+   */
+  private static String commandError(
+      final Painter painter, final String message, final Viewport viewport) {
+    Style bar = Style.fg(Palette.BAD).on(Palette.CARD);
+    return new Line(painter)
+        .add(" " + message, bar)
+        .add("   any key to dismiss", Style.fg(Palette.MUTED).on(Palette.CARD))
+        .fillTo(viewport.columns(), Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
+        .build();
+  }
+
+  static String resourceKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    if (ui.commandError().isPresent()) {
+      return commandError(painter, ui.commandError().get(), viewport);
+    }
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
+    return keyBar(
+        painter,
+        viewport,
+        List.of("esc back", ": kind", "⏎ describe", "/ filter", "p pause", "? help", "q quit"));
+  }
+
+  static String describeKeys(final Painter painter, final Viewport viewport) {
+    return keyBar(
+        painter, viewport, List.of("esc back", "↑↓ scroll", "g/G top/bottom", "? help", "q quit"));
+  }
+
   static String clusterKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    if (ui.commandError().isPresent()) {
+      return commandError(painter, ui.commandError().get(), viewport);
+    }
     if (ui.filterEditing()) {
       return filterPrompt(painter, ui, viewport);
     }
@@ -171,10 +260,24 @@ final class StatusBar {
         // "q quit" falls off the right edge is worse than one that lists fewer keys. The full set,
         // r included, is one "?" away.
         List.of(
-            "↑↓ move", "⏎ open", "s svc", "a activity", "o sort", "/ filter", "p pause", "q quit"));
+            "↑↓ move",
+            "⏎ open",
+            "s svc",
+            "a activity",
+            ": kind",
+            "o sort",
+            "/ filter",
+            "p pause",
+            "q quit"));
   }
 
   static String activityKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    if (ui.commandError().isPresent()) {
+      return commandError(painter, ui.commandError().get(), viewport);
+    }
     if (ui.filterEditing()) {
       return filterPrompt(painter, ui, viewport);
     }
@@ -197,6 +300,12 @@ final class StatusBar {
   }
 
   static String serviceKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    if (ui.commandError().isPresent()) {
+      return commandError(painter, ui.commandError().get(), viewport);
+    }
     if (ui.filterEditing()) {
       return filterPrompt(painter, ui, viewport);
     }

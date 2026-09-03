@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 804
+- **Total requirements**: 805
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 674
-- **Release-readiness (automated coverage)**: 16.2%
+- **Not covered by automated test**: 675
+- **Release-readiness (automated coverage)**: 16.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -32,7 +32,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 54 | 0 | 54 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
-| gimle-andvari-console | 9 | 0 | 9 | 0.0% |
+| gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
 | gimle-saga | 14 | 0 | 14 | 0.0% |
 | gimle-testkit | 7 | 0 | 7 | 0.0% |
@@ -42,7 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
-| gimle-hugin | 11 | 3 | 8 | 27.3% |
+| gimle-hugin | 13 | 3 | 10 | 23.1% |
 
 ## Checklist
 
@@ -2076,7 +2076,6 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-472 | Push artifact dialog (drag-and-drop upload) | Given I push an existing module@version unmodified, When upload completes, Then it's treated as an idempotent no-op; a differing re-push surfaces a 409 conflict. | No |
 | [ ] | GIMLE-473 | Maven-2 repository interop view | Given the console is served at a known origin, When I open `/repository`, Then the repository base URL and a copyable Maven config snippet render. | No |
 | [ ] | GIMLE-474 | Andvari copy-to-clipboard utility | Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard. | No |
-| [ ] | GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed. Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before. | No |
 
 ### gimle-saga-console
 
@@ -2348,6 +2347,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-801 | A services screen showing each Service's live endpoint resolution | Given a Service naming deployments that currently have no running instances When an operator presses `s` in `gimle top` Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read | Yes |
 | [ ] | GIMLE-802 | An activity view of what has been done to the cluster, over the audit trail | Given a cluster where a deployment was created and a secret read was refused When an operator presses `a` in `gimle top` Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line | No |
 | [ ] | GIMLE-803 | The activity view reads three cluster records: authorization, lifecycle and alerts | Given a cluster with a refused request, a failed instance transition and a firing alert rule When an operator presses `a` and cycles the feed with `c` Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line | No |
+| [ ] | GIMLE-804 | The terminal view browses every collection the control plane lists, including registered custom kinds | Given a cluster with tenants, roles and a registered custom kind When an operator opens `gimle top` and types `:tenants` Then the tenants collection is shown with the columns that kind declares | No |
+| [ ] | GIMLE-805 | The terminal view describes a selected resource as YAML without re-reading it | Given the terminal view's resource browser open on a kind When an operator presses enter on a row Then that resource's whole object is shown as YAML, scrollable | No |
 
 #### Distribution
 
