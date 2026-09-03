@@ -101,8 +101,7 @@ class ActivityReaderTest {
     FakeClusterReader reader = new FakeClusterReader();
     reader.failWith(CliException.unavailable("connection refused"));
 
-    assertThrows(
-        CliException.class, () -> new ActivityReader(reader, FeedMode.AUDIT).read());
+    assertThrows(CliException.class, () -> new ActivityReader(reader, FeedMode.AUDIT).read());
   }
 
   // ---- paging, shared by the two history feeds ----
@@ -113,7 +112,8 @@ class ActivityReaderTest {
         new FakeClusterReader()
             .withObject(
                 "/events?limit=200",
-                Map.of("events", List.of(lifecycleEvent("checkout-api", 5000L)), "nextCursor", "c1"))
+                Map.of(
+                    "events", List.of(lifecycleEvent("checkout-api", 5000L)), "nextCursor", "c1"))
             .withObject(
                 "/events?limit=200&cursor=c1",
                 Map.of("events", List.of(lifecycleEvent("billing-api", 1000L))));
@@ -255,11 +255,16 @@ class ActivityReaderTest {
   private static Map<String, Object> lifecycleEvent(
       final String deployment, final long atEpochMilli) {
     return Map.of(
-        "deploymentName", deployment,
-        "instanceIndex", 0,
-        "kind", "ACTIVE",
-        "message", "started",
-        "occurredAtEpochMilli", atEpochMilli);
+        "deploymentName",
+        deployment,
+        "instanceIndex",
+        0,
+        "kind",
+        "ACTIVE",
+        "message",
+        "started",
+        "occurredAtEpochMilli",
+        atEpochMilli);
   }
 
   private static Map<String, Object> rule(final String name) {

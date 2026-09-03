@@ -68,7 +68,9 @@ public final class ActivityScreen {
               .build());
       lines.add(
           new Line(painter)
-              .add("  c switches to another feed you may be permitted to read", Style.fg(Palette.MUTED))
+              .add(
+                  "  c switches to another feed you may be permitted to read",
+                  Style.fg(Palette.MUTED))
               .build());
       return Frame.fitWithKeyBar(lines, StatusBar.activityKeys(painter, ui, viewport), viewport);
     }
