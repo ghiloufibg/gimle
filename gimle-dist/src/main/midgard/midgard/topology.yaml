@@ -5,10 +5,20 @@
 # only *advertises* this host, so processes inside the container reach each other over loopback
 # while Docker's published ports still reach every listener from outside the container.
 #
-# The -Xmx caps keep the whole seven-JVM cluster (six platform processes plus each module's own
-# worker JVM) comfortably inside a ~2 GiB container. Worker JVMs are deliberately left uncapped
-# here: each worker's heap ceiling is assigned per module from its own manifest's resource limit,
-# and a topology-wide -Xmx would silently override it.
+# The six platform -Xmx caps below sum to ~1.06 GiB (192m+256m+128m+160m+160m+160m); this leaves
+# under 1 GiB of headroom in the README's "give the Docker VM at least 2 GiB" guidance for every
+# worker JVM the cluster is actually running -- and that headroom disappears fast. Worker JVMs are
+# deliberately left uncapped here: each worker's heap ceiling is assigned per module from its own
+# manifest's resource limit (not from this file, and a topology-wide -Xmx here would silently
+# override that), and a single shared (TIER_1) worker commonly requests 1 GiB on its own in this
+# repo's own example/test manifests -- one such worker alone already exceeds the platform
+# processes' combined footprint. Left running, forgotten QA/example deployments are cumulative:
+# each replica keeps its own worker JVM's -Xmx reserved for as long as it stays scheduled, so a
+# container that has accumulated dozens of leftover instances can commit far more memory than this
+# comment's 2 GiB assumption without any single process being individually oversized. Raising the
+# `jvm:` values below only changes the six platform processes' own ceilings -- it does not bound
+# worker JVM count or size; keeping this cluster's real footprint near the documented budget is an
+# operator hygiene concern (delete deployments you're done with) more than a topology-config one.
 name: midgard
 machines:
   - {name: midgard, host: 127.0.0.1}
@@ -39,4 +49,10 @@ jvm:
   fafnir: ["-Xmx128m"]
   muninn: ["-Xmx160m"]
   andvari: ["-Xmx160m"]
-  agent: ["-Xmx160m"]
+  # The agent tracks per-instance bookkeeping (SupervisedInstance, capacity accounting, log/metric
+  # shippers) for every worker it supervises, so its own headroom needs matter more here than for
+  # the other five processes as instance count grows -- 224m over the previous 160m gives it more
+  # room before its own heap comes under pressure. This does not make the agent fail fast on real
+  # exhaustion (it has no -XX:+ExitOnOutOfMemoryError today, unlike the workers it spawns); that
+  # flag belongs on the agent's own launch, not in this topology-config lever.
+  agent: ["-Xmx224m"]

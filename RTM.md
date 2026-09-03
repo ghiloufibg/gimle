@@ -405,7 +405,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-388 | Dual table/JSON output formatting | Modified | Not Covered | — |
 | GIMLE-389 | kubectl-shaped global flag parsing, manifest-kind apply dispatch, and mTLS/leader-aware HTTP client | Active | Not Covered | — |
 | GIMLE-390 | Topology validation (`hilmir validate`) | Active | Not Covered | — |
-| GIMLE-391 | Cluster launch planning (`hilmir plan`) | Active | Not Covered | — |
+| GIMLE-391 | Cluster launch planning (`hilmir plan`) | Modified | Not Covered | — |
 | GIMLE-392 | Real multi-process cluster bring-up (`hilmir up`) | Active | Not Covered | — |
 | GIMLE-393 | Cluster teardown and status reporting (`hilmir down`/`status`) | Active | Not Covered | — |
 | GIMLE-394 | Cluster TLS/PKI bootstrap (`hilmir pki init`) | Active | Not Covered | — |
@@ -625,7 +625,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-608 | Bundle artifacts: multi-file vessel applications as one zipped, entrypoint-carrying coordinate | New | Not Covered | — |
 | GIMLE-609 | Manifest apiVersion: optional per-kind versioning with a permanent v1alpha1 default | New | Covered | `workload-manifests.feature` — "apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts" |
 | GIMLE-610 | Workload manifest v1: artifactPath rejected, artifact-registry resolution enforced, alpha use deprecated with surfaced warnings | New | Covered | `workload-manifests.feature` — "apiVersion selects the manifest ruleset and v1 enforces registry-only artifacts"; `registry-deploy.feature` — "A v1 manifest deploys by coordinate through the registry" |
-| GIMLE-611 | Midgard Docker dev-cluster distribution archive | New | Not Covered | — |
+| GIMLE-611 | Midgard Docker dev-cluster distribution archive | Modified | Not Covered | — |
 | GIMLE-612 | Volume reclaim policy: Retain-by-default persistent volume release | Modified | Not Covered | — |
 | GIMLE-613 | DNS-over-TCP fallback with UDP truncation | New | Not Covered | — |
 | GIMLE-614 | Self-subject access review endpoint (/authz/can-i) | New | Not Covered | — |
@@ -6265,11 +6265,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-391 — Cluster launch planning (`hilmir plan`)
 
 - **Category**: Release Management
-- **Status**: Active
+- **Status**: Modified  _(Modified: `planAndvari` never emitted `-Dgimle.andvari.muninnEndpoint` even when the topology declared Muninn replicas, unlike `planStores`/`planFafnirs`/`planAgents`, which each already wire their own equivalent property under the identical `!topology.muninn().replicas().isEmpty()` guard -- so any planned cluster (including the bundled Midgard dev-cluster topology) left Andvari's own metrics/traces unshipped, with its history permanently empty even though `AndvariMain` reads the property and the process itself was otherwise healthy. `planAndvari` now sets it the same way the other three roles do.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Cluster launch planning (`hilmir plan`)".
-- **Other test coverage (non-Holmgang, informational only)**: `HilmirMainTest.plan_prints_the_resolved_commands_for_a_healthy_topology`, `plan_filters_to_one_machine_when_requested`, `plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error`; `LaunchPlannerTest` (multiple)
-- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java`, `ClusterPlan.java`, `MachinePlan.java`, `ProcessCommand.java`
+- **Other test coverage (non-Holmgang, informational only)**: `HilmirMainTest.plan_prints_the_resolved_commands_for_a_healthy_topology`, `plan_filters_to_one_machine_when_requested`, `plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error`; `LaunchPlannerTest` (multiple, including `store_fafnir_and_andvari_each_ship_their_own_metrics_to_muninn_when_it_has_replicas`)
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/plan/LaunchPlanner.java` (`planAndvari`), `ClusterPlan.java`, `MachinePlan.java`, `ProcessCommand.java`
 
 #### GIMLE-392 — Real multi-process cluster bring-up (`hilmir up`)
 
@@ -8265,7 +8265,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-611 — Midgard Docker dev-cluster distribution archive
 
 - **Category**: Packaging
-- **Status**: New  _(newly added as part of the Midgard Docker dev-cluster work)_
+- **Status**: Modified  _(Modified: a QA soak left running for a long stretch accumulated 49 orphaned worker JVMs (~29 GiB of committed -Xmx ceilings) in this container, well past the README's ~2 GiB guidance -- that guidance covered only the six platform JVMs, saying nothing about per-instance worker JVM accumulation over a long-lived container's life. `topology.yaml`'s own comment above the `jvm:` block, and the README's Requirements section, now spell out the real numbers (the six platform ceilings sum to ~1.06 GiB, a single shared Tier 1 worker commonly requests 1 GiB on its own in this repo's example/test manifests, and leftover deployments each keep reserving their own worker JVM's -Xmx for as long as they stay scheduled) and point at `gimle get deployments` to see what is actually still running. The agent's own -Xmx was raised from 160m to 224m for headroom, since it is the one JVM here whose own bookkeeping scales with supervised-instance count; this is not a substitute for the agent failing fast on genuine exhaustion the way spawned workers already do, which needs -XX:+ExitOnOutOfMemoryError on the agent's own launch -- a gimle-agent change, not this module's.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang Cucumber scenario boots the Docker image -- Holmgang deliberately spawns bare subprocess clusters, and requiring a Docker daemon inside the validation profile is a real environmental dependency it does not take on today. The pieces Midgard composes (hilmir up boot order/readiness, registry-coordinate v1 deploys, artifact push through the control-plane proxy) each have their own Holmgang coverage; the Docker composition itself is verified manually per the requirements matrix.
 - **Other test coverage (non-Holmgang, informational only)**: Manual end-to-end verification: docker compose up from the built archive boots all process kinds to readiness, seeded example deployments reach ACTIVE from registry coordinates, console serves on the published port, docker stop tears down via hilmir down.
@@ -8778,7 +8778,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-226 | gimle-controlplane | Unhealthy-instance backoff-gated reschedule (`HealthReconciler`) | Reconciliation / Self-healing | `HealthReconcilerTest` — `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states` |
 | GIMLE-232 | gimle-controlplane | DaemonSet dark-node placement-safety grace period | Reconciliation / Self-healing | `DaemonSetReconcilerTest#a_replica_on_a_dark_but_not_yet_timed_out_node_is_not_relocated`, `cordoning_a_dark_node_still_removes_its_assignment_immediately` |
 | GIMLE-390 | gimle-hilmir | Topology validation (`hilmir validate`) | Release Management | `TopologyValidatorTest` (extensive, ~25+ tests); `HilmirMainTest.validate_exits_zero_for_a_topology_with_no_error_severity_findings`, `validate_exits_one_and_lists_errors_before_warnings_for_a_broken_topology` |
-| GIMLE-391 | gimle-hilmir | Cluster launch planning (`hilmir plan`) | Release Management | `HilmirMainTest.plan_prints_the_resolved_commands_for_a_healthy_topology`, `plan_filters_to_one_machine_when_requested`, `plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error`; `LaunchPlannerTest` (multiple) |
+| GIMLE-391 | gimle-hilmir | Cluster launch planning (`hilmir plan`) | Release Management | `HilmirMainTest.plan_prints_the_resolved_commands_for_a_healthy_topology`, `plan_filters_to_one_machine_when_requested`, `plan_aborts_with_findings_and_exit_one_when_the_topology_has_an_error`; `LaunchPlannerTest` (multiple, including `store_fafnir_and_andvari_each_ship_their_own_metrics_to_muninn_when_it_has_replicas`) |
 | GIMLE-392 | gimle-hilmir | Real multi-process cluster bring-up (`hilmir up`) | Release Management | `MachineLauncherIntegrationTest.up_waits_on_a_remote_prerequisite_then_down_and_status_reflect_the_real_processes`; `HilmirMainTest.up_requires_the_machine_flag`, `up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error`; `BootOrderTest` |
 | GIMLE-393 | gimle-hilmir | Cluster teardown and status reporting (`hilmir down`/`status`) | Release Management | `MachineLauncherIntegrationTest.down_is_a_clean_no_op_for_an_already_dead_recorded_pid`, `status_reports_a_dead_pid_as_not_alive_and_a_never_bound_address_as_closed`; `HilmirCliDownStatusEndToEndTest`; `HilmirMainTest` (multiple) |
 | GIMLE-395 | gimle-hilmir | Raft store membership add (`hilmir store add`) | Release Management | `StoreCommandsClusterTest.add_joins_a_real_peer_and_it_becomes_a_visible_cluster_member`; `HilmirMainTest` (positional args, one-of-topology/server); `StoreEndpointsTest` |

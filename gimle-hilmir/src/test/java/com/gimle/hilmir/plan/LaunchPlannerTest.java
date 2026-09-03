@@ -493,6 +493,46 @@ class LaunchPlannerTest {
             .contains("-Dgimle.agent.andvariEndpoint=127.0.0.1:9094"));
   }
 
+  @Test
+  void store_fafnir_and_andvari_each_ship_their_own_metrics_to_muninn_when_it_has_replicas() {
+    final Topology observed =
+        parse(
+            """
+            name: observed
+            machines:
+              - {name: m1, host: 127.0.0.1}
+            store:
+              replicas:
+                - {machine: m1}
+            controlPlane:
+              replicas:
+                - {machine: m1}
+            fafnir:
+              keyFile: /key
+              replicas:
+                - {machine: m1}
+            muninn:
+              replicas:
+                - {machine: m1, port: 9093}
+            andvari:
+              replicas:
+                - {machine: m1, port: 9094}
+            """);
+    final ClusterPlan plan = LaunchPlanner.plan(observed, RUNTIME);
+    assertTrue(
+        only(plan, "m1", "store-0")
+            .command()
+            .contains("-Dgimle.store.muninnEndpoint=127.0.0.1:9093"));
+    assertTrue(
+        only(plan, "m1", "fafnir-0")
+            .command()
+            .contains("-Dgimle.fafnir.muninnEndpoint=127.0.0.1:9093"));
+    assertTrue(
+        only(plan, "m1", "andvari-0")
+            .command()
+            .contains("-Dgimle.andvari.muninnEndpoint=127.0.0.1:9093"));
+  }
+
   /**
    * The load-bearing safety-boundary regression test: {@code planAgents}' own command (including
    * the {@code WORKER} command tail it appends for {@code AgentMain} to spawn) never changes based

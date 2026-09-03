@@ -176,6 +176,9 @@ public final class LaunchPlanner {
           BundledJreResolver.resolveJavaExecutable(topology, runtime, "andvari", gimleHomeEnv));
       command.addAll(tlsFlags(topology, "andvari", replica.machine()));
       command.addAll(topology.jvmFlags(ProcessRole.ANDVARI));
+      if (!topology.muninn().replicas().isEmpty()) {
+        command.add("-Dgimle.andvari.muninnEndpoint=" + muninnEndpointsSpec(topology));
+      }
       command.add(dataRootFlag(dataDir));
       command.add(logRootFlag(runtime, id));
       command.addAll(List.of("-cp", runtime.classpath(), "com.gimle.andvari.AndvariMain"));
