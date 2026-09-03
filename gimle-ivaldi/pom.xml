@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-alpha.2</version>
+  </parent>
+
+  <artifactId>gimle-ivaldi</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Ivaldi</name>
+  <description>
+    The cluster designer's backend: a standalone local process (IvaldiMain) that stores Blueprint
+    documents as flat JSON files and validates their rendered topology.yaml/bundle.yaml/manifest
+    output against the real Hilmir and Mimir parsers -- the same TopologyParser/TopologyValidator/
+    BundleParser/ManifestParser a real hilmir up/deploy would run -- so a design is checked against
+    the platform's own rules before anything is run. Driving a real local hilmir up/deploy is a
+    later addition, once the console's own run-panel contract is settled. A development tool,
+    deliberately unauthenticated and loopback-bound by default, never part of a deployed Gimle
+    cluster's own process topology -- the same posture gimle-saga already established.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-hilmir</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-mimir</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <!-- gimle-ivaldi-console (runtime scope, bundled SPA at ivaldi-console/**, the same
+         BundledSpa pattern gimle-saga/gimle-saga-console already establishes) is added here once
+         that module exists. Until then, BundledSpa.resolve simply finds nothing on the classpath,
+         and IvaldiMain logs /console as disabled, the same graceful absence SagaMain logs when
+         its own console jar isn't present. -->
+  </dependencies>
+</project>

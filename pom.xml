@@ -39,6 +39,7 @@
     <module>gimle-console</module>
     <module>gimle-saga-console</module>
     <module>gimle-saga</module>
+    <module>gimle-ivaldi</module>
     <module>gimle-maven-plugin</module>
     <module>gimle-testkit</module>
     <module>gimle-ragnarok-pause</module>
@@ -234,6 +235,11 @@
       <dependency>
         <groupId>com.gimle</groupId>
         <artifactId>gimle-saga</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.gimle</groupId>
+        <artifactId>gimle-ivaldi</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
