@@ -190,8 +190,8 @@ public final class StoreCodec {
   private static final byte TAG_GET_LIMIT_RANGE_VIOLATION_REASON = 111;
   private static final byte TAG_IS_CERTIFICATE_REVOKED = 112;
   private static final byte TAG_LIST_REVOKED_CERTIFICATE_SERIALS = 113;
-  private static final byte TAG_IS_SECRETS_KEY_RETIRED = -107;
-  private static final byte TAG_LIST_RETIRED_SECRETS_KEY_IDS = -106;
+  private static final byte TAG_IS_SECRETS_KEY_RETIRED = -102;
+  private static final byte TAG_LIST_RETIRED_SECRETS_KEY_IDS = -103;
   private static final byte TAG_GET_WORKLOAD_TOKEN = 114;
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
   private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
