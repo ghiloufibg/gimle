@@ -8351,7 +8351,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-790 — `gimle top` renders a live, read-only cluster view of nodes and instances
 
 - **Category**: CLI UX
-- **Status**: New  _(New requirement: a k9s-shaped live cluster view contributed to the CLI by the new gimle-hugin module, fed by GET /nodes and GET /deployments with no new server-side surface.)_
+- **Status**: New  _(New requirement: a k9s-shaped live cluster view contributed to the CLI by the new gimle-hugin module, fed by GET /nodes and GET /deployments with no new server-side surface. Also: per-table ordering cycled by one key, a filter shared across every screen, and wheel-only mouse scrolling.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/terminal-view.feature` — Scenario: *A running deployment appears in the rendered frame with its real state*
@@ -8440,7 +8440,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-799 — An activity view of what has been done to the cluster, over the audit trail
 
 - **Category**: CLI UX
-- **Status**: New  _(New requirement: a third screen over GET /audit, the only cluster-wide feed the control plane serves. Keeps DENIED distinct from REJECTED, reports a caller without audit permission as such rather than as an empty feed (off the typed CliExitCode.FORBIDDEN), and polls only while open.)_
+- **Status**: New  _(New requirement: a third screen over GET /audit, the only cluster-wide feed the control plane serves. Keeps DENIED distinct from REJECTED, reports a caller without audit permission as such rather than as an empty feed (off the typed CliExitCode.FORBIDDEN), and polls only while open. Also: cursor paging followed on demand with `m`, with the page depth held on the reader so a refresh keeps it.)_
 - **Coverage**: Not Covered
 - **Gap note**: Same TUI gap as GIMLE-790: no scenario can attach a terminal to read a rendered frame. The /audit route itself is reachable from a scenario; the screen that renders it is not.
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's ActivityReaderTest and ActivityScreenTest.

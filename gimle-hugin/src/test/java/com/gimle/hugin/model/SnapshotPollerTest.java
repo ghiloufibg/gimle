@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
  * The failure posture that matters most while watching a cluster settle: the screen has to keep
  * showing what it last knew rather than going blank the moment a request fails.
  */
-class ClusterPollerTest {
+class SnapshotPollerTest {
 
   @Test
   void a_failed_poll_keeps_the_last_good_rows_and_says_why_they_are_stale() {
@@ -28,7 +28,7 @@ class ClusterPollerTest {
                         "greeter-provider",
                         Optional.empty(),
                         List.of(Fixtures.instance(0, "node-alpha", "ACTIVE", 1.0, 0.0)))));
-    ClusterPoller poller = poller(reader);
+    SnapshotPoller<ClusterSnapshot> poller = poller(reader);
     poller.pollOnce();
     assertTrue(poller.current().connected());
 
@@ -46,7 +46,7 @@ class ClusterPollerTest {
   @Test
   void a_recovered_poll_replaces_the_stale_marking() {
     FakeClusterReader reader = new FakeClusterReader();
-    ClusterPoller poller = poller(reader);
+    SnapshotPoller<ClusterSnapshot> poller = poller(reader);
     reader.failWith(new CliException("connection refused"));
     poller.pollOnce();
     assertFalse(poller.current().connected());
@@ -70,7 +70,7 @@ class ClusterPollerTest {
   @Test
   void a_paused_poller_stops_reading_until_it_is_resumed() {
     FakeClusterReader reader = new FakeClusterReader();
-    ClusterPoller poller = poller(reader);
+    SnapshotPoller<ClusterSnapshot> poller = poller(reader);
 
     poller.togglePaused();
 
@@ -81,8 +81,12 @@ class ClusterPollerTest {
     assertFalse(poller.paused());
   }
 
-  private static ClusterPoller poller(final FakeClusterReader reader) {
-    return new ClusterPoller(
-        new SnapshotReader(reader), Duration.ofSeconds(2), reader.serverAddress());
+  private static SnapshotPoller<ClusterSnapshot> poller(final FakeClusterReader reader) {
+    SnapshotReader snapshots = new SnapshotReader(reader);
+    return new SnapshotPoller<>(
+        snapshots::read,
+        ClusterSnapshot.connecting(reader.serverAddress()),
+        Duration.ofSeconds(2),
+        "test-cluster");
   }
 }

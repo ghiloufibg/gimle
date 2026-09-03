@@ -1,17 +1,17 @@
 package com.gimle.hugin;
 
 import com.gimle.cli.spi.ClusterReader;
-import com.gimle.hugin.model.ActivityPoller;
 import com.gimle.hugin.model.ActivityReader;
-import com.gimle.hugin.model.ClusterPoller;
+import com.gimle.hugin.model.ActivitySnapshot;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
 import com.gimle.hugin.model.LogCategory;
 import com.gimle.hugin.model.NodeRow;
-import com.gimle.hugin.model.ServicePoller;
 import com.gimle.hugin.model.ServiceReader;
+import com.gimle.hugin.model.ServiceSnapshot;
+import com.gimle.hugin.model.SnapshotPoller;
 import com.gimle.hugin.model.SnapshotReader;
 import com.gimle.hugin.render.ActivityScreen;
 import com.gimle.hugin.render.ClusterScreen;
@@ -23,7 +23,6 @@ import com.gimle.hugin.render.ServiceScreen;
 import com.gimle.hugin.render.Viewport;
 import com.gimle.hugin.term.Key;
 import com.gimle.hugin.term.TerminalSession;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -39,7 +38,7 @@ import java.util.Optional;
 public final class Hugin {
 
   /** Fixed for now, and the same interval the design settled on: it matches what a poll costs. */
-  private final Duration refreshInterval;
+  private final RefreshIntervals intervals;
 
   /**
    * How long a frame waits for a key before repainting anyway. Short enough that a live log tail
@@ -59,17 +58,18 @@ public final class Hugin {
   private InstanceWatcher watcher;
   private final NodeScreen nodeScreen;
   private final ActivityScreen activityScreen;
-  private ActivityPoller activityPoller;
-  private ServicePoller servicePoller;
+  private SnapshotPoller<ActivitySnapshot> activityPoller;
+  private ActivityReader activityReader;
+  private SnapshotPoller<ServiceSnapshot> servicePoller;
   private boolean running = true;
 
   public Hugin(
       final ClusterReader reader,
       final TerminalSession terminal,
       final Painter painter,
-      final Duration refreshInterval) {
+      final RefreshIntervals intervals) {
     this.reader = reader;
-    this.refreshInterval = refreshInterval;
+    this.intervals = intervals;
     this.terminal = terminal;
     this.clusterScreen = new ClusterScreen(painter);
     this.instanceScreen = new InstanceScreen(painter);
@@ -80,8 +80,13 @@ public final class Hugin {
   }
 
   public void run() {
-    try (ClusterPoller poller =
-        new ClusterPoller(new SnapshotReader(reader), refreshInterval, reader.serverAddress())) {
+    SnapshotReader snapshots = new SnapshotReader(reader);
+    try (SnapshotPoller<ClusterSnapshot> poller =
+        new SnapshotPoller<>(
+            snapshots::read,
+            ClusterSnapshot.connecting(reader.serverAddress()),
+            intervals.cluster(),
+            "hugin-cluster")) {
       poller.start();
       while (running) {
         ClusterSnapshot snapshot = poller.current();
@@ -103,14 +108,15 @@ public final class Hugin {
     }
     if (ui.viewingActivity() && activityPoller != null) {
       return activityScreen.render(
-          activityPoller.current(), ui.filter(), viewport, activityPoller.paused(), now);
+          activityPoller.current(), ui, viewport, activityPoller.paused(), now);
     }
     if (ui.viewingActivity() && activityPoller != null) {
       return activityScreen.render(
-          activityPoller.current(), ui.filter(), viewport, activityPoller.paused(), now);
+          activityPoller.current(), ui, viewport, activityPoller.paused(), now);
     }
     if (ui.viewingServices() && servicePoller != null) {
-      return serviceScreen.render(servicePoller.current(), viewport, servicePoller.paused(), now);
+      return serviceScreen.render(
+          servicePoller.current(), ui, viewport, servicePoller.paused(), now);
     }
     Optional<NodeRow> inspectedNode =
         ui.inspectingNode()
@@ -137,7 +143,8 @@ public final class Hugin {
     return clusterScreen.render(snapshot, ui, viewport, paused, now);
   }
 
-  private void handle(final Key key, final ClusterSnapshot snapshot, final ClusterPoller poller) {
+  private void handle(
+      final Key key, final ClusterSnapshot snapshot, final SnapshotPoller<ClusterSnapshot> poller) {
     if (key.is(Key.Kind.INTERRUPT) || key.is(Key.Kind.END_OF_INPUT)) {
       running = false;
       return;
@@ -176,9 +183,9 @@ public final class Hugin {
   }
 
   private void handleClusterKey(
-      final Key key, final ClusterSnapshot snapshot, final ClusterPoller poller) {
+      final Key key, final ClusterSnapshot snapshot, final SnapshotPoller<ClusterSnapshot> poller) {
     List<InstanceRow> rows = snapshot.instancesMatching(ui.filter(), ui.sortKey());
-    List<NodeRow> nodeRows = snapshot.nodesMatching(ui.filter());
+    List<NodeRow> nodeRows = snapshot.nodesMatching(ui.filter(), ui.nodeSortKey(), Instant.now());
     boolean onNodes = ui.focus() == UiState.Focus.NODES;
     if (key.is(Key.Kind.TAB)) {
       ui.toggleFocus();
@@ -205,7 +212,12 @@ public final class Hugin {
         openInspection(rows);
       }
     } else if (key.isChar('o')) {
-      ui.cycleSort();
+      // `o` sorts whichever table the cursor is on, so one key means "order this" on both.
+      if (onNodes) {
+        ui.cycleNodeSort();
+      } else {
+        ui.cycleSort();
+      }
     } else if (key.isChar('a')) {
       openActivity();
     } else if (key.isChar('s')) {
@@ -225,9 +237,11 @@ public final class Hugin {
     }
   }
 
-  private void handleServicesKey(final Key key, final ServicePoller poller) {
+  private void handleServicesKey(final Key key, final SnapshotPoller<ServiceSnapshot> poller) {
     if (key.is(Key.Kind.ESCAPE)) {
       closeServices();
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
     } else if (key.isChar('p')) {
       poller.togglePaused();
     } else if (key.isChar('r')) {
@@ -239,7 +253,7 @@ public final class Hugin {
     }
   }
 
-  private void handleInstanceKey(final Key key, final ClusterPoller poller) {
+  private void handleInstanceKey(final Key key, final SnapshotPoller<ClusterSnapshot> poller) {
     if (key.is(Key.Kind.ESCAPE)) {
       closeInspection();
     } else if (key.isChar('c')) {
@@ -282,6 +296,9 @@ public final class Hugin {
       closeActivity();
     } else if (key.isChar('/')) {
       ui.beginFilter();
+    } else if (key.isChar('m') && activityReader != null) {
+      activityReader.loadMore();
+      activityPoller.refreshNow();
     } else if (key.isChar('p') && activityPoller != null) {
       activityPoller.togglePaused();
     } else if (key.isChar('r') && activityPoller != null) {
@@ -300,8 +317,13 @@ public final class Hugin {
    */
   private void openActivity() {
     ui.showActivity();
+    activityReader = new ActivityReader(reader);
     activityPoller =
-        new ActivityPoller(new ActivityReader(reader), refreshInterval, reader.serverAddress());
+        new SnapshotPoller<>(
+            activityReader::read,
+            ActivitySnapshot.connecting(reader.serverAddress()),
+            intervals.activity(),
+            "hugin-activity");
     activityPoller.start();
   }
 
@@ -315,9 +337,10 @@ public final class Hugin {
       activityPoller.close();
       activityPoller = null;
     }
+    activityReader = null;
   }
 
-  private void handleNodeKey(final Key key, final ClusterPoller poller) {
+  private void handleNodeKey(final Key key, final SnapshotPoller<ClusterSnapshot> poller) {
     if (key.is(Key.Kind.ESCAPE)) {
       ui.closeNodeInspection();
     } else if (key.isChar('p')) {
@@ -350,7 +373,11 @@ public final class Hugin {
     ui.showServices();
     closeServicePoller();
     servicePoller =
-        new ServicePoller(new ServiceReader(reader), refreshInterval, reader.serverAddress());
+        new SnapshotPoller<>(
+            new ServiceReader(reader)::read,
+            ServiceSnapshot.connecting(reader.serverAddress()),
+            intervals.services(),
+            "hugin-services");
     servicePoller.start();
   }
 

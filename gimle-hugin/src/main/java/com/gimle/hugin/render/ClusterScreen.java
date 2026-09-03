@@ -4,6 +4,7 @@ import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.NodeSortKey;
 import com.gimle.hugin.model.SortKey;
 import com.gimle.hugin.model.WorkloadRow;
 import java.time.Instant;
@@ -44,8 +45,8 @@ public final class ClusterScreen {
     List<String> unsettledLines = unsettledBlock(unsettled, viewport);
     lines.addAll(unsettledLines);
 
-    List<NodeRow> nodes = snapshot.nodesMatching(ui.filter());
-    lines.add(sectionLabel("NODES", nodes.size(), snapshot.nodes().size(), ui.filter()));
+    List<NodeRow> nodes = snapshot.nodesMatching(ui.filter(), ui.nodeSortKey(), now);
+    lines.add(nodesLabel(nodes.size(), snapshot.nodes().size(), ui.filter(), ui.nodeSortKey()));
     lines.add(nodeHeader(viewport));
     if (nodes.isEmpty()) {
       lines.add(emptyNote(snapshot.nodes().isEmpty() ? "no nodes registered" : "no nodes match"));
@@ -144,6 +145,23 @@ public final class ClusterScreen {
   }
 
   /** The instances label, plus the current ordering whenever it is not the default one. */
+  /** The nodes label, plus the current ordering whenever it is not the default one. */
+  private String nodesLabel(
+      final int shown, final int total, final String filter, final NodeSortKey sort) {
+    Line line = new Line(painter).add("NODES", Style.fg(Palette.HUD).asBold());
+    if (!filter.isBlank()) {
+      line.padTo("NODES".length() + 4)
+          .add("filter ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(filter, Style.fg(Palette.PRIMARY))
+          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+    }
+    if (sort != NodeSortKey.ID) {
+      line.add("  by ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(sort.label(), Style.fg(Palette.PRIMARY));
+    }
+    return line.build();
+  }
+
   private String instancesLabel(
       final int shown, final int total, final String filter, final SortKey sort) {
     Line line = new Line(painter).add("INSTANCES", Style.fg(Palette.HUD).asBold());

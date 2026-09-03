@@ -13708,7 +13708,7 @@
       "feature": "`gimle top` renders a live, read-only cluster view of nodes and instances",
       "category": "CLI UX",
       "status": "New",
-      "statusNote": "New requirement: a k9s-shaped live cluster view contributed to the CLI by the new gimle-hugin module, fed by GET /nodes and GET /deployments with no new server-side surface.",
+      "statusNote": "New requirement: a k9s-shaped live cluster view contributed to the CLI by the new gimle-hugin module, fed by GET /nodes and GET /deployments with no new server-side surface. Also: per-table ordering cycled by one key, a filter shared across every screen, and wheel-only mouse scrolling.",
       "coverage": "Covered",
       "holmgangScenarios": [
         {
@@ -13876,7 +13876,7 @@
       "feature": "An activity view of what has been done to the cluster, over the audit trail",
       "category": "CLI UX",
       "status": "New",
-      "statusNote": "New requirement: a third screen over GET /audit, the only cluster-wide feed the control plane serves. Keeps DENIED distinct from REJECTED, reports a caller without audit permission as such rather than as an empty feed (off the typed CliExitCode.FORBIDDEN), and polls only while open.",
+      "statusNote": "New requirement: a third screen over GET /audit, the only cluster-wide feed the control plane serves. Keeps DENIED distinct from REJECTED, reports a caller without audit permission as such rather than as an empty feed (off the typed CliExitCode.FORBIDDEN), and polls only while open. Also: cursor paging followed on demand with `m`, with the page depth held on the reader so a refresh keeps it.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "otherTestCoverage": "gimle-hugin's ActivityReaderTest and ActivityScreenTest.",

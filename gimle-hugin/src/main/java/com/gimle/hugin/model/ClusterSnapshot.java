@@ -22,7 +22,8 @@ public record ClusterSnapshot(
     List<NodeRow> nodes,
     List<InstanceRow> instances,
     List<WorkloadRow> workloads,
-    Optional<String> staleReason) {
+    Optional<String> staleReason)
+    implements Staleable<ClusterSnapshot> {
 
   public ClusterSnapshot {
     if (serverAddress == null || serverAddress.isBlank()) {
@@ -48,6 +49,7 @@ public record ClusterSnapshot(
   }
 
   /** This snapshot's rows, re-labelled as the last good data behind a now-failing poll. */
+  @Override
   public ClusterSnapshot stale(final String reason) {
     return new ClusterSnapshot(
         serverAddress, fetchedAt, nodes, instances, workloads, Optional.of(reason));
@@ -77,14 +79,24 @@ public record ClusterSnapshot(
     return matching.stream().sorted(sort.comparator()).toList();
   }
 
-  public List<NodeRow> nodesMatching(final String filter) {
-    if (filter == null || filter.isBlank()) {
-      return nodes;
-    }
-    String needle = filter.toLowerCase(Locale.ROOT);
-    return nodes.stream()
-        .filter(node -> node.nodeId().toLowerCase(Locale.ROOT).contains(needle))
-        .toList();
+  /**
+   * The node rows to draw, in the order to draw them -- filtered and ordered in one place for the
+   * same reason the instance rows are: the screen and the key handler must step through the same
+   * list or the cursor lands on a row the operator did not pick.
+   */
+  public List<NodeRow> nodesMatching(
+      final String filter, final NodeSortKey sort, final Instant now) {
+    List<NodeRow> matching =
+        filter == null || filter.isBlank()
+            ? nodes
+            : nodes.stream()
+                .filter(
+                    node ->
+                        node.nodeId()
+                            .toLowerCase(Locale.ROOT)
+                            .contains(filter.toLowerCase(Locale.ROOT)))
+                .toList();
+    return matching.stream().sorted(sort.comparator(now)).toList();
   }
 
   /** Only the workloads not running what they were asked to run -- the rest need no line. */

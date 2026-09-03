@@ -1,6 +1,7 @@
 package com.gimle.hugin.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -78,6 +79,43 @@ class ActivityReaderTest {
     // Refused for want of permission, and refused on its merits, are different things to see.
     assertEquals("DENIED", events.getFirst().verdict());
     assertEquals("REJECTED", events.getLast().verdict());
+  }
+
+  @Test
+  void a_trail_with_more_pages_says_so_and_load_more_asks_for_the_next_one() {
+    FakeClusterReader reader =
+        new FakeClusterReader()
+            .withObject(
+                "/audit?limit=200",
+                Map.of("events", List.of(event("alice", 5000L)), "nextCursor", "c1"))
+            .withObject(
+                "/audit?limit=200&cursor=c1", Map.of("events", List.of(event("bob", 1000L))));
+
+    ActivityReader activityReader = new ActivityReader(reader);
+    ActivitySnapshot firstPage = activityReader.read();
+
+    assertTrue(firstPage.hasMore());
+    assertEquals(1, firstPage.events().size());
+
+    activityReader.loadMore();
+    ActivitySnapshot bothPages = activityReader.read();
+
+    // A refresh re-reads everything already on screen rather than shrinking back to one page.
+    assertEquals(
+        List.of("alice", "bob"), bothPages.events().stream().map(ActivityRow::principal).toList());
+    assertFalse(bothPages.hasMore());
+    assertEquals(
+        List.of("alice", "bob"),
+        activityReader.read().events().stream().map(ActivityRow::principal).toList());
+  }
+
+  @Test
+  void a_single_page_trail_reports_nothing_more_to_load() {
+    FakeClusterReader reader =
+        new FakeClusterReader()
+            .withObject("/audit?limit=200", Map.of("events", List.of(event("alice", 1000L))));
+
+    assertFalse(new ActivityReader(reader).read().hasMore());
   }
 
   private static Map<String, Object> event(final String principal, final long atEpochMilli) {

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ActivityRow;
 import com.gimle.hugin.model.ActivitySnapshot;
 import java.time.Instant;
@@ -53,7 +54,13 @@ class ActivityScreenTest {
   @Test
   void an_empty_trail_says_so_rather_than_drawing_a_bare_header() {
     ActivitySnapshot empty =
-        new ActivitySnapshot("localhost:8080", Optional.of(NOW), List.of(), true, Optional.empty());
+        new ActivitySnapshot(
+            "localhost:8080",
+            Optional.of(NOW),
+            List.of(),
+            true,
+            Optional.empty(),
+            Optional.empty());
 
     assertTrue(
         render(empty, "", viewport()).stream()
@@ -103,7 +110,13 @@ class ActivityScreenTest {
 
   private List<String> render(
       final ActivitySnapshot snapshot, final String filter, final Viewport viewport) {
-    return screen.render(snapshot, filter, viewport, false, NOW);
+    UiState ui = new UiState();
+    ui.beginFilter();
+    for (char character : filter.toCharArray()) {
+      ui.appendToFilter(character);
+    }
+    ui.commitFilter();
+    return screen.render(snapshot, ui, viewport, false, NOW);
   }
 
   private static Viewport viewport() {
@@ -126,6 +139,7 @@ class ActivityScreenTest {
             event("bob", "UPDATE", "TENANT", "acme", true, "REJECTED"),
             event("mallory", "DELETE", "SECRET", "db-password", false, "REJECTED")),
         true,
+        Optional.empty(),
         Optional.empty());
   }
 

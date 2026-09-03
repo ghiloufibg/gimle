@@ -12,13 +12,15 @@ public record ActivitySnapshot(
     Optional<Instant> fetchedAt,
     List<ActivityRow> events,
     boolean permitted,
-    Optional<String> staleReason) {
+    Optional<String> nextCursor,
+    Optional<String> staleReason)
+    implements Staleable<ActivitySnapshot> {
 
   public ActivitySnapshot {
     if (serverAddress == null || serverAddress.isBlank()) {
       throw new IllegalArgumentException("serverAddress must not be blank");
     }
-    if (fetchedAt == null || staleReason == null) {
+    if (fetchedAt == null || staleReason == null || nextCursor == null) {
       throw new IllegalArgumentException("optional fields must not be null; use Optional.empty()");
     }
     events = List.copyOf(events);
@@ -26,7 +28,12 @@ public record ActivitySnapshot(
 
   public static ActivitySnapshot connecting(final String serverAddress) {
     return new ActivitySnapshot(
-        serverAddress, Optional.empty(), List.of(), true, Optional.of("connecting"));
+        serverAddress,
+        Optional.empty(),
+        List.of(),
+        true,
+        Optional.empty(),
+        Optional.of("connecting"));
   }
 
   /**
@@ -36,11 +43,23 @@ public record ActivitySnapshot(
    */
   public static ActivitySnapshot forbidden(final String serverAddress) {
     return new ActivitySnapshot(
-        serverAddress, Optional.of(Instant.now()), List.of(), false, Optional.empty());
+        serverAddress,
+        Optional.of(Instant.now()),
+        List.of(),
+        false,
+        Optional.empty(),
+        Optional.empty());
   }
 
+  @Override
   public ActivitySnapshot stale(final String reason) {
-    return new ActivitySnapshot(serverAddress, fetchedAt, events, permitted, Optional.of(reason));
+    return new ActivitySnapshot(
+        serverAddress, fetchedAt, events, permitted, nextCursor, Optional.of(reason));
+  }
+
+  /** Whether the trail has pages this snapshot has not asked for yet. */
+  public boolean hasMore() {
+    return nextCursor.isPresent();
   }
 
   public boolean connected() {

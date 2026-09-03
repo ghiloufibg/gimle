@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ServiceRow;
 import com.gimle.hugin.model.ServiceSnapshot;
 import java.time.Instant;
@@ -44,7 +45,8 @@ class ServiceScreenTest {
   void with_colour_on_a_service_resolving_to_nothing_is_painted_in_the_bad_token() {
     ServiceScreen coloured = new ServiceScreen(new Painter(ColorMode.TRUECOLOR));
 
-    List<String> lines = coloured.render(snapshot(), new Viewport(120, 30), false, NOW);
+    List<String> lines =
+        coloured.render(snapshot(), new UiState(), new Viewport(120, 30), false, NOW);
 
     String row = lineContaining(lines, "orphan");
     assertTrue(row.contains(Ansi.CSI + "38;2;254;98;112m"), row);
@@ -106,7 +108,7 @@ class ServiceScreenTest {
 
   @Test
   void a_paused_view_says_so_on_the_status_line() {
-    List<String> lines = screen.render(snapshot(), new Viewport(120, 30), true, NOW);
+    List<String> lines = screen.render(snapshot(), new UiState(), new Viewport(120, 30), true, NOW);
 
     assertTrue(lines.getFirst().contains("PAUSED"), lines.getFirst());
   }
@@ -210,8 +212,25 @@ class ServiceScreenTest {
     }
   }
 
+  @Test
+  void the_filter_typed_on_any_screen_narrows_this_one_too() {
+    // One filter, shared across screens: an operator who typed a name on the cluster view should
+    // not have to retype it here.
+    UiState ui = new UiState();
+    ui.beginFilter();
+    for (char character : "orphan".toCharArray()) {
+      ui.appendToFilter(character);
+    }
+    ui.commitFilter();
+
+    List<String> lines = screen.render(snapshot(), ui, new Viewport(120, 30), false, NOW);
+
+    assertTrue(lines.stream().anyMatch(line -> line.contains("orphan")));
+    assertFalse(lines.stream().anyMatch(line -> line.contains("backed")), lines.toString());
+  }
+
   private List<String> render(final ServiceSnapshot snapshot, final Viewport viewport) {
-    return screen.render(snapshot, viewport, false, NOW);
+    return screen.render(snapshot, new UiState(), viewport, false, NOW);
   }
 
   private static String lineContaining(final List<String> lines, final String needle) {

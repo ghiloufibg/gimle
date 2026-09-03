@@ -3,39 +3,42 @@ package com.gimle.hugin.model;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Supplier;
 
 /**
- * Polls the Service table on a virtual thread and publishes the result, so the render loop reads a
- * field rather than waiting on the {@code 1 + n} requests a full read costs.
+ * Polls one read on a virtual thread and publishes the result, so the render loop reads a field
+ * rather than waiting on I/O: a slow or unreachable control plane costs freshness, not
+ * responsiveness, and {@code q} still quits immediately.
  *
- * <p>A sibling of {@link ClusterPoller} rather than a reuse of it: the two publish different
- * payloads, and threading a type parameter through a class whose whole job is to hold one volatile
- * field would buy nothing but indirection. The failure posture is deliberately identical -- a
- * failed poll keeps the last good rows and marks them stale with the reason, because a Service
- * table that blanks on one timeout is worse than one that says how old it is.
+ * <p>A failed poll keeps the last good rows and marks them stale with the failure's own reason,
+ * because a table that blanks on one timeout is worse than one that says how old it is. That is the
+ * only thing this class knows about its payload -- hence {@link Staleable} rather than three copies
+ * of this loop, one per screen, drifting apart as each gains a fix the others don't.
  */
-public final class ServicePoller implements AutoCloseable {
+public final class SnapshotPoller<T extends Staleable<T>> implements AutoCloseable {
 
-  private final ServiceReader reader;
+  private final Supplier<T> read;
   private final Duration interval;
+  private final String threadName;
   private final AtomicBoolean paused = new AtomicBoolean();
   private final AtomicBoolean running = new AtomicBoolean(true);
 
-  private volatile ServiceSnapshot current;
+  private volatile T current;
   private volatile Thread thread;
 
-  public ServicePoller(
-      final ServiceReader reader, final Duration interval, final String serverAddress) {
-    this.reader = reader;
+  public SnapshotPoller(
+      final Supplier<T> read, final T initial, final Duration interval, final String threadName) {
+    this.read = read;
+    this.current = initial;
     this.interval = interval;
-    this.current = ServiceSnapshot.connecting(serverAddress);
+    this.threadName = threadName;
   }
 
   public void start() {
-    thread = Thread.ofVirtual().name("hugin-services").start(this::loop);
+    thread = Thread.ofVirtual().name(threadName).start(this::loop);
   }
 
-  public ServiceSnapshot current() {
+  public T current() {
     return current;
   }
 
@@ -61,7 +64,7 @@ public final class ServicePoller implements AutoCloseable {
   /** One poll, run inline. Separate from the loop so a test can drive it without a thread. */
   public void pollOnce() {
     try {
-      current = reader.read();
+      current = read.get();
     } catch (RuntimeException e) {
       current = current.stale(describe(e));
     }

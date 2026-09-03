@@ -95,6 +95,22 @@ class HuginExtensionTest {
     }
   }
 
+  @Test
+  void the_heavier_screens_never_poll_at_the_cluster_views_own_two_second_tick() {
+    // Services costs one request per Service and the audit trail only grows as fast as people
+    // change things; both behind a floor so turning the cluster tick down cannot make either
+    // spend requests on answers that have not changed.
+    RefreshIntervals fast = RefreshIntervals.from(Duration.ofSeconds(1));
+    assertEquals(Duration.ofSeconds(1), fast.cluster());
+    assertEquals(Duration.ofSeconds(5), fast.services());
+    assertEquals(Duration.ofSeconds(5), fast.activity());
+
+    // Turning it up, though, applies everywhere: an operator asking for less traffic gets it.
+    RefreshIntervals slow = RefreshIntervals.from(Duration.ofSeconds(30));
+    assertEquals(Duration.ofSeconds(30), slow.cluster());
+    assertEquals(Duration.ofSeconds(30), slow.activity());
+  }
+
   /** Never called: the argument check happens before anything touches the control plane. */
   private static final class UnusedReader implements ClusterReader {
 

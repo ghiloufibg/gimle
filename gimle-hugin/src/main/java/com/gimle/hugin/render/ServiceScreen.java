@@ -1,5 +1,6 @@
 package com.gimle.hugin.render;
 
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ServiceRow;
 import com.gimle.hugin.model.ServiceSnapshot;
 import java.time.Instant;
@@ -28,6 +29,7 @@ public final class ServiceScreen {
 
   public List<String> render(
       final ServiceSnapshot snapshot,
+      final UiState ui,
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
@@ -37,7 +39,7 @@ public final class ServiceScreen {
     lines.add(sectionLabel(snapshot));
     lines.add(header(viewport));
 
-    List<ServiceRow> services = snapshot.services();
+    List<ServiceRow> services = snapshot.matching(ui.filter());
     if (services.isEmpty()) {
       lines.add(muted("  no services declared"));
     }
@@ -51,7 +53,7 @@ public final class ServiceScreen {
       lines.add(muted("  " + (services.size() - available) + " more below this window"));
     }
 
-    return Frame.fitWithKeyBar(lines, StatusBar.serviceKeys(painter, viewport), viewport);
+    return Frame.fitWithKeyBar(lines, StatusBar.serviceKeys(painter, ui, viewport), viewport);
   }
 
   private String sectionLabel(final ServiceSnapshot snapshot) {

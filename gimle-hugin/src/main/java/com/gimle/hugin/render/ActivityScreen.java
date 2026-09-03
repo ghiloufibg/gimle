@@ -1,5 +1,6 @@
 package com.gimle.hugin.render;
 
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ActivityRow;
 import com.gimle.hugin.model.ActivitySnapshot;
 import java.time.Instant;
@@ -32,7 +33,7 @@ public final class ActivityScreen {
 
   public List<String> render(
       final ActivitySnapshot snapshot,
-      final String filter,
+      final UiState ui,
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
@@ -54,11 +55,11 @@ public final class ActivityScreen {
                   "  nothing is hidden here that `gimle audit` would show you either",
                   Style.fg(Palette.MUTED))
               .build());
-      return Frame.fitWithKeyBar(lines, StatusBar.activityKeys(painter, viewport), viewport);
+      return Frame.fitWithKeyBar(lines, StatusBar.activityKeys(painter, ui, viewport), viewport);
     }
 
-    List<ActivityRow> events = snapshot.matching(filter);
-    lines.add(label(events.size(), snapshot.events().size(), filter));
+    List<ActivityRow> events = snapshot.matching(ui.filter());
+    lines.add(label(events.size(), snapshot.events().size(), ui.filter()));
     lines.add(header(viewport));
     if (events.isEmpty()) {
       lines.add(
@@ -72,7 +73,14 @@ public final class ActivityScreen {
     for (ActivityRow event : events.stream().limit(available).toList()) {
       lines.add(eventLine(event, viewport));
     }
-    return Frame.fitWithKeyBar(lines, StatusBar.activityKeys(painter, viewport), viewport);
+    if (snapshot.hasMore()) {
+      lines.add(
+          new Line(painter)
+              .add("  m", Style.fg(Palette.PRIMARY).asBold())
+              .add(" for older decisions", Style.fg(Palette.MUTED))
+              .build());
+    }
+    return Frame.fitWithKeyBar(lines, StatusBar.activityKeys(painter, ui, viewport), viewport);
   }
 
   private String statusLine(

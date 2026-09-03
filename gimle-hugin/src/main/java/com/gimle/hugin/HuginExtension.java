@@ -40,7 +40,7 @@ public final class HuginExtension implements CliExtension {
     Duration interval = parseInterval(args);
     Painter painter = new Painter(detectColorMode());
     try (TerminalSession terminal = JLineTerminalSession.open()) {
-      new Hugin(reader, terminal, painter, interval).run();
+      new Hugin(reader, terminal, painter, RefreshIntervals.from(interval)).run();
     }
   }
 

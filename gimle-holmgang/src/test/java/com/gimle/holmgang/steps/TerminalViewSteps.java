@@ -64,7 +64,7 @@ public final class TerminalViewSteps {
     ServiceSnapshot snapshot = new ServiceReader(reader()).read();
     frame =
         new ServiceScreen(new Painter(ColorMode.NONE))
-            .render(snapshot, VIEWPORT, false, Instant.now());
+            .render(snapshot, new UiState(), VIEWPORT, false, Instant.now());
   }
 
   @Then("the terminal view shows a line containing {string}")

@@ -3,6 +3,7 @@ package com.gimle.hugin.model;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -18,7 +19,8 @@ public record ServiceSnapshot(
     String serverAddress,
     Optional<Instant> fetchedAt,
     List<ServiceRow> services,
-    Optional<String> staleReason) {
+    Optional<String> staleReason)
+    implements Staleable<ServiceSnapshot> {
 
   public ServiceSnapshot {
     if (serverAddress == null || serverAddress.isBlank()) {
@@ -37,6 +39,7 @@ public record ServiceSnapshot(
   }
 
   /** These rows, re-labelled as the last good data behind a now-failing read. */
+  @Override
   public ServiceSnapshot stale(final String reason) {
     return new ServiceSnapshot(serverAddress, fetchedAt, services, Optional.of(reason));
   }
@@ -50,6 +53,29 @@ public record ServiceSnapshot(
   }
 
   /** How many Services resolve to nothing -- the number this whole view exists to make visible. */
+  /**
+   * The Services matching the operator's own filter, over the name, the tenant and the deployments
+   * a Service fronts -- the three things they would think to type. Shared with the cluster view's
+   * filter so one keystroke narrows whichever screen is open rather than being retyped per screen.
+   */
+  public List<ServiceRow> matching(final String filter) {
+    if (filter == null || filter.isBlank()) {
+      return services;
+    }
+    String needle = filter.toLowerCase(Locale.ROOT);
+    return services.stream()
+        .filter(
+            service ->
+                (service.name()
+                        + " "
+                        + service.tenantId().orElse("")
+                        + " "
+                        + String.join(" ", service.deploymentNames()))
+                    .toLowerCase(Locale.ROOT)
+                    .contains(needle))
+        .toList();
+  }
+
   public int unresolvedCount() {
     return (int) services.stream().filter(ServiceRow::unresolved).count();
   }

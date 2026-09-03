@@ -13,7 +13,9 @@ gimle top --server 127.0.0.1:8080
 gimle top --interval=10 --server 127.0.0.1:8080
 ```
 
-It refreshes every two seconds by default (`--interval=SECS`, 1 to 60), needs an interactive terminal, and quits on `q` leaving the
+It refreshes every two seconds by default (`--interval=SECS`, 1 to 60; the services and activity
+screens sit behind a five-second floor, since one costs a request per Service and the other only
+changes as fast as people do), needs an interactive terminal, and quits on `q` leaving the
 terminal exactly as it found it.
 
 ## What it shows
@@ -28,8 +30,10 @@ terminal exactly as it found it.
   rate, queue depth, memory and CPU. Deployments, DaemonSets, StatefulSets and live Job runs share
   one flat table rather than four grouped blocks — the `KIND` column tells them apart, and it is
   dropped below 100 columns so the workload name keeps the width instead. `o` cycles the ordering
-  through name, state and each metric; every metric sorts worst-first, because the reason to sort
-  by one is to put the worst instance on the first row.
+  of whichever table the cursor is on — name/state/each metric for instances, id/cpu/memory/
+  instances/heartbeat for nodes; every measure sorts worst-first, because the reason to sort by one
+  is to put the worst row first. Node utilization is compared as a fraction of each node's own
+  capacity, so a small node running hot outranks a large one that is merely busy.
 - A `NOT SETTLED` block, drawn only when something is: any workload short of the replicas it asked
   for, over its tenant's quota, or rejected by a LimitRange, with the reason the control plane
   gives. A healthy cluster shows nothing here at all.
@@ -94,6 +98,7 @@ Only the focused table shows a cursor, so it is never ambiguous which one `⏎` 
 | `o` | cycle the sort: name, state, then each metric worst-first |
 | `s` | services and the endpoints they resolve to |
 | `a` | what has been done to this cluster, newest first |
+| `m` | load older decisions (activity view) |
 | `esc` | back to the cluster view |
 | `/` | filter; `enter` applies, `esc` clears |
 | `p` | pause / resume refresh |
@@ -104,7 +109,8 @@ Only the focused table shows a cursor, so it is never ambiguous which one `⏎` 
 | `q` / `ctrl-c` | quit, restoring the terminal |
 
 The filter matches across workload name, instance index, node, lifecycle state, workload kind,
-tenant and module coordinate, so typing what you remember tends to be enough.
+tenant and module coordinate, so typing what you remember tends to be enough. It is one filter
+shared by every screen that has rows to narrow — type it once and it applies wherever you go.
 
 ## It cannot change anything
 
@@ -150,7 +156,9 @@ carries meaning on its own:
   an admission bound and gets no bar — a gauge there would claim headroom this instance does not
   individually have.
 - **One cluster.** No context switching; point `--server`/`GIMLE_SERVER` at the one you want.
-- **No mouse.**
+- **Mouse: the wheel only.** A wheel notch moves the cursor, the same as an arrow key. There is no
+  click-to-select: the screens hand back a list of strings with no record of which row landed on
+  which line, and giving them one purely to serve a click is a worse trade than not having clicks.
 
 ## Where it lives
 

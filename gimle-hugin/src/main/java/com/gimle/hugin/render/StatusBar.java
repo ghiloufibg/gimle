@@ -144,16 +144,25 @@ final class StatusBar {
         .add(String.valueOf(bad), Style.fg(Palette.BAD).on(Palette.CARD));
   }
 
+  /**
+   * The filter prompt, which replaces whichever key bar is on screen while one is being typed --
+   * the filter is one piece of state shared by every screen that has rows to narrow, so it reads
+   * and behaves the same on all of them.
+   */
+  static String filterPrompt(final Painter painter, final UiState ui, final Viewport viewport) {
+    Style bar = Style.fg(Palette.FOREGROUND).on(Palette.CARD);
+    return new Line(painter)
+        .add(" filter: ", Style.fg(Palette.PRIMARY).on(Palette.CARD))
+        .add(ui.filter(), bar)
+        .add("▁", Style.fg(Palette.PRIMARY).on(Palette.CARD))
+        .add("   enter to apply, esc to clear", Style.fg(Palette.MUTED).on(Palette.CARD))
+        .fillTo(viewport.columns(), bar)
+        .build();
+  }
+
   static String clusterKeys(final Painter painter, final UiState ui, final Viewport viewport) {
     if (ui.filterEditing()) {
-      Style bar = Style.fg(Palette.FOREGROUND).on(Palette.CARD);
-      return new Line(painter)
-          .add(" filter: ", Style.fg(Palette.PRIMARY).on(Palette.CARD))
-          .add(ui.filter(), bar)
-          .add("▁", Style.fg(Palette.PRIMARY).on(Palette.CARD))
-          .add("   enter to apply, esc to clear", Style.fg(Palette.MUTED).on(Palette.CARD))
-          .fillTo(viewport.columns(), bar)
-          .build();
+      return filterPrompt(painter, ui, viewport);
     }
     return keyBar(
         painter,
@@ -165,11 +174,14 @@ final class StatusBar {
             "↑↓ move", "⏎ open", "s svc", "a activity", "o sort", "/ filter", "p pause", "q quit"));
   }
 
-  static String activityKeys(final Painter painter, final Viewport viewport) {
+  static String activityKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
     return keyBar(
         painter,
         viewport,
-        List.of("esc back", "/ filter", "p pause", "r refresh", "? help", "q quit"));
+        List.of("esc back", "/ filter", "m more", "p pause", "? help", "q quit"));
   }
 
   static String nodeKeys(final Painter painter, final Viewport viewport) {
@@ -184,9 +196,14 @@ final class StatusBar {
         List.of("esc back", "c category", "p pause", "g/G top/bottom", "? help", "q quit"));
   }
 
-  static String serviceKeys(final Painter painter, final Viewport viewport) {
+  static String serviceKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
     return keyBar(
-        painter, viewport, List.of("esc back", "p pause", "r refresh", "? help", "q quit"));
+        painter,
+        viewport,
+        List.of("esc back", "/ filter", "p pause", "r refresh", "? help", "q quit"));
   }
 
   /** Each hint's leading key glyphs in the primary colour, its wording in the bar's own. */

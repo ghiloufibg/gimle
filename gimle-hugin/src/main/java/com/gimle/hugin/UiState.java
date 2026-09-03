@@ -3,6 +3,7 @@ package com.gimle.hugin;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.NodeSortKey;
 import com.gimle.hugin.model.SortKey;
 import java.util.List;
 import java.util.Optional;
@@ -36,6 +37,7 @@ public final class UiState {
   private boolean viewingServices;
   private boolean viewingActivity;
   private SortKey sortKey = SortKey.NAME;
+  private NodeSortKey nodeSortKey = NodeSortKey.ID;
 
   public Optional<InstanceKey> selected() {
     return selected;
@@ -140,6 +142,15 @@ public final class UiState {
    */
   public void cycleSort() {
     sortKey = sortKey.next();
+  }
+
+  public NodeSortKey nodeSortKey() {
+    return nodeSortKey;
+  }
+
+  /** Cycles the node ordering. Which table {@code o} acts on follows the cursor's own focus. */
+  public void cycleNodeSort() {
+    nodeSortKey = nodeSortKey.next();
   }
 
   public boolean viewingActivity() {

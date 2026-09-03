@@ -11,6 +11,7 @@ import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.NodeSortKey;
 import com.gimle.hugin.model.SortKey;
 import com.gimle.hugin.model.WorkloadKind;
 import com.gimle.hugin.model.WorkloadRow;
@@ -313,6 +314,39 @@ class ClusterScreenTest {
 
   private static List<String> rowsWith(final List<String> lines, final String sequence) {
     return lines.stream().filter(line -> line.contains(sequence)).toList();
+  }
+
+  @Test
+  void o_sorts_whichever_table_the_cursor_is_on() {
+    ui.toggleFocus();
+    ui.cycleNodeSort();
+
+    List<String> lines = render(snapshot(), new Viewport(140, 30));
+
+    assertEquals(NodeSortKey.CPU, ui.nodeSortKey());
+    // The instance ordering is untouched, so one key means "order this" on both tables.
+    assertEquals(SortKey.NAME, ui.sortKey());
+    assertTrue(lineContaining(lines, "NODES").contains("by cpu"), lines.toString());
+  }
+
+  @Test
+  void sorting_nodes_by_utilization_compares_each_against_its_own_capacity() {
+    // node-alpha is the busiest of the three as a fraction of what it has, which is the reading
+    // that predicts a refused placement -- an absolute figure would not.
+    ui.toggleFocus();
+    ui.cycleNodeSort();
+
+    List<String> lines = render(snapshot(), new Viewport(140, 30));
+
+    int header = lines.indexOf(lineContaining(lines, "STATE     CPU"));
+    assertTrue(lines.get(header + 1).contains("node-alpha"), lines.get(header + 1));
+  }
+
+  @Test
+  void the_default_node_ordering_is_by_id_and_says_nothing_about_itself() {
+    assertEquals(NodeSortKey.ID, ui.nodeSortKey());
+    assertFalse(
+        lineContaining(render(snapshot(), new Viewport(140, 30)), "NODES").contains(" by "));
   }
 
   @Test

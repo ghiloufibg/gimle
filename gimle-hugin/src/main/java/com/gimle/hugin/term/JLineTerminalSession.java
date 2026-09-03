@@ -63,6 +63,11 @@ public final class JLineTerminalSession implements TerminalSession {
           "this terminal reports itself as dumb, so gimle top has no way to read keys or draw a"
               + " frame on it");
     }
+    // Best-effort: a terminal without mouse support simply keeps working on keys alone, so this
+    // is never a reason to refuse a session.
+    if (terminal.hasMouseSupport()) {
+      terminal.trackMouse(Terminal.MouseTracking.Normal);
+    }
     return new JLineTerminalSession(terminal);
   }
 
@@ -100,11 +105,47 @@ public final class JLineTerminalSession implements TerminalSession {
     return switch (third) {
       case 'A' -> Key.named(Key.Kind.UP);
       case 'B' -> Key.named(Key.Kind.DOWN);
+      case '<' -> mouseSequence();
       // Every other sequence -- left/right, page keys, function keys -- has no binding, and
       // swallowing it is what keeps a stray one from being read as the letters it is made of.
       default -> Key.named(Key.Kind.ESCAPE);
     };
   }
+
+  /**
+   * The wheel, and only the wheel, decoded out of an SGR mouse report ({@code ESC [ < b ; x ; y}
+   * then {@code M} or {@code m}). A wheel notch is the one mouse gesture that means something
+   * unambiguous in a table -- move the cursor -- so it maps onto the arrow keys and needs no new
+   * binding. A click would have to be resolved to a row, and the screens hand back a list of
+   * strings with no record of which row landed on which line; giving them one to serve a click is a
+   * worse trade than not having clicks.
+   */
+  private Key mouseSequence() {
+    StringBuilder report = new StringBuilder();
+    int next = read(30);
+    while (next >= 0 && next != 'M' && next != 'm' && report.length() < MAX_MOUSE_REPORT) {
+      report.append((char) next);
+      next = read(30);
+    }
+    int button;
+    try {
+      button = Integer.parseInt(report.toString().split(";")[0]);
+    } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+      return Key.named(Key.Kind.ESCAPE);
+    }
+    return switch (button) {
+      case WHEEL_UP -> Key.named(Key.Kind.UP);
+      case WHEEL_DOWN -> Key.named(Key.Kind.DOWN);
+      // A button press or a drag: swallowed, so it never reaches the loop as stray characters.
+      default -> Key.named(Key.Kind.ESCAPE);
+    };
+  }
+
+  private static final int WHEEL_UP = 64;
+  private static final int WHEEL_DOWN = 65;
+
+  /** A well-formed SGR report is a handful of digits; anything longer is not one. */
+  private static final int MAX_MOUSE_REPORT = 32;
 
   private int read(final int timeoutMillis) {
     try {
@@ -129,6 +170,11 @@ public final class JLineTerminalSession implements TerminalSession {
 
   @Override
   public void close() {
+    // Left on, a terminal keeps emitting mouse reports into whatever shell the operator lands
+    // back in, which shows up as stray characters at their prompt.
+    if (terminal.hasMouseSupport()) {
+      terminal.trackMouse(Terminal.MouseTracking.Off);
+    }
     writer.print(Ansi.SHOW_CURSOR);
     writer.print(Ansi.EXIT_ALT_SCREEN);
     writer.print(Ansi.RESET);

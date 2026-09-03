@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
  * last good rows up and says why they are old, rather than emptying a table whose emptiness would
  * itself read as a finding.
  */
-class ServicePollerTest {
+class ServiceSnapshotPollerTest {
 
   @Test
   void a_failed_poll_keeps_the_last_good_rows_and_says_why_they_are_stale() {
@@ -25,7 +25,7 @@ class ServicePollerTest {
         new FakeClusterReader()
             .withList("/services", List.of(service("greeter")))
             .withObject("/services/greeter/endpoints", Map.of("endpoints", List.of()));
-    ServicePoller poller = poller(reader);
+    SnapshotPoller<ServiceSnapshot> poller = poller(reader);
     poller.pollOnce();
     assertTrue(poller.current().connected());
     assertEquals(1, poller.current().unresolvedCount());
@@ -52,7 +52,7 @@ class ServicePollerTest {
 
   @Test
   void a_paused_poller_stops_reading_until_it_is_resumed() {
-    ServicePoller poller = poller(new FakeClusterReader());
+    SnapshotPoller<ServiceSnapshot> poller = poller(new FakeClusterReader());
 
     poller.togglePaused();
     assertTrue(poller.paused());
@@ -61,9 +61,12 @@ class ServicePollerTest {
     assertFalse(poller.paused());
   }
 
-  private static ServicePoller poller(final FakeClusterReader reader) {
-    return new ServicePoller(
-        new ServiceReader(reader), Duration.ofSeconds(2), reader.serverAddress());
+  private static SnapshotPoller<ServiceSnapshot> poller(final FakeClusterReader reader) {
+    return new SnapshotPoller<>(
+        new ServiceReader(reader)::read,
+        ServiceSnapshot.connecting(reader.serverAddress()),
+        Duration.ofSeconds(2),
+        "test-services");
   }
 
   private static Map<String, Object> service(final String name) {
