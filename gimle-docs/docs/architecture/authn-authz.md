@@ -176,6 +176,18 @@ revoked certificate resolves no principal at all from its very next request. Key
 subject, so a legitimately re-issued certificate for the same identity is untouched; deliberately
 reversible (`gimle cert unrevoke`), and `gimle cert revocations` lists the current set.
 
+The check is not the control plane's alone: `FafnirServer`/`AndvariServer` independently re-run the
+identical serial-against-denylist check in their own `resolvePrincipal`, the same defense-in-depth
+posture both already apply to RBAC (never trusting "arrived already-forwarded" as proof by itself).
+This matters specifically because those two processes are more sensitive than the control plane,
+not less — Fafnir holds the master key ring and every secret value, Andvari the module artifact
+catalog — so a certificate an operator has explicitly revoked (the standard incident-response step
+for a compromised credential) is checked against the CA trust chain alone (unexpired, correctly
+signed) nowhere in the cluster; a revoked-but-not-yet-expired certificate satisfies that chain check
+everywhere, which is exactly why the independent re-check exists. The gate covers a forwarded
+principal too, not only a peer's own direct identity: a revoked control-plane leaf can no longer
+vouch for a claim forwarded through `ApiServer`'s proxy hop either.
+
 `Roles`/`RoleBindings`/`Accounts` are ordinary Raft-replicated resources — new
 `StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, with one deliberate
 exception: deleting a `Role` cascades to every `RoleBinding` naming it, atomically, as part of the

@@ -10802,16 +10802,18 @@
       "module": "gimle-controlplane",
       "feature": "Certificate revocation denylist",
       "category": "Security / PKI",
-      "status": "New",
-      "statusNote": "newly added as part of the revocation work",
+      "status": "Modified",
+      "statusNote": "Modified: Fafnir and Andvari now independently check the same store-backed revocation denylist the control plane already did, closing the gap where revoking a compromised certificate stopped it authenticating against the control plane while the two processes holding the platform's most sensitive data kept accepting it.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given an mTLS topology with an issued operator credential, When gimle cert revoke is run with its serial, Then that credential's next API call answers 401 until unrevoked.",
+      "gapNote": "No Holmgang scenario exercises this against a real running cluster yet, for the control plane or the two processes newly covered here. To close: add a scenario driving a real mTLS topology through gimle cert revoke, then asserting all three of the control plane, Fafnir, and Andvari refuse the same revoked serial.",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
-        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
+        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`resolvePrincipal`, `certificateSerial`)",
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`resolvePrincipal`, `certificateSerial`)"
       ],
-      "otherTestCoverage": "`ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip)"
+      "otherTestCoverage": "`ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip); `FafnirSecretsAuthzTest` and `AndvariServerTlsTest` each gained a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission and a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused"
     },
     {
       "id": "GIMLE-625",
