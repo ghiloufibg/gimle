@@ -1,10 +1,12 @@
 package com.gimle.module.lifecycle;
 
+import com.gimle.core.tls.SslContexts;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
+import javax.net.ssl.SSLContext;
 
 /**
  * A module's view into the platform, passed to its lifecycle hooks. This is a placeholder: the full
@@ -190,4 +192,17 @@ public interface ModuleContext {
    * #reportPort} at all.
    */
   Map<String, Integer> reportedPorts();
+
+  /**
+   * This worker's own mTLS identity, for a hosted module dialing another Service through {@code
+   * gimle-bifrost} (or any other cluster listener that terminates TLS): a client context presenting
+   * the per-worker certificate the agent issued for this worker -- {@code O=gimle:tenant:<id>}, the
+   * same tenant claim a listener enforces a {@code NetworkPolicySpec} against -- and trusting the
+   * cluster CA. Empty in a plaintext cluster, where no such material exists and a plain socket is
+   * the right thing to open. Read fresh on every call, so a certificate the agent renewed
+   * underneath the worker is picked up by the next context built, never cached past it.
+   */
+  default Optional<SSLContext> clientSslContext() {
+    return SslContexts.forMutualTlsFromConfig();
+  }
 }

@@ -236,4 +236,28 @@ class SimpleModuleContextTest {
         snapshot.size() == 1,
         "a previously taken snapshot must not observe a port reported afterward");
   }
+
+  /**
+   * No TLS material exists in a plaintext cluster, so the context a hosted module would dial a
+   * TLS-terminating listener with is absent -- a plain socket is the right thing to open.
+   */
+  @Test
+  void client_ssl_context_is_empty_in_a_plaintext_cluster() {
+    String previous = System.getProperty("gimle.transport.protocol");
+    try {
+      System.clearProperty("gimle.transport.protocol");
+      SimpleModuleContext ctx =
+          new SimpleModuleContext(
+              new ModuleId("com.gimle.caller", Version.parse("1.0.0")),
+              new SimpleServiceRegistry());
+
+      assertEquals(Optional.empty(), ctx.clientSslContext());
+    } finally {
+      if (previous == null) {
+        System.clearProperty("gimle.transport.protocol");
+      } else {
+        System.setProperty("gimle.transport.protocol", previous);
+      }
+    }
+  }
 }

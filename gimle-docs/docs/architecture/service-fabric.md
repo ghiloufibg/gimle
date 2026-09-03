@@ -289,14 +289,22 @@ identically to the loopback mode.
 
 A third opt-in, `-Dgimle.agent.bifrostTlsEnabled=true` (requires the cluster transport itself to be
 TLS), is the identity-verifying mode: every listener terminates TLS with the agent's own node
-certificate and demands a cluster-CA-signed client certificate. That gives Bifrost the one thing a
-plaintext byte relay can never have — a verified caller identity — so a `NetworkPolicySpec`
-restricting a Service is enforced against the caller certificate's `O=gimle:tenant:<id>` membership
-group (minted via `gimle cert request --purpose tenant`, see
-[Authentication & authorization](./authn-authz.md)) instead of failing the whole listener closed. In
-plaintext mode the fail-closed posture is unchanged: an applicable policy refuses every connection,
-since proxying unverifiable traffic would silently bypass a policy the tenant explicitly opted
-into.
+certificate and reads the cluster-CA-signed client certificate a caller presents. That gives
+Bifrost the one thing a plaintext byte relay can never have — a verified caller identity — so a
+`NetworkPolicySpec` restricting a Service is enforced against the caller certificate's
+`O=gimle:tenant:<id>` membership group instead of failing the whole listener closed. In-cluster
+callers already hold that certificate: every worker JVM presents the per-worker identity its agent
+obtained for it (see [Transport security](./transport-security.md#per-worker-certificates)), which
+a hosted module reaches through `ModuleContext.clientSslContext()` — the same division of labor as
+Kubernetes, where a pod's identity is a fact the platform established, never a claim the caller
+writes. A caller outside the cluster presents a tenant client certificate instead (`gimle cert
+request --purpose tenant`, see [Authentication & authorization](./authn-authz.md)). The client
+certificate is wanted, not demanded, at the handshake (`wantClientAuth`, the gateway's own posture):
+an anonymous caller still reaches a Service no policy restricts — exactly what a plaintext
+ClusterIP offers — and is refused, like a certificate carrying no tenant group, wherever a policy
+applies. In plaintext mode the fail-closed posture is unchanged: an applicable policy refuses every
+connection, since proxying unverifiable traffic would silently bypass a policy the tenant
+explicitly opted into.
 
 ## Membership: gossip, not the control plane
 
