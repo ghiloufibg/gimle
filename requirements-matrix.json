@@ -15953,6 +15953,32 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-788",
+      "module": "gimle-controlplane",
+      "feature": "DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances",
+      "category": "Reconciliation / Orchestration",
+      "userStory": "As an operator, I want a DaemonSet's status to say how many nodes it should be running on, not just which nodes it is running on, so a DaemonSet silently missing from a node doesn't look identical to one correctly running everywhere.",
+      "statusDetail": "Fixed: closes the gap gimle#15 sub-item 2 filed -- handleDeploymentsList/handleStatefulSetsList already emitted an unplaced-vs-desired signal (unplacedCount, quotaViolating for Deployment) but handleDaemonSetsList emitted only status.spec/status.instances, because a DaemonSet's desired count (\"one per eligible node\") depends on live node state and was never published anywhere, only recomputed transiently inside DaemonSetReconciler.reconcileDaemonSet's own eligibleNodeIds. DaemonSetReconciler now proposes StateMutation.PutDaemonSetDesiredCount(tenantId, daemonSetName, eligibleNodeIds.size()) every tick -- the same eligibleNodes call the placement pass already makes, not new eligibility logic -- but only when the value actually changed since the last tick, the same re-propose restraint LimitRangeReconciler's own violation flag already applies. The count is durably stored (StateStore#daemonSetDesiredCounts, cleared on RemoveDaemonSetSpec), replicated through the Raft log (StateMutation.PutDaemonSetDesiredCount, RaftCodec, StateSnapshot), and readable over the store RPC (StoreRpc.GetDaemonSetDesiredCount, StoreClient#getDaemonSetDesiredCount). ApiServer.daemonSetStatus adds desired and unplacedCount (desired - instances.size()) to both GET /daemonsets/{name} and GET /daemonsets, present only once the reconciler has ticked at least once for that daemonset (absent beforehand, the same \"not yet known\" shape getEffectiveReplicas already uses) -- so a client can finally tell a DaemonSet genuinely running everywhere apart from one silently missing a node.",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`daemonSetStatus`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`daemonSetDesiredCounts`, `putDaemonSetDesiredCount`, `getDaemonSetDesiredCount`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutDaemonSetDesiredCount`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreCodec.java`, `StoreNode.java`, `StoreClient.java`"
+      ],
+      "testCoverageDetail": "DaemonSetReconcilerTest gained desired_count_is_zero_when_no_node_is_eligible, desired_count_equals_the_full_eligible_node_set_when_every_node_qualifies, desired_count_tracks_required_labels_the_same_way_placement_does, desired_count_drops_when_a_node_becomes_ineligible_and_recovers_once_it_is_eligible_again (a node cordoned then uncordoned across three ticks), an_arbitrary_starting_snapshot_still_converges_the_desired_count_with_no_prior_history (a fresh reconciler against a snapshot that never recorded a desired count, the level-triggered convergence property every reconciler here is held to), and deleting_a_daemonset_clears_its_stale_desired_count. ApiServerTest gained get_a_daemonset_surfaces_the_reconciler_published_desired_count and daemonsets_list_endpoint_also_surfaces_the_desired_count (both set the count directly on the shared StateStore, bypassing a real reconciler tick the same way every other daemonset status field in that test file does, and assert the field on both GET /daemonsets/{name} and GET /daemonsets), plus an extension of put_then_get_a_daemonset_round_trips asserting desired/unplacedCount are absent before any tick has run. RaftCodecTest.round_trips_a_state_snapshot extended to cover daemonSetDesiredCounts.",
+      "gherkinSteps": [
+        "Given a DaemonSet with 3 eligible nodes and 2 currently placed; When its status is read; Then desired is 3 and unplacedCount is 1, not absent.",
+        "Given a node backing a DaemonSet is cordoned; When DaemonSetReconciler ticks; Then desired drops by one on that same tick, and rises again once the node is uncordoned and re-eligible.",
+        "Given a DaemonSet spec with no reconciler tick yet against it; When its status is read; Then desired and unplacedCount are both absent rather than a misleading zero."
+      ],
+      "confidence": "High",
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
     }
   ]
 }

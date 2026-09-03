@@ -1118,13 +1118,14 @@
         "fleet"
       ],
       "objective": "Apply a DaemonSet on Midgard, then on Fleet; add a node after the fact; taint one node and set `tolerateAllTaints`.",
-      "oracle": "Exactly one instance per eligible node including the late-joining one; the tainted node is skipped until the toleration is set; console list/detail match `get daemonsets`.",
+      "oracle": "Exactly one instance per eligible node including the late-joining one; the tainted node is skipped until the toleration is set; console list/detail match `get daemonsets`, including the reconciler-published desired (eligible-node) count tracking the placed count as nodes join/taint/untaint.",
       "requirements": [
         "GIMLE-374",
         "GIMLE-218",
         "GIMLE-231",
         "GIMLE-442",
-        "GIMLE-675"
+        "GIMLE-675",
+        "GIMLE-788"
       ]
     },
     {

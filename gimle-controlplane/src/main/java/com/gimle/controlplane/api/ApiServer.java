@@ -3543,6 +3543,17 @@ public final class ApiServer implements AutoCloseable {
     Map<String, Object> status = new LinkedHashMap<>();
     status.put("spec", specMap);
     status.put("instances", instances);
+    // Absent until DaemonSetReconciler's first tick for this daemonset -- see
+    // StoreReader#getDaemonSetDesiredCount's own javadoc. Present alongside instances.size() (the
+    // placed count) is what lets a shortfall be read back at all, the same "desired" vs "placed"
+    // comparison a Deployment/StatefulSet's own unplacedCount already exposes.
+    storeClient
+        .getDaemonSetDesiredCount(spec.tenantId(), spec.name())
+        .ifPresent(
+            desired -> {
+              status.put("desired", desired);
+              status.put("unplacedCount", desired - instances.size());
+            });
     return status;
   }
 

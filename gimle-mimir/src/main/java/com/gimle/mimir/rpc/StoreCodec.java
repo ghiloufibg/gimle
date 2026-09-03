@@ -224,6 +224,7 @@ public final class StoreCodec {
   private static final byte TAG_LIST_INGRESSES = -110;
   private static final byte TAG_INGRESS_RESULT = -109;
   private static final byte TAG_INGRESS_LIST_RESULT = -108;
+  private static final byte TAG_GET_DAEMONSET_DESIRED_COUNT = -107;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -415,6 +416,11 @@ public final class StoreCodec {
         }
         case StoreRpc.ListRollingDaemonSetNodes v -> {
           out.writeByte(TAG_LIST_ROLLING_DAEMONSET_NODES);
+          DomainCodec.writeOptionalString(out, v.tenantId());
+          out.writeUTF(v.daemonSetName());
+        }
+        case StoreRpc.GetDaemonSetDesiredCount v -> {
+          out.writeByte(TAG_GET_DAEMONSET_DESIRED_COUNT);
           DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.daemonSetName());
         }
@@ -1088,6 +1094,8 @@ public final class StoreCodec {
         case TAG_LIST_ROLLING_DAEMONSET_NODES ->
             new StoreRpc.ListRollingDaemonSetNodes(
                 DomainCodec.readOptionalString(in), in.readUTF());
+        case TAG_GET_DAEMONSET_DESIRED_COUNT ->
+            new StoreRpc.GetDaemonSetDesiredCount(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_GET_STATEFULSET_SPEC ->
             new StoreRpc.GetStatefulSetSpec(DomainCodec.readOptionalString(in), in.readUTF());
         case TAG_LIST_STATEFULSET_SPECS -> new StoreRpc.ListStatefulSetSpecs();

@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 787
+- **Total requirements**: 788
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 660
+- **Not covered by automated test**: 661
 - **Release-readiness (automated coverage)**: 16.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 56 | 6 | 50 | 10.7% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 114 | 17 | 97 | 14.9% |
+| gimle-controlplane | 115 | 17 | 98 | 14.8% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -1282,6 +1282,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-236 | Job active-deadline enforcement | Given activeDeadline=10min and the run has been active 11min; When JobReconciler ticks; Then the run is removed and the Job marked FAILED mid-attempt. | No |
 | [ ] | GIMLE-237 | CronJob schedule-driven Job materialization | Given a CronJobSpec with schedule "* * * * *" and no prior lastSchedule; When first ticked; Then baseline is recorded with no retroactive burst; on the next due tick a Job named "{name}-{epochSeconds}" is materialized. | No |
 | [ ] | GIMLE-238 | CronJob concurrency policy (Allow/Forbid/Replace) | Given the previous firing is still non-terminal and concurrencyPolicy=FORBID; When a new firing is due; Then it is skipped and logged. | No |
+| [ ] | GIMLE-788 | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | Given a DaemonSet with 3 eligible nodes and 2 currently placed; When its status is read; Then desired is 3 and unplacedCount is 1, not absent. Given a node backing a DaemonSet is cordoned; When DaemonSetReconciler ticks; Then desired drops by one on that same tick, and rises again once the node is uncordoned and re-eligible. Given a DaemonSet spec with no reconciler tick yet against it; When its status is read; Then desired and unplacedCount are both absent rather than a misleading zero. | No |
 
 #### Reconciliation / Scheduling
 

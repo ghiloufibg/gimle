@@ -243,8 +243,8 @@ class RaftCodecTest {
         assertThrows(
             GimleCodecException.class, () -> RaftCodec.read(new ByteArrayInputStream(frameBytes)));
     assertTrue(
-        thrown.getMessage().contains("99") && thrown.getMessage().contains("1"),
-        "expected the message to name both the declared (99) and max supported (1) versions, got: "
+        thrown.getMessage().contains("99") && thrown.getMessage().contains("2"),
+        "expected the message to name both the declared (99) and max supported (2) versions, got: "
             + thrown.getMessage());
   }
 
@@ -492,7 +492,8 @@ class RaftCodecTest {
                     5.0,
                     "https://hooks.example.com/greeter-alerts")),
             Map.of("greeter", Instant.ofEpochMilli(2_000L)),
-            List.of());
+            List.of(),
+            Map.of("greeter", 3));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -542,6 +543,7 @@ class RaftCodecTest {
     assertArrayEquals(originalResource.statusJson(), decodedResource.statusJson());
     assertEquals(
         snapshot.sessionRevokedBeforeEpochMilli(), decoded.sessionRevokedBeforeEpochMilli());
+    assertEquals(snapshot.daemonSetDesiredCounts(), decoded.daemonSetDesiredCounts());
   }
 
   @Test

@@ -79,7 +79,7 @@ public final class RaftCodec {
    * The only wire-protocol version any writer produces today; bump this when either {@link RaftRpc}
    * or {@link StateSnapshot}'s own encoding shape changes.
    */
-  private static final int CURRENT_VERSION = 1;
+  private static final int CURRENT_VERSION = 2;
 
   private static final byte TAG_REQUEST_VOTE = 0;
   private static final byte TAG_REQUEST_VOTE_RESPONSE = 1;
@@ -164,6 +164,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_DEPLOYMENT_LAST_SCALE = 73;
   private static final byte MUT_PUT_INGRESS = 74;
   private static final byte MUT_REMOVE_INGRESS = 75;
+  private static final byte MUT_PUT_DAEMONSET_DESIRED_COUNT = 76;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -717,6 +718,12 @@ public final class RaftCodec {
         out.writeUTF(m.daemonSetName());
         out.writeUTF(m.nodeId());
       }
+      case StateMutation.PutDaemonSetDesiredCount m -> {
+        out.writeByte(MUT_PUT_DAEMONSET_DESIRED_COUNT);
+        DomainCodec.writeOptionalString(out, m.tenantId());
+        out.writeUTF(m.daemonSetName());
+        out.writeInt(m.desiredCount());
+      }
       case StateMutation.PutStatefulSetSpec m -> {
         out.writeByte(MUT_PUT_STATEFULSET_SPEC);
         DomainCodec.writeStatefulSetSpec(out, m.spec());
@@ -800,9 +807,9 @@ public final class RaftCodec {
         out.writeByte(MUT_RESTORE_SNAPSHOT);
         // Reuses encodeSnapshot's own already-versioned encoding wholesale rather than a second
         // inline copy of StateSnapshot's field-by-field writer -- the nested version byte this
-        // embeds is redundant with the outer LogEntry's (both currently 1), but keeps the
-        // snapshot bytes independently decodable via decodeSnapshot on their own, not just as
-        // part of a full LogEntry.
+        // embeds is redundant with the outer LogEntry's (both currently CURRENT_VERSION), but
+        // keeps the snapshot bytes independently decodable via decodeSnapshot on their own, not
+        // just as part of a full LogEntry.
         DomainCodec.writeBytes(out, encodeSnapshot(m.snapshot()));
       }
     }
@@ -998,6 +1005,11 @@ public final class RaftCodec {
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
         String daemonSetName = in.readUTF();
         yield new StateMutation.RemoveRollingDaemonSetNode(tenantId, daemonSetName, in.readUTF());
+      }
+      case MUT_PUT_DAEMONSET_DESIRED_COUNT -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String daemonSetName = in.readUTF();
+        yield new StateMutation.PutDaemonSetDesiredCount(tenantId, daemonSetName, in.readInt());
       }
       case MUT_PUT_STATEFULSET_SPEC ->
           new StateMutation.PutStatefulSetSpec(DomainCodec.readStatefulSetSpec(in));
@@ -1289,6 +1301,11 @@ public final class RaftCodec {
         out.writeUTF(e.getKey());
         out.writeLong(e.getValue().toEpochMilli());
       }
+      out.writeInt(snapshot.daemonSetDesiredCounts().size());
+      for (Map.Entry<String, Integer> e : snapshot.daemonSetDesiredCounts().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeInt(e.getValue());
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1561,6 +1578,11 @@ public final class RaftCodec {
       for (int i = 0; i < deploymentLastScaleCount; i++) {
         deploymentLastScale.put(in.readUTF(), Instant.ofEpochMilli(in.readLong()));
       }
+      Map<String, Integer> daemonSetDesiredCounts = new LinkedHashMap<>();
+      int daemonSetDesiredCountCount = in.readInt();
+      for (int i = 0; i < daemonSetDesiredCountCount; i++) {
+        daemonSetDesiredCounts.put(in.readUTF(), in.readInt());
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1606,7 +1628,8 @@ public final class RaftCodec {
           sessionRevokedBeforeEpochMilli,
           alertRules,
           deploymentLastScale,
-          ingresses);
+          ingresses,
+          daemonSetDesiredCounts);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

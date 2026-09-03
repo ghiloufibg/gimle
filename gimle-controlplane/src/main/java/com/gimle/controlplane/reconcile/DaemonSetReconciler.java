@@ -227,6 +227,19 @@ public final class DaemonSetReconciler {
             .map(NodeCandidate::nodeId)
             .collect(Collectors.toSet());
 
+    // Published so the API server's status surface can compare desired against placed --
+    // level-triggered means recomputing this from scratch every tick, not re-proposing every
+    // tick: only write when the eligible-node count actually moved, the same restraint
+    // LimitRangeReconciler's own violation flag applies.
+    int desiredCount = eligibleNodeIds.size();
+    if (store
+        .getDaemonSetDesiredCount(spec.tenantId(), spec.name())
+        .map(c -> c != desiredCount)
+        .orElse(true)) {
+      mutations.propose(
+          new StateMutation.PutDaemonSetDesiredCount(spec.tenantId(), spec.name(), desiredCount));
+    }
+
     // Scale-down: an assignment on a node that fell out of eligibility (cordoned, removed,
     // relabeled) is removed immediately -- a desired-state edit only, mirroring
     // DeploymentReconciler's own scale-down pass exactly. The agent's own stop()/StopModule drain
