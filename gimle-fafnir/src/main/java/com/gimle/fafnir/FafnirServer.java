@@ -52,6 +52,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -1413,11 +1414,31 @@ public final class FafnirServer implements AutoCloseable {
    * reaching Fafnir without going through the proxy at all (a node agent's own direct fetch, or a
    * test simulating one), and finally to Fafnir's own console session cookie -- a human operator
    * signed in through {@link #handleAuthLogin} directly, the one caller shape with neither a
-   * forwarded header nor a client certificate of its own.
+   * forwarded header nor a client certificate of its own. A present peer certificate is checked
+   * against the store-backed revocation denylist before it is trusted for anything -- Fafnir holds
+   * the platform's most sensitive data and independently re-runs its own checks rather than
+   * trusting the CA trust chain alone (unexpired, correctly signed) the way an ordinary mTLS
+   * handshake already does, since that chain check alone does not consult revocation at all.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
-    Optional<Principal> certificatePrincipal =
-        peerCertificate(exchange).map(Subjects::principalFrom);
+    Optional<X509Certificate> certificate = peerCertificate(exchange);
+    if (certificate.isPresent()) {
+      // The portable revocation check, mirroring ApiServer's own: a compromised leaf's serial
+      // lands on the store-backed denylist and every request it makes from then on resolves no
+      // principal at all -- checked before either trust path below runs, and before this
+      // connection's own certificate is ever allowed to vouch for a forwarded claim. A revoked
+      // control-plane leaf must not be able to keep forwarding trusted principals just because
+      // resolution would otherwise fall through to the raw certificate identity unchecked.
+      String serial = certificateSerial(certificate.get());
+      if (crypto.storeClient().isCertificateRevoked(serial)) {
+        log.warn(
+            "rejecting revoked certificate serial {} presented by {}",
+            serial,
+            certificate.get().getSubjectX500Principal());
+        return Optional.empty();
+      }
+    }
+    Optional<Principal> certificatePrincipal = certificate.map(Subjects::principalFrom);
     Optional<String> forwardedName = firstHeader(exchange, FORWARDED_PRINCIPAL_HEADER);
     if (forwardedName.isPresent()
         && certificatePrincipal
@@ -1707,6 +1728,11 @@ public final class FafnirServer implements AutoCloseable {
     } catch (SSLPeerUnverifiedException e) {
       return Optional.empty();
     }
+  }
+
+  /** Lowercase hex, the form {@code openssl x509 -serial} prints -- what operators paste back. */
+  private static String certificateSerial(X509Certificate certificate) {
+    return certificate.getSerialNumber().toString(16).toLowerCase(Locale.ROOT);
   }
 
   private static byte[] decodeBase64(String value) {

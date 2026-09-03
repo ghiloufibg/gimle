@@ -39,6 +39,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Proves real inbound fabric traffic actually goes through the target module's {@link
@@ -49,6 +52,10 @@ import org.junit.jupiter.api.Timeout;
  * isn't reachable from here) -- deliberately the same semantics (semaphore-bounded, one virtual
  * thread per task), just self-contained.
  */
+// Reads gimle.transport.protocol (through FabricClient/FabricServer) without ever setting it: a
+// READ lock lets these plaintext classes run concurrently with each other while excluding any
+// class that mutates the JVM-global TLS properties mid-run (see FabricTransportTlsTest).
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class FabricServerTest {
 
   /**

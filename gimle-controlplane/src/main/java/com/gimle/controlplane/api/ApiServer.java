@@ -2163,10 +2163,16 @@ public final class ApiServer implements AutoCloseable {
             name);
         return;
       }
-      // Caller-declared ?tenant= hint, same convention as dispatchResourceRequest's own GET/
-      // DELETE (see its javadoc): a per-tenant Service name can no longer resolve its own tenant
-      // from the bare name alone.
-      Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      // Caller-declared ?tenant= hint, falling back to resolveTenantForServiceName the same way
+      // the /endpoints sub-route above already does -- see declaredOrExistingTenant's own
+      // javadoc for the full reasoning. Without this fallback, a DELETE (or GET) against a
+      // tenant-scoped Service with no explicit ?tenant= resolved to Optional.empty(), which
+      // ServiceRegistry#remove then removed under the untenanted key rather than the Service's
+      // real tenant-scoped one -- a silent no-op that still answered 200: the Service reappeared
+      // in the next listing with its endpoints intact, on every replica, indistinguishable from
+      // success.
+      Optional<String> tenant =
+          declaredOrExistingTenant(exchange, this::resolveTenantForServiceName, name);
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
           if (requireAuthorized(exchange, ResourceKind.SERVICE, Verb.READ, tenant)) {
@@ -5111,10 +5117,49 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.WRITE, Optional.of(id))
-              && !rejectIfReservedSystemTenant(exchange, Optional.of(id))
-              && !rejectSecondTenantUnderPlaintext(exchange, id)) {
-            handlePutTenant(exchange, id);
+          // Deferred past authorization itself (see requireAuthorizedForWrite's javadoc): an
+          // authorized caller isn't audited by that call alone, because
+          // rejectIfReservedSystemTenant/rejectSecondTenantUnderPlaintext -- admission checks
+          // that only run *after* authorization -- can still refuse the write. Recording
+          // "allowed" before those checks run was exactly the bug this defers past: a tenant
+          // creation plaintext mode went on to refuse still landed in the audit trail as
+          // allowed:true/APPLIED, indistinguishable from a genuine success.
+          //
+          // Unlike dispatchResourceRequest's own workload-PUT branch, though, the real outcome
+          // here is already fully known the moment both guards below resolve -- handlePutTenant
+          // itself has no rejection path of its own, so there is no further admission stage left
+          // to run inside it the way tenant-quota/LimitRange admission runs inside a workload
+          // put.run. The audit event is therefore recorded before handlePutTenant runs, not
+          // after: this route's own pre-existing audit-before-response ordering, which a durable
+          // read immediately following the HTTP response (no intervening round trip to give a
+          // deferred-after write time to land) already depends on.
+          Optional<Principal> auditPrincipal =
+              requireAuthorizedForWrite(exchange, ResourceKind.TENANT, Optional.of(id));
+          if (auditPrincipal.isPresent()) {
+            if (rejectIfReservedSystemTenant(exchange, Optional.of(id))
+                || rejectSecondTenantUnderPlaintext(exchange, id)) {
+              // Both guards have already written their own 403 by this point -- see
+              // recordAuditEventBestEffort's own javadoc for why a failure recording this event
+              // must never be allowed to disturb a response already on the wire.
+              recordAuditEventBestEffort(
+                  auditPrincipal.get(),
+                  ResourceKind.TENANT,
+                  Verb.WRITE,
+                  Optional.of(id),
+                  Optional.empty(),
+                  true,
+                  AuditOutcome.REJECTED);
+            } else {
+              recordAuditEventBestEffort(
+                  auditPrincipal.get(),
+                  ResourceKind.TENANT,
+                  Verb.WRITE,
+                  Optional.of(id),
+                  Optional.empty(),
+                  true,
+                  AuditOutcome.APPLIED);
+              handlePutTenant(exchange, id);
+            }
           }
         }
         case "GET" -> {
@@ -8859,6 +8904,13 @@ public final class ApiServer implements AutoCloseable {
         handleTenantClientRequest(exchange, csr, submission.tenantId().orElseThrow());
         return;
       }
+      // Same reason: a WORKER_CLIENT submission is authenticated by the spawning agent's own node
+      // certificate, and mints a *different* subject than the one presented, so it must never
+      // reach the same-subject rotation branch below.
+      if (submission.purpose() == CsrPurpose.WORKER_CLIENT) {
+        handleWorkerClientRequest(exchange, csr, submission.tenantId());
+        return;
+      }
       Optional<X509Certificate> presented = peerCertificate(exchange);
       if (presented.isPresent()) {
         handleRotationRequest(exchange, csr, presented.get());
@@ -8867,7 +8919,7 @@ public final class ApiServer implements AutoCloseable {
       switch (submission.purpose()) {
         case NODE_CLIENT -> handleNodeJoinRequest(exchange, csr, submission.bootstrapToken());
         case OPERATOR_CLIENT -> handleOperatorJoinRequest(exchange, csr);
-        case TENANT_CLIENT -> throw new IllegalStateException("handled above");
+        case TENANT_CLIENT, WORKER_CLIENT -> throw new IllegalStateException("handled above");
       }
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
@@ -9013,6 +9065,77 @@ public final class ApiServer implements AutoCloseable {
         200,
         csr,
         Subjects.withOrganization(csr.getSubject(), BuiltinRoles.tenantGroup(tenantId)));
+  }
+
+  /**
+   * Signed immediately, but only over a node's own {@code gimle:nodes} certificate and only for a
+   * subject that node may vouch for: the requested CN must be prefixed by the presenting node's own
+   * id (a worker is named {@code <nodeId>:<instanceKey>}, so node-1 can never mint a certificate
+   * that reads as one of node-2's workers), and a requested tenant must be one the node currently
+   * holds an instance assignment for -- the identical level-triggered store check Fafnir already
+   * makes before letting a node read that tenant's secrets, so a node may only ever obtain worker
+   * identities for tenants the scheduler actually placed on it. The issued certificate carries
+   * {@code O=gimle:workers} plus {@code O=gimle:tenant:<id>} when tenanted, stamped server-side
+   * like every other issuance here and never taken from the CSR's own subject, and deliberately no
+   * {@code gimle:nodes}: the worker's key material is what hosted-module code can reach, so it must
+   * hold a worker's identity, not the node's. Both outcomes are audited under the node's own
+   * principal, the same "who was granted trust, and when" trail every other issuance leaves.
+   */
+  private void handleWorkerClientRequest(
+      HttpExchange exchange, PKCS10CertificationRequest csr, Optional<String> requestedTenantId)
+      throws IOException {
+    Optional<String> tenantId = requestedTenantId.filter(id -> !id.isBlank());
+    Optional<Principal> resolved = resolvePrincipal(exchange);
+    if (resolved.isEmpty()) {
+      respond(
+          exchange,
+          401,
+          "a worker certificate request must be authenticated by the node's own certificate");
+      return;
+    }
+    Principal node = resolved.get();
+    Optional<String> refusal = workerRequestRefusal(node, csr, tenantId);
+    recordAuditEvent(
+        node,
+        ResourceKind.CERTIFICATE_REQUEST,
+        Verb.APPROVE,
+        tenantId,
+        Optional.of(csr.getSubject().toString()),
+        refusal.isEmpty());
+    if (refusal.isPresent()) {
+      respond(exchange, 403, refusal.get());
+      return;
+    }
+    List<String> organizations = new ArrayList<>();
+    organizations.add(BuiltinRoles.GROUP_WORKERS);
+    tenantId.ifPresent(id -> organizations.add(BuiltinRoles.tenantGroup(id)));
+    respondSigned(
+        exchange,
+        200,
+        csr,
+        Subjects.withOrganizations(csr.getSubject(), organizations),
+        remoteAddress(exchange));
+  }
+
+  private Optional<String> workerRequestRefusal(
+      Principal node, PKCS10CertificationRequest csr, Optional<String> tenantId) {
+    if (!node.groups().contains(BuiltinRoles.GROUP_NODES)) {
+      return Optional.of("only a node's own certificate may request a worker certificate");
+    }
+    String requiredPrefix = node.name() + ":";
+    if (Subjects.commonNameOf(csr.getSubject())
+        .filter(commonName -> commonName.startsWith(requiredPrefix))
+        .isEmpty()) {
+      return Optional.of(
+          "a worker certificate's CN must be prefixed by the requesting node's own id ("
+              + requiredPrefix
+              + ")");
+    }
+    if (tenantId.isPresent() && !authorizer.isTenantAssignedToNode(node.name(), tenantId.get())) {
+      return Optional.of(
+          "node " + node.name() + " holds no instance assignment for tenant " + tenantId.get());
+    }
+    return Optional.empty();
   }
 
   /**

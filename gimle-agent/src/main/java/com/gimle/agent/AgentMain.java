@@ -70,6 +70,7 @@ import com.gimle.pki.CertificateSigningRequests;
 import com.gimle.pki.Pem;
 import com.gimle.pki.RenewalSchedule;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -590,6 +591,7 @@ public final class AgentMain {
             adminServer.reloadTlsMaterial();
           }
         }
+        renewWorkerCertificates(httpClient, baseUrl, nodeId, supervised);
       } catch (RuntimeException | IOException e) {
         tickFailed = true;
         log.error("agent tick failed: {}", e.getMessage(), e);
@@ -936,15 +938,16 @@ public final class AgentMain {
     return Path.of(value);
   }
 
-  private static Map<String, Object> csrSubmissionToJson(CsrSubmission submission) {
+  static Map<String, Object> csrSubmissionToJson(CsrSubmission submission) {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("purpose", submission.purpose().name());
     map.put("csrPem", submission.csrPem());
     submission.bootstrapToken().ifPresent(token -> map.put("bootstrapToken", token));
+    submission.tenantId().ifPresent(tenantId -> map.put("tenantId", tenantId));
     return map;
   }
 
-  private static CsrResult csrResultFromJson(Map<String, Object> json) {
+  static CsrResult csrResultFromJson(Map<String, Object> json) {
     CsrRequestStatus status = CsrRequestStatus.valueOf((String) json.get("status"));
     Optional<String> requestId = Optional.ofNullable((String) json.get("requestId"));
     Optional<String> certificatePem = Optional.ofNullable((String) json.get("certificatePem"));
@@ -952,7 +955,7 @@ public final class AgentMain {
     return new CsrResult(status, requestId, certificatePem, caCertificatePem);
   }
 
-  private static KeyPair generateRsaKeyPair() {
+  static KeyPair generateRsaKeyPair() {
     try {
       KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
       generator.initialize(2048);
@@ -2379,6 +2382,12 @@ public final class AgentMain {
     // this spawns exactly like it always has (AOTMode=auto means a worker is never blocked on, or
     // broken by, whether Sleipnir has finished training yet).
     Optional<String> aotCacheKey = sleipnirCache.keyFor(commandTail);
+    // Issued before the first spawn, over this agent's own mTLS client: the worker's certificate
+    // is what every other worker's FabricServer reads its tenant off, so a worker never starts
+    // without one in TLS mode. A refused issuance fails this start, which the next reconcile
+    // tick simply retries -- the same level-triggered retry every other start failure gets.
+    Optional<WorkerCertificates.Material> tlsMaterial =
+        issueWorkerCertificate(httpClient, baseUrl, nodeId, key, assigned.tenantId());
     Supplier<List<String>> baseCommand =
         () ->
             buildWorkerCommand(
@@ -2389,7 +2398,8 @@ public final class AgentMain {
                 workerLogRoot,
                 nodeId,
                 assigned,
-                sleipnirCache.cacheFor(commandTail));
+                sleipnirCache.cacheFor(commandTail),
+                tlsMaterial);
 
     RestartTracker restartTracker = defaultRestartTracker();
     Path systemLogFile = logRoot.resolve("workers").resolve(key + "-system.log");
@@ -2664,8 +2674,8 @@ public final class AgentMain {
    * The subset of every worker's flags that never vary with which worker it is -- excludes {@code
    * -Dgimle.log.root}/{@code -XX:ErrorFile} (both derived from {@code workerLogRoot}, unique per
    * worker) and {@code resourceLimiter.jvmFlags(handle)} (unique per worker's resource limit). TLS
-   * material belongs here too, not in either excluded category: it's this node's identity, the same
-   * for every worker this agent ever spawns, not per-instance. {@link SleipnirCache}'s cache key is
+   * material is excluded for the same reason: each worker presents its own certificate (see {@link
+   * WorkerCertificates}), so those paths are per-instance too. {@link SleipnirCache}'s cache key is
    * computed from exactly this list plus the classpath -- extracted here rather than duplicated
    * there so the key and the real command can never silently drift apart.
    */
@@ -2703,33 +2713,86 @@ public final class AgentMain {
                 // than left to a tty-detection guess, so the sniffing stays correct by
                 // construction.
                 "-Dgimle.log.console=json"));
-    flags.addAll(workerTlsFlags());
     return List.copyOf(flags);
   }
 
   /**
-   * Forwards this agent's own already-resolved transport posture onto every worker it spawns.
-   * {@link TransportProtocol#fromConfig()}/{@link TlsSettings#fromConfig()} read {@code -D} system
+   * Forwards this agent's own already-resolved transport posture onto the worker it spawns. {@link
+   * TransportProtocol#fromConfig()}/{@link TlsSettings#fromConfig()} read {@code -D} system
    * properties that don't cross a {@code ProcessBuilder} spawn boundary -- a worker is a separate
    * child JVM, not a thread -- so without this, a worker JVM (hosting the gateway module's
    * TLS-terminating {@code HttpsServer} and {@code gimle-fabric}'s cross-machine {@code
    * FabricServer}/{@code FabricClient}) always resolves {@link TransportProtocol#PLAINTEXT}
-   * regardless of the cluster's real posture. Empty in plaintext mode, the common case -- a
-   * zero-behavior-change no-op there. Safe to call unconditionally when TLS is on: by the time this
-   * agent ever spawns a worker, {@link #bootstrapCertificateIfNeeded} has already run to
-   * completion, so {@code gimle.tls.certFile}/{@code keyFile} are guaranteed to exist on disk,
-   * which is exactly what {@link TlsSettings#fromConfig()} validates.
+   * regardless of the cluster's real posture. The certificate and key are the worker's own ({@code
+   * tlsMaterial}, issued by {@link WorkerCertificates} before the spawn), never this agent's node
+   * certificate: what a worker presents on the fabric is how a receiving listener learns its
+   * tenant, and a node identity handed to every worker would let hosted-module code act as the
+   * node. Only the cluster CA file is shared. Empty in plaintext mode, the common case, where no
+   * material was ever issued.
    */
-  private static List<String> workerTlsFlags() {
-    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
+  private static List<String> workerTlsFlags(Optional<WorkerCertificates.Material> tlsMaterial) {
+    if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT || tlsMaterial.isEmpty()) {
       return List.of();
     }
     TlsSettings settings = TlsSettings.fromConfig();
     return List.of(
         "-Dgimle.transport.protocol=tls",
-        "-Dgimle.tls.certFile=" + settings.certFile(),
-        "-Dgimle.tls.keyFile=" + settings.keyFile(),
+        "-Dgimle.tls.certFile=" + tlsMaterial.get().certFile(),
+        "-Dgimle.tls.keyFile=" + tlsMaterial.get().keyFile(),
         "-Dgimle.tls.caFile=" + settings.caFile());
+  }
+
+  /**
+   * The worker's own certificate for a spawn under {@code workerKey}, issued now if it doesn't
+   * exist yet or is due -- empty in plaintext mode. A refused or failed issuance surfaces as an
+   * {@link IOException} so the instance start fails visibly rather than spawning a worker that
+   * presents no identity at all.
+   */
+  private static Optional<WorkerCertificates.Material> issueWorkerCertificate(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      String workerKey,
+      Optional<String> tenantId)
+      throws IOException {
+    Optional<WorkerCertificates> certificates =
+        WorkerCertificates.fromConfig(httpClient, baseUrl, resolveAdvertisedHost());
+    if (certificates.isEmpty()) {
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(certificates.get().ensureIssued(nodeId, workerKey, tenantId));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new InterruptedIOException(
+          "interrupted while requesting a worker certificate for " + workerKey);
+    }
+  }
+
+  /**
+   * Tick-time renewal of every supervised worker's certificate, one entry per distinct worker (a
+   * Tier 1 density-packed worker hosts several instances under one {@code workerKey}, all of the
+   * same tenant). The worker notices the rewritten file itself through its own {@code
+   * FabricServerTlsWatcher}; nothing here has to tell it.
+   */
+  private static void renewWorkerCertificates(
+      HttpClient httpClient,
+      URI baseUrl,
+      String nodeId,
+      Map<String, SupervisedInstance> supervised) {
+    Optional<WorkerCertificates> certificates =
+        WorkerCertificates.fromConfig(httpClient, baseUrl, resolveAdvertisedHost());
+    if (certificates.isEmpty()) {
+      return;
+    }
+    Map<String, Optional<String>> tenantByWorkerKey = new LinkedHashMap<>();
+    for (SupervisedInstance instance : supervised.values()) {
+      tenantByWorkerKey.putIfAbsent(instance.workerKey, instance.assigned.tenantId());
+    }
+    Set<String> renewed = certificates.get().renewDue(nodeId, tenantByWorkerKey);
+    if (!renewed.isEmpty()) {
+      log.info("renewed worker certificates for {}", renewed);
+    }
   }
 
   static List<String> buildWorkerCommand(
@@ -2740,10 +2803,12 @@ public final class AgentMain {
       Path workerLogRoot,
       String nodeId,
       AssignedInstance assigned,
-      Optional<Path> aotCachePath) {
+      Optional<Path> aotCachePath,
+      Optional<WorkerCertificates.Material> tlsMaterial) {
     List<String> baseCommand = new ArrayList<>();
     baseCommand.add(javaExecutable);
     baseCommand.addAll(stableWorkerFlags());
+    baseCommand.addAll(workerTlsFlags(tlsMaterial));
     baseCommand.add("-Dgimle.log.root=" + workerLogRoot);
     baseCommand.add("-XX:ErrorFile=" + workerLogRoot.resolve("hs_err_pid%p.log").toAbsolutePath());
     baseCommand.addAll(resourceLimiter.jvmFlags(handle));

@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 790
+- **Total requirements**: 791
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 663
+- **Not covered by automated test**: 664
 - **Release-readiness (automated coverage)**: 16.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -18,7 +18,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 56 | 6 | 50 | 10.7% |
+| gimle-agent | 57 | 6 | 51 | 10.5% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
 | gimle-controlplane | 117 | 17 | 100 | 14.5% |
@@ -645,11 +645,17 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-591 | Narrowed secret delivery via `secretMapRefs` | Given a tenant owns secrets `db-creds/username` and `other-secret`, When an instance's deployment declares `secretMapRefs: [db-creds]`, Then only `username` is delivered to that instance -- `other-secret` never is. | No |
 
+#### Security / Identity
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-791 | Per-worker certificates: node-minted worker identity carrying the worker's tenant | Given a node agent holding a gimle:nodes certificate and an instance assignment for tenant acme, When it submits a WORKER_CLIENT CSR with CN <nodeId>:<instanceKey> and tenantId acme, Then the control plane signs it with O=gimle:workers and O=gimle:tenant:acme, and the certificate cannot act as the node. Given the same node, When it requests a worker certificate for a tenant it holds no assignment for, or a CN prefixed by another node's id, Then the request is refused with 403 and audited. Given a TLS cluster, When the agent spawns a worker, Then the worker is started with its own per-worker certificate and key and only the cluster CA file shared from the agent. Given a supervised worker whose certificate is due for renewal, When the agent ticks, Then a fresh certificate is issued under the same subject, key written before certificate, and the worker reloads it through its own file watcher. | No |
+
 #### Security / Networking
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-627 | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused. Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one. | No |
+| [ ] | GIMLE-627 | Bifrost TLS identity-verifying mode with tenant-membership client certificates | Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused. Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one. Given a Service restricted by a NetworkPolicy allowing tenant partner, When a worker of tenant partner dials it presenting the per-worker certificate its agent issued (via ModuleContext.clientSslContext), Then the connection is proxied; a worker of another tenant, or one whose certificate carries no tenant, is refused. Given the identity-verifying mode, When a caller presenting no client certificate dials a Service no policy restricts, Then it is proxied; dialing a Service a policy restricts, it is refused. | No |
 
 #### Self-Healing
 
@@ -839,7 +845,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-142 | Proposal Timeout with Ghost-Write Prevention | Given a leader isolated from quorum submits a proposal; When the propose timeout elapses without majority ack; Then the entry is truncated from the leader's own log and GimleRaftException is thrown. | Yes |
 | [ ] | GIMLE-143 | Chunked InstallSnapshot Transfer (Figure 13) | Given a follower's nextIndex has fallen below the leader's snapshot floor; When the leader's peer-sender loop runs; Then it sends the snapshot as sequential offset/done chunks, installed only once the final chunk arrives. | Yes |
 | [ ] | GIMLE-144 | Local Log Compaction / Snapshotting | Given the log has grown beyond SNAPSHOT_THRESHOLD past the current floor; When applyCommittedLocked finishes; Then a new StateStore snapshot is taken and every entry at or below the floor is discarded. | Yes |
-| [ ] | GIMLE-145 | Check-Quorum Leader Self-Demotion | Given a leader can no longer reach a majority of peers; When the check-quorum window elapses with no successful RPC round trip; Then the leader steps down to follower on its own. | Yes |
+| [ ] | GIMLE-145 | Check-Quorum Leader Self-Demotion | Given a leader that has already reached a majority of peers; When the check-quorum window elapses with no successful RPC round trip; Then the leader steps down to follower on its own. Given a newly elected leader whose first peer RPCs have not completed yet; When only the check-quorum window has elapsed; Then it stays leader until one full peer-RPC attempt could have finished or failed, and only then steps down. | Yes |
 | [ ] | GIMLE-146 | Etcd-Style Live Membership Change (AddServer/RemoveServer) | Given a running 3-node cluster with a leader; When addServer is called for a new peer; Then a self-inclusive MembershipChange entry is replicated, and a subsequent mutation still commits once the new node acknowledges; a second membership change is rejected while the first is uncommitted. | Yes |
 | [ ] | GIMLE-147 | Non-Voting Learner & Automatic Promotion | Given a newly-added peer far behind the leader's log; When added via addServer; Then it doesn't count toward quorum until its matchIndex is within the catch-up threshold, at which point it's automatically promoted via a replicated MembershipChange. | Yes |
 | [ ] | GIMLE-148 | Durable Raft Log Persistence | Given a node appends entries and votes; When restarted and RaftLog reopened; Then every persisted entry, term, and vote are recovered exactly as written. | Yes |
@@ -917,7 +923,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | Given a module exporting an interface restricted to allowedTenantIds ["tenant-a"], When a caller wire-carrying callerTenantId "tenant-b" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException. Given the same restricted export, When a caller carrying callerTenantId "tenant-a" dials directly, Then the listener's own re-check permits the call through. Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default. | No |
+| [ ] | GIMLE-567 | Fabric listener-side tenant re-check on inbound service calls | Given a module exporting an interface restricted to allowedTenantIds ["tenant-a"], When a caller wire-carrying callerTenantId "tenant-b" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException. Given the same restricted export, When a caller carrying callerTenantId "tenant-a" dials directly, Then the listener's own re-check permits the call through. Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default. Given a module exporting an interface restricted to allowedTenantIds ["tenant-a"] behind a TLS listener, When a caller holding a worker certificate for tenant-b dials it directly and writes callerTenantId "tenant-a" into the frame, Then the listener refuses the call as a claim/certificate mismatch, naming the certified tenant-b. Given the same listener, When a caller holding a tenant-a worker certificate writes no claim at all, Then the call is served under tenant-a, read off the certificate. | No |
 
 #### Gossip Membership
 
@@ -1133,7 +1139,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-649 | Plaintext Transport Is Explicitly Single-Tenant | Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted. | No |
+| [ ] | GIMLE-649 | Plaintext Transport Is Explicitly Single-Tenant | Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted. Given the same refused second-tenant submission, When its own audit trail entry is read back, Then it records outcome:REJECTED, never APPLIED, even though plaintext mode's RBAC carve-out allowed the attempt to reach admission at all. | No |
 
 #### Internal-Infra
 
@@ -1216,7 +1222,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId. Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish. | No |
-| [ ] | GIMLE-776 | A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing | Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN | No |
+| [ ] | GIMLE-776 | A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing | Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN Given a Service declared for tenant `acme` with no explicit ?tenant= on the delete request When DELETE /services/{name} is called Then the real tenant-scoped Service is removed -- confirmed gone from a follow-up GET and the collection listing -- not silently no-op against a key nothing was ever stored under | No |
 
 #### Observability
 
@@ -1363,7 +1369,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-624 | Certificate revocation denylist | Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication. | No |
+| [ ] | GIMLE-624 | Certificate revocation denylist | Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication. Given the identical revoked serial, When the same certificate is presented directly to Fafnir or Andvari (not through the control plane), Then it is refused there too -- both processes re-check the store-backed denylist independently rather than trusting the CA trust chain alone. Given a control-plane peer certificate is revoked, When that peer forwards a principal claim to Fafnir or Andvari, Then the forwarded claim is refused, not only the peer's own direct identity. | No |
 
 #### Security / RBAC
 
@@ -1508,7 +1514,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-284 | Soft delete vs hard delete (`?destroy=true`) | Given a key with 3 versions; When DELETE without ?destroy=true; Then hidden from default GET but every version remains individually readable; with ?destroy=true, every version is permanently removed. | Yes |
 | [ ] | GIMLE-588 | SecretMap store and `/secretmaps/*` API | Given a SecretMap `db-creds` has been bulk-set with `username`/`password`, When a flat `PUT /secrets/{tenant}/secretmap:db-creds:username` is attempted, Then it is rejected with 400 rather than silently corrupting the SecretMap's own write path. | No |
 | [ ] | GIMLE-594 | SecretMap group-version ledger and rollback | Given a SecretMap `db-creds` has been set twice (group versions 1 and 2), When `rollback` is called with group version 1, Then `password` is restored to its group-version-1 content as a brand-new SecretStore version, and a new group version 3 is stamped recording `rollbackOfGroupVersion: 1`. | No |
-| [ ] | GIMLE-597 | Sealed SecretMap envelope crypto and key retirement | Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key. | No |
+| [ ] | GIMLE-597 | Sealed SecretMap envelope crypto and key retirement | Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key. Given two Fafnir replicas sharing one store and identically-provisioned key material, When one replica retires a key id the other replica never received a retire call for, Then the second replica also refuses to decrypt any value still encrypted under that id. | No |
 | [ ] | GIMLE-598 | `/seal/*` and key-retirement HTTP routes | Given a value has been sealed against Fafnir's current public sealing key for tenant `acme`/name `db-creds`/key `password`, When it is committed via `POST /secretmaps/acme/db-creds/seal` under the correct tenant and name, Then `GET /secretmaps/acme/db-creds` shows `password` at a new version holding the recovered plaintext. | No |
 | [ ] | GIMLE-733 | Every secret version records who wrote it, when, and its declared type | Given a secret written by a known principal When its version list is read Then each version reports its author, write time and type And the audit event for that write carries the version it produced | No |
 | [ ] | GIMLE-734 | A secret write may declare its value's shape, validated before anything is stored | Given a secret write declaring the pem-certificate type When the value is a truncated PEM Then the write is rejected and nothing is stored And a well-formed value is stored with its type reported on read | No |
@@ -1888,7 +1894,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-393 | Cluster teardown and status reporting (`hilmir down`/`status`) | Given a run ledger from a prior "hilmir up", When "hilmir down --machine m1", Then every process (and descendants) killed in reverse spawn order and the ledger deleted; status against a never-run machine reports a clean error. | No |
 | [ ] | GIMLE-395 | Raft store membership add (`hilmir store add`) | Given a running store cluster, When "hilmir store add peer-4 host4 9080 9091 --server host1:9091,host2:9091", Then StoreClient#addServer is called with retry and the peer becomes a visible member. | No |
 | [ ] | GIMLE-396 | Raft store membership remove (`hilmir store remove`) | Given a previously-added peer, When "hilmir store remove peer-4 --server host1:9091", Then StoreClient#removeServer is called; removing a never-added peer fails fast. | No |
-| [ ] | GIMLE-397 | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Given a machine hosting a store replica among a quorum, When "hilmir upgrade-cluster --machine m1 --new-classpath <cp>", Then only STORE/MUNINN/ANDVARI/FAFNIR/CONTROL_PLANE are restartable (AGENT rejected outright); a store restart is refused if it would break quorum. | No |
+| [ ] | GIMLE-397 | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Given a machine hosting a store replica among a quorum, When "hilmir upgrade-cluster --machine m1 --new-classpath <cp>", Then only STORE/MUNINN/ANDVARI/FAFNIR/CONTROL_PLANE are restartable (AGENT rejected outright); a store restart is refused if it would break quorum. Given a store replica has been restarted and its port is open again, When the store cluster still cannot serve a leader-routed read, Then upgrade-cluster fails the step rather than reporting it healthy and continuing the rollout. | No |
 | [ ] | GIMLE-398 | Bundle-based fresh release deployment (`hilmir deploy`) | Given no existing release "orders", When "hilmir deploy -f orders-bundle.yaml --wait", Then tenant/config/secrets/workloads applied in order, each polled to readiness, revision 1 written; re-deploying an existing release fails clearly. | No |
 | [ ] | GIMLE-399 | Bundle upgrade with automatic resource pruning (`hilmir upgrade`) | Given release "orders" rev 1 with workloads A+B, When upgraded with a bundle declaring only A, Then B is pruned, revision 2 written, reported "pruned 1 resource(s)"; no existing release fails clearly. | No |
 | [ ] | GIMLE-400 | Release rollback to a prior revision (`hilmir rollback`) | Given release "orders" at rev 3, When "hilmir rollback --release orders" with no --to-revision, Then rev 2's snapshot re-applied as rev 4; explicit --to-revision reads that exact revision. | No |

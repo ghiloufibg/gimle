@@ -243,6 +243,7 @@ class WorkerStartupBenchIT {
         workerLogRoot,
         "bench-node",
         assigned,
+        Optional.empty(),
         Optional.empty());
   }
 

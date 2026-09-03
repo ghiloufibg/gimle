@@ -513,7 +513,8 @@ class RaftCodecTest {
             Map.of("greeter", Instant.ofEpochMilli(2_000L)),
             List.of(),
             Map.of("greeter", 3),
-            Map.of("tenant-1\0greeter-error-rate", true));
+            Map.of("tenant-1\0greeter-error-rate", true),
+            Set.of((byte) 2, (byte) 5));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -565,6 +566,7 @@ class RaftCodecTest {
         snapshot.sessionRevokedBeforeEpochMilli(), decoded.sessionRevokedBeforeEpochMilli());
     assertEquals(snapshot.daemonSetDesiredCounts(), decoded.daemonSetDesiredCounts());
     assertEquals(snapshot.alertFiringState(), decoded.alertFiringState());
+    assertEquals(snapshot.retiredSecretsKeyIds(), decoded.retiredSecretsKeyIds());
   }
 
   @Test

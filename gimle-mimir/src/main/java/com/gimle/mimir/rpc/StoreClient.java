@@ -54,6 +54,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * The client side of {@link StoreRpc}: what {@code ApiServer}, the reconcilers, and {@code
@@ -387,6 +388,19 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return Set.copyOf(
         ((StoreRpc.StringSetResult) sendRead(new StoreRpc.ListRevokedCertificateSerials()))
             .values());
+  }
+
+  @Override
+  public boolean isSecretsKeyRetired(byte keyId) {
+    return ((StoreRpc.BoolResult) sendRead(new StoreRpc.IsSecretsKeyRetired(keyId))).value();
+  }
+
+  @Override
+  public Set<Byte> listRetiredSecretsKeyIds() {
+    return ((StoreRpc.StringSetResult) sendRead(new StoreRpc.ListRetiredSecretsKeyIds()))
+        .values().stream()
+            .map(s -> (byte) Integer.parseInt(s))
+            .collect(Collectors.toUnmodifiableSet());
   }
 
   @Override

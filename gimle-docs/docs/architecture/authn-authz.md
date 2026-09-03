@@ -23,12 +23,19 @@ node/operator CSR flow). What's new is **group membership**, stamped into a cert
 |---|---|
 | `NODE_CLIENT` | `gimle:nodes` |
 | `OPERATOR_CLIENT` | `gimle:operators` |
+| `TENANT_CLIENT` | `gimle:tenant:<id>` |
+| `WORKER_CLIENT` | `gimle:workers`, plus `gimle:tenant:<id>` for a tenanted worker |
 
 This is deliberate, not incidental: a CSR's own requested Subject is never trusted for `O=` — a
-`NODE_CLIENT` CSR that self-declares `O=gimle:operators` is still signed with `O=gimle:nodes`. Only
-the requester's `CN=` (a label, not a privilege) survives from the CSR itself. Rotation is
+`NODE_CLIENT` CSR that self-declares `O=gimle:operators` is still signed with `O=gimle:nodes`, and a
+`WORKER_CLIENT` CSR that self-declares `O=gimle:nodes` is still signed with `O=gimle:workers`. Only
+the requester's `CN=` (a label, not a privilege) survives from the CSR itself — and for a worker
+even that is checked, since the CN must be prefixed by the requesting node's own id. Rotation is
 unaffected: it already requires the renewal CSR's Subject to exactly match the presented
-certificate's own, so a certificate's group survives rotation for free.
+certificate's own, so a certificate's group survives rotation for free. Reading a certificate back
+into a `Principal` is one implementation, `CertificateIdentity` in `gimle-core`, on public JDK APIs
+only, so a worker JVM — which carries no `gimle-pki`/Bouncy Castle at all — derives exactly the
+identity the control plane stamped.
 
 ## Authorization: `Role`, `RoleBinding`, `Authorizer`
 
@@ -164,9 +171,13 @@ server-stamped `O=gimle:tenant:<id>` — like `gimle:operators`/`gimle:nodes`, t
 taken from the CSR's own subject, which is exactly what makes it a trustworthy claim. Its consumer
 today is `gimle-bifrost`'s TLS-terminating identity-verifying mode (see
 [Service fabric](./service-fabric.md)), which reads the group off a verified client certificate to
-enforce a `NetworkPolicySpec`'s allow list against opaque proxied traffic — the same tenant claim
-the fabric wire protocol carries in-band, expressed at the transport layer for callers outside the
-fabric.
+enforce a `NetworkPolicySpec`'s allow list against opaque proxied traffic. **Worker certificates**
+carry the same claim for callers *inside* the fabric: every worker JVM presents a `WORKER_CLIENT`
+certificate (`O=gimle:workers` plus `O=gimle:tenant:<id>`) its node agent obtained for it, minted
+only for a tenant the scheduler actually placed on that node, and a receiving `FabricServer` reads
+the caller's tenant off that verified certificate rather than off the tenant the frame claims for
+itself — see [Transport security](./transport-security.md#per-worker-certificates) and
+[Service fabric](./service-fabric.md).
 
 **Certificate revocation** is the portable answer to a compromised leaf, with no CRL/OCSP
 infrastructure: `gimle cert revoke <serialHex>` (`PUT /certificates/revoked/{serial}`, guarded by
@@ -175,6 +186,18 @@ Raft-replicated denylist that `resolvePrincipal` checks before any authorization
 revoked certificate resolves no principal at all from its very next request. Keyed by serial, not
 subject, so a legitimately re-issued certificate for the same identity is untouched; deliberately
 reversible (`gimle cert unrevoke`), and `gimle cert revocations` lists the current set.
+
+The check is not the control plane's alone: `FafnirServer`/`AndvariServer` independently re-run the
+identical serial-against-denylist check in their own `resolvePrincipal`, the same defense-in-depth
+posture both already apply to RBAC (never trusting "arrived already-forwarded" as proof by itself).
+This matters specifically because those two processes are more sensitive than the control plane,
+not less — Fafnir holds the master key ring and every secret value, Andvari the module artifact
+catalog — so a certificate an operator has explicitly revoked (the standard incident-response step
+for a compromised credential) is checked against the CA trust chain alone (unexpired, correctly
+signed) nowhere in the cluster; a revoked-but-not-yet-expired certificate satisfies that chain check
+everywhere, which is exactly why the independent re-check exists. The gate covers a forwarded
+principal too, not only a peer's own direct identity: a revoked control-plane leaf can no longer
+vouch for a claim forwarded through `ApiServer`'s proxy hop either.
 
 `Roles`/`RoleBindings`/`Accounts` are ordinary Raft-replicated resources — new
 `StateMutation`/`StateStore` entries alongside `Tenant`/`DeploymentSpec`, with one deliberate
@@ -389,6 +412,22 @@ principal to run `requireAuthorized` against at all (a one-time bootstrap token,
 yet); both are still recorded, via an explicit `recordAuditEvent` call keyed to a synthetic
 `bootstrap-token`/`anonymous` principal — "who was granted trust, and when" needs a trace even when
 there's no ordinary RBAC decision to hang it off of.
+
+Every `AuditEvent` carries two separate verdicts, not one: `allowed` is whether RBAC/authorization
+itself said yes, and `outcome` (`APPLIED`/`REJECTED`) is whether the write actually took effect.
+They can and do diverge — an authorized caller's write can still fail admission (a tenant-quota
+violation, a name/kind mismatch, a manifest-specific guard that only runs after authorization), and
+that must record `REJECTED`, never default to `APPLIED` just because RBAC allowed the attempt to
+proceed. A route whose only possible refusal *is* the RBAC check itself (most `GET`/`DELETE`
+handlers) records its outcome the moment `requireAuthorized` returns. A route with real admission
+after authorization — every workload `PUT`, and `PUT /tenants/{id}` (`rejectSecondTenantUnderPlaintext`
+in particular, which is itself an admission-time check, not an RBAC one) — instead uses
+`requireAuthorizedForWrite`, which records nothing for an authorized caller and hands back the
+principal to audit with once the real outcome is known. Getting this ordering backwards is a real
+defect, not a hypothetical one: a refused second-tenant creation under plaintext mode was once
+recorded as `allowed:true`/`outcome:APPLIED` — byte-for-byte indistinguishable from a genuine
+success — because the audit event was written before the admission check that went on to refuse it
+ever ran.
 
 Eviction past the retention cap is itself observable, not silent: `StateStore` logs a throttled
 warning once the cap is first reached (then every 1000th eviction after that) and tracks a running

@@ -315,6 +315,29 @@ class StateStoreTest {
     assertTrue(reloaded.listRevokedCertificateSerials().isEmpty());
   }
 
+  /**
+   * {@code B3}: the identical shape {@link
+   * #certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke} already proves
+   * for certificates, applied to a Fafnir secrets master key id -- the cluster-wide record {@code
+   * FafnirCrypto#decrypt} checks fresh on every call, so a key retired on one Fafnir replica
+   * actually takes effect on every replica.
+   */
+  @Test
+  void secrets_key_retirements_round_trip_through_a_snapshot_and_clear_on_unretire() {
+    StateStore store = new StateStore();
+    store.putSecretsKeyRetirement((byte) 2, true);
+    assertTrue(store.isSecretsKeyRetired((byte) 2));
+    assertEquals(Set.of((byte) 2), store.listRetiredSecretsKeyIds());
+
+    StateStore reloaded = new StateStore();
+    reloaded.restoreFromSnapshot(store.snapshot());
+    assertTrue(reloaded.isSecretsKeyRetired((byte) 2));
+
+    reloaded.putSecretsKeyRetirement((byte) 2, false);
+    assertTrue(!reloaded.isSecretsKeyRetired((byte) 2));
+    assertTrue(reloaded.listRetiredSecretsKeyIds().isEmpty());
+  }
+
   @Test
   void network_policy_round_trips_through_a_snapshot_into_a_fresh_store() {
     StateStore store = new StateStore();

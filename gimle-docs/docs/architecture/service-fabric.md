@@ -116,12 +116,17 @@ exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (re
 with `targetPort` present only when the Service declared one), RBAC-gated via
 `ResourceKind.SERVICE`.
 
-`GET /services/{name}/endpoints` resolves a Service addressed by bare name to its own tenant when
-the caller gives no `?tenant=` of its own, exactly as `GET /endpoints/{name}` already does for a
-workload name — an explicit `?tenant=` still wins. Both of the gateway's endpoint caches address
-their target by bare name (`VesselEndpointCache` through `/endpoints/{name}`,
-`ServiceEndpointCache` through this route), so without the fallback the two behaved differently for
-the same spelling and every tenant-scoped Service a `SERVICE` route named resolved to nothing.
+`GET /services/{name}/endpoints`, and the plain `GET`/`DELETE /services/{name}` routes alongside it,
+resolve a Service addressed by bare name to its own tenant when the caller gives no `?tenant=` of
+its own, exactly as `GET /endpoints/{name}` already does for a workload name — an explicit
+`?tenant=` still wins. Both of the gateway's endpoint caches address their target by bare name
+(`VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route), so
+without the fallback the two behaved differently for the same spelling and every tenant-scoped
+Service a `SERVICE` route named resolved to nothing. The plain GET/DELETE routes need the identical
+fallback for a sharper reason: without it, `DELETE /services/{name}` with no `?tenant=` against a
+tenant-scoped Service resolved an empty tenant hint and removed the untenanted key nothing was ever
+stored under — a silent no-op that still answered `200`, leaving the real entry (and its live
+endpoints) fully intact.
 
 ### `targetPort` is optional, and authoritative when present
 
@@ -184,11 +189,19 @@ deployments (`deploymentNames`) and to named exported service interfaces (`servi
 point a misbehaving caller cannot skip — for caller-tenant-wide rules (a caller-deployment-scoped
 egress rule names an identity the wire doesn't carry, so it can only ever be proven to apply at the
 caller). Independently of `NetworkPolicySpec`, `FabricServer.dispatch` also re-checks a target's own
-`ServiceExport.allowedTenantIds` against the caller's wire-carried tenant identity before invoking
-it — closing the bypass where a caller dials the raw catalog address directly instead of going
-through the caller-side filter. Both are the same "forwarded claim, independently re-checked at the
-far end" posture Fafnir/Muninn/Andvari each apply to identity, applied to cross-tenant fabric
-traffic.
+`ServiceExport.allowedTenantIds` against the caller's tenant before invoking it — closing the bypass
+where a caller dials the raw catalog address directly instead of going through the caller-side
+filter. On a TLS hop that tenant is read off the connection's verified client certificate — the
+per-worker `O=gimle:tenant:<id>` certificate every worker JVM presents, see
+[Transport security](./transport-security.md#per-worker-certificates) — never off the
+`callerTenantId` the frame claims for itself: that field is written by the caller, and a worker
+able to open a raw connection could write any tenant into it. A frame whose claim disagrees with
+the certificate is refused outright rather than believed either way, so a forgery is visible, not
+quietly corrected. The frame's own claim is what the listener has to go on only where the transport
+carries no identity — the always-plaintext same-machine Unix-domain-socket hop, or a cluster that
+never opted into TLS — the same trust-the-transport posture every other plaintext surface here
+takes. Both checks are the same "verify at the far end" posture Fafnir/Muninn/Andvari each apply
+to identity, applied to cross-tenant fabric traffic.
 
 ### Ingress: routes as a resource
 
@@ -276,14 +289,22 @@ identically to the loopback mode.
 
 A third opt-in, `-Dgimle.agent.bifrostTlsEnabled=true` (requires the cluster transport itself to be
 TLS), is the identity-verifying mode: every listener terminates TLS with the agent's own node
-certificate and demands a cluster-CA-signed client certificate. That gives Bifrost the one thing a
-plaintext byte relay can never have — a verified caller identity — so a `NetworkPolicySpec`
-restricting a Service is enforced against the caller certificate's `O=gimle:tenant:<id>` membership
-group (minted via `gimle cert request --purpose tenant`, see
-[Authentication & authorization](./authn-authz.md)) instead of failing the whole listener closed. In
-plaintext mode the fail-closed posture is unchanged: an applicable policy refuses every connection,
-since proxying unverifiable traffic would silently bypass a policy the tenant explicitly opted
-into.
+certificate and reads the cluster-CA-signed client certificate a caller presents. That gives
+Bifrost the one thing a plaintext byte relay can never have — a verified caller identity — so a
+`NetworkPolicySpec` restricting a Service is enforced against the caller certificate's
+`O=gimle:tenant:<id>` membership group instead of failing the whole listener closed. In-cluster
+callers already hold that certificate: every worker JVM presents the per-worker identity its agent
+obtained for it (see [Transport security](./transport-security.md#per-worker-certificates)), which
+a hosted module reaches through `ModuleContext.clientSslContext()` — the same division of labor as
+Kubernetes, where a pod's identity is a fact the platform established, never a claim the caller
+writes. A caller outside the cluster presents a tenant client certificate instead (`gimle cert
+request --purpose tenant`, see [Authentication & authorization](./authn-authz.md)). The client
+certificate is wanted, not demanded, at the handshake (`wantClientAuth`, the gateway's own posture):
+an anonymous caller still reaches a Service no policy restricts — exactly what a plaintext
+ClusterIP offers — and is refused, like a certificate carrying no tenant group, wherever a policy
+applies. In plaintext mode the fail-closed posture is unchanged: an applicable policy refuses every
+connection, since proxying unverifiable traffic would silently bypass a policy the tenant
+explicitly opted into.
 
 ## Membership: gossip, not the control plane
 

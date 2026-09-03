@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 790,
+  "requirementCount": 791,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -2590,21 +2590,23 @@
       "module": "gimle-mimir",
       "feature": "Check-Quorum Leader Self-Demotion",
       "category": "Raft Consensus",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Check-quorum now distinguishes an established leader from one that has not yet reached a majority even once: the 300ms window governs the former, a full peer-RPC attempt's worth of grace the latter. Judging a new leader by the window alone demoted it before its first connects could complete, and its successor repeated that indefinitely.",
       "coverage": "Covered",
       "holmgangScenarios": [
         {
           "featureFile": "gimle-holmgang/src/test/resources/features/partition-tolerance.feature",
           "scenario": "A store leader silently partitioned from its peers steps down and writes stay bounded",
-          "whyThisCounts": "Uses a Loki fault proxy to isolate the Raft leader from its peers (no crash, just silence) and asserts check-quorum self-demotion within 10s, plus a submitted write completing (not hanging) within 30s."
+          "whyThisCounts": "Uses a Loki fault proxy to isolate the Raft leader from its peers (no crash, just silence) and asserts check-quorum self-demotion within 10s, plus a submitted write completing (not hanging) within 30s. The isolated leader has already been serving, so this exercises the established-leader window; the newly-elected-leader grace is covered by unit tests only."
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`",
+      "otherTestCoverage": "`RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`; `RaftNodeVirtualTimeTest#election_timeout_and_check_quorum_self_demotion_both_fire_purely_from_advancing_virtual_time`",
       "sourceLocations": [
         "`RaftNode#checkQuorumTick`",
-        "`#CHECK_QUORUM_WINDOW`"
+        "`#CHECK_QUORUM_WINDOW`",
+        "`#LEADERSHIP_CONTACT_GRACE`",
+        "`PeerConnection#worstCaseCallDuration`"
       ]
     },
     {
@@ -6879,16 +6881,16 @@
       "module": "gimle-hilmir",
       "feature": "Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)",
       "category": "Release Management",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "A store restart is now gated a second time, after the replacement is listening: the rollout waits for the cluster to serve a leader-routed read again and fails the step if it does not. Port reachability alone passes the moment a fresh store binds, before it has rejoined Raft.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)\".",
-      "otherTestCoverage": "`UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple)",
+      "otherTestCoverage": "`UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple, incl. `#a_store_whose_port_is_open_but_serves_nothing_is_not_accepted_as_a_restored_cluster`)",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`",
         "`RoleRestarter.java`",
-        "`MachineLauncher.restartRole`/`requireStoreQuorumMaintained`"
+        "`MachineLauncher.restartRole`/`requireStoreQuorumMaintained`/`awaitStoreLeaderServing`"
       ]
     },
     {
@@ -9762,7 +9764,7 @@
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (11 tests over the real HTTP surface); `ServiceRegistryTest`",
+      "otherTestCoverage": "`ServiceReconcilerTest` (6 convergence tests from arbitrary starting states); `ApiServerServicesTest` (13 tests over the real HTTP surface, including delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name); `ServiceRegistryTest`",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/ServiceReconciler.java`",
@@ -9776,16 +9778,17 @@
       "module": "gimle-fabric",
       "feature": "Fabric listener-side tenant re-check on inbound service calls",
       "category": "Fabric / Multi-tenancy",
-      "status": "New",
-      "statusNote": "newly added as part of the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work",
+      "status": "Modified",
+      "statusNote": "originally added with the Service/Bifrost/Skald/gateway/fabric-tenant-check network model work; modified to read a caller's tenant off the verified client certificate on TLS connections and refuse a disagreeing wire claim -- the wire field was previously the only input and was never verified against anything.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario drives two tenants' modules through a real cluster and asserts a cross-tenant fabric call that bypasses FabricServiceRegistry's own caller-side filter is still rejected by the receiving worker. To close: a scenario would need two tenant-scoped modules, one exporting a tenant-restricted service and one holding another tenant's identity, plus a step that dials the raw ServiceEndpoint address directly (not through the registry's own lookup) to prove FabricServer's own listener-side re-check independently rejects it -- something no current .feature file attempts.",
-      "otherTestCoverage": "`FabricServerTest` (4 tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage",
+      "gapNote": "No Holmgang scenario drives two tenants' modules through a real TLS cluster and asserts that a cross-tenant fabric call forging another tenant's callerTenantId over a raw connection is refused by the receiving worker's certificate check. To close: a scenario would need two tenant-scoped modules in TLS mode, one exporting a tenant-restricted service, plus a step that dials the raw ServiceEndpoint address with the other tenant's worker certificate and a forged claim -- something no current .feature file attempts.",
+      "otherTestCoverage": "`FabricServerTlsIdentityTest` (6 tests over real mTLS: forged claim refused naming the certified tenant, matching claim served, claimless caller identified by certificate, export re-check runs against the certified tenant, no-tenant certificate cannot claim one, Unix-socket hop still serves the frame's claim); `FabricServerTest` (4 plaintext-path tests: direct-dial bypass rejected, untenanted caller rejected against a restricted export, allowed-tenant caller permitted, unrestricted export permits any caller); `FabricCodecTest`'s callerTenantId round-trip coverage",
       "sourceLocations": [
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java`",
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java`",
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tls/CertificateIdentity.java`",
         "`gimle-core/src/main/java/com/gimle/core/exception/GimleFabricAuthorizationException.java`"
       ]
     },
@@ -10311,18 +10314,21 @@
       "module": "gimle-fafnir",
       "feature": "Sealed SecretMap envelope crypto and key retirement",
       "category": "Secrets Management",
-      "status": "New",
-      "statusNote": "newly added as part of the Sealed SecretMap (v2) and key lifecycle work",
+      "status": "Modified",
+      "statusNote": "originally added as part of the Sealed SecretMap (v2) and key lifecycle work; modified to close a cross-replica correctness gap in symmetric secrets key retirement -- FafnirCrypto.retire now proposes a Raft-replicated PutSecretsKeyRetirement mutation and FafnirCrypto.decrypt checks it fresh per call, so retirement actually takes effect on every Fafnir replica, not only the one that received the retire-key call. The sealing (asymmetric) ring's retirement is unchanged and stays local-only.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises sealing/unsealing or key retirement against a real running cluster -- see GIMLE-588's identical gapNote.",
+      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises sealing/unsealing or key retirement against a real running cluster -- see GIMLE-588's identical gapNote. That now also covers the cross-replica retirement fix specifically: no Holmgang scenario runs multiple Fafnir replicas and retires a key against one to prove a sibling replica also refuses to decrypt.",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealCipher.java`",
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealingKeyRing.java`, `SealingKeyFileManager.java`",
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java` (`retire`)",
-        "`gimle-fafnir/src/main/java/com/gimle/fafnir/SealingCrypto.java`, `FafnirCrypto.java` (`retire`)"
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/SealingCrypto.java`, `FafnirCrypto.java` (`retire`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutSecretsKeyRetirement`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putSecretsKeyRetirement`, `isSecretsKeyRetired`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java` (`isSecretsKeyRetired`)"
       ],
-      "otherTestCoverage": "`SealCipherTest`, `SealingKeyRingTest`, `SealingKeyFileManagerTest`, and `KeyFileManagerTest`'s new retirement cases cover the round-trip, rotation, and destructive-retirement behavior in full."
+      "otherTestCoverage": "`SealCipherTest`, `SealingKeyRingTest`, `SealingKeyFileManagerTest`, and `KeyFileManagerTest`'s new retirement cases cover the round-trip, rotation, and destructive-retirement behavior in full. `FafnirCryptoTest#retiring_a_key_on_one_replica_is_refused_by_a_second_replica_sharing_the_same_store` now covers the cross-replica retirement fix directly, and `StateStoreTest#secrets_key_retirements_round_trip_through_a_snapshot_and_clear_on_unretire`/`RaftCodecTest#round_trips_a_state_snapshot` cover the new replicated state."
     },
     {
       "id": "GIMLE-598",
@@ -10800,16 +10806,18 @@
       "module": "gimle-controlplane",
       "feature": "Certificate revocation denylist",
       "category": "Security / PKI",
-      "status": "New",
-      "statusNote": "newly added as part of the revocation work",
+      "status": "Modified",
+      "statusNote": "Modified: Fafnir and Andvari now independently check the same store-backed revocation denylist the control plane already did, closing the gap where revoking a compromised certificate stopped it authenticating against the control plane while the two processes holding the platform's most sensitive data kept accepting it.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline describes: Given an mTLS topology with an issued operator credential, When gimle cert revoke is run with its serial, Then that credential's next API call answers 401 until unrevoked.",
+      "gapNote": "No Holmgang scenario exercises this against a real running cluster yet, for the control plane or the two processes newly covered here. To close: add a scenario driving a real mTLS topology through gimle cert revoke, then asserting all three of the control plane, Fafnir, and Andvari refuse the same revoked serial.",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
-        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
+        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`resolvePrincipal`, `certificateSerial`)",
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`resolvePrincipal`, `certificateSerial`)"
       ],
-      "otherTestCoverage": "`ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip)"
+      "otherTestCoverage": "`ApiServerAuthzTest` (revoke/401/list/unrevoke round trip), `StateStoreTest` (snapshot round trip); `FafnirSecretsAuthzTest` and `AndvariServerTlsTest` each gained a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission and a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused"
     },
     {
       "id": "GIMLE-625",
@@ -10850,18 +10858,19 @@
       "module": "gimle-agent",
       "feature": "Bifrost TLS identity-verifying mode with tenant-membership client certificates",
       "category": "Security / Networking",
-      "status": "New",
-      "statusNote": "newly added as part of the proxy-and-vessel-maturity work",
+      "status": "Modified",
+      "statusNote": "originally added as part of the proxy-and-vessel-maturity work; modified so the mode actually has callers: workers present their own per-worker tenant certificates (GIMLE-788) through the new ModuleContext.clientSslContext, and the listener wants rather than demands a client certificate, so anonymous callers reach unrestricted services and are refused only where a policy applies.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario booting a TLS cluster with bifrostTlsEnabled, minting a tenant certificate through the real CSR API, and proving allow/deny through real TLS connections.",
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`",
         "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
       ],
-      "otherTestCoverage": "`BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization)"
+      "otherTestCoverage": "`BifrostTlsIdentityTest` (tenant-client allowed/same-tenant/denied/no-claim callers; per-worker certificate callers identified by tenant; anonymous caller reaches an unrestricted service and is refused by a restricted one), `SimpleModuleContextTest` (plaintext clientSslContext empty), `ApiServerAuthzTest` (tenant certificate minting)"
     },
     {
       "id": "GIMLE-628",
@@ -11217,15 +11226,16 @@
       "module": "gimle-controlplane",
       "feature": "Plaintext Transport Is Explicitly Single-Tenant",
       "category": "Governance",
-      "status": "New",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Modified: a refused second-tenant creation under plaintext used to be recorded in the audit trail as allowed:true/APPLIED -- identical to a genuine success, because ApiServer#requireAuthorized recorded that verdict before rejectSecondTenantUnderPlaintext (an admission check that runs strictly after authorization) ever got a chance to refuse the write. handleTenant's PUT branch now defers the audit record past authorization itself (see requireAuthorizedForWrite), recording REJECTED once rejectIfReservedSystemTenant/rejectSecondTenantUnderPlaintext resolve rather than APPLIED the moment RBAC alone said yes -- unlike dispatchResourceRequest's own workload-PUT branch, the real outcome here is fully known before handlePutTenant itself ever runs (it has no rejection path of its own), so the audit event for a genuine success is still recorded before the response is sent, preserving this route's pre-existing audit-before-response ordering rather than adopting workload PUT's deferred-past-admission one.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No dedicated Holmgang Cucumber scenario exercises the plaintext single-tenant refusal itself against a real running cluster yet -- coverage today is ApiServerTest (HTTP endpoint, unit-level) plus the indirect proof that quota-and-admission.feature/limitrange.feature had to move off plaintext to keep creating a second tenant.",
-      "otherTestCoverage": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`",
+      "gapNote": "No dedicated Holmgang Cucumber scenario exercises the plaintext single-tenant refusal, or its own audit-trail correctness, against a real running cluster yet -- coverage today is ApiServerTest/ApiServerAuditOutcomeTest (HTTP endpoint, unit-level) plus the indirect proof that quota-and-admission.feature/limitrange.feature had to move off plaintext to keep creating a second tenant.",
+      "otherTestCoverage": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `ApiServerAuditOutcomeTest#a_tenant_creation_refused_under_plaintext_records_rejected_not_applied`",
       "sourceLocations": [
         "`ApiServer#rejectSecondTenantUnderPlaintext`",
-        "`ApiServer#handleTenant` (PUT branch)"
+        "`ApiServer#handleTenant` (PUT branch)",
+        "`ApiServer#requireAuthorizedForWrite`"
       ]
     },
     {
@@ -13425,20 +13435,21 @@
     {
       "id": "GIMLE-776",
       "module": "gimle-controlplane",
-      "feature": "A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing",
+      "feature": "A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing",
       "category": "Networking / Services",
-      "status": "New",
-      "statusNote": "New requirement: Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as \"raced to deletion\" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN.",
+      "status": "Modified",
+      "statusNote": "New requirement: Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as \"raced to deletion\" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN. Modified further: a third, more severe instance of the identical defect was found in the plain GET/DELETE /services/{name} branch itself, not just its /endpoints sub-route. With no explicit ?tenant=, DELETE resolved the same empty tenant hint and removed the untenanted key nothing was ever stored under -- a silent no-op that still answered 200, confirmed at Fleet scale on 11 different Services across both control-plane replicas while Deployment/DaemonSet/NetworkPolicy deletes in the same session all worked correctly. GET had the same read-side bug. handleService's GET/DELETE branch now shares the same declaredOrExistingTenant-backed fallback the /endpoints sub-route already had.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "otherTestCoverage": "ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint.",
+      "otherTestCoverage": "ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint. ApiServerServicesTest also gained delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name, asserting both that a bare-name GET already resolves a tenant-scoped Service and that DELETE actually removes it (confirmed absent from both a follow-up GET and the collection listing).",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolveTenantForServiceName`, `handleService`)",
         "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`",
         "`gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`",
-        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`"
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`",
+        "`ApiServer#declaredOrExistingTenant`"
       ],
-      "gapNote": "NET-2 and NET-4 both drive the real behaviour this fixes (Skald resolving a Service, the gateway serving a SERVICE route), but no .feature scenario asserts the tenant-scoped case specifically. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+      "gapNote": "NET-2 and NET-4 both drive the real behaviour this fixes (Skald resolving a Service, the gateway serving a SERVICE route), but no .feature scenario asserts the tenant-scoped case specifically, and none exercises DELETE against a tenant-scoped Service with no explicit ?tenant= at all. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     },
     {
       "id": "GIMLE-777",
@@ -13702,6 +13713,27 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertRuleRegistry.java` (`getFiringState`, `putFiringState`)",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertReconciler.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/alertrules/{name}/firing`)"
+      ]
+    },
+    {
+      "id": "GIMLE-791",
+      "module": "gimle-agent",
+      "feature": "Per-worker certificates: node-minted worker identity carrying the worker's tenant",
+      "category": "Security / Identity",
+      "status": "New",
+      "statusNote": "newly added to close the fabric caller-identity gap: workers previously inherited the agent's node certificate wholesale",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "mtls.feature's \"The cluster functions end to end over mutual TLS\" deploys a tenant module over TLS, which after this change cannot reach ACTIVE without a WORKER_CLIENT issuance -- and a live run of that scenario does reach ACTIVE with the agent logging \"issued worker certificate\" -- but the scenario as a whole currently fails on its final log step for a reason unrelated to this requirement: the harness's /logs/instances follow request carries no ?tenant=, and the control plane defaults an omitted tenant to `default`, so a holmgang-tenant instance's log is never found (MinimalTopologyIT fails identically in plaintext). No scenario step asserts the issued identity itself (its groups, or a refused issuance for an unassigned tenant) either.",
+      "otherTestCoverage": "`WorkerClientCsrTest` (6 tests against a real mTLS ApiServer: issuance for an assigned tenant with server-stamped groups and a worker certificate refused as a node; unassigned tenant, foreign-node CN, operator caller, and anonymous caller each refused; untenanted worker gets only gimle:workers); `WorkerCertificatesTest` (5 tests against a real CA: issue-once/reuse, untenanted submission, renewal of a due certificate only, refused issuance leaves nothing behind, per-worker directories); `AgentMainTest` (worker's own cert/key plus shared CA forwarded, never the node's; stable flags carry no TLS material); `SubjectsTest`; `CertificateIdentityTest`.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/CsrPurpose.java`",
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tls/CertificateIdentity.java`",
+        "`gimle-pki/src/main/java/com/gimle/pki/Subjects.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/WorkerCertificates.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
       ]
     }
   ]

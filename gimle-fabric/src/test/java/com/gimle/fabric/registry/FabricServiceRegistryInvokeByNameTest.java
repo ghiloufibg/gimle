@@ -22,6 +22,9 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * Coverage for {@link FabricServiceRegistry#invokeByName}, the name-driven counterpart to {@link
@@ -29,6 +32,10 @@ import org.junit.jupiter.api.Timeout;
  * (the gateway module) has only plain strings to invoke with, never a compile-time {@code
  * Class<T>}.
  */
+// Reads gimle.transport.protocol (through FabricClient/FabricServer) without ever setting it: a
+// READ lock lets these plaintext classes run concurrently with each other while excluding any
+// class that mutates the JVM-global TLS properties mid-run (see FabricTransportTlsTest).
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class FabricServiceRegistryInvokeByNameTest {
 
   private static final ServiceExport GREETER_EXPORT =

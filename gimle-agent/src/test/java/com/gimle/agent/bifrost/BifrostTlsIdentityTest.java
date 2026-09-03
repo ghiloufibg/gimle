@@ -122,6 +122,86 @@ class BifrostTlsIdentityTest {
     assertEquals("B", readTagOverTls(anyCaller, proxy.boundAddressFor("payments").orElseThrow()));
   }
 
+  /**
+   * The in-cluster caller this mode exists for: a worker JVM presenting the per-worker certificate
+   * its agent obtained ({@code O=gimle:workers} beside {@code O=gimle:tenant:<id>}, the shape the
+   * control plane stamps for a {@code WORKER_CLIENT} issuance) -- what {@code
+   * ModuleContext#clientSslContext} hands a hosted module -- is identified by the tenant group
+   * exactly like a tenant client certificate, so a worker of an allowed tenant is proxied and one
+   * of any other tenant refused.
+   */
+  @Test
+  @Timeout(15)
+  void a_worker_presenting_its_own_per_worker_certificate_is_identified_by_its_tenant()
+      throws Exception {
+    ServiceEndpoint backend = startTaggedBackend("W");
+    source.put("orders", Optional.of("acme"), Set.of("orders-service"), 9603, List.of(backend));
+    proxy =
+        new BifrostProxy(
+            source,
+            () ->
+                new NetworkPolicySnapshot(
+                    List.of(
+                        new NetworkPolicyRule("allow-partner", "acme", Set.of("partner-tenant"))),
+                    Set.of()),
+            new BifrostSettings(
+                Duration.ofMinutes(5),
+                false,
+                Optional.empty(),
+                Optional.of(contextFor("O=gimle-bifrost-server,CN=node-a"))));
+    proxy.pollOnce();
+    InetSocketAddress clusterAddress = proxy.boundAddressFor("orders").orElseThrow();
+
+    SSLContext partnerWorker =
+        contextFor("O=gimle:workers,O=gimle:tenant:partner-tenant,CN=node-b:billing#0");
+    SSLContext strangerWorker =
+        contextFor("O=gimle:workers,O=gimle:tenant:mallory,CN=node-b:scraper#0");
+    SSLContext untenantedWorker = contextFor("O=gimle:workers,CN=node-b:platform#0");
+
+    assertEquals("W", readTagOverTls(partnerWorker, clusterAddress));
+    assertNull(readTagOverTls(strangerWorker, clusterAddress));
+    assertNull(readTagOverTls(untenantedWorker, clusterAddress));
+  }
+
+  /**
+   * The client certificate is wanted, not demanded: a caller presenting none still reaches a
+   * Service no policy restricts -- exactly what a plaintext ClusterIP offers, and what a {@code
+   * needClientAuth} handshake used to refuse for every caller without a cluster certificate --
+   * while a Service under a policy refuses it, since it certifies no tenant to check.
+   */
+  @Test
+  @Timeout(15)
+  void an_anonymous_caller_reaches_an_unrestricted_service_and_is_refused_by_a_restricted_one()
+      throws Exception {
+    ServiceEndpoint openBackend = startTaggedBackend("O");
+    ServiceEndpoint restrictedBackend = startTaggedBackend("R");
+    source.put("open", Optional.of("acme"), Set.of("open-service"), 9604, List.of(openBackend));
+    source.put(
+        "restricted",
+        Optional.of("locked"),
+        Set.of("restricted-service"),
+        9605,
+        List.of(restrictedBackend));
+    proxy =
+        new BifrostProxy(
+            source,
+            () ->
+                new NetworkPolicySnapshot(
+                    List.of(new NetworkPolicyRule("locked-down", "locked", Set.of("partner"))),
+                    Set.of()),
+            new BifrostSettings(
+                Duration.ofMinutes(5),
+                false,
+                Optional.empty(),
+                Optional.of(contextFor("O=gimle-bifrost-server,CN=node-a"))));
+    proxy.pollOnce();
+
+    SSLContext anonymous = SslContexts.forServerTrustOnly(caFile);
+
+    assertEquals("O", readTagOverTls(anonymous, proxy.boundAddressFor("open").orElseThrow()));
+    assertNull(readTagOverTls(anonymous, proxy.boundAddressFor("restricted").orElseThrow()));
+  }
+
   private ServiceEndpoint startTaggedBackend(String tag) throws IOException {
     ServerSocket serverSocket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress());
     backends.add(serverSocket);

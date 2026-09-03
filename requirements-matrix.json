@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 790,
+  "requirementCount": 791,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -2914,16 +2914,19 @@
       "module": "gimle-mimir",
       "feature": "Check-Quorum Leader Self-Demotion",
       "category": "Raft Consensus",
-      "userStory": "As a cluster operator, I want a leader isolated in a minority partition to step down on its own without observing a higher term.",
+      "userStory": "As a cluster operator, I want a leader isolated in a minority partition to step down on its own without observing a higher term, while a leader that simply has not finished opening its peer connections yet is not mistaken for one.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
         "`RaftNode#checkQuorumTick`",
-        "`#CHECK_QUORUM_WINDOW`"
+        "`#CHECK_QUORUM_WINDOW`",
+        "`#LEADERSHIP_CONTACT_GRACE`",
+        "`PeerConnection#worstCaseCallDuration`"
       ],
-      "testCoverageDetail": "`RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`",
+      "testCoverageDetail": "`RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`; `RaftNodeVirtualTimeTest#election_timeout_and_check_quorum_self_demotion_both_fire_purely_from_advancing_virtual_time`",
       "gherkinSteps": [
-        "Given a leader can no longer reach a majority of peers; When the check-quorum window elapses with no successful RPC round trip; Then the leader steps down to follower on its own."
+        "Given a leader that has already reached a majority of peers; When the check-quorum window elapses with no successful RPC round trip; Then the leader steps down to follower on its own.",
+        "Given a newly elected leader whose first peer RPCs have not completed yet; When only the check-quorum window has elapsed; Then it stays leader until one full peer-RPC attempt could have finished or failed, and only then steps down."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -7761,17 +7764,18 @@
       "module": "gimle-hilmir",
       "feature": "Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)",
       "category": "Release Management",
-      "userStory": "As an operator rolling out a new platform build, I want to restart one machine's stateless processes one role at a time, with the store restart refusing to break Raft quorum.",
+      "userStory": "As an operator rolling out a new platform build, I want to restart one machine's stateless processes one role at a time, with a store restart refusing to break Raft quorum and refusing to report success until the cluster serves through a leader again.",
       "statusDetail": "Complete",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`",
         "`RoleRestarter.java`",
-        "`MachineLauncher.restartRole`/`requireStoreQuorumMaintained`"
+        "`MachineLauncher.restartRole`/`requireStoreQuorumMaintained`/`awaitStoreLeaderServing`"
       ],
-      "testCoverageDetail": "`UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple)",
+      "testCoverageDetail": "`UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple, incl. `#a_store_whose_port_is_open_but_serves_nothing_is_not_accepted_as_a_restored_cluster`)",
       "gherkinSteps": [
-        "Given a machine hosting a store replica among a quorum, When \"hilmir upgrade-cluster --machine m1 --new-classpath <cp>\", Then only STORE/MUNINN/ANDVARI/FAFNIR/CONTROL_PLANE are restartable (AGENT rejected outright); a store restart is refused if it would break quorum."
+        "Given a machine hosting a store replica among a quorum, When \"hilmir upgrade-cluster --machine m1 --new-classpath <cp>\", Then only STORE/MUNINN/ANDVARI/FAFNIR/CONTROL_PLANE are restartable (AGENT rejected outright); a store restart is refused if it would break quorum.",
+        "Given a store replica has been restarted and its port is open again, When the store cluster still cannot serve a leader-routed read, Then upgrade-cluster fails the step rather than reporting it healthy and continuing the rollout."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -11009,7 +11013,7 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpoint.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/services`, `/services/{name}`, `/services/{name}/endpoints`)"
       ],
-      "testCoverageDetail": "`ServiceReconcilerTest` (an_empty_store_converges_to_an_empty_endpoint_list, a_store_with_active_and_ready_instances_already_present_converges_to_their_endpoints, an_instance_reported_alive_but_not_ready_yet_contributes_no_endpoint, endpoints_are_aggregated_across_every_deployment_name_in_the_selector, one_services_failure_does_not_prevent_another_from_reconciling, reconciling_again_after_a_backing_instance_goes_away_clears_its_endpoint); `ApiServerServicesTest` (post_then_get_a_service_round_trips, a_target_port_distinct_from_port_round_trips, get_of_an_unknown_service_is_404, delete_removes_a_service, services_list_endpoint_returns_every_service, a_missing_service_name_on_post_is_a_400, an_empty_deployment_names_is_a_400, endpoints_route_returns_the_exact_contract_shape_for_a_live_ready_instance, endpoints_route_returns_200_with_an_empty_array_when_no_backing_instance_is_live_yet, endpoints_route_for_an_unknown_service_is_404, posting_the_same_name_again_replaces_the_prior_spec); `ServiceRegistryTest`",
+      "testCoverageDetail": "`ServiceReconcilerTest` (an_empty_store_converges_to_an_empty_endpoint_list, a_store_with_active_and_ready_instances_already_present_converges_to_their_endpoints, an_instance_reported_alive_but_not_ready_yet_contributes_no_endpoint, endpoints_are_aggregated_across_every_deployment_name_in_the_selector, one_services_failure_does_not_prevent_another_from_reconciling, reconciling_again_after_a_backing_instance_goes_away_clears_its_endpoint); `ApiServerServicesTest` (post_then_get_a_service_round_trips, a_target_port_distinct_from_port_round_trips, get_of_an_unknown_service_is_404, delete_removes_a_service, delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name, services_list_endpoint_returns_every_service, a_missing_service_name_on_post_is_a_400, an_empty_deployment_names_is_a_400, endpoints_route_returns_the_exact_contract_shape_for_a_live_ready_instance, endpoints_route_returns_200_with_an_empty_array_when_no_backing_instance_is_live_yet, endpoints_route_for_an_unknown_service_is_404, posting_the_same_name_again_replaces_the_prior_spec); `ServiceRegistryTest`",
       "gherkinSteps": [
         "Given a Service \"orders\" selecting deployment \"orders-service\" on port 8080, When POSTed to /services and the reconciler ticks against a store with an ACTIVE, ready instance of \"orders-service\", Then GET /services/orders/endpoints returns that instance's real host:port.",
         "Given a Service whose selected deployment currently has no ACTIVE-and-ready instance, When the reconciler ticks, Then it converges to an empty endpoint list rather than failing.",
@@ -11024,19 +11028,22 @@
       "feature": "Fabric listener-side tenant re-check on inbound service calls",
       "category": "Fabric / Multi-tenancy",
       "userStory": "As a platform operator, I want the receiving worker of a cross-hop fabric call to independently re-verify the caller's tenant against the target service's own declared allowedTenantIds, so a caller cannot bypass tenant scoping by dialing a raw ServiceEndpoint address directly instead of going through FabricServiceRegistry's own caller-side filter.",
-      "statusDetail": "Complete",
+      "statusDetail": "Complete. Modified after a black-box QA finding: the listener-side re-check used to run against `InvokeRequest.callerTenantId`, a field the calling side writes into the frame itself and which nothing on the receiving side ever verified -- even under mTLS the listener checked only that the peer held *a* cluster-CA-signed certificate, never that the certificate matched the tenant the frame claimed, so a worker able to open a raw connection could name any tenant on an export's allow-list and be let through. On a TLS connection `FabricServer` now reads the caller's tenant off the verified client certificate's `O=gimle:tenant:<id>` group (the per-worker certificate GIMLE-788 issues) at the connection boundary (`serveStreams`/`verifiedCaller`) and serves every frame under that tenant; a frame whose own claim disagrees with the certificate is refused with `GimleFabricAuthorizationException.callerTenantMismatch` rather than believed either way, so a forgery is visible instead of silently corrected. The wire field remains authoritative only where the transport carries no identity -- the always-plaintext same-machine Unix-domain-socket hop and a cluster that never opted into TLS -- the same trust-the-transport posture every other plaintext surface takes, and a documented limit. `checkTenantPermitted`/network-policy checks are unchanged: they consume the (now certified) tenant exactly as before.",
       "confidence": "High",
       "sourceLocations": [
-        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`dispatch`/`checkTenantPermitted`)",
-        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java` (`InvokeRequest.callerTenantId`)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricServer.java` (`serveStreams`, `verifiedCaller`, `dispatch`/`checkTenantPermitted`)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricFrame.java` (`InvokeRequest.callerTenantId`, `withCallerTenantId`)",
         "`gimle-fabric/src/main/java/com/gimle/fabric/transport/FabricCodec.java`",
-        "`gimle-core/src/main/java/com/gimle/core/exception/GimleFabricAuthorizationException.java`"
+        "`gimle-core/src/main/java/com/gimle/core/tls/CertificateIdentity.java`",
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleFabricAuthorizationException.java` (`tenantNotPermitted`, `callerTenantMismatch`)"
       ],
-      "testCoverageDetail": "`FabricServerTest` (a_caller_bypassing_the_registry_and_dialing_directly_is_rejected_by_the_listeners_own_check, an_untenanted_caller_is_rejected_against_a_restricted_export, a_caller_from_the_allowed_tenant_is_permitted_through_the_listeners_own_check, an_export_with_no_tenant_restriction_permits_any_caller); `FabricCodecTest`'s `callerTenantId` round-trip assertions",
+      "testCoverageDetail": "`FabricServerTlsIdentityTest` over real mTLS (a claim disagreeing with the caller's certificate is refused naming the certified tenant; a matching claim is served; a caller writing no claim is identified by its certificate alone; the export's re-check runs against the certified tenant, refusing a tenant-b certificate against a tenant-a-only export; a certificate carrying no tenant cannot claim one; the same-machine Unix-socket hop still serves the frame's own claim -- the documented limit); `FabricServerTest` (a_caller_bypassing_the_registry_and_dialing_directly_is_rejected_by_the_listeners_own_check, an_untenanted_caller_is_rejected_against_a_restricted_export, a_caller_from_the_allowed_tenant_is_permitted_through_the_listeners_own_check, an_export_with_no_tenant_restriction_permits_any_caller) over the identity-less plaintext path; `FabricCodecTest`'s `callerTenantId` round-trip assertions",
       "gherkinSteps": [
         "Given a module exporting an interface restricted to allowedTenantIds [\"tenant-a\"], When a caller wire-carrying callerTenantId \"tenant-b\" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException.",
         "Given the same restricted export, When a caller carrying callerTenantId \"tenant-a\" dials directly, Then the listener's own re-check permits the call through.",
-        "Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default."
+        "Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default.",
+        "Given a module exporting an interface restricted to allowedTenantIds [\"tenant-a\"] behind a TLS listener, When a caller holding a worker certificate for tenant-b dials it directly and writes callerTenantId \"tenant-a\" into the frame, Then the listener refuses the call as a claim/certificate mismatch, naming the certified tenant-b.",
+        "Given the same listener, When a caller holding a tenant-a worker certificate writes no claim at all, Then the call is served under tenant-a, read off the certificate."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -11683,18 +11690,22 @@
       "feature": "Sealed SecretMap envelope crypto and key retirement",
       "category": "Secrets Management",
       "userStory": "As an operator, I want to seal a secret value offline against Fafnir's public sealing key and have Fafnir irrevocably retire a symmetric or sealing key id, so a value can be committed for later application without ever exposing the plaintext to whoever holds only the public key, and a key id can be permanently distrusted once it should no longer be used.",
-      "statusDetail": "Complete. `SealCipher` builds the sealing envelope: a fresh, single-use AES-256 data key encrypts the plaintext via the existing `SecretCipher.encrypt`/`decrypt` completely unchanged, and the data key itself is RSA-OAEP-wrapped under the recipient's public key with `(tenantId, name, key)` bound in as the OAEP label (`PSource.PSpecified`, not a `SecretCipher` AAD parameter, since that class has none to add without breaking \"reuse it unchanged\") -- a label mismatch makes `Cipher.unwrap` throw before any plaintext is ever recovered, so a sealed blob is cryptographically non-transferable to a different tenant/name/key. `aadFor` is a length-prefixed, delimiter-free encoding rather than a naive `:`-joined string, since `tenantId` (unlike `name`/`key`) has no guaranteed delimiter-free property. `SealingKeyRing`/`SealingKeyFileManager` mirror `KeyRing`/`KeyFileManager`'s file-per-id-plus-`.active`-sidecar convention exactly for RSA-3072 keypairs (private key PKCS8 DER, public key X.509 DER, stored as separate sibling files rather than reconstructed at load time). Key retirement needs no `SecretCipher` change at all: `SecretCipher.decrypt` already looks a key up purely by the id byte embedded in the blob against a caller-supplied map, so retiring a key is just removing its id from that map -- `KeyFileManager.retire`/`SealingKeyFileManager.retire` delete the id's key file(s) and return a ring with that id gone. A serious correctness gap was found and closed before it reached the ring's public shape: `loadAllOrCreate` auto-vivifies (regenerates) key id 0 if its file is ever absent, so retiring id 0 would otherwise cause a silent, different key to be resurrected under the same id on the next load; retiring id 0 is now permanently rejected in both `KeyFileManager.retire` and `SealingKeyFileManager.retire`. Retiring the currently-active id (either ring) is also rejected outright -- rotate first.",
+      "statusDetail": "Complete. `SealCipher` builds the sealing envelope: a fresh, single-use AES-256 data key encrypts the plaintext via the existing `SecretCipher.encrypt`/`decrypt` completely unchanged, and the data key itself is RSA-OAEP-wrapped under the recipient's public key with `(tenantId, name, key)` bound in as the OAEP label (`PSource.PSpecified`, not a `SecretCipher` AAD parameter, since that class has none to add without breaking \"reuse it unchanged\") -- a label mismatch makes `Cipher.unwrap` throw before any plaintext is ever recovered, so a sealed blob is cryptographically non-transferable to a different tenant/name/key. `aadFor` is a length-prefixed, delimiter-free encoding rather than a naive `:`-joined string, since `tenantId` (unlike `name`/`key`) has no guaranteed delimiter-free property. `SealingKeyRing`/`SealingKeyFileManager` mirror `KeyRing`/`KeyFileManager`'s file-per-id-plus-`.active`-sidecar convention exactly for RSA-3072 keypairs (private key PKCS8 DER, public key X.509 DER, stored as separate sibling files rather than reconstructed at load time). Key retirement needs no `SecretCipher` change at all: `SecretCipher.decrypt` already looks a key up purely by the id byte embedded in the blob against a caller-supplied map, so retiring a key is just removing its id from that map -- `KeyFileManager.retire`/`SealingKeyFileManager.retire` delete the id's key file(s) on the local replica and return a ring with that id gone. That local deletion is the whole story for the sealing (asymmetric) ring, but not for the symmetric secrets ring in a real multi-replica Fafnir deployment: a correctness gap was found and closed there after this feature first shipped -- `FafnirCrypto`'s own `decrypt` used to trust only its own local, in-memory view of which ids were retired, so retiring a key on the replica that handled `POST /secrets/retire-key` left every other replica sharing the same provisioned key material still decrypting under it indefinitely. `FafnirCrypto``.retire` now also proposes a `PutSecretsKeyRetirement` mutation through the Raft-replicated store first (the same denylist-in-the-log pattern `StateStore#putCertificateRevocation` already established for revoked certificates, carrying no key material of its own), and `decrypt` checks that store-backed flag fresh on every call rather than the removed local field -- retirement is now actually cluster-wide for the symmetric ring, the same as every other Fafnir-enforced decision. The sealing (asymmetric) ring's retirement stays local-only; nothing in this codebase yet runs a multi-replica Fafnir deployment against sealing envelopes the way it does against ordinary secrets. A serious correctness gap was found and closed before it reached the ring's public shape: `loadAllOrCreate` auto-vivifies (regenerates) key id 0 if its file is ever absent, so retiring id 0 would otherwise cause a silent, different key to be resurrected under the same id on the next load; retiring id 0 is now permanently rejected in both `KeyFileManager.retire` and `SealingKeyFileManager.retire`. Retiring the currently-active id (either ring) is also rejected outright -- rotate first.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealCipher.java`",
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealingKeyRing.java`, `SealingKeyFileManager.java`",
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java` (`retire`)",
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/SealingCrypto.java`, `FafnirCrypto.java` (`retire`)",
-        "`gimle-core/src/main/java/com/gimle/core/exception/GimleSecretsException.java` (`cannotRetireActiveKey`, `unknownKeyId`, `cannotRetireBaseKey`)"
+        "`gimle-core/src/main/java/com/gimle/core/exception/GimleSecretsException.java` (`cannotRetireActiveKey`, `unknownKeyId`, `cannotRetireBaseKey`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutSecretsKeyRetirement`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putSecretsKeyRetirement`, `isSecretsKeyRetired`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java` (`isSecretsKeyRetired`)"
       ],
-      "testCoverageDetail": "`SealCipherTest` (seal/unseal round-trip recovers the exact plaintext; wrong tenant/name/key/private-key in the AAD all throw before any plaintext is recovered; a corrupted wrapped-key throws cleanly; AAD length-prefixing never collides across different field boundaries), `SealingKeyRingTest` (record validation and accessors), `SealingKeyFileManagerTest` and `KeyFileManagerTest` (persist/reload round-trip, rotate keeps old keys loadable, retire actually deletes the key file(s) and removes the id from the ring, retiring the active id/an unknown id/id 0 are all rejected, a value or blob still encrypted or sealed under a retired id can no longer be recovered).",
+      "testCoverageDetail": "`SealCipherTest` (seal/unseal round-trip recovers the exact plaintext; wrong tenant/name/key/private-key in the AAD all throw before any plaintext is recovered; a corrupted wrapped-key throws cleanly; AAD length-prefixing never collides across different field boundaries), `SealingKeyRingTest` (record validation and accessors), `SealingKeyFileManagerTest` and `KeyFileManagerTest` (persist/reload round-trip, rotate keeps old keys loadable, retire actually deletes the key file(s) and removes the id from the ring, retiring the active id/an unknown id/id 0 are all rejected, a value or blob still encrypted or sealed under a retired id can no longer be recovered). `FafnirCryptoTest#retiring_a_key_on_one_replica_is_refused_by_a_second_replica_sharing_the_same_store` proves the cross-replica fix directly: two independent `FafnirCrypto` instances sharing one store but each with their own local key file directory, where retirement on one takes effect on the other, which never received the `retire` call at all. `StateStoreTest#secrets_key_retirements_round_trip_through_a_snapshot_and_clear_on_unretire` and `RaftCodecTest#round_trips_a_state_snapshot` cover the new replicated state itself.",
       "gherkinSteps": [
-        "Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key."
+        "Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key.",
+        "Given two Fafnir replicas sharing one store and identically-provisioned key material, When one replica retires a key id the other replica never received a retire call for, Then the second replica also refuses to decrypt any value still encrypted under that id."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -12276,17 +12287,21 @@
       "module": "gimle-controlplane",
       "feature": "Certificate revocation denylist",
       "category": "Security / PKI",
-      "userStory": "As an operator, I want to revoke a compromised leaf certificate by serial number so it stops authenticating immediately, reversibly, without CRL/OCSP infrastructure.",
-      "statusDetail": "Complete",
+      "userStory": "As an operator, I want to revoke a compromised leaf certificate by serial number so it stops authenticating immediately, reversibly, without CRL/OCSP infrastructure -- against every process that holds sensitive state, not only the control plane.",
+      "statusDetail": "Complete. Fixed a real gap: Fafnir and Andvari -- the processes holding the platform's secrets and artifact catalog -- validated a presented certificate only against the CA trust chain (unexpired, correctly signed), which a revoked-but-not-yet-expired certificate still satisfies, so revoking a compromised credential's serial stopped it authenticating against the control plane while Fafnir/Andvari kept returning live plaintext/artifacts for that exact caller. Both now independently check the identical store-backed denylist (FafnirServer#resolvePrincipal, AndvariServer#resolvePrincipal) before trusting a peer certificate for anything -- including before letting it vouch for a forwarded principal, not only its own direct identity -- matching the defense-in-depth posture both processes already apply to RBAC (never trust \"arrived already-forwarded\" as proof by itself).",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`",
-        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
+        "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`",
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`resolvePrincipal`, `certificateSerial`)",
+        "`gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`resolvePrincipal`, `certificateSerial`)"
       ],
-      "testCoverageDetail": "`ApiServerAuthzTest` (a_revoked_certificate_stops_authenticating_until_unrevoked), `StateStoreTest` (certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke)",
+      "testCoverageDetail": "`ApiServerAuthzTest` (a_revoked_certificate_stops_authenticating_until_unrevoked); `StateStoreTest` (certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke); `FafnirSecretsAuthzTest` (a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission, a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused); `AndvariServerTlsTest` (a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission, a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused)",
       "gherkinSteps": [
-        "Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication."
+        "Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication.",
+        "Given the identical revoked serial, When the same certificate is presented directly to Fafnir or Andvari (not through the control plane), Then it is refused there too -- both processes re-check the store-backed denylist independently rather than trusting the CA trust chain alone.",
+        "Given a control-plane peer certificate is revoked, When that peer forwards a principal claim to Fafnir or Andvari, Then the forwarded claim is refused, not only the peer's own direct identity."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -12339,18 +12354,21 @@
       "feature": "Bifrost TLS identity-verifying mode with tenant-membership client certificates",
       "category": "Security / Networking",
       "userStory": "As a tenant relying on a NetworkPolicy, I want the Bifrost proxy to verify a caller's certificate-carried tenant and enforce my allow list on proxied traffic, instead of failing the whole listener closed, so policied Services stay reachable to exactly the callers I allowed.",
-      "statusDetail": "Complete",
+      "statusDetail": "Complete. Modified after a black-box QA finding: the listener demanded a cluster-CA-signed client certificate at the handshake (needClientAuth) while no real caller held one -- workers inherited the agent's tenant-less node certificate and hosted-module HTTP/TCP clients had no way to present any -- so enabling this mode refused every legitimate connection. Two changes close it. Every worker JVM now holds its own per-worker certificate carrying O=gimle:tenant:<id> (GIMLE-788), reachable by a hosted module through the new ModuleContext#clientSslContext (SslContexts.forMutualTlsFromConfig, empty in plaintext), so an in-cluster caller is identified by the tenant its agent proved to the control plane -- the same group ServiceListener already read, now actually present on the callers this mode exists for. And the handshake wants rather than demands the certificate (setWantClientAuth, the gateway's own posture): an anonymous caller still reaches a Service no NetworkPolicySpec restricts, exactly what a plaintext ClusterIP offers, and is refused wherever a policy applies, the same as a certificate carrying no tenant group. Callers outside the cluster keep presenting a TENANT_CLIENT certificate.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java` (`clientSslContext`)",
         "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
       ],
-      "testCoverageDetail": "`BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers; unrestricted service), `ApiServerAuthzTest` (a_tenant_client_certificate_is_minted_by_an_operator...)",
+      "testCoverageDetail": "`BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim tenant-client callers; unrestricted service; a worker presenting its own per-worker certificate is identified by its tenant -- partner worker proxied, stranger and untenanted workers refused; an anonymous caller reaches an unrestricted service and is refused by a restricted one), `SimpleModuleContextTest` (clientSslContext is empty in a plaintext cluster), `ApiServerAuthzTest` (a_tenant_client_certificate_is_minted_by_an_operator...)",
       "gherkinSteps": [
         "Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused.",
-        "Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one."
+        "Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one.",
+        "Given a Service restricted by a NetworkPolicy allowing tenant partner, When a worker of tenant partner dials it presenting the per-worker certificate its agent issued (via ModuleContext.clientSslContext), Then the connection is proxied; a worker of another tenant, or one whose certificate carries no tenant, is refused.",
+        "Given the identity-verifying mode, When a caller presenting no client certificate dials a Service no policy restricts, Then it is proxied; dialing a Service a policy restricts, it is refused."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -12819,15 +12837,17 @@
       "feature": "Plaintext Transport Is Explicitly Single-Tenant",
       "category": "Governance",
       "userStory": "As an operator running plaintext (the default transport, no peer identity to check), I want the platform to refuse creating a second real tenant, so plaintext is never quietly used for shared multi-tenancy with no way to tell callers apart after the fact.",
-      "statusDetail": "Complete",
+      "statusDetail": "Complete. Fixed alongside: a refused second-tenant creation under plaintext used to be recorded in the audit trail as allowed:true/APPLIED -- identical to a genuine success, because ApiServer#requireAuthorized recorded that verdict before rejectSecondTenantUnderPlaintext (an admission check that runs strictly after authorization) ever got a chance to refuse the write. handleTenant's PUT branch now defers the audit record past authorization itself (see requireAuthorizedForWrite), recording REJECTED once rejectIfReservedSystemTenant/rejectSecondTenantUnderPlaintext resolve rather than APPLIED the moment RBAC alone said yes -- unlike dispatchResourceRequest's own workload-PUT branch, the real outcome here is fully known before handlePutTenant itself ever runs (it has no rejection path of its own), so the audit event for a genuine success is still recorded before the response is sent, preserving this route's pre-existing audit-before-response ordering rather than adopting workload PUT's deferred-past-admission one.",
       "confidence": "High",
       "sourceLocations": [
         "`ApiServer#rejectSecondTenantUnderPlaintext`",
-        "`ApiServer#handleTenant` (PUT branch)"
+        "`ApiServer#handleTenant` (PUT branch)",
+        "`ApiServer#requireAuthorizedForWrite`"
       ],
-      "testCoverageDetail": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.",
+      "testCoverageDetail": "`ApiServerTest#creating_a_second_real_tenant_under_plaintext_is_refused`, `#updating_an_already_existing_tenant_under_plaintext_is_still_permitted`; `ApiServerAuditOutcomeTest#a_tenant_creation_refused_under_plaintext_records_rejected_not_applied` (asserts the refused write's own audit entry says REJECTED, not APPLIED, and that a genuine update to the tenant that does exist still records APPLIED); `gimle-holmgang` `quota-and-admission.feature`/`limitrange.feature` retargeted to a new single-node mTLS topology (`minimal-mtls.yaml`) since their own scenarios each need a second real tenant alongside the topology's seeded `holmgang-tenant`.",
       "gherkinSteps": [
-        "Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted."
+        "Given a plaintext control plane with one real tenant already created; When a second, differently-named tenant is submitted; Then the request is refused with 403 and no second tenant is created; an update to the already-existing tenant is still permitted.",
+        "Given the same refused second-tenant submission, When its own audit trail entry is read back, Then it records outcome:REJECTED, never APPLIED, even though plaintext mode's RBAC carve-out allowed the attempt to reach admission at all."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -15649,23 +15669,27 @@
     {
       "id": "GIMLE-776",
       "module": "gimle-controlplane",
-      "feature": "A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing",
+      "feature": "A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing",
       "category": "Networking / Services",
-      "userStory": "As an operator declaring a Service for a tenant, I want the gateway to proxy to it and Skald to resolve its DNS name, rather than both silently behaving as though the Service does not exist.",
-      "statusDetail": "Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as \"raced to deletion\" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN.",
+      "userStory": "As an operator declaring a Service for a tenant, I want the gateway to proxy to it, Skald to resolve its DNS name, and gimle delete/get service to actually address it by its bare name, rather than any of the three silently behaving as though the Service does not exist.",
+      "statusDetail": "Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as \"raced to deletion\" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN. A third, more severe instance of the identical defect was found in the plain `GET`/`DELETE /services/{name}` branch itself (not just its `/endpoints` sub-route): with no explicit `?tenant=`, `DELETE` resolved the same empty tenant hint and removed the untenanted key nothing was ever stored under -- a silent no-op that still answered 200, confirmed at Fleet scale on 11 different Services across both control-plane replicas while Deployment/DaemonSet/NetworkPolicy deletes in the same session all worked correctly. `GET` had the same read-side bug, less visible since a caller more often supplied an explicit `?tenant=` for reads than for a delete. `handleService`'s GET/DELETE branch now shares the same `declaredOrExistingTenant`-backed fallback the `/endpoints` sub-route already had.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolveTenantForServiceName`, `handleService`)",
         "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`",
         "`gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`",
-        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`"
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`",
+        "`ApiServer#declaredOrExistingTenant`"
       ],
-      "testCoverageDetail": "ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint.",
+      "testCoverageDetail": "ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint. `ApiServerServicesTest` also gained `delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name`, asserting both that a bare-name GET already resolves a tenant-scoped Service and that DELETE actually removes it (confirmed absent from both a follow-up GET and the collection listing), not merely that the HTTP response claims success.",
       "gherkinSteps": [
         "Given a Service declared for tenant `acme` with live backing instances",
         "When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name",
         "Then the route is served from a live endpoint instead of answering 502",
-        "And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN"
+        "And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN",
+        "Given a Service declared for tenant `acme` with no explicit ?tenant= on the delete request",
+        "When DELETE /services/{name} is called",
+        "Then the real tenant-scoped Service is removed -- confirmed gone from a follow-up GET and the collection listing -- not silently no-op against a key nothing was ever stored under"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
@@ -15975,7 +15999,6 @@
         "Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode.",
         "Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies."
       ],
-      "confidence": "High",
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
     },
@@ -16030,7 +16053,33 @@
         "Given a control-plane replica restarts (or a different replica answers) after a rule was already firing; When that replica's own AlertReconciler next ticks; Then it reads the durable verdict and does not re-send a FIRING notification for the same ongoing incident.",
         "Given a caller with no grant for ResourceKind.ALERT_RULE; When it requests GET /alertrules/{name}/firing over mTLS; Then the response is 403."
       ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-791",
+      "module": "gimle-agent",
+      "feature": "Per-worker certificates: node-minted worker identity carrying the worker's tenant",
+      "category": "Security / Identity",
+      "userStory": "As a platform operator, I want every worker JVM to present its own control-plane-issued certificate naming the one tenant it hosts, minted by its node agent only for a tenant the scheduler actually placed on that node, so a receiving fabric listener verifies a caller's tenant from something the caller cannot forge rather than from a claim written into the request, and so hosted-module code that can reach its own worker's key material holds a worker's identity, never the node's.",
+      "statusDetail": "Complete. Previously every worker spawned by an agent was handed the agent's own node certificate wholesale (`AgentMain#workerTlsFlags` forwarded `gimle.tls.certFile`/`keyFile` verbatim), which carries no tenant at all and, worse, the node's `gimle:nodes` self-service identity. A new `CsrPurpose.WORKER_CLIENT` is handled by `ApiServer#handleWorkerClientRequest` ahead of the same-subject rotation branch: the submission must arrive over a `gimle:nodes` certificate (401 with none, 403 for any other principal, an operator included), the requested CN must be prefixed by the presenting node's own id (`<nodeId>:<instanceKey>`, so node-1 can never mint a certificate that reads as node-2's worker), and a requested tenant must satisfy `Authorizer#isTenantAssignedToNode` -- the identical level-triggered store check Fafnir makes before letting a node read a tenant's secrets. The issued subject is server-stamped `O=gimle:workers` (new `BuiltinRoles.GROUP_WORKERS`, bound to no role anywhere) plus `O=gimle:tenant:<id>` for a tenanted worker, via a new multi-group `Subjects.withOrganizations`; the CSR's own O= never survives, the requester's SAN is trusted only as far as its own connection address backs it (the node-join rule), and every decision is audited under the node's principal against CERTIFICATE_REQUEST/APPROVE. On the agent, a new `WorkerCertificates` helper issues the material before an instance's first spawn (`ensureIssued`, over the agent's own mTLS client; a refused issuance fails that start, which the next reconcile tick retries) into `workers/<instanceKey>/worker.crt|key` beside the agent's own certificate, key written before certificate so the worker's mtime-polling `FabricServerTlsWatcher` never pairs a fresh certificate with a stale key, and renews each due certificate on the agent tick (`renewDue`, a fresh same-subject issuance rather than the rotation branch, which authenticates by the certificate being rotated -- a worker never talks to the control plane). `buildWorkerCommand` now takes the per-worker material and forwards only the shared CA file from the agent's own settings; TLS material left `stableWorkerFlags` since those feed Sleipnir's AOT cache key and must not vary per instance. A Tier 1 density-packed worker (same-tenant by construction) presents one certificate for all its instances. Reading a certificate back into a `Principal` moved to a single pure-JDK implementation, `CertificateIdentity` in `gimle-core` (`LdapName` over the RFC 2253 rendering), which `gimle-pki`'s `Subjects.principalFrom` now delegates to, so a worker JVM with no Bouncy Castle derives exactly the identity the control plane stamped.",
       "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/CsrPurpose.java` (`WORKER_CLIENT`)",
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java` (`GROUP_WORKERS`)",
+        "`gimle-core/src/main/java/com/gimle/core/tls/CertificateIdentity.java`",
+        "`gimle-pki/src/main/java/com/gimle/pki/Subjects.java` (`withOrganizations`, `commonNameOf`, `principalFrom`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleBootstrapCsrSubmit`, `handleWorkerClientRequest`, `workerRequestRefusal`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/WorkerCertificates.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`issueWorkerCertificate`, `renewWorkerCertificates`, `workerTlsFlags`, `buildWorkerCommand`, `stableWorkerFlags`)"
+      ],
+      "testCoverageDetail": "`WorkerClientCsrTest` against a real mTLS `ApiServer` (a node obtains a worker certificate for a tenant it holds an assignment for, stamped `gimle:workers`+`gimle:tenant:acme` with the CSR's own `O=gimle:nodes` discarded, and that certificate is refused on the node self-service surface; a tenant the node holds no assignment for, a subject naming another node's worker, an operator caller, and an anonymous caller are each refused; an untenanted worker gets only `gimle:workers`); `WorkerCertificatesTest` against a real `CertificateAuthority` (issued once and reused on a later spawn with the expected purpose/tenant/CN, untenanted submissions carry no tenant, a renewal pass re-issues only a due certificate, a refused issuance fails the spawn leaving no material, per-worker directories); `AgentMainTest` (the spawned command forwards the worker's own certificate and the shared CA and never the agent's node cert/key; stable worker flags carry no TLS material); `SubjectsTest` (multi-group stamping round-trips through a signed certificate); `CertificateIdentityTest` (CN/O parsing, escaping, no-CN rejection).",
+      "gherkinSteps": [
+        "Given a node agent holding a gimle:nodes certificate and an instance assignment for tenant acme, When it submits a WORKER_CLIENT CSR with CN <nodeId>:<instanceKey> and tenantId acme, Then the control plane signs it with O=gimle:workers and O=gimle:tenant:acme, and the certificate cannot act as the node.",
+        "Given the same node, When it requests a worker certificate for a tenant it holds no assignment for, or a CN prefixed by another node's id, Then the request is refused with 403 and audited.",
+        "Given a TLS cluster, When the agent spawns a worker, Then the worker is started with its own per-worker certificate and key and only the cluster CA file shared from the agent.",
+        "Given a supervised worker whose certificate is due for renewal, When the agent ticks, Then a fresh certificate is issued under the same subject, key written before certificate, and the worker reloads it through its own file watcher."
+      ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
     }

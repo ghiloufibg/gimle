@@ -75,6 +75,50 @@ public final class TlsTestFixtures {
     System.setProperty(CA_FILE_PROPERTY, caFile.toString());
   }
 
+  /**
+   * A leaf certificate paired with an {@link HttpClient} presenting it -- for a caller (like a
+   * revocation test) that needs both the certificate's own serial number and a live connection
+   * using it, not just one or the other.
+   */
+  public record IssuedLeaf(X509Certificate certificate, HttpClient client) {}
+
+  /** Same as {@link #clientWithLeaf}, but also hands back the raw certificate it presents. */
+  public IssuedLeaf issueLeafWithCertificate(CertificateAuthority ca, String commonName)
+      throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+    X509Certificate leaf = ca.signCertificateRequest(csr, Duration.ofDays(1));
+    return issuedLeafOf(commonName, keyPair, leaf, ca);
+  }
+
+  /**
+   * Same as {@link #clientWithGroupLeaf}, but also hands back the raw certificate it presents --
+   * for a revocation test proving a revoked {@code gimle:controlplane} leaf can no longer vouch for
+   * a forwarded principal either.
+   */
+  public IssuedLeaf issueGroupLeafWithCertificate(
+      CertificateAuthority ca, String group, String commonName) throws Exception {
+    KeyPair keyPair = generateRsaKeyPair();
+    PKCS10CertificationRequest csr =
+        CertificateSigningRequests.generate(keyPair, new X500Name("CN=" + commonName));
+    X509Certificate leaf =
+        ca.signCertificateRequest(
+            csr, new X500Name("O=" + group + ",CN=" + commonName), Duration.ofDays(1));
+    return issuedLeafOf(commonName, keyPair, leaf, ca);
+  }
+
+  private IssuedLeaf issuedLeafOf(
+      String commonName, KeyPair keyPair, X509Certificate leaf, CertificateAuthority ca)
+      throws Exception {
+    Path certFile = writePem(commonName + "-cert.pem", "CERTIFICATE", leaf.getEncoded());
+    Path keyFile =
+        writePem(commonName + "-key.pem", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
+    Path caFile = writePem(commonName + "-ca.pem", "CERTIFICATE", ca.certificate().getEncoded());
+    SSLContext sslContext = SslContexts.forMutualTls(new TlsSettings(certFile, keyFile, caFile));
+    return new IssuedLeaf(leaf, HttpClient.newBuilder().sslContext(sslContext).build());
+  }
+
   /** Issues a {@code CN=commonName} leaf signed by {@code ca} and its {@link TlsSettings}. */
   public TlsSettings issueLeaf(CertificateAuthority ca, String commonName) throws Exception {
     KeyPair keyPair = generateRsaKeyPair();
