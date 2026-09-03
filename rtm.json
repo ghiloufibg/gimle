@@ -10858,18 +10858,19 @@
       "module": "gimle-agent",
       "feature": "Bifrost TLS identity-verifying mode with tenant-membership client certificates",
       "category": "Security / Networking",
-      "status": "New",
-      "statusNote": "newly added as part of the proxy-and-vessel-maturity work",
+      "status": "Modified",
+      "statusNote": "originally added as part of the proxy-and-vessel-maturity work; modified so the mode actually has callers: workers present their own per-worker tenant certificates (GIMLE-788) through the new ModuleContext.clientSslContext, and the listener wants rather than demands a client certificate, so anonymous callers reach unrestricted services and are refused only where a policy applies.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this. To close: add a scenario booting a TLS cluster with bifrostTlsEnabled, minting a tenant certificate through the real CSR API, and proving allow/deny through real TLS connections.",
       "sourceLocations": [
         "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceListener.java`",
+        "`gimle-module/src/main/java/com/gimle/module/lifecycle/ModuleContext.java`",
         "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
         "`gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`"
       ],
-      "otherTestCoverage": "`BifrostTlsIdentityTest` (allowed/same-tenant/denied/no-claim callers), `ApiServerAuthzTest` (tenant certificate minting and authorization)"
+      "otherTestCoverage": "`BifrostTlsIdentityTest` (tenant-client allowed/same-tenant/denied/no-claim callers; per-worker certificate callers identified by tenant; anonymous caller reaches an unrestricted service and is refused by a restricted one), `SimpleModuleContextTest` (plaintext clientSslContext empty), `ApiServerAuthzTest` (tenant certificate minting)"
     },
     {
       "id": "GIMLE-628",

@@ -79,9 +79,13 @@ final class ServiceListener implements ServiceRelay {
   /**
    * {@code bindAddress} is either a synthesized per-service loopback ClusterIP (the default) or the
    * wildcard address when {@code BifrostProxy} is exposing services off-node. With {@code
-   * tlsContext} present the listener terminates TLS itself and requires a cluster-CA-signed client
-   * certificate on every connection ({@code needClientAuth}) -- what gives {@link #forward} a
-   * verified caller tenant to enforce a network policy against.
+   * tlsContext} present the listener terminates TLS itself and reads the cluster-CA-signed client
+   * certificate a caller presents ({@code wantClientAuth}: optional at the handshake, so an
+   * anonymous caller still reaches an unrestricted service) -- what gives {@link #forward} a
+   * verified caller tenant to enforce a network policy against. Every worker JVM holds such a
+   * certificate ({@code O=gimle:tenant:<id>}, issued by its agent) and reaches it through {@code
+   * ModuleContext#clientSslContext}; a caller outside the cluster presents a tenant client
+   * certificate instead.
    */
   ServiceListener(
       String serviceName,
@@ -95,7 +99,11 @@ final class ServiceListener implements ServiceRelay {
     if (tlsContext.isPresent()) {
       SSLServerSocket sslServerSocket =
           (SSLServerSocket) tlsContext.get().getServerSocketFactory().createServerSocket();
-      sslServerSocket.setNeedClientAuth(true);
+      // wantClientAuth, not needClientAuth: a caller presenting a cluster-CA-signed certificate
+      // (a worker's own per-worker identity, or a tenant client certificate) is identified by
+      // it; a caller presenting none is still relayed to a service no NetworkPolicy restricts --
+      // exactly what a plaintext ClusterIP offers -- and refused where one does (see #forward).
+      sslServerSocket.setWantClientAuth(true);
       this.serverSocket = sslServerSocket;
     } else {
       this.serverSocket = new ServerSocket();
@@ -248,7 +256,8 @@ final class ServiceListener implements ServiceRelay {
    * who the caller is, so any applicable rule fails the connection closed. A TLS listener completes
    * the handshake, reads the verified client certificate's {@code O=gimle:tenant:<id>} group, and
    * requires every applicable rule's own allow list to permit that tenant -- a caller whose
-   * certificate carries no tenant claim is refused the same way an untenanted fabric caller is.
+   * certificate carries no tenant claim, or who presented no certificate at all, is refused the
+   * same way an untenanted fabric caller is.
    */
   private boolean policyPermits(List<NetworkPolicyRule> rules, Socket inbound) {
     if (!tls) {

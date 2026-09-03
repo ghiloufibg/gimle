@@ -6898,7 +6898,7 @@
       "module": "gimle-agent",
       "category": "Security / Networking",
       "feature": "Bifrost TLS identity-verifying mode with tenant-membership client certificates",
-      "step": "Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused. Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one.",
+      "step": "Given a Service restricted by a NetworkPolicy allowing tenant partner, When a caller presents a cluster-CA-signed certificate carrying O=gimle:tenant:partner, Then the connection is proxied, and a caller with a different or missing tenant claim is refused. Given an operator, When they request a tenant client certificate, Then it is signed synchronously with the server-stamped tenant group, and an unauthenticated caller cannot mint one. Given a Service restricted by a NetworkPolicy allowing tenant partner, When a worker of tenant partner dials it presenting the per-worker certificate its agent issued (via ModuleContext.clientSslContext), Then the connection is proxied; a worker of another tenant, or one whose certificate carries no tenant, is refused. Given the identity-verifying mode, When a caller presenting no client certificate dials a Service no policy restricts, Then it is proxied; dialing a Service a policy restricts, it is refused.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
