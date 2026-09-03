@@ -502,6 +502,12 @@
           "GIMLE-064",
           "GIMLE-068"
         ]
+      },
+      "api-only-no-client": {
+        "note": "A real, tested platform API surface with no CLI subcommand or console screen wired to it yet -- the fleet interacts through real products (CLI, console, raw API calls an operator persona would plausibly make), and nothing in either product surfaces this capability today, so no fleet objective can reach it through anything but a hand-crafted HTTP call. Re-enters scope once a client consumes it.",
+        "ids": [
+          "GIMLE-788"
+        ]
       }
     }
   },
@@ -1118,13 +1124,14 @@
         "fleet"
       ],
       "objective": "Apply a DaemonSet on Midgard, then on Fleet; add a node after the fact; taint one node and set `tolerateAllTaints`.",
-      "oracle": "Exactly one instance per eligible node including the late-joining one; the tainted node is skipped until the toleration is set; console list/detail match `get daemonsets`.",
+      "oracle": "Exactly one instance per eligible node including the late-joining one; the tainted node is skipped until the toleration is set; console list/detail match `get daemonsets`, including the reconciler-published desired (eligible-node) count tracking the placed count as nodes join/taint/untaint.",
       "requirements": [
         "GIMLE-374",
         "GIMLE-218",
         "GIMLE-231",
         "GIMLE-442",
-        "GIMLE-675"
+        "GIMLE-675",
+        "GIMLE-789"
       ]
     },
     {
@@ -2241,12 +2248,13 @@
       "environments": [
         "midgard"
       ],
-      "objective": "Read an instance's event timeline in CLI and console; create an AlertRule on a deployment's error rate pointed at a local webhook; trip and clear it.",
-      "oracle": "The timeline is complete and ordered; the webhook fires once on crossing and once on resolve.",
+      "objective": "Read an instance's event timeline in CLI and console; create an AlertRule on a deployment's error rate pointed at a local webhook; trip and clear it; read its durable firing state via GET /alertrules/{name}/firing before, during, and after.",
+      "oracle": "The timeline is complete and ordered; the webhook fires once on crossing and once on resolve; the firing endpoint reports known=false before the rule ever crosses, known=true/firing=true once it fires, and known=true/firing=false once it resolves -- the same answer regardless of which control-plane replica answers or whether one just restarted.",
       "requirements": [
         "GIMLE-377",
         "GIMLE-753",
-        "GIMLE-711"
+        "GIMLE-711",
+        "GIMLE-790"
       ]
     },
     {

@@ -84,6 +84,7 @@ public sealed interface StoreRpc {
           ListIngresses,
           GetAlertRule,
           ListAlertRules,
+          GetAlertFiringState,
           ListAssignmentsFor,
           IsQuotaViolating,
           IsNodeCordoned,
@@ -107,6 +108,7 @@ public sealed interface StoreRpc {
           ListDaemonSetAssignments,
           ListDaemonSetAssignmentsFor,
           ListRollingDaemonSetNodes,
+          GetDaemonSetDesiredCount,
           GetStatefulSetSpec,
           ListStatefulSetSpecs,
           ListStatefulSetAssignments,
@@ -134,6 +136,7 @@ public sealed interface StoreRpc {
           GetWorkloadHealthState,
           ListWorkloadHealthStates,
           ListInstanceEvents,
+          ListAllInstanceEvents,
           ListAuditEvents,
           GetAuditTrailStatus,
           ListControllerRevisions,
@@ -194,6 +197,7 @@ public sealed interface StoreRpc {
           IngressListResult,
           AlertRuleResult,
           AlertRuleListResult,
+          AlertFiringStateResult,
           AssignmentListResult,
           NodeRegistrationListResult,
           TenantListResult,
@@ -309,6 +313,12 @@ public sealed interface StoreRpc {
 
   record ListAlertRules() implements Request {}
 
+  /**
+   * Empty means the rule has never crossed or resolved yet -- see {@code
+   * StateStore#putAlertFiringState}'s own javadoc for the absent/true/false three-state meaning.
+   */
+  record GetAlertFiringState(Optional<String> tenantId, String name) implements Request {}
+
   record GetLimitRange(String tenantId) implements Request {}
 
   record ListLimitRanges() implements Request {}
@@ -376,6 +386,10 @@ public sealed interface StoreRpc {
   record ListRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName)
       implements Request {}
 
+  /** Empty until the reconciler's first tick -- see {@code StateStore#daemonSetDesiredCounts}. */
+  record GetDaemonSetDesiredCount(Optional<String> tenantId, String daemonSetName)
+      implements Request {}
+
   record GetStatefulSetSpec(Optional<String> tenantId, String name) implements Request {}
 
   record ListStatefulSetSpecs() implements Request {}
@@ -432,6 +446,14 @@ public sealed interface StoreRpc {
   record ListWorkloadHealthStates() implements Request {}
 
   record ListInstanceEvents(Optional<String> tenantId, String deploymentName, int instanceIndex)
+      implements Request {}
+
+  /**
+   * The cluster-wide counterpart to {@link ListInstanceEvents}: every instance's own timeline at
+   * once rather than one, answered by {@link InstanceEventListResult} the same way. See {@code
+   * StateStore#listInstanceEvents(Optional, Optional)}'s own javadoc for the filter semantics.
+   */
+  record ListAllInstanceEvents(Optional<String> tenantId, Optional<Long> since)
       implements Request {}
 
   /**
@@ -626,6 +648,13 @@ public sealed interface StoreRpc {
   record AlertRuleResult(boolean present, AlertRuleSpec value) implements Response {}
 
   record AlertRuleListResult(List<AlertRuleSpec> values) implements Response {}
+
+  /**
+   * {@code present == false} means the rule has never crossed or resolved since it (or a same-named
+   * predecessor) was created -- {@code firing} is meaningless ({@code false}) in that case, the
+   * same "meaningless placeholder" convention {@link IntResult} already uses.
+   */
+  record AlertFiringStateResult(boolean present, boolean firing) implements Response {}
 
   record AssignmentListResult(List<InstanceAssignment> values) implements Response {}
 

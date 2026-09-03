@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -55,6 +56,10 @@ public final class StateStore implements StoreReader {
   private final Map<String, NetworkPolicySpec> networkPolicies = new ConcurrentHashMap<>();
   private final Map<String, IngressSpec> ingresses = new ConcurrentHashMap<>();
   private final Map<String, AlertRuleSpec> alertRules = new ConcurrentHashMap<>();
+  // Durable verdict for whether an AlertRuleSpec is currently firing -- see
+  // putAlertFiringState's own javadoc for the absent/true/false three-state meaning this map
+  // carries.
+  private final Map<String, Boolean> alertFiringState = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
   private final Map<String, JobSpec> jobSpecs = new ConcurrentHashMap<>();
   private final Map<String, JobRun> jobRuns = new ConcurrentHashMap<>();
@@ -78,6 +83,11 @@ public final class StateStore implements StoreReader {
   // rollingIndices above, same "only persist while in flight" shape. Sized by the deployment's own
   // effective maxUnavailable (small, bounded), not by cluster size.
   private final Map<String, Set<String>> rollingDaemonSetNodes = new ConcurrentHashMap<>();
+  // The eligible-node count DaemonSetReconciler computed on its most recent tick -- "desired",
+  // read by the API server's DaemonSet status surface alongside the placed (assignment) count.
+  // Absent until the first tick after the spec was admitted, the same "not yet known" shape
+  // getEffectiveReplicas already uses.
+  private final Map<String, Integer> daemonSetDesiredCounts = new ConcurrentHashMap<>();
   private final Map<String, StatefulSetSpec> statefulSetSpecs = new ConcurrentHashMap<>();
   // Keyed by statefulSetAssignmentKey (statefulSetName#instanceIndex) -- a real per-index key,
   // unlike DaemonSetAssignment's node-keyed one, since a StatefulSet index is a stable identity
@@ -340,7 +350,27 @@ public final class StateStore implements StoreReader {
   }
 
   public void removeAlertRule(Optional<String> tenantId, String name) {
-    alertRules.remove(scopedKey(tenantId, name));
+    String key = scopedKey(tenantId, name);
+    alertRules.remove(key);
+    // Cascades to the rule's own firing verdict -- an equally-named rule created afterward starts
+    // from "never evaluated" rather than inheriting a deleted rule's stale transition, the same
+    // reasoning RemoveRole's own cascade documents for RoleBinding.
+    alertFiringState.remove(key);
+  }
+
+  /**
+   * Whether {@code name} is currently firing, replicated through Raft so every control-plane
+   * replica reports the same verdict and a replica restart never resets it -- what moved this out
+   * of {@code AlertReconciler}'s own process. Absent means the rule has never crossed or resolved
+   * since it (or a same-named predecessor) was created; an explicit {@code false} means a real,
+   * previously-observed resolution, a genuinely different fact from "never evaluated yet."
+   */
+  public void putAlertFiringState(Optional<String> tenantId, String name, boolean firing) {
+    alertFiringState.put(scopedKey(tenantId, name), firing);
+  }
+
+  public Optional<Boolean> getAlertFiringState(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(alertFiringState.get(scopedKey(tenantId, name)));
   }
 
   // ---- assignments ----
@@ -503,6 +533,7 @@ public final class StateStore implements StoreReader {
   public void removeDaemonSetSpec(Optional<String> tenantId, String name) {
     daemonSetSpecs.remove(scopedKey(tenantId, name));
     clearAllRollingDaemonSetNodes(tenantId, name);
+    daemonSetDesiredCounts.remove(scopedKey(tenantId, name));
     controllerRevisions.remove(ControllerRevision.revisionKey("DaemonSet", tenantId, name));
     clearInstanceEventsFor(tenantId, name);
   }
@@ -568,6 +599,25 @@ public final class StateStore implements StoreReader {
   private void clearAllRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName) {
     Set.copyOf(rollingDaemonSetNodes.getOrDefault(scopedKey(tenantId, daemonSetName), Set.of()))
         .forEach(nodeId -> removeRollingDaemonSetNode(tenantId, daemonSetName, nodeId));
+  }
+
+  // ---- daemonset desired-count bookkeeping ----
+
+  /**
+   * Set by {@code DaemonSetReconciler} every tick to the count of nodes it found eligible via
+   * {@code Scheduler#eligibleNodes} -- the DaemonSet analogue of {@link DeploymentSpec#replicas()},
+   * recomputed rather than read off the spec since a DaemonSet's desired count depends on live node
+   * state.
+   */
+  public void putDaemonSetDesiredCount(
+      Optional<String> tenantId, String daemonSetName, int desiredCount) {
+    daemonSetDesiredCounts.put(scopedKey(tenantId, daemonSetName), desiredCount);
+  }
+
+  /** Empty until the reconciler's first tick for this daemonset. */
+  public Optional<Integer> getDaemonSetDesiredCount(
+      Optional<String> tenantId, String daemonSetName) {
+    return Optional.ofNullable(daemonSetDesiredCounts.get(scopedKey(tenantId, daemonSetName)));
   }
 
   // ---- statefulsets ----
@@ -1255,6 +1305,44 @@ public final class StateStore implements StoreReader {
     return List.copyOf(reversed);
   }
 
+  /**
+   * Cluster-wide, newest-first across every instance's own timeline at once -- the read side of
+   * {@link #putInstanceEvent} un-scoped to one instance, for "what has this cluster been doing"
+   * rather than one instance's own history. An absent {@code tenantId} matches every tenant's
+   * timelines (the untenanted namespace included); a present one narrows to exactly that tenant's
+   * own timelines, the same scoping {@link #instanceEventsKey} already keys them under -- unlike
+   * {@link #listInstanceEvents(Optional, String, int)}'s own single-instance convention, where an
+   * absent tenant addresses the untenanted namespace specifically rather than everything. An absent
+   * {@code since} matches every retained event; a present one is an inclusive lower bound, the same
+   * filter-after-retrieve shape {@link #listAuditEvents} already uses. Ties in {@code
+   * occurredAtEpochMilli} break on {@code id} so the merged order is fully deterministic regardless
+   * of the per-instance maps' own iteration order -- required for cursor pagination to see a stable
+   * sequence across repeated calls.
+   */
+  public List<InstanceEvent> listInstanceEvents(Optional<String> tenantId, Optional<Long> since) {
+    List<InstanceEvent> matching = new ArrayList<>();
+    for (Map.Entry<String, List<InstanceEvent>> entry : instanceEvents.entrySet()) {
+      if (tenantId.isPresent()
+          && !tenantId.get().equals(tenantOfInstanceEventsKey(entry.getKey()))) {
+        continue;
+      }
+      matching.addAll(entry.getValue());
+    }
+    return matching.stream()
+        .filter(e -> since.isEmpty() || e.occurredAtEpochMilli() >= since.get())
+        .sorted(
+            Comparator.comparingLong(InstanceEvent::occurredAtEpochMilli)
+                .reversed()
+                .thenComparing(InstanceEvent::id))
+        .toList();
+  }
+
+  /** The tenant segment {@link #scopedKey} prepends to an {@link #instanceEventsKey}. */
+  private static String tenantOfInstanceEventsKey(String key) {
+    int separator = key.indexOf('\0');
+    return separator < 0 ? "" : key.substring(0, separator);
+  }
+
   // ---- cross-resource audit trail ----
 
   /**
@@ -1584,7 +1672,9 @@ public final class StateStore implements StoreReader {
         Map.copyOf(sessionRevokedBeforeEpochMilli),
         List.copyOf(alertRules.values()),
         Map.copyOf(deploymentLastScale),
-        List.copyOf(ingresses.values()));
+        List.copyOf(ingresses.values()),
+        Map.copyOf(daemonSetDesiredCounts),
+        Map.copyOf(alertFiringState));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1641,6 +1731,7 @@ public final class StateStore implements StoreReader {
     daemonSetAssignments.clear();
     daemonSetSpecs.clear();
     rollingDaemonSetNodes.clear();
+    daemonSetDesiredCounts.clear();
     statefulSetAssignments.clear();
     statefulSetSpecs.clear();
     statefulSetIndexNodes.clear();
@@ -1665,6 +1756,7 @@ public final class StateStore implements StoreReader {
     deploymentLastScale.clear();
     kindDefinitions.clear();
     customResources.clear();
+    alertFiringState.clear();
     clearAllInstanceEvents();
     clearAllAuditEvents();
     clearAllControllerRevisions();
@@ -1748,6 +1840,7 @@ public final class StateStore implements StoreReader {
     snapshot.networkPolicies().forEach(this::putNetworkPolicy);
     snapshot.ingresses().forEach(this::putIngress);
     snapshot.alertRules().forEach(this::putAlertRule);
+    snapshot.alertFiringState().forEach(alertFiringState::put);
     // Oldest-first, matching how putControllerRevision's own pruning expects to see them -- same
     // reasoning as the instanceEvents/auditEvents replay just above.
     snapshot.controllerRevisions().forEach(this::putControllerRevision);
@@ -1767,6 +1860,9 @@ public final class StateStore implements StoreReader {
                 customResources.put(
                     customResourceKey(resource.kindName(), resource.tenantId(), resource.name()),
                     resource));
+    snapshot
+        .daemonSetDesiredCounts()
+        .forEach((key, count) -> daemonSetDesiredCounts.put(key, count));
   }
 
   /**

@@ -74,6 +74,13 @@ public interface StoreReader {
 
   List<AlertRuleSpec> listAlertRules();
 
+  /**
+   * Empty means the rule has never crossed or resolved since it (or a same-named predecessor) was
+   * created -- see {@code StateStore#putAlertFiringState}'s own javadoc for the full three-state
+   * meaning.
+   */
+  Optional<Boolean> getAlertFiringState(Optional<String> tenantId, String name);
+
   List<InstanceAssignment> listAssignmentsFor(Optional<String> tenantId, String deploymentName);
 
   boolean isQuotaViolating(Optional<String> tenantId, String deploymentName);
@@ -130,6 +137,12 @@ public interface StoreReader {
       Optional<String> tenantId, String daemonSetName);
 
   Set<String> getRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName);
+
+  /**
+   * Empty until the reconciler's first tick for this daemonset -- see {@code
+   * StateStore#daemonSetDesiredCounts}'s own field javadoc.
+   */
+  Optional<Integer> getDaemonSetDesiredCount(Optional<String> tenantId, String daemonSetName);
 
   Optional<StatefulSetSpec> getStatefulSetSpec(Optional<String> tenantId, String name);
 
@@ -191,6 +204,12 @@ public interface StoreReader {
 
   List<InstanceEvent> listInstanceEvents(
       Optional<String> tenantId, String deploymentName, int instanceIndex);
+
+  /**
+   * Cluster-wide, newest-first, across every instance's own timeline at once -- see {@code
+   * StateStore#listInstanceEvents(Optional, Optional)}'s own javadoc for the filter semantics.
+   */
+  List<InstanceEvent> listInstanceEvents(Optional<String> tenantId, Optional<Long> since);
 
   List<AuditEvent> listAuditEvents(
       Optional<String> principal,

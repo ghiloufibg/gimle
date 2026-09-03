@@ -48,4 +48,18 @@ public final class AlertRuleRegistry {
   public void remove(Optional<String> tenantId, String name) {
     mutations.propose(new StateMutation.RemoveAlertRule(tenantId, name));
   }
+
+  /**
+   * Empty means the rule has never crossed or resolved since it (or a same-named predecessor) was
+   * created -- see {@code StateStore#putAlertFiringState}'s own javadoc for the full three-state
+   * meaning this durable read carries.
+   */
+  public Optional<Boolean> getFiringState(Optional<String> tenantId, String name) {
+    return store.getAlertFiringState(tenantId, name);
+  }
+
+  /** Proposed by {@code AlertReconciler} only on an actual crossed/resolved transition. */
+  public void putFiringState(Optional<String> tenantId, String name, boolean firing) {
+    mutations.propose(new StateMutation.PutAlertFiringState(tenantId, name, firing));
+  }
 }

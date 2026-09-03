@@ -280,6 +280,13 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.AlertRuleListResult) sendRead(new StoreRpc.ListAlertRules())).values();
   }
 
+  public Optional<Boolean> getAlertFiringState(Optional<String> tenantId, String name) {
+    StoreRpc.AlertFiringStateResult r =
+        (StoreRpc.AlertFiringStateResult)
+            sendRead(new StoreRpc.GetAlertFiringState(tenantId, name));
+    return r.present() ? Optional.of(r.firing()) : Optional.empty();
+  }
+
   public Optional<LimitRangeSpec> getLimitRange(String tenantId) {
     StoreRpc.LimitRangeResult r =
         (StoreRpc.LimitRangeResult) sendRead(new StoreRpc.GetLimitRange(tenantId));
@@ -471,6 +478,14 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
             .values());
   }
 
+  public Optional<Integer> getDaemonSetDesiredCount(
+      Optional<String> tenantId, String daemonSetName) {
+    StoreRpc.IntResult r =
+        (StoreRpc.IntResult)
+            sendRead(new StoreRpc.GetDaemonSetDesiredCount(tenantId, daemonSetName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
   public Optional<StatefulSetSpec> getStatefulSetSpec(Optional<String> tenantId, String name) {
     StoreRpc.StatefulSetSpecResult r =
         (StoreRpc.StatefulSetSpecResult) sendRead(new StoreRpc.GetStatefulSetSpec(tenantId, name));
@@ -646,6 +661,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
       Optional<String> tenantId, String deploymentName, int instanceIndex) {
     return ((StoreRpc.InstanceEventListResult)
             sendRead(new StoreRpc.ListInstanceEvents(tenantId, deploymentName, instanceIndex)))
+        .values();
+  }
+
+  public List<InstanceEvent> listInstanceEvents(Optional<String> tenantId, Optional<Long> since) {
+    return ((StoreRpc.InstanceEventListResult)
+            sendRead(new StoreRpc.ListAllInstanceEvents(tenantId, since)))
         .values();
   }
 

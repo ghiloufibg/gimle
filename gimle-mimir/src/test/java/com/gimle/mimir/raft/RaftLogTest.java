@@ -73,7 +73,10 @@ class RaftLogTest {
         List.of(), // workloadHealthStates
         Map.of(), // sessionRevokedBeforeEpochMilli
         List.of(), // alertRules
-        Map.of(), List.of()); // deploymentLastScale
+        Map.of(), // deploymentLastScale
+        List.of(), // ingresses
+        Map.of(), // daemonSetDesiredCounts
+        Map.of()); // alertFiringState
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -125,7 +128,9 @@ class RaftLogTest {
         base.sessionRevokedBeforeEpochMilli(),
         base.alertRules(),
         base.deploymentLastScale(),
-        List.of());
+        base.ingresses(),
+        base.daemonSetDesiredCounts(),
+        base.alertFiringState());
   }
 
   @Test

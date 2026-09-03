@@ -602,4 +602,118 @@ class DaemonSetReconcilerTest {
         store.listDaemonSetAssignmentsFor(Optional.empty(), "node-exporter").size(),
         "a permanently-failed node's stale assignment is left in place, not torn down");
   }
+
+  // ---- desired-count publication (GIMLE-15 sub-item 2) ----
+
+  @Test
+  void desired_count_is_zero_when_no_node_is_eligible() {
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+
+    new DaemonSetReconciler(store, scheduler).reconcileOnce();
+
+    assertEquals(Optional.of(0), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+  }
+
+  @Test
+  void desired_count_equals_the_full_eligible_node_set_when_every_node_qualifies() {
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    registerNode(store, "node-c");
+
+    new DaemonSetReconciler(store, scheduler).reconcileOnce();
+
+    assertEquals(Optional.of(3), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+  }
+
+  @Test
+  void desired_count_tracks_required_labels_the_same_way_placement_does() {
+    // The desired count is derived from the identical eligibility filter that already restricts
+    // placement -- required labels must narrow both the same way.
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(
+        daemonSet("gpu-agent", jar, new PlacementConstraints(Optional.of(Set.of("gpu")), false)));
+    registerNode(store, "node-gpu", Set.of("gpu"));
+    registerNode(store, "node-plain", Set.of());
+
+    new DaemonSetReconciler(store, scheduler).reconcileOnce();
+
+    assertEquals(Optional.of(1), store.getDaemonSetDesiredCount(Optional.empty(), "gpu-agent"));
+  }
+
+  @Test
+  void desired_count_drops_when_a_node_becomes_ineligible_and_recovers_once_it_is_eligible_again() {
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    registerNode(store, "node-b");
+    DaemonSetReconciler reconciler = new DaemonSetReconciler(store, scheduler);
+    reconciler.reconcileOnce();
+    assertEquals(Optional.of(2), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+
+    store.putNodeCordon("node-a", true);
+    reconciler.reconcileOnce();
+    assertEquals(
+        Optional.of(1),
+        store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
+        "a cordoned node must drop out of the desired count on the very next tick");
+
+    store.putNodeCordon("node-a", false);
+    reconciler.reconcileOnce();
+    assertEquals(
+        Optional.of(2),
+        store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
+        "an uncordoned node must count toward desired again once it's eligible");
+  }
+
+  @Test
+  void an_arbitrary_starting_snapshot_still_converges_the_desired_count_with_no_prior_history() {
+    // Level-triggered convergence: a reconciler with no history of its own, started from a
+    // snapshot that never recorded a desired count at all, must still compute and publish the
+    // correct value on its very first tick.
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    DaemonSetSpec spec = daemonSet("node-exporter", jar, PlacementConstraints.NONE);
+    store.putDaemonSetSpec(spec);
+    registerNode(store, "node-stale");
+    registerNode(store, "node-fresh");
+    store.putNodeCordon("node-stale", true);
+    store.putDaemonSetAssignment(
+        new DaemonSetAssignment(
+            "node-exporter", "node-stale", spec.moduleId(), spec.artifactPath()));
+    assertTrue(store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter").isEmpty());
+
+    new DaemonSetReconciler(store, scheduler).reconcileOnce();
+
+    assertEquals(
+        Optional.of(1),
+        store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"),
+        "only node-fresh is eligible; the cordoned node-stale must not count toward desired");
+  }
+
+  @Test
+  void deleting_a_daemonset_clears_its_stale_desired_count() {
+    StateStore store = new StateStore();
+    Scheduler scheduler = new Scheduler();
+    Path jar = buildFixtureJar();
+    store.putDaemonSetSpec(daemonSet("node-exporter", jar, PlacementConstraints.NONE));
+    registerNode(store, "node-a");
+    new DaemonSetReconciler(store, scheduler).reconcileOnce();
+    assertEquals(Optional.of(1), store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter"));
+
+    store.removeDaemonSetSpec(Optional.empty(), "node-exporter");
+
+    assertTrue(store.getDaemonSetDesiredCount(Optional.empty(), "node-exporter").isEmpty());
+  }
 }

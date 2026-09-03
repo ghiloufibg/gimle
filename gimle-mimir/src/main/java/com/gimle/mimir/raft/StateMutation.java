@@ -196,6 +196,21 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
+  /**
+   * Proposed by {@code AlertReconciler} only on an actual crossed/resolved transition, never on
+   * every tick a rule's condition merely continues to hold or not hold -- see {@code
+   * StateStore#putAlertFiringState}'s own javadoc for why this state moved out of the reconciler's
+   * own process.
+   */
+  record PutAlertFiringState(Optional<String> tenantId, String name, boolean firing)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putAlertFiringState(tenantId, name, firing);
+      return MutationOutcome.accepted();
+    }
+  }
+
   record PutAssignment(InstanceAssignment assignment) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {
@@ -340,6 +355,20 @@ public sealed interface StateMutation extends RaftLogPayload {
     @Override
     public MutationOutcome applyTo(StateStore store) {
       store.removeRollingDaemonSetNode(tenantId, daemonSetName, nodeId);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
+   * The count of nodes {@code DaemonSetReconciler} found eligible on its most recent tick --
+   * "desired", the same quantity {@code DeploymentSpec#replicas()} is for a Deployment, but
+   * recomputed from live node state each tick rather than read off the spec.
+   */
+  record PutDaemonSetDesiredCount(Optional<String> tenantId, String daemonSetName, int desiredCount)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putDaemonSetDesiredCount(tenantId, daemonSetName, desiredCount);
       return MutationOutcome.accepted();
     }
   }
