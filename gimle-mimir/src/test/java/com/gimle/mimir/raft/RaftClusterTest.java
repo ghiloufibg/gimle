@@ -532,4 +532,132 @@ class RaftClusterTest {
     ClusterNode survivor = followers.get(2);
     Await.until(() -> survivor.store().getTenant("shrunk").isPresent(), Duration.ofSeconds(5));
   }
+
+  /**
+   * Retries {@code leader.removeServer(peerId)} against whichever node currently believes itself
+   * leader (leadership can move between retries, in particular right after {@link #addNewNode}'s
+   * own learner promotion), tolerating {@link GimleRaftException} the same way {@link #addNewNode}
+   * already does for its own transient {@code membershipChangeInFlight} window.
+   */
+  private static void removeServerWithRetry(
+      List<ClusterNode> candidateLeaders, String peerId, Duration timeout)
+      throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + timeout.toNanos();
+    GimleRaftException last = null;
+    while (System.nanoTime() < deadlineNanos) {
+      ClusterNode currentLeader =
+          candidateLeaders.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElse(null);
+      if (currentLeader == null) {
+        Thread.sleep(20);
+        continue;
+      }
+      try {
+        currentLeader.raftNode().removeServer(peerId);
+        return;
+      } catch (GimleRaftException e) {
+        last = e;
+        Thread.sleep(20);
+      }
+    }
+    throw last;
+  }
+
+  @Test
+  @Timeout(30)
+  void growing_to_four_then_removing_an_original_voter_converges_back_to_three_and_stays_healthy()
+      throws Exception {
+    List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
+    ClusterNode leader = awaitLeader(cluster);
+    ClusterNode fourth = addNewNode(leader);
+
+    // Real work against the grown, 4-voter cluster before touching membership again.
+    leader
+        .raftNode()
+        .propose(new StateMutation.PutTenant(new Tenant("grown", new ResourceQuota(1, 1, 1))));
+    Await.until(
+        () ->
+            cluster.stream().allMatch(c -> c.store().getTenant("grown").isPresent())
+                && fourth.store().getTenant("grown").isPresent(),
+        Duration.ofSeconds(10));
+
+    // Remove an ORIGINAL voter -- one of the three bootstrap nodes, never the just-added fourth --
+    // the exact case M45 found broken end to end: a live cluster could grow past three voters but
+    // never shrink back down by removing one of its original members, only by reverting the
+    // addition (removing the peer it had itself just added).
+    ClusterNode originalToRemove =
+        cluster.stream().filter(c -> c != leader).findFirst().orElseThrow();
+    List<ClusterNode> everyNode = new ArrayList<>(cluster);
+    everyNode.add(fourth);
+    removeServerWithRetry(everyNode, originalToRemove.id(), Duration.ofSeconds(10));
+
+    List<ClusterNode> survivors = everyNode.stream().filter(c -> c != originalToRemove).toList();
+    assertEquals(3, survivors.size());
+
+    // Back to a healthy 3-voter cluster: a write from whichever node now leads must still reach
+    // every surviving replica, including the one that was added live.
+    ClusterNode postRemovalLeader = awaitLeader(survivors);
+    postRemovalLeader
+        .raftNode()
+        .propose(
+            new StateMutation.PutTenant(new Tenant("shrunk-to-three", new ResourceQuota(2, 2, 2))));
+    Await.until(
+        () -> survivors.stream().allMatch(c -> c.store().getTenant("shrunk-to-three").isPresent()),
+        Duration.ofSeconds(10));
+  }
+
+  @Test
+  @Timeout(30)
+  void adding_a_voter_doing_real_work_removing_an_original_then_killing_the_leader_stays_healthy()
+      throws Exception {
+    // The M39-relevant regression: M45's inability to shrink a grown cluster back down was a
+    // direct contributing cause of a real 4-voter incident that also involved leader loss -- this
+    // exercises the whole sequence (grow, real work, shrink back down by removing an *original*
+    // voter, then a leader kill) end to end, confirming 3-voter quorum both converges and survives
+    // losing its own leader, not just that the removal call itself succeeds in isolation.
+    List<ClusterNode> cluster = buildCluster(3, Set.of(0, 1, 2));
+    ClusterNode firstLeader = awaitLeader(cluster);
+    ClusterNode fourth = addNewNode(firstLeader);
+
+    firstLeader
+        .raftNode()
+        .propose(
+            new StateMutation.PutTenant(new Tenant("before-shrink", new ResourceQuota(1, 1, 1))));
+    Await.until(
+        () ->
+            cluster.stream().allMatch(c -> c.store().getTenant("before-shrink").isPresent())
+                && fourth.store().getTenant("before-shrink").isPresent(),
+        Duration.ofSeconds(10));
+
+    List<ClusterNode> everyNode = new ArrayList<>(cluster);
+    everyNode.add(fourth);
+    ClusterNode currentLeader =
+        everyNode.stream().filter(c -> c.raftNode().isLeader()).findFirst().orElseThrow();
+    ClusterNode originalToRemove =
+        cluster.stream().filter(c -> c != currentLeader).findFirst().orElseThrow();
+    removeServerWithRetry(everyNode, originalToRemove.id(), Duration.ofSeconds(10));
+
+    List<ClusterNode> threeVoters = everyNode.stream().filter(c -> c != originalToRemove).toList();
+    ClusterNode leaderOfThree = awaitLeader(threeVoters);
+
+    // Kill the current leader of the now-3-voter cluster -- majority of the remaining 2 is 2, so
+    // this proves quorum math genuinely shrank to 3 (not a stale 4-member view under which a
+    // 2-node majority would never suffice) and that the cluster recovers a *new* leader, not just
+    // that the one existing leader happened to still be up.
+    leaderOfThree.transport().close();
+    leaderOfThree.raftNode().close();
+    List<ClusterNode> twoSurvivors = threeVoters.stream().filter(c -> c != leaderOfThree).toList();
+    ClusterNode newLeader = awaitLeader(twoSurvivors);
+    assertNotEquals(leaderOfThree.id(), newLeader.id());
+
+    newLeader
+        .raftNode()
+        .propose(
+            new StateMutation.PutTenant(
+                new Tenant("after-leader-kill", new ResourceQuota(3, 3, 3))));
+    Await.until(
+        () ->
+            twoSurvivors.stream()
+                .allMatch(c -> c.store().getTenant("after-leader-kill").isPresent()),
+        Duration.ofSeconds(10));
+  }
 }

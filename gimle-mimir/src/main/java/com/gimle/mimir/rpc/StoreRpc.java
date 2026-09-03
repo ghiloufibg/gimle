@@ -535,11 +535,18 @@ public sealed interface StoreRpc {
   record NotLeader(String leaderClientAddress) implements Response {}
 
   /**
-   * {@link Propose} rejected a {@link StateMutation.PutDeployment}/{@link
-   * StateMutation.RemoveDeployment}'s own generation precondition -- deliberately not folded into
-   * {@link NotLeader}: retrying against the correct leader would just reject identically, unlike a
-   * genuine not-leader redirect, which retrying elsewhere resolves. {@code StoreClient} surfaces
-   * this as a real, expected {@code MutationOutcome.Rejected} value, not an exception.
+   * A leader-evaluated, deterministic rejection -- deliberately not folded into {@link NotLeader}:
+   * retrying against the correct leader would just reject identically, unlike a genuine not-leader
+   * redirect, which retrying elsewhere resolves. Covers two distinct call sites, each surfacing
+   * this differently on the client: {@link Propose} rejecting a {@link
+   * StateMutation.PutDeployment}/ {@link StateMutation.RemoveDeployment}'s own generation
+   * precondition ({@code StoreClient} surfaces this as a real, expected {@code
+   * MutationOutcome.Rejected} value, not an exception), and {@link AddServer}/{@link RemoveServer}
+   * rejecting an already-a-member/not-a-member/ change-still-in-flight request from a node that
+   * genuinely is the current leader ({@code StoreClient} throws {@code
+   * GimleRaftException#membershipChangeRejected} carrying {@code reason} verbatim) -- as opposed to
+   * a node that answers this way because it merely isn't the leader, which still gets a real {@link
+   * NotLeader} redirect.
    */
   record MutationRejected(String reason) implements Response {}
 

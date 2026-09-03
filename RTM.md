@@ -160,7 +160,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-143 | Chunked InstallSnapshot Transfer (Figure 13) | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
 | GIMLE-144 | Local Log Compaction / Snapshotting | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
 | GIMLE-145 | Check-Quorum Leader Self-Demotion | Modified | Covered | `partition-tolerance.feature` — "A store leader silently partitioned from its peers steps down and writes stay bounded" |
-| GIMLE-146 | Etcd-Style Live Membership Change (AddServer/RemoveServer) | Active | Covered | `membership-change.feature` — "A fourth store joins and then leaves, one server at a time" |
+| GIMLE-146 | Etcd-Style Live Membership Change (AddServer/RemoveServer) | Modified | Covered | `membership-change.feature` — "A fourth store joins and then leaves, one server at a time" |
 | GIMLE-147 | Non-Voting Learner & Automatic Promotion | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
 | GIMLE-148 | Durable Raft Log Persistence | Active | Covered | `raft-resilience.feature` — "A store member dies mid-workload and nothing acknowledged is lost"; `raft-resilience.feature` — "The store leader dies mid-workload and nothing acknowledged is lost" |
 | GIMLE-149 | Raft Transport over Mutual TLS with Hot Cert Reload | Active | Covered | `mtls.feature` — "The cluster functions end to end over mutual TLS"; `mtls.feature` — "The audit trail records and filters real authorization decisions over mutual TLS" |
@@ -410,7 +410,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-393 | Cluster teardown and status reporting (`hilmir down`/`status`) | Active | Not Covered | — |
 | GIMLE-394 | Cluster TLS/PKI bootstrap (`hilmir pki init`) | Active | Not Covered | — |
 | GIMLE-395 | Raft store membership add (`hilmir store add`) | Active | Not Covered | — |
-| GIMLE-396 | Raft store membership remove (`hilmir store remove`) | Active | Not Covered | — |
+| GIMLE-396 | Raft store membership remove (`hilmir store remove`) | Modified | Not Covered | — |
 | GIMLE-397 | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Modified | Not Covered | — |
 | GIMLE-398 | Bundle-based fresh release deployment (`hilmir deploy`) | Active | Not Covered | — |
 | GIMLE-399 | Bundle upgrade with automatic resource pruning (`hilmir upgrade`) | Active | Not Covered | — |
@@ -2664,13 +2664,13 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-146 — Etcd-Style Live Membership Change (AddServer/RemoveServer)
 
 - **Category**: Raft Consensus
-- **Status**: Active
+- **Status**: Modified  _(M45 fix: `RemoveServer`/`AddServer` never once succeeded against an original member, only against a peer just added -- see requirements-matrix.json's own statusDetail for the full root cause (a `StoreNode` response-mapping bug, not a Raft consensus defect) and fix.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/membership-change.feature` — Scenario: *A fourth store joins and then leaves, one server at a time*
   - _Why this counts_: Drives a real AddServer then RemoveServer against a live 3-node store cluster via the topology's own bring-up path, asserting member count and continued write acceptance at each step.
-- **Other test coverage (non-Holmgang, informational only)**: `RaftMembershipChangeTest#adding_a_server_joins_it_and_a_subsequent_mutation_still_commits`, `#a_second_membership_change_is_rejected_while_an_earlier_one_is_still_uncommitted`, `#removing_a_server_drops_it_from_the_peer_set_and_the_lone_remaining_node_still_commits`, `RaftClusterTest#a_three_node_cluster_grows_to_five_live_and_writes_continue_succeeding`
-- **Source location(s)**: `RaftNode#addServer`, `#removeServer`, `#appendMembershipChangeLocked`, `#reconfigurePeersLocked`, `MembershipChange`
+- **Other test coverage (non-Holmgang, informational only)**: `RaftMembershipChangeTest#adding_a_server_joins_it_and_a_subsequent_mutation_still_commits`, `#a_second_membership_change_is_rejected_while_an_earlier_one_is_still_uncommitted`, `#removing_a_server_drops_it_from_the_peer_set_and_the_lone_remaining_node_still_commits`, `RaftClusterTest#a_three_node_cluster_grows_to_five_live_and_writes_continue_succeeding`, `#growing_to_four_then_removing_an_original_voter_converges_back_to_three_and_stays_healthy`, `#adding_a_voter_doing_real_work_removing_an_original_then_killing_the_leader_stays_healthy`; `StoreClientMembershipChangeTest#a_deterministic_rejection_from_the_real_leader_reports_its_real_reason_not_unreachable`, `#grows_to_four_then_removes_an_original_peer_through_the_real_client_and_protocol`
+- **Source location(s)**: `RaftNode#addServer`, `#removeServer`, `#appendMembershipChangeLocked`, `#reconfigurePeersLocked`, `MembershipChange`, `StoreNode#handleAddServer`/`#handleRemoveServer`, `StoreClient#addServer`/`#removeServer`/`#throwIfRejected`, `GimleRaftException#membershipChangeRejected`
 
 #### GIMLE-147 — Non-Voting Learner & Automatic Promotion
 
@@ -6280,11 +6280,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-396 — Raft store membership remove (`hilmir store remove`)
 
 - **Category**: Release Management
-- **Status**: Active
+- **Status**: Modified  _(M45 fix: this command never once succeeded against an original store replica, only against a peer it had itself just added -- see GIMLE-146's own statusNote/requirements-matrix.json statusDetail for the underlying `gimle-mimir` root cause and fix.)_
 - **Coverage**: Not Covered
-- **Gap note**: No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Raft store membership remove (`hilmir store remove`)".
-- **Other test coverage (non-Holmgang, informational only)**: `StoreCommandsClusterTest.remove_drops_a_previously_added_peer_from_the_membership`, `remove_of_a_never_added_peer_fails_fast_with_a_clean_error`
-- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/store/StoreRemoveCommand.java`
+- **Gap note**: No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Raft store membership remove (`hilmir store remove`)". Separately, the closest existing Holmgang scenario (`membership-change.feature`, under GIMLE-146) only ever removes the peer just added, never an original one -- exactly the case M45 found broken.
+- **Other test coverage (non-Holmgang, informational only)**: `StoreCommandsClusterTest.remove_drops_a_previously_added_peer_from_the_membership`, `remove_of_a_never_added_peer_fails_fast_with_a_clean_error`; `StoreClientMembershipChangeTest#grows_to_four_then_removes_an_original_peer_through_the_real_client_and_protocol` (the same `StoreClient#removeServer` this command calls, removing an ORIGINAL member from a live-grown cluster) and `#a_deterministic_rejection_from_the_real_leader_reports_its_real_reason_not_unreachable`
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/store/StoreRemoveCommand.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java` (`handleRemoveServer`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java` (`removeServer`)
 
 #### GIMLE-397 — Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)
 
@@ -8751,7 +8751,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-392 | gimle-hilmir | Real multi-process cluster bring-up (`hilmir up`) | Release Management | `MachineLauncherIntegrationTest.up_waits_on_a_remote_prerequisite_then_down_and_status_reflect_the_real_processes`; `HilmirMainTest.up_requires_the_machine_flag`, `up_aborts_with_findings_before_launching_anything_when_the_topology_has_an_error`; `BootOrderTest` |
 | GIMLE-393 | gimle-hilmir | Cluster teardown and status reporting (`hilmir down`/`status`) | Release Management | `MachineLauncherIntegrationTest.down_is_a_clean_no_op_for_an_already_dead_recorded_pid`, `status_reports_a_dead_pid_as_not_alive_and_a_never_bound_address_as_closed`; `HilmirCliDownStatusEndToEndTest`; `HilmirMainTest` (multiple) |
 | GIMLE-395 | gimle-hilmir | Raft store membership add (`hilmir store add`) | Release Management | `StoreCommandsClusterTest.add_joins_a_real_peer_and_it_becomes_a_visible_cluster_member`; `HilmirMainTest` (positional args, one-of-topology/server); `StoreEndpointsTest` |
-| GIMLE-396 | gimle-hilmir | Raft store membership remove (`hilmir store remove`) | Release Management | `StoreCommandsClusterTest.remove_drops_a_previously_added_peer_from_the_membership`, `remove_of_a_never_added_peer_fails_fast_with_a_clean_error` |
+| GIMLE-396 | gimle-hilmir | Raft store membership remove (`hilmir store remove`) | Release Management | `StoreCommandsClusterTest.remove_drops_a_previously_added_peer_from_the_membership`, `remove_of_a_never_added_peer_fails_fast_with_a_clean_error`; `StoreClientMembershipChangeTest#grows_to_four_then_removes_an_original_peer_through_the_real_client_and_protocol` (the same `StoreClient#removeServer` this command calls, removing an ORIGINAL member from a live-grown cluster) and `#a_deterministic_rejection_from_the_real_leader_reports_its_real_reason_not_unreachable` |
 | GIMLE-397 | gimle-hilmir | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Release Management | `UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple, incl. `#a_store_whose_port_is_open_but_serves_nothing_is_not_accepted_as_a_restored_cluster`) |
 | GIMLE-398 | gimle-hilmir | Bundle-based fresh release deployment (`hilmir deploy`) | Release Management | `DeployCommandTest` (multiple, incl. dry-run, unresolved value ref, json output, wait); `HilmirMainTest.deploy_requires_the_file_flag` |
 | GIMLE-399 | gimle-hilmir | Bundle upgrade with automatic resource pruning (`hilmir upgrade`) | Release Management | `UpgradeCommandTest` (prunes workload, requires existing release, dry-run computes prune with no mutating call) |
