@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 787,
+  "requirementCount": 788,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15950,6 +15950,30 @@
         "Then it reads Progressing and OutOfSync, naming both generations",
         "Given a control plane whose consoleAddons property does not name this addon",
         "Then the sidebar carries no Applications entry and its route explains which property would enable it"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-788",
+      "module": "gimle-controlplane",
+      "feature": "Cluster-wide instance lifecycle event read",
+      "category": "Observability",
+      "userStory": "As an operator watching a rollout, I want to ask what the whole cluster's instances have been doing recently, not just one instance I already know to look at.",
+      "statusDetail": "GET /events required both `deployment` and `instance` query params and 400'd without them, and the store behind it (`StateStore#listInstanceEvents`) was keyed strictly per-instance -- there was no way to read \"what changed recently\" across the cluster, only one already-known instance's own timeline. GET /events now has a second mode: when neither `deployment` nor `instance` is given, it reads every instance's own lifecycle timeline merged newest-first, paginated with the exact `since`/`limit`/`cursor` idiom `GET /audit` already established (`InstanceEventPage`/`InstanceEventCursor`, mirroring `AuditPage`/`AuditCursor` rather than sharing code with them, so the two endpoints' pagination can evolve independently). Supplying only one of `deployment`/`instance` is still rejected with 400, never silently reinterpreted as the cluster-wide mode. `StateStore` gained a new overload, `listInstanceEvents(Optional<String> tenantId, Optional<Long> since)`, scanning every per-instance timeline, filtering by an exact tenant match when `tenant` is given (matching every tenant, untenanted namespace included, when it is omitted -- a deliberate divergence from the single-instance mode's own \"omitted tenant addresses the untenanted namespace\" convention, since a cluster-wide read has no one instance key for an absent tenant to resolve to), and breaking `occurredAtEpochMilli` ties on event id for a fully deterministic merge order independent of the per-instance maps' own iteration order. The read is plumbed through `StoreReader`/`StoreClient`/`StoreNode` as a new `StoreRpc.ListAllInstanceEvents` request (control-plane and store are separate processes talking over the network), reusing the existing `InstanceEventListResult` response shape. Both `GET /events` modes are RBAC-gated identically: `DEPLOYMENT:READ` scoped to the caller-supplied `tenant`.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`listInstanceEvents(Optional, Optional)`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java` (`ListAllInstanceEvents`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/{InstanceEventCursor,InstanceEventPage}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleEvents`, `handleClusterInstanceEvents`)"
+      ],
+      "testCoverageDetail": "StateStoreTest (6 new: empty result, newest-first merge across instances, `since` inclusive lower bound, tenant filter present/absent, deterministic tie-break); StoreCodecTest (round-trip); StoreNodeTest (2 new: cluster-wide read over the wire, empty result); InstanceEventPageTest (8, mirroring AuditPageTest: paging, cursor expiry on a pruned anchor, cursor/limit rejection, cursor encoding); ApiServerClusterInstanceEventsTest (11: empty page, newest-first merge, cursor walk, tenant filter present/absent, `since` filter, cross-filter cursor rejection, malformed cursor/limit/since rejection, blank cursor, single-instance mode unaffected); ApiServerAuthzTest (1 new: unscoped `DEPLOYMENT:READ` sees the merged timeline, no grant is forbidden); ApiServerTest (existing `GET /events` test updated to assert only-one-of-deployment/instance is still rejected, since the previous no-params case now differently succeeds via the new mode).",
+      "gherkinSteps": [
+        "Given lifecycle events recorded across several deployments and tenants; When GET /events is requested with no deployment/instance params; Then every matching event is returned merged newest-first, paginated the same since/limit/cursor way GET /audit already is.",
+        "Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode.",
+        "Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

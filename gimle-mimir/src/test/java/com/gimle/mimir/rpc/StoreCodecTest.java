@@ -200,6 +200,8 @@ class StoreCodecTest {
         new StoreRpc.ListRollingDaemonSetNodes(Optional.empty(), "greeter-daemonset"),
         new StoreRpc.GetNodeHeartbeat("node-1"),
         new StoreRpc.ListInstanceEvents(Optional.empty(), "greeter", 0),
+        new StoreRpc.ListAllInstanceEvents(Optional.empty(), Optional.empty()),
+        new StoreRpc.ListAllInstanceEvents(Optional.of("tenant-1"), Optional.of(1_000L)),
         new StoreRpc.ListAuditEvents(
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
         new StoreRpc.ListAuditEvents(

@@ -192,6 +192,12 @@ public interface StoreReader {
   List<InstanceEvent> listInstanceEvents(
       Optional<String> tenantId, String deploymentName, int instanceIndex);
 
+  /**
+   * Cluster-wide, newest-first, across every instance's own timeline at once -- see {@code
+   * StateStore#listInstanceEvents(Optional, Optional)}'s own javadoc for the filter semantics.
+   */
+  List<InstanceEvent> listInstanceEvents(Optional<String> tenantId, Optional<Long> since);
+
   List<AuditEvent> listAuditEvents(
       Optional<String> principal,
       Optional<String> resourceKind,

@@ -224,6 +224,7 @@ public final class StoreCodec {
   private static final byte TAG_LIST_INGRESSES = -110;
   private static final byte TAG_INGRESS_RESULT = -109;
   private static final byte TAG_INGRESS_LIST_RESULT = -108;
+  private static final byte TAG_LIST_ALL_INSTANCE_EVENTS = -107;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -517,6 +518,11 @@ public final class StoreCodec {
           DomainCodec.writeOptionalString(out, v.tenantId());
           out.writeUTF(v.deploymentName());
           out.writeInt(v.instanceIndex());
+        }
+        case StoreRpc.ListAllInstanceEvents v -> {
+          out.writeByte(TAG_LIST_ALL_INSTANCE_EVENTS);
+          DomainCodec.writeOptionalString(out, v.tenantId());
+          DomainCodec.writeOptionalLong(out, v.since());
         }
         case StoreRpc.ListAuditEvents v -> {
           out.writeByte(TAG_LIST_AUDIT_EVENTS);
@@ -1137,6 +1143,9 @@ public final class StoreCodec {
         case TAG_LIST_INSTANCE_EVENTS ->
             new StoreRpc.ListInstanceEvents(
                 DomainCodec.readOptionalString(in), in.readUTF(), in.readInt());
+        case TAG_LIST_ALL_INSTANCE_EVENTS ->
+            new StoreRpc.ListAllInstanceEvents(
+                DomainCodec.readOptionalString(in), DomainCodec.readOptionalLong(in));
         case TAG_LIST_AUDIT_EVENTS ->
             new StoreRpc.ListAuditEvents(
                 DomainCodec.readOptionalString(in),

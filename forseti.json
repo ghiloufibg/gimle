@@ -502,6 +502,12 @@
           "GIMLE-064",
           "GIMLE-068"
         ]
+      },
+      "api-only-no-client": {
+        "note": "A real, tested platform API surface with no CLI subcommand or console screen wired to it yet -- the fleet interacts through real products (CLI, console, raw API calls an operator persona would plausibly make), and nothing in either product surfaces this capability today, so no fleet objective can reach it through anything but a hand-crafted HTTP call. Re-enters scope once a client consumes it.",
+        "ids": [
+          "GIMLE-788"
+        ]
       }
     }
   },

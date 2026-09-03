@@ -102,9 +102,9 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 787 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 788 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
-| Internal | 192 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 166, uncited 0). |
+| Internal | 193 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 167, uncited 0). |
 | **User-observable** | **526** | The capability set the fleet is measured against. |
 | Reached by a fleet scenario | 526 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
@@ -475,6 +475,7 @@ _Every user-observable requirement is currently reached by at least one fleet sc
 | `gateway-internals` | Endpoint TTL cache, stale-cache fallback, lifecycle-hook bootstrap. The fleet tests routing outcomes. | 3 | Holmgang 0, unit 3 |
 | `tooling-internals` | Maven-plugin and Saga back-end internals (classpath resolution, git capture, report discovery, crash-safe append, flake-ledger derivation). Unit-tested; the goals and screens built on them are fleet-tested. | 13 | Holmgang 0, unit 13 |
 | `abstraction-seams` | Pluggable interfaces with one implementation. Nothing to observe beyond the implementation, which is covered on its own row. | 2 | Holmgang 0, unit 2 |
+| `api-only-no-client` | A real, tested platform API surface with no CLI subcommand or console screen wired to it yet -- the fleet interacts through real products (CLI, console, raw API calls an operator persona would plausibly make), and nothing in either product surfaces this capability today, so no fleet objective can reach it through anything but a hand-crafted HTTP call. Re-enters scope once a client consumes it. | 1 | Holmgang 0, unit 1 |
 <!-- /forseti:generated -->
 
 ## 10. Release history
@@ -1281,4 +1282,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-785 | `gimle-controlplane` | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | observable | FLEET | NET-4 |
 | GIMLE-786 | `gimle-agent` | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | observable | FLEET | DEP-5, SCHED-10 |
 | GIMLE-787 | `gimle-console` | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | observable | FLEET | DEP-1, BATCH-1, OBS-7, JRN-7 |
+| GIMLE-788 | `gimle-controlplane` | Cluster-wide instance lifecycle event read | internal | UNIT | StateStoreTest (6 new), StoreCodecTest (round-trip), StoreNodeTest (2 new), InstanceEventPageTest (8), ApiServerClusterInstanceEventsTest (11), ApiServerAuthzTest (1 new), ApiServerTest (1 updated). |
 <!-- /forseti:generated -->

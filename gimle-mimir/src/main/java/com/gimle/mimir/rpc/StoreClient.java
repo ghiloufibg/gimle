@@ -649,6 +649,12 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
         .values();
   }
 
+  public List<InstanceEvent> listInstanceEvents(Optional<String> tenantId, Optional<Long> since) {
+    return ((StoreRpc.InstanceEventListResult)
+            sendRead(new StoreRpc.ListAllInstanceEvents(tenantId, since)))
+        .values();
+  }
+
   public List<AuditEvent> listAuditEvents(
       Optional<String> principal,
       Optional<String> resourceKind,

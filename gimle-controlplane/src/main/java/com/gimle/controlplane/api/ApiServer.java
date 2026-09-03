@@ -4611,10 +4611,21 @@ public final class ApiServer implements AutoCloseable {
   /**
    * {@code GET /events?deployment=<name>&instance=<index>[&tenant=<id>]} -- an instance's own
    * timeline, newest-first, capped at {@code StateStore}'s own per-instance retention window.
-   * Authorized as {@code DEPLOYMENT:READ} scoped to {@code tenant} -- the same caller-declared hint
-   * {@link #dispatchResourceRequest}'s own javadoc explains is now required to address a per-tenant
-   * name at all, an event itself carrying no tenant of its own to resolve one from instead. Omitted
-   * means the untenanted namespace, matching every other route's own convention.
+   * {@code GET /events[?tenant=<id>&since=&limit=&cursor=]} -- neither {@code deployment} nor
+   * {@code instance} given -- is the cluster-wide sibling instead, delegated to {@link
+   * #handleClusterInstanceEvents}: "what has this cluster been doing" rather than one instance's
+   * own history, paginated the same {@code since}/{@code limit}/{@code cursor} way {@code GET
+   * /audit} already established (see {@link #handleAudit}) rather than a second idiom. Supplying
+   * only one of {@code deployment}/{@code instance} is rejected rather than silently falling back
+   * to the cluster-wide mode, since that combination can only ever be a caller's mistake.
+   *
+   * <p>Both modes authorize as {@code DEPLOYMENT:READ} scoped to {@code tenant} -- the same
+   * caller-declared hint {@link #dispatchResourceRequest}'s own javadoc explains is now required to
+   * address a per-tenant name at all, an event itself carrying no tenant of its own to resolve one
+   * from instead. For the single-instance mode, an omitted {@code tenant} means the untenanted
+   * namespace specifically, matching every other route's own convention -- {@link
+   * #handleClusterInstanceEvents} instead matches every tenant when it is omitted, since a cluster-
+   * wide read has no one instance's key to address.
    */
   private void handleEvents(HttpExchange exchange) {
     try {
@@ -4625,6 +4636,10 @@ public final class ApiServer implements AutoCloseable {
       Map<String, String> query = parseQuery(exchange);
       String deploymentName = query.get("deployment");
       String instanceParam = query.get("instance");
+      if (deploymentName == null && instanceParam == null) {
+        handleClusterInstanceEvents(exchange, query);
+        return;
+      }
       if (deploymentName == null || deploymentName.isBlank() || instanceParam == null) {
         respond(exchange, 400, "expected ?deployment=<name>&instance=<index>");
         return;
@@ -4641,13 +4656,60 @@ public final class ApiServer implements AutoCloseable {
       }
       respondJson(exchange, 200, events);
     } catch (NumberFormatException e) {
-      respondQuietly(exchange, 400, "instance must be an integer");
+      respondQuietly(exchange, 400, "instance/since/limit must be numeric");
     } catch (IOException | RuntimeException e) {
       log.warn("events request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * The cluster-wide branch of {@link #handleEvents}: every instance's own lifecycle timeline
+   * merged newest-first, {@code since}/{@code limit}/{@code cursor}-paginated the same way {@link
+   * #handleAudit} paginates the audit trail (see {@link InstanceEventPage}, {@link
+   * InstanceEventCursor} -- mirrored rather than shared with {@link AuditPage}/{@link AuditCursor}
+   * so the two endpoints' pagination can evolve independently). Unlike the single-instance mode, an
+   * omitted {@code tenant} matches every tenant's own timelines rather than addressing the
+   * untenanted namespace specifically -- there is no single instance key here for an absent tenant
+   * to resolve to, and a caller with no tenant filter is, by construction, one {@link
+   * #requireAuthorized} already required to hold an unscoped {@code DEPLOYMENT:READ} grant to reach
+   * at all.
+   */
+  private void handleClusterInstanceEvents(HttpExchange exchange, Map<String, String> query)
+      throws IOException {
+    Optional<String> tenant = Optional.ofNullable(query.get("tenant"));
+    if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenant)) {
+      return;
+    }
+    Optional<Long> since = Optional.ofNullable(query.get("since")).map(Long::parseLong);
+    int limit =
+        Optional.ofNullable(query.get("limit")).map(Integer::parseInt).orElse(Integer.MAX_VALUE);
+    Optional<String> cursor = Optional.ofNullable(query.get("cursor")).filter(c -> !c.isBlank());
+
+    // One list call, one snapshot: the cursor is resolved against exactly the events this page is
+    // cut from, so a concurrent append or per-instance eviction can never land between the two.
+    List<InstanceEvent> matching = storeClient.listInstanceEvents(tenant, since);
+    InstanceEventPage page;
+    try {
+      page =
+          InstanceEventPage.of(
+              matching, cursor, limit, InstanceEventCursor.fingerprintOf(tenant, since));
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, e.getMessage());
+      return;
+    }
+    List<Map<String, Object>> events = new ArrayList<>();
+    for (InstanceEvent event : page.events()) {
+      events.add(instanceEventToJson(event));
+    }
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("events", events);
+    body.put("matchedCount", page.matchedCount());
+    page.nextCursor().ifPresent(next -> body.put("nextCursor", next));
+    body.put("cursorExpired", page.cursorExpired());
+    respondJson(exchange, 200, body);
   }
 
   private static Map<String, Object> instanceEventToJson(InstanceEvent event) {

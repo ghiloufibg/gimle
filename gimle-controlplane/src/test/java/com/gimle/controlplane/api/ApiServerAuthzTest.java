@@ -18,6 +18,8 @@ import com.gimle.core.authz.Verb;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.InstanceEvent;
+import com.gimle.core.protocol.InstanceEventKind;
 import com.gimle.core.protocol.Json;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
@@ -568,6 +570,70 @@ class ApiServerAuthzTest {
       assertEquals(200, deleteConfig(client, baseUrl, writerCookie, "tenant-1", "k1"));
       assertEquals(3, listAuditEvents(store).size());
       assertEquals("DELETE", listAuditEvents(store).get(0).verb());
+    }
+  }
+
+  /**
+   * The cluster-wide branch of {@code GET /events} (neither {@code deployment} nor {@code instance}
+   * given) is gated the same {@code DEPLOYMENT:READ} way the single-instance mode already is -- a
+   * caller holding an unscoped grant sees every tenant's own timelines merged newest-first, and one
+   * holding no {@code DEPLOYMENT:READ} grant at all is forbidden outright.
+   */
+  @Test
+  void cluster_wide_events_are_rbac_gated_the_same_way_the_single_instance_mode_already_is()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putAccount(new Account("reader", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "events-reader",
+            java.util.Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.READ))));
+    store.putRoleBinding(
+        new RoleBinding("reader-binding", RoleBinding.userSubject("reader"), "events-reader"));
+    store.putAccount(new Account("no-permission", PasswordHashes.hash("pw".toCharArray())));
+    store.putInstanceEvent(
+        Optional.empty(),
+        new InstanceEvent(
+            "evt-1", "orders-service", 0, InstanceEventKind.ACTIVE, "module active", 1_000L));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+
+      String readerCookie = login(client, baseUrl, "reader", "pw");
+      HttpResponse<String> allowed =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/events"))
+                  .header("Cookie", readerCookie)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(200, allowed.statusCode());
+      Map<String, Object> allowedBody = Json.asObject(Json.parse(allowed.body()));
+      List<Map<String, Object>> events = Json.asObjectList(allowedBody.get("events"));
+      assertEquals(1, events.size());
+      assertEquals("evt-1", events.get(0).get("id"));
+
+      String noPermissionCookie = login(client, baseUrl, "no-permission", "pw");
+      HttpResponse<String> denied =
+          client.send(
+              HttpRequest.newBuilder(URI.create(baseUrl + "/events"))
+                  .header("Cookie", noPermissionCookie)
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+      assertEquals(403, denied.statusCode());
     }
   }
 
