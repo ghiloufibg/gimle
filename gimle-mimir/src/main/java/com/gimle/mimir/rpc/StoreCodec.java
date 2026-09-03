@@ -226,6 +226,8 @@ public final class StoreCodec {
   private static final byte TAG_INGRESS_LIST_RESULT = -108;
   private static final byte TAG_LIST_ALL_INSTANCE_EVENTS = -107;
   private static final byte TAG_GET_DAEMONSET_DESIRED_COUNT = -106;
+  private static final byte TAG_GET_ALERT_FIRING_STATE = -105;
+  private static final byte TAG_ALERT_FIRING_STATE_RESULT = -104;
 
   /** Same bound {@link RaftCodec} uses; a {@code StoreRpc} frame is never larger in practice. */
   private static final int MAX_FRAME_LENGTH = 64 * 1024 * 1024;
@@ -322,6 +324,11 @@ public final class StoreCodec {
           out.writeUTF(v.name());
         }
         case StoreRpc.ListAlertRules v -> out.writeByte(TAG_LIST_ALERT_RULES);
+        case StoreRpc.GetAlertFiringState v -> {
+          out.writeByte(TAG_GET_ALERT_FIRING_STATE);
+          DomainCodec.writeOptionalString(out, v.tenantId());
+          out.writeUTF(v.name());
+        }
         case StoreRpc.GetLimitRange v -> {
           out.writeByte(TAG_GET_LIMIT_RANGE);
           out.writeUTF(v.tenantId());
@@ -672,6 +679,11 @@ public final class StoreCodec {
           for (AlertRuleSpec s : v.values()) {
             DomainCodec.writeAlertRuleSpec(out, s);
           }
+        }
+        case StoreRpc.AlertFiringStateResult v -> {
+          out.writeByte(TAG_ALERT_FIRING_STATE_RESULT);
+          out.writeBoolean(v.present());
+          out.writeBoolean(v.firing());
         }
         case StoreRpc.LimitRangeResult v -> {
           out.writeByte(TAG_LIMIT_RANGE_RESULT);
@@ -1056,6 +1068,10 @@ public final class StoreCodec {
           yield new StoreRpc.GetAlertRule(tenantId, in.readUTF());
         }
         case TAG_LIST_ALERT_RULES -> new StoreRpc.ListAlertRules();
+        case TAG_GET_ALERT_FIRING_STATE -> {
+          Optional<String> tenantId = DomainCodec.readOptionalString(in);
+          yield new StoreRpc.GetAlertFiringState(tenantId, in.readUTF());
+        }
         case TAG_GET_LIMIT_RANGE -> new StoreRpc.GetLimitRange(in.readUTF());
         case TAG_LIST_LIMIT_RANGES -> new StoreRpc.ListLimitRanges();
         case TAG_LIST_ASSIGNMENTS_FOR ->
@@ -1241,6 +1257,10 @@ public final class StoreCodec {
             values.add(DomainCodec.readAlertRuleSpec(in));
           }
           yield new StoreRpc.AlertRuleListResult(values);
+        }
+        case TAG_ALERT_FIRING_STATE_RESULT -> {
+          boolean present = in.readBoolean();
+          yield new StoreRpc.AlertFiringStateResult(present, in.readBoolean());
         }
         case TAG_LIMIT_RANGE_RESULT -> {
           boolean present = in.readBoolean();

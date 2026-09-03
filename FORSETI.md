@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 789 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 790 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 193 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 167, uncited 0). |
-| **User-observable** | **527** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 527 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **528** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 528 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -131,7 +131,7 @@ not carry over to the new one.
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
 | **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 78 |
 | **ART** | Artifacts & Registry | A release engineer publishing module builds and expecting the registry to behave like Nexus. | A B | 8 | 25 |
-| **OBS** | Observability & Console | An on-call engineer with nothing but the consoles and `gimle logs`, at 3 a.m. | A B | 10 | 74 |
+| **OBS** | Observability & Console | An on-call engineer with nothing but the consoles and `gimle logs`, at 3 a.m. | A B | 10 | 75 |
 | **JRN** | Journeys — Sample applications | Someone validating that a real application, not a primitive, works end to end — including a custom-kind operator. | A B | 7 | 26 |
 | **CHAOS** | Exploratory, Chaos & Negative-path | Mildly adversarial, reads no manual twice, and runs the shipped chaos tooling against the cluster. | A B C | 10 | 41 |
 | **LEAD** | Lead — Triage, deduplication & report | The Tech QA lead. Never runs a scenario. Ingests every raw finding, fingerprints and merges duplicates, adjudicates disagreement, writes the findings artifact. | — | — | — |
@@ -302,7 +302,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **OBS-6** | B | Load the Topology screen against multi-node, multi-tenant Fleet. | Placement shown matches `get instances`/`get nodes` independently. | GIMLE-447 |
 | **OBS-7** | A | Walk every console route as a normal logged-in user: Overview, HUD/Signal toggle, theme, Deployments, Jobs, CronJobs, DaemonSets, StatefulSets, Instances (with node/tenant filters), Nodes, Tenants, Config, ConfigMaps, Secrets, SecretMaps, Networking, Access-Control, Artifacts, Audit, Control-Plane, Metrics, Traces, Topology, Logs, Custom Resources, Volumes, LimitRanges, Seal, Applications (health/sync verdicts, filters, and one application's resource tree). | No route errors, blanks or contradicts the CLI's view of the same data. | GIMLE-437, GIMLE-438, GIMLE-444, GIMLE-445, GIMLE-458, GIMLE-459, GIMLE-664, GIMLE-751, GIMLE-750, GIMLE-752, GIMLE-457, GIMLE-440, GIMLE-441, GIMLE-442, GIMLE-443, GIMLE-446, GIMLE-453, GIMLE-454, GIMLE-455, GIMLE-456, GIMLE-585, GIMLE-593, GIMLE-586, GIMLE-587, GIMLE-787 |
 | **OBS-8** | A | Log into the Fafnir and Andvari consoles: status overviews, tenant filter via URL param, secrets browsing/reveal/write/destroy, the global error banner on a forced failure. | Each console's status is truthful; the URL filter works; vault-native actions match the CLI; errors surface in the banner rather than vanishing. | GIMLE-461, GIMLE-462, GIMLE-463, GIMLE-464, GIMLE-466, GIMLE-467, GIMLE-468 |
-| **OBS-9** | A | Read an instance's event timeline in CLI and console; create an AlertRule on a deployment's error rate pointed at a local webhook; trip and clear it. | The timeline is complete and ordered; the webhook fires once on crossing and once on resolve. | GIMLE-377, GIMLE-753, GIMLE-711 |
+| **OBS-9** | A | Read an instance's event timeline in CLI and console; create an AlertRule on a deployment's error rate pointed at a local webhook; trip and clear it; read its durable firing state via GET /alertrules/{name}/firing before, during, and after. | The timeline is complete and ordered; the webhook fires once on crossing and once on resolve; the firing endpoint reports known=false before the rule ever crosses, known=true/firing=true once it fires, and known=true/firing=false once it resolves -- the same answer regardless of which control-plane replica answers or whether one just restarted. | GIMLE-377, GIMLE-753, GIMLE-711, GIMLE-790 |
 | **OBS-10** | A | From an instance row, follow the `workerId` deep link into the Metrics and Traces WORKER pickers. | The link lands on that worker's data, matching the agent's own view of which worker hosts it. | GIMLE-647 |
 
 #### Journeys — Sample applications
@@ -1284,4 +1284,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-787 | `gimle-console` | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | observable | FLEET | DEP-1, BATCH-1, OBS-7, JRN-7 |
 | GIMLE-788 | `gimle-controlplane` | Cluster-wide instance lifecycle event read | internal | UNIT | StateStoreTest (6 new), StoreCodecTest (round-trip), StoreNodeTest (2 new), InstanceEventPageTest (8), ApiServerClusterInstanceEventsTest (11), ApiServerAuthzTest (1 new), ApiServerTest (1 updated). |
 | GIMLE-789 | `gimle-controlplane` | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | observable | FLEET | BATCH-3 |
+| GIMLE-790 | `gimle-controlplane` | A durable, replica-agnostic read of whether an AlertRule is currently firing | observable | FLEET | OBS-9 |
 <!-- /forseti:generated -->

@@ -84,6 +84,7 @@ public sealed interface StoreRpc {
           ListIngresses,
           GetAlertRule,
           ListAlertRules,
+          GetAlertFiringState,
           ListAssignmentsFor,
           IsQuotaViolating,
           IsNodeCordoned,
@@ -196,6 +197,7 @@ public sealed interface StoreRpc {
           IngressListResult,
           AlertRuleResult,
           AlertRuleListResult,
+          AlertFiringStateResult,
           AssignmentListResult,
           NodeRegistrationListResult,
           TenantListResult,
@@ -310,6 +312,12 @@ public sealed interface StoreRpc {
   record GetAlertRule(Optional<String> tenantId, String name) implements Request {}
 
   record ListAlertRules() implements Request {}
+
+  /**
+   * Empty means the rule has never crossed or resolved yet -- see {@code
+   * StateStore#putAlertFiringState}'s own javadoc for the absent/true/false three-state meaning.
+   */
+  record GetAlertFiringState(Optional<String> tenantId, String name) implements Request {}
 
   record GetLimitRange(String tenantId) implements Request {}
 
@@ -640,6 +648,13 @@ public sealed interface StoreRpc {
   record AlertRuleResult(boolean present, AlertRuleSpec value) implements Response {}
 
   record AlertRuleListResult(List<AlertRuleSpec> values) implements Response {}
+
+  /**
+   * {@code present == false} means the rule has never crossed or resolved since it (or a same-named
+   * predecessor) was created -- {@code firing} is meaningless ({@code false}) in that case, the
+   * same "meaningless placeholder" convention {@link IntResult} already uses.
+   */
+  record AlertFiringStateResult(boolean present, boolean firing) implements Response {}
 
   record AssignmentListResult(List<InstanceAssignment> values) implements Response {}
 

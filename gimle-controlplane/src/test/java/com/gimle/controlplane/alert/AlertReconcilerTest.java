@@ -168,6 +168,48 @@ class AlertReconcilerTest {
   }
 
   @Test
+  void an_arbitrary_starting_snapshot_with_no_prior_firing_history_starts_from_not_firing() {
+    StateStore store = new StateStore();
+    AlertRuleRegistry registry = new AlertRuleRegistry(store);
+    registry.put(errorRateRule(5.0));
+    oneInstanceReporting(store, "checkout-service", 8.0);
+    // No durable firing verdict has ever been recorded for this rule -- the exact "restart with
+    // nothing in the store yet" starting point a real control-plane replica boots into.
+    assertTrue(store.getAlertFiringState(Optional.empty(), "high-error-rate").isEmpty());
+    RecordingNotifier notifier = new RecordingNotifier();
+    AlertReconciler reconciler = new AlertReconciler(registry, store, notifier);
+
+    reconciler.reconcileOnce();
+
+    assertEquals(1, notifier.notifications.size());
+    assertEquals(AlertNotification.State.FIRING, notifier.notifications.get(0).state());
+    assertEquals(Optional.of(true), store.getAlertFiringState(Optional.empty(), "high-error-rate"));
+  }
+
+  @Test
+  void a_freshly_instantiated_reconciler_reads_the_durable_verdict_instead_of_resetting_it() {
+    StateStore store = new StateStore();
+    AlertRuleRegistry registry = new AlertRuleRegistry(store);
+    registry.put(errorRateRule(5.0));
+    oneInstanceReporting(store, "checkout-service", 8.0);
+    RecordingNotifier firstProcessNotifier = new RecordingNotifier();
+    AlertReconciler firstProcess = new AlertReconciler(registry, store, firstProcessNotifier);
+    firstProcess.reconcileOnce(); // fires, persisted durably
+
+    // A brand new AlertReconciler over the same durable store/registry -- standing in for a
+    // control-plane restart, or a failover onto a different replica -- must see the rule as
+    // already firing rather than re-notifying, which an in-process-only firing map could not do.
+    RecordingNotifier secondProcessNotifier = new RecordingNotifier();
+    AlertReconciler secondProcess = new AlertReconciler(registry, store, secondProcessNotifier);
+
+    secondProcess.reconcileOnce();
+
+    assertTrue(
+        secondProcessNotifier.notifications.isEmpty(),
+        "a fresh reconciler instance must not re-fire an already-firing rule");
+  }
+
+  @Test
   void a_deleted_rules_firing_state_does_not_leak_forever() {
     StateStore store = new StateStore();
     AlertRuleRegistry registry = new AlertRuleRegistry(store);

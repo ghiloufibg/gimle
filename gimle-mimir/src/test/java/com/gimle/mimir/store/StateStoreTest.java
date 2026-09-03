@@ -150,6 +150,51 @@ class StateStoreTest {
     assertTrue(reloaded.listServices().isEmpty());
   }
 
+  @Test
+  void alert_firing_state_is_absent_until_a_verdict_is_recorded() {
+    StateStore store = new StateStore();
+    assertTrue(store.getAlertFiringState(Optional.of("tenant-1"), "high-error-rate").isEmpty());
+  }
+
+  @Test
+  void alert_firing_state_round_trips_both_true_and_false() {
+    StateStore store = new StateStore();
+    store.putAlertFiringState(Optional.of("tenant-1"), "high-error-rate", true);
+    assertEquals(
+        Optional.of(true), store.getAlertFiringState(Optional.of("tenant-1"), "high-error-rate"));
+
+    store.putAlertFiringState(Optional.of("tenant-1"), "high-error-rate", false);
+    assertEquals(
+        Optional.of(false), store.getAlertFiringState(Optional.of("tenant-1"), "high-error-rate"));
+  }
+
+  @Test
+  void removing_an_alert_rule_clears_its_durable_firing_state() {
+    StateStore store = new StateStore();
+    store.putAlertFiringState(Optional.of("tenant-1"), "high-error-rate", true);
+
+    store.removeAlertRule(Optional.of("tenant-1"), "high-error-rate");
+
+    assertTrue(store.getAlertFiringState(Optional.of("tenant-1"), "high-error-rate").isEmpty());
+  }
+
+  @Test
+  void alert_firing_state_round_trips_through_a_snapshot_into_a_fresh_store() {
+    StateStore store = new StateStore();
+    store.putAlertFiringState(Optional.of("tenant-1"), "high-error-rate", true);
+    store.putAlertFiringState(Optional.empty(), "low-queue-depth", false);
+
+    StateStore reloaded = new StateStore();
+    reloaded.restoreFromSnapshot(store.snapshot());
+
+    assertEquals(
+        Optional.of(true),
+        reloaded.getAlertFiringState(Optional.of("tenant-1"), "high-error-rate"));
+    assertEquals(
+        Optional.of(false), reloaded.getAlertFiringState(Optional.empty(), "low-queue-depth"));
+    assertTrue(reloaded.getAlertFiringState(Optional.empty(), "never-evaluated").isEmpty());
+  }
+
   /**
    * The core cross-tenant isolation guarantee: two tenants sharing a bare Deployment name must
    * never collide, overwrite each other's spec, or become visible to each other -- the whole point

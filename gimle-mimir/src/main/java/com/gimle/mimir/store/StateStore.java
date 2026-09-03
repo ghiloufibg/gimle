@@ -56,6 +56,10 @@ public final class StateStore implements StoreReader {
   private final Map<String, NetworkPolicySpec> networkPolicies = new ConcurrentHashMap<>();
   private final Map<String, IngressSpec> ingresses = new ConcurrentHashMap<>();
   private final Map<String, AlertRuleSpec> alertRules = new ConcurrentHashMap<>();
+  // Durable verdict for whether an AlertRuleSpec is currently firing -- see
+  // putAlertFiringState's own javadoc for the absent/true/false three-state meaning this map
+  // carries.
+  private final Map<String, Boolean> alertFiringState = new ConcurrentHashMap<>();
   private final Map<String, InstanceAssignment> assignments = new ConcurrentHashMap<>();
   private final Map<String, JobSpec> jobSpecs = new ConcurrentHashMap<>();
   private final Map<String, JobRun> jobRuns = new ConcurrentHashMap<>();
@@ -346,7 +350,27 @@ public final class StateStore implements StoreReader {
   }
 
   public void removeAlertRule(Optional<String> tenantId, String name) {
-    alertRules.remove(scopedKey(tenantId, name));
+    String key = scopedKey(tenantId, name);
+    alertRules.remove(key);
+    // Cascades to the rule's own firing verdict -- an equally-named rule created afterward starts
+    // from "never evaluated" rather than inheriting a deleted rule's stale transition, the same
+    // reasoning RemoveRole's own cascade documents for RoleBinding.
+    alertFiringState.remove(key);
+  }
+
+  /**
+   * Whether {@code name} is currently firing, replicated through Raft so every control-plane
+   * replica reports the same verdict and a replica restart never resets it -- what moved this out
+   * of {@code AlertReconciler}'s own process. Absent means the rule has never crossed or resolved
+   * since it (or a same-named predecessor) was created; an explicit {@code false} means a real,
+   * previously-observed resolution, a genuinely different fact from "never evaluated yet."
+   */
+  public void putAlertFiringState(Optional<String> tenantId, String name, boolean firing) {
+    alertFiringState.put(scopedKey(tenantId, name), firing);
+  }
+
+  public Optional<Boolean> getAlertFiringState(Optional<String> tenantId, String name) {
+    return Optional.ofNullable(alertFiringState.get(scopedKey(tenantId, name)));
   }
 
   // ---- assignments ----
@@ -1649,7 +1673,8 @@ public final class StateStore implements StoreReader {
         List.copyOf(alertRules.values()),
         Map.copyOf(deploymentLastScale),
         List.copyOf(ingresses.values()),
-        Map.copyOf(daemonSetDesiredCounts));
+        Map.copyOf(daemonSetDesiredCounts),
+        Map.copyOf(alertFiringState));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1731,6 +1756,7 @@ public final class StateStore implements StoreReader {
     deploymentLastScale.clear();
     kindDefinitions.clear();
     customResources.clear();
+    alertFiringState.clear();
     clearAllInstanceEvents();
     clearAllAuditEvents();
     clearAllControllerRevisions();
@@ -1814,6 +1840,7 @@ public final class StateStore implements StoreReader {
     snapshot.networkPolicies().forEach(this::putNetworkPolicy);
     snapshot.ingresses().forEach(this::putIngress);
     snapshot.alertRules().forEach(this::putAlertRule);
+    snapshot.alertFiringState().forEach(alertFiringState::put);
     // Oldest-first, matching how putControllerRevision's own pruning expects to see them -- same
     // reasoning as the instanceEvents/auditEvents replay just above.
     snapshot.controllerRevisions().forEach(this::putControllerRevision);

@@ -89,6 +89,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListIngresses r -> new StoreRpc.IngressListResult(store.listIngresses());
       case StoreRpc.GetAlertRule r -> alertRuleResult(store.getAlertRule(r.tenantId(), r.name()));
       case StoreRpc.ListAlertRules r -> new StoreRpc.AlertRuleListResult(store.listAlertRules());
+      case StoreRpc.GetAlertFiringState r ->
+          alertFiringStateResult(store.getAlertFiringState(r.tenantId(), r.name()));
       case StoreRpc.GetLimitRange r -> limitRangeResult(store.getLimitRange(r.tenantId()));
       case StoreRpc.ListLimitRanges r -> new StoreRpc.LimitRangeListResult(store.listLimitRanges());
       case StoreRpc.ListAssignmentsFor r ->
@@ -379,6 +381,12 @@ public final class StoreNode implements StoreRpcHandler {
     return value
         .map(v -> new StoreRpc.AlertRuleResult(true, v))
         .orElseGet(() -> new StoreRpc.AlertRuleResult(false, null));
+  }
+
+  private static StoreRpc.AlertFiringStateResult alertFiringStateResult(Optional<Boolean> value) {
+    return value
+        .map(v -> new StoreRpc.AlertFiringStateResult(true, v))
+        .orElseGet(() -> new StoreRpc.AlertFiringStateResult(false, false));
   }
 
   private static StoreRpc.LimitRangeResult limitRangeResult(Optional<LimitRangeSpec> value) {

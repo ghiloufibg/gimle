@@ -216,6 +216,8 @@ class StoreCodecTest {
         new StoreRpc.GetAlertRule(Optional.of("tenant-1"), "greeter-error-rate"),
         new StoreRpc.GetAlertRule(Optional.empty(), "greeter-error-rate"),
         new StoreRpc.ListAlertRules(),
+        new StoreRpc.GetAlertFiringState(Optional.of("tenant-1"), "greeter-error-rate"),
+        new StoreRpc.GetAlertFiringState(Optional.empty(), "greeter-error-rate"),
         new StoreRpc.Status(),
         // responses
         new StoreRpc.Ok(),
@@ -261,7 +263,10 @@ class StoreCodecTest {
         new StoreRpc.AlertRuleResult(true, alertRuleSpec()),
         new StoreRpc.AlertRuleResult(false, null),
         new StoreRpc.AlertRuleListResult(List.of()),
-        new StoreRpc.AlertRuleListResult(List.of(alertRuleSpec())));
+        new StoreRpc.AlertRuleListResult(List.of(alertRuleSpec())),
+        new StoreRpc.AlertFiringStateResult(true, true),
+        new StoreRpc.AlertFiringStateResult(true, false),
+        new StoreRpc.AlertFiringStateResult(false, false));
   }
 
   private static AlertRuleSpec alertRuleSpec() {

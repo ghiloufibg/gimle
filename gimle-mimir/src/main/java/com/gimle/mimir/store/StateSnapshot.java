@@ -89,7 +89,10 @@ public record StateSnapshot(
     List<IngressSpec> ingresses,
     // The eligible-node count DaemonSetReconciler last computed for each daemonset -- see
     // StateStore#daemonSetDesiredCounts's own field javadoc.
-    Map<String, Integer> daemonSetDesiredCounts) {
+    Map<String, Integer> daemonSetDesiredCounts,
+    // Durable alert firing verdicts, keyed the same tenant-scoped way alertRules itself is -- see
+    // StateStore#putAlertFiringState's own javadoc for the absent/true/false three-state meaning.
+    Map<String, Boolean> alertFiringState) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -160,5 +163,6 @@ public record StateSnapshot(
     alertRules = List.copyOf(alertRules);
     deploymentLastScale = Map.copyOf(deploymentLastScale);
     daemonSetDesiredCounts = Map.copyOf(daemonSetDesiredCounts);
+    alertFiringState = Map.copyOf(alertFiringState);
   }
 }
