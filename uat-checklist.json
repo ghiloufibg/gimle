@@ -8666,6 +8666,39 @@
     },
     {
       "id": "GIMLE-788",
+      "module": "gimle-controlplane",
+      "category": "Observability",
+      "feature": "Cluster-wide instance lifecycle event read",
+      "step": "Given lifecycle events recorded across several deployments and tenants; When GET /events is requested with no deployment/instance params; Then every matching event is returned merged newest-first, paginated the same since/limit/cursor way GET /audit already is. Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode. Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-789",
+      "module": "gimle-controlplane",
+      "category": "Reconciliation / Orchestration",
+      "feature": "DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances",
+      "step": "Given a DaemonSet with 3 eligible nodes and 2 currently placed; When its status is read; Then desired is 3 and unplacedCount is 1, not absent. Given a node backing a DaemonSet is cordoned; When DaemonSetReconciler ticks; Then desired drops by one on that same tick, and rises again once the node is uncordoned and re-eligible. Given a DaemonSet spec with no reconciler tick yet against it; When its status is read; Then desired and unplacedCount are both absent rather than a misleading zero.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-790",
+      "module": "gimle-controlplane",
+      "category": "Observability",
+      "feature": "A durable, replica-agnostic read of whether an AlertRule is currently firing",
+      "step": "Given an AlertRule that has just been declared and never evaluated; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=false and no firing field. Given an AlertRule that AlertReconciler has observed crossing its threshold; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=true and firing=true, on every control-plane replica that answers. Given a control-plane replica restarts (or a different replica answers) after a rule was already firing; When that replica's own AlertReconciler next ticks; Then it reads the durable verdict and does not re-send a FIRING notification for the same ongoing incident. Given a caller with no grant for ResourceKind.ALERT_RULE; When it requests GET /alertrules/{name}/firing over mTLS; Then the response is 403.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-791",
       "module": "gimle-cli",
       "category": "CLI",
       "feature": "CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider",
@@ -8676,7 +8709,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-789",
+      "id": "GIMLE-792",
       "module": "gimle-cli",
       "category": "CLI / Security",
       "feature": "An extension is handed a read-only view of the control-plane API, never the client",
@@ -8687,7 +8720,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-790",
+      "id": "GIMLE-793",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "`gimle top` renders a live, read-only cluster view of nodes and instances",
@@ -8698,7 +8731,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-791",
+      "id": "GIMLE-794",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "A failed poll keeps the last good rows and ages them rather than clearing the screen",
@@ -8709,7 +8742,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-792",
+      "id": "GIMLE-795",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "Instance drill-down with lifecycle timeline and a live log tail",
@@ -8720,7 +8753,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-793",
+      "id": "GIMLE-796",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal",
@@ -8731,7 +8764,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-794",
+      "id": "GIMLE-797",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "Terminal colour is the console's own tokens, degrading to 256-colour and to none",
@@ -8742,7 +8775,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-795",
+      "id": "GIMLE-798",
       "module": "gimle-hugin",
       "category": "Distribution",
       "feature": "The terminal view ships in the CLI archives and is removable in one directory delete",
@@ -8753,7 +8786,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-796",
+      "id": "GIMLE-799",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange",
@@ -8764,7 +8797,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-797",
+      "id": "GIMLE-800",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments",
@@ -8775,7 +8808,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-798",
+      "id": "GIMLE-801",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "A services screen showing each Service's live endpoint resolution",
@@ -8786,44 +8819,11 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-799",
+      "id": "GIMLE-802",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "An activity view of what has been done to the cluster, over the audit trail",
       "step": "Given a cluster where a deployment was created and a secret read was refused When an operator presses `a` in `gimle top` Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line",
-      "automatedCoverage": false,
-      "signedOff": false,
-      "signedOffBy": null,
-      "signedOffAt": null
-    },
-    {
-      "id": "GIMLE-800",
-      "module": "gimle-examples",
-      "category": "Networking/Service Discovery",
-      "feature": "A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve",
-      "step": "Given greeter-provider-deployment is deployed from its own bundled jar and reaches ACTIVE, When a Service is created fronting it with no targetPort declared, Then GET /services/{name}/endpoints resolves exactly one live endpoint at the real port GreeterProviderHooks opened and reported. Given that same Service now has a live endpoint, When a real SkaldMain instance is queried for the Service's DNS name, Then it answers NOERROR with a real address instead of NXDOMAIN.",
-      "automatedCoverage": false,
-      "signedOff": false,
-      "signedOffBy": null,
-      "signedOffAt": null
-    },
-    {
-      "id": "GIMLE-801",
-      "module": "gimle-console",
-      "category": "Web Console / Frontend",
-      "feature": "The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast",
-      "step": "Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away. Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner.",
-      "automatedCoverage": false,
-      "signedOff": false,
-      "signedOffBy": null,
-      "signedOffAt": null
-    },
-    {
-      "id": "GIMLE-802",
-      "module": "gimle-console",
-      "category": "Web Console / Frontend",
-      "feature": "Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli",
-      "step": "Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare \"saved\" message. Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

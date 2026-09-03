@@ -84,11 +84,7 @@ public final class ClusterScreen {
       lines.add(instanceLine(instances.get(index), index == selection, viewport));
     }
 
-    while (lines.size() < viewport.rows() - 1) {
-      lines.add("");
-    }
-    lines.add(StatusBar.clusterKeys(painter, ui, viewport));
-    return Frame.fit(lines, viewport);
+    return Frame.fitWithKeyBar(lines, StatusBar.clusterKeys(painter, ui, viewport), viewport);
   }
 
   private List<String> unsettledBlock(final List<WorkloadRow> unsettled, final Viewport viewport) {

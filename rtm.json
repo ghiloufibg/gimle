@@ -13670,6 +13670,64 @@
     },
     {
       "id": "GIMLE-788",
+      "module": "gimle-controlplane",
+      "feature": "Cluster-wide instance lifecycle event read",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "New requirement: GET /events required both `deployment` and `instance` query params and 400'd without them, and the store behind it (`StateStore#listInstanceEvents`) was keyed strictly per-instance -- there was no way to read \"what changed recently\" across the cluster, only one already-known instance's own timeline. GET /events now has a second mode: when neither `deployment` nor `instance` is given, it reads every instance's own lifecycle timeline merged newest-first, paginated with the exact `since`/`limit`/`cursor` idiom `GET /audit` already established. Both `GET /events` modes are RBAC-gated identically: `DEPLOYMENT:READ` scoped to the caller-supplied `tenant`.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "StateStoreTest (6 new), StoreCodecTest (round-trip), StoreNodeTest (2 new), InstanceEventPageTest (8), ApiServerClusterInstanceEventsTest (11), ApiServerAuthzTest (1 new), ApiServerTest (1 updated).",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`listInstanceEvents(Optional, Optional)`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java` (`ListAllInstanceEvents`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/{InstanceEventCursor,InstanceEventPage}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleEvents`, `handleClusterInstanceEvents`)"
+      ],
+      "gapNote": "No .feature scenario reads GET /events' cluster-wide mode. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-789",
+      "module": "gimle-controlplane",
+      "feature": "DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances",
+      "category": "Reconciliation / Orchestration",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. Closes gimle#15 sub-item 2 -- DaemonSetReconciler now publishes the eligible-node count it already computes every tick (StateMutation.PutDaemonSetDesiredCount), and ApiServer.daemonSetStatus surfaces it as desired/unplacedCount alongside the placed instance count, the same shape Deployment/StatefulSet status already exposes.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "DaemonSetReconcilerTest (six new convergence tests: zero eligible nodes, every node eligible, required-label narrowing, a node becoming ineligible then eligible again across ticks, an arbitrary starting snapshot with no prior desired-count history, and clearing on daemonset deletion) and ApiServerTest (two new tests asserting the field on both GET /daemonsets/{name} and GET /daemonsets, plus an extension asserting it is absent before any reconciler tick).",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`daemonSetStatus`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`daemonSetDesiredCounts`)"
+      ],
+      "gapNote": "No .feature scenario reads a DaemonSet's status and asserts desired/unplacedCount against a real cluster. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-790",
+      "module": "gimle-controlplane",
+      "feature": "A durable, replica-agnostic read of whether an AlertRule is currently firing",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "New requirement: Fixed: closes item 3 of the three read gaps filed together (`GET /alertrules` served only a rule's declaration -- name, metric, comparator, threshold, webhook, enabled -- never the verdict, because AlertReconciler kept whether a rule was firing purely in its own process; with more than one control-plane replica each kept its own answer, and a restart silently reset every rule to \"not firing\"). Per the tracked design decision, firing state moved to gimle-mimir's durable, Raft-replicated store rather than staying per-replica: a new StateMutation.PutAlertFiringState (tenantId, name, firing) mirrors the ServiceSpec/NetworkPolicySpec mutation shape, with a full StoreReader/StoreClient/StoreRpc/StoreCodec/StoreNode read path (GetAlertFiringState/AlertFiringStateResult) alongside the AlertRuleSpec ones already there. AlertReconciler no longer keeps any in-process firing map at all: it reads the current durable verdict via AlertRuleRegistry#getFiringState before each evaluation and proposes AlertRuleRegistry#putFiringState only on an actual crossed/resolved transition -- the same re-propose restraint every other reconciler here already uses, not a write on every tick. Absent durable state means \"never evaluated,\" a genuinely different, distinguishable answer from an explicit false (\"known, currently resolved\"); deleting an AlertRule cascades to clear its firing verdict so a same-named recreated rule starts fresh. ApiServer gained GET /alertrules/{name}/firing, RBAC-gated via the existing ResourceKind.ALERT_RULE exactly like GET /alertrules/{name}, returning {\"name\", \"known\", \"firing\"} with `firing` omitted entirely (not a meaningless false) when no verdict has ever been recorded, mirroring GET /services/{name}/endpoints' own \"the resource exists, the derived data just isn't there yet\" 200-not-404 convention.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "AlertReconcilerTest covers an arbitrary starting store with no prior firing history (treated as not-firing) and a freshly instantiated AlertReconciler over the same durable store reading back an already-firing verdict rather than re-notifying (the restart/failover proof), on top of its existing crossed/resolved/disabled/deleted-rule coverage. StateStoreTest covers putAlertFiringState/getAlertFiringState (absent, true, false), the removeAlertRule cascade clearing it, and snapshot round-trip into a fresh store. RaftCodecTest and StoreCodecTest round-trip the new PutAlertFiringState mutation and GetAlertFiringState/AlertFiringStateResult wire shapes respectively. ApiServerAlertRulesFiringTest covers the not-yet-known case (200, known=false, no firing field), the known case once AlertRuleRegistry#putFiringState records a verdict, a 404 for an unknown rule name, and an mTLS RBAC-denial 403 for a caller with no ALERT_RULE grant.",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutAlertFiringState`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StoreReader.java` (`putAlertFiringState`, `getAlertFiringState`, `removeAlertRule`'s cascade)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateSnapshot.java` (`alertFiringState`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/RaftCodec.java` (`MUT_PUT_ALERT_FIRING_STATE`, snapshot `alertFiringState` encode/decode)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java` (`GetAlertFiringState`, `AlertFiringStateResult`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertRuleRegistry.java` (`getFiringState`, `putFiringState`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/alertrules/{name}/firing`)"
+      ]
+    },
+    {
+      "id": "GIMLE-791",
       "module": "gimle-cli",
       "feature": "CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider",
       "category": "CLI",
@@ -13687,7 +13745,7 @@
       "gapNote": "No .feature exercises the CLI's verb dispatch: Holmgang drives the platform through its own harness, not through GimleCli's argument parsing."
     },
     {
-      "id": "GIMLE-789",
+      "id": "GIMLE-792",
       "module": "gimle-cli",
       "feature": "An extension is handed a read-only view of the control-plane API, never the client",
       "category": "CLI / Security",
@@ -13703,7 +13761,7 @@
       "gapNote": "A compile-time property of a Java interface; no running-cluster scenario can observe it, and no .feature exercises the CLI's extension surface at all."
     },
     {
-      "id": "GIMLE-790",
+      "id": "GIMLE-793",
       "module": "gimle-hugin",
       "feature": "`gimle top` renders a live, read-only cluster view of nodes and instances",
       "category": "CLI UX",
@@ -13724,7 +13782,7 @@
       ]
     },
     {
-      "id": "GIMLE-791",
+      "id": "GIMLE-794",
       "module": "gimle-hugin",
       "feature": "A failed poll keeps the last good rows and ages them rather than clearing the screen",
       "category": "CLI UX",
@@ -13737,10 +13795,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterPoller.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-790: Holmgang can cut the link to a control plane, but has no way to observe what a terminal frame then shows."
+      "gapNote": "Same TUI gap as GIMLE-793: Holmgang can cut the link to a control plane, but has no way to observe what a terminal frame then shows."
     },
     {
-      "id": "GIMLE-792",
+      "id": "GIMLE-795",
       "module": "gimle-hugin",
       "feature": "Instance drill-down with lifecycle timeline and a live log tail",
       "category": "CLI UX",
@@ -13754,10 +13812,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/InstanceScreen.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-790. The underlying /events and follow-log routes are themselves reachable from a scenario, but the pane that renders them is not."
+      "gapNote": "Same TUI gap as GIMLE-793. The underlying /events and follow-log routes are themselves reachable from a scenario, but the pane that renders them is not."
     },
     {
-      "id": "GIMLE-793",
+      "id": "GIMLE-796",
       "module": "gimle-hugin",
       "feature": "Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal",
       "category": "CLI UX",
@@ -13774,7 +13832,7 @@
       "gapNote": "Holmgang cannot send keystrokes to a raw-mode terminal; there is no headless path to drive this end to end."
     },
     {
-      "id": "GIMLE-794",
+      "id": "GIMLE-797",
       "module": "gimle-hugin",
       "feature": "Terminal colour is the console's own tokens, degrading to 256-colour and to none",
       "category": "CLI UX",
@@ -13788,10 +13846,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/StatusVariant.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/Painter.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-790; the console-parity half is pinned by a unit test against a transcribed copy of the console's own mapping rather than by a running cluster."
+      "gapNote": "Same TUI gap as GIMLE-793; the console-parity half is pinned by a unit test against a transcribed copy of the console's own mapping rather than by a running cluster."
     },
     {
-      "id": "GIMLE-795",
+      "id": "GIMLE-798",
       "module": "gimle-hugin",
       "feature": "The terminal view ships in the CLI archives and is removable in one directory delete",
       "category": "Distribution",
@@ -13808,7 +13866,7 @@
       "gapNote": "Holmgang boots processes from the reactor's own classpath, never from a built distribution archive, so no scenario exercises the archive's contents."
     },
     {
-      "id": "GIMLE-796",
+      "id": "GIMLE-799",
       "module": "gimle-hugin",
       "feature": "The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange",
       "category": "CLI UX",
@@ -13834,7 +13892,7 @@
       ]
     },
     {
-      "id": "GIMLE-797",
+      "id": "GIMLE-800",
       "module": "gimle-hugin",
       "feature": "DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments",
       "category": "CLI UX",
@@ -13847,10 +13905,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadKind.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-790: no scenario can attach a terminal to read the rendered table, though the underlying list routes are themselves reachable from one."
+      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read the rendered table, though the underlying list routes are themselves reachable from one."
     },
     {
-      "id": "GIMLE-798",
+      "id": "GIMLE-801",
       "module": "gimle-hugin",
       "feature": "A services screen showing each Service's live endpoint resolution",
       "category": "CLI UX",
@@ -13871,7 +13929,7 @@
       ]
     },
     {
-      "id": "GIMLE-799",
+      "id": "GIMLE-802",
       "module": "gimle-hugin",
       "feature": "An activity view of what has been done to the cluster, over the audit trail",
       "category": "CLI UX",
@@ -13884,59 +13942,7 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-790: no scenario can attach a terminal to read a rendered frame. The /audit route itself is reachable from a scenario; the screen that renders it is not."
-    },
-    {
-      "id": "GIMLE-800",
-      "module": "gimle-examples",
-      "feature": "A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve",
-      "category": "Networking/Service Discovery",
-      "status": "New",
-      "statusNote": "New requirement: none of Midgard's three bundled example modules ever called ctx.reportPort, so a Service created against a real Midgard-seeded cluster resolved zero endpoints for any workload the platform actually ships, regardless of replica count or targetPort. GreeterProviderHooks.onStart now opens a real ephemeral-port HTTP status listener and reports it, giving Service endpoint resolution a genuine bundled workload to resolve.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang Cucumber scenario deploys the real greeter-provider example jar and asserts a Service resolves its endpoint -- service-fabric.feature's own port-reporting scenario (GIMLE-571) uses a synthetic ModuleFixtures-built module, not this bundled example. Real coverage exists in gimle-smoke-tests' ServiceNetworkIT, which does not count toward RTM coverage per this file's own coverageRule.",
-      "otherTestCoverage": "`ServiceNetworkIT#a_declared_service_starts_a_real_bifrost_proxy_and_skald_answers_it_correctly` -- see requirements-matrix.json for detail",
-      "sourceLocations": [
-        "`gimle-examples/greeter-provider/src/main/java/com/gimle/examples/greeter/provider/GreeterProviderHooks.java`",
-        "`gimle-examples/greeter-provider/src/main/java/module-info.java`"
-      ]
-    },
-    {
-      "id": "GIMLE-801",
-      "module": "gimle-console",
-      "feature": "The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast",
-      "category": "Web Console / Frontend",
-      "status": "New",
-      "statusNote": "New requirement: Fixed defensively -- see requirements-matrix.json for full detail. The submit handler already surfaced a rejected create() via toast; a persistent inline error banner was added so the rejection reason survives past a toast's own auto-dismiss timer.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang Cucumber scenario drives the console's New Deployment form against a real rejected admission; coverage today is Vitest repository/store tests only.",
-      "otherTestCoverage": "`repositories/http/deployments.test.ts`, `stores/useDeploymentsStore.test.ts` -- see requirements-matrix.json for detail",
-      "sourceLocations": [
-        "`gimle-console/src/routes/deployments.new.tsx`",
-        "`gimle-console/src/repositories/http/deployments.ts`",
-        "`gimle-console/src/stores/useDeploymentsStore.ts`"
-      ]
-    },
-    {
-      "id": "GIMLE-802",
-      "module": "gimle-console",
-      "feature": "Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli",
-      "category": "Web Console / Frontend",
-      "status": "New",
-      "statusNote": "New requirement: Fixed. The console's HttpServicesRepository#save read the response body but dropped the X-Gimle-Warning header the control plane attaches to a Service POST carrying an overlap/advisory warning -- gimle-cli already prints this header verbatim. A new requestOkWithWarning apiClient primitive, threaded through ServicesRepository#save -> useServicesStore#save -> the Networking screen's submit handler, now shows it as its own toast.warning alongside the success toast.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
-      "gapNote": "No Holmgang Cucumber scenario drives the console's Service creation form against a real overlap-advisory response; coverage today is Vitest repository/store tests only.",
-      "otherTestCoverage": "`repositories/http/apiClient.test.ts`, `repositories/http/services.test.ts`, `repositories/services.test.ts`, `stores/useServicesStore.test.ts` -- see requirements-matrix.json for detail",
-      "sourceLocations": [
-        "`gimle-console/src/repositories/http/apiClient.ts`",
-        "`gimle-console/src/repositories/http/services.ts`",
-        "`gimle-console/src/repositories/services.ts`",
-        "`gimle-console/src/stores/useServicesStore.ts`",
-        "`gimle-console/src/routes/networking.tsx`"
-      ]
+      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The /audit route itself is reachable from a scenario; the screen that renders it is not."
     },
     {
       "id": "GIMLE-803",

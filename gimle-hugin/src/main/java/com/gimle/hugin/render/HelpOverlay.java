@@ -69,16 +69,13 @@ public final class HelpOverlay {
                 Style.fg(Palette.MUTED_FOREGROUND))
             .build());
 
-    while (lines.size() < viewport.rows() - 1) {
-      lines.add("");
-    }
-    lines.add(
+    String keyBar =
         new Line(painter)
             .add(" ", Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
             .add("any key", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
             .add(" to close", Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
             .fillTo(viewport.columns(), Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
-            .build());
-    return Frame.fit(lines, viewport);
+            .build();
+    return Frame.fitWithKeyBar(lines, keyBar, viewport);
   }
 }

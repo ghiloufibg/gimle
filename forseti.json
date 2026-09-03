@@ -500,7 +500,8 @@
         "note": "Pluggable interfaces with one implementation. Nothing to observe beyond the implementation, which is covered on its own row.",
         "ids": [
           "GIMLE-064",
-          "GIMLE-068"
+          "GIMLE-068",
+          "GIMLE-792"
         ]
       },
       "api-only-no-client": {
