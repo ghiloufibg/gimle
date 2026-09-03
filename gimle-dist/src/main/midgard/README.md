@@ -77,8 +77,16 @@ Cluster state (store data, secrets, pushed artifacts, per-process logs) lives in
 
 ## Requirements
 
-Docker with Compose v2. Give the Docker VM at least 2 GiB of memory: the cluster runs six
-platform JVMs (heap-capped in `midgard/topology.yaml`) plus one worker JVM per deployed module
-instance. Running `docker run` directly instead of Compose works too — pass `--init` (the
-entrypoint's comment explains why an init at PID 1 is the supported setup) and the port/volume
-flags Compose otherwise supplies.
+Docker with Compose v2. Give the Docker VM at least 2 GiB of memory as a starting point: the six
+platform JVMs (heap-capped in `midgard/topology.yaml`, ~1.06 GiB combined) leave under 1 GiB of
+that for every worker JVM the cluster actually runs, and each is a separate, uncapped-by-topology
+process sized from its own module's manifest — a single shared (Tier 1) worker commonly requests
+1 GiB on its own in this repo's example/test manifests. That budget is per *running* instance, not
+per deployment: replicas you scale up and QA/example deployments you forget to delete each keep
+their own worker JVM (and its full `-Xmx`) reserved for as long as they stay scheduled, so a
+long-lived container that has accumulated a lot of leftover instances needs proportionally more
+memory than a freshly-seeded one — `gimle get deployments --server localhost:8080` (or the console)
+shows what's actually running; delete what you no longer need rather than leaving it to accumulate.
+Running `docker run` directly instead of Compose works too — pass `--init` (the entrypoint's
+comment explains why an init at PID 1 is the supported setup) and the port/volume flags Compose
+otherwise supplies.
