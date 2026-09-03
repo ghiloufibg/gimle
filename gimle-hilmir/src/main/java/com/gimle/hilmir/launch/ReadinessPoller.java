@@ -92,6 +92,15 @@ final class ReadinessPoller {
     }
   }
 
+  /**
+   * Resolves a {@code host:port} readiness address into a connectable socket address, for a caller
+   * that needs to dial it with something other than this class's own bare TCP connect.
+   */
+  static InetSocketAddress socketAddressOf(final String hostPort) {
+    final HostAndPort parsed = HostAndPort.parse(hostPort);
+    return new InetSocketAddress(parsed.host(), parsed.port());
+  }
+
   /** Splits on the last {@code :} so an IPv6 literal host (itself colon-separated) still works. */
   private record HostAndPort(String host, int port) {
     static HostAndPort parse(final String hostPort) {

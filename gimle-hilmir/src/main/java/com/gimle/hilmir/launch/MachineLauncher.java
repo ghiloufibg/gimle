@@ -8,8 +8,11 @@ import com.gimle.hilmir.plan.ProcessCommand;
 import com.gimle.hilmir.plan.ResolvedRuntime;
 import com.gimle.hilmir.topology.ProcessRole;
 import com.gimle.hilmir.topology.Topology;
+import com.gimle.hilmir.topology.Transport;
+import com.gimle.mimir.rpc.StoreClient;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.SocketAddress;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -42,6 +45,23 @@ import java.util.regex.Pattern;
  * prerequisite.
  */
 public final class MachineLauncher {
+
+  /**
+   * How long {@link #awaitStoreLeaderServing} waits for the cluster to serve through a leader again
+   * after a store restart. Generous on purpose: it must cover a fresh replica rejoining, an
+   * election, and a lagging follower catching its log up on a busy cluster, and the cost of waiting
+   * too long is a slow rollout, where the cost of not waiting long enough is taking the next
+   * replica down mid-recovery.
+   */
+  private static final Duration STORE_LEADER_TIMEOUT = Duration.ofSeconds(90);
+
+  private static final Duration STORE_LEADER_POLL_INTERVAL = Duration.ofMillis(500);
+
+  /**
+   * A node id no real node registers, so the leader-routed read {@link #awaitStoreLeaderServing}
+   * probes with always answers empty -- it exists to be routed, not to find anything.
+   */
+  private static final String LEADER_PROBE_NODE_ID = "hilmir-upgrade-leader-probe";
 
   private static final Duration READINESS_TIMEOUT = Duration.ofMinutes(2);
   private static final Duration ONE_SHOT_TIMEOUT = Duration.ofSeconds(60);
@@ -167,6 +187,7 @@ public final class MachineLauncher {
 
     if (role == ProcessRole.STORE) {
       requireStoreQuorumMaintained(clusterPlan, command, "after");
+      awaitStoreLeaderServing(clusterPlan, topology, command, out);
     }
 
     RunLedger.replace(newRuntime.dataRoot(), command.id(), fresh);
@@ -245,6 +266,115 @@ public final class MachineLauncher {
               + total
               + " total replicas for Raft quorum); restarting now risks losing quorum");
     }
+  }
+
+  /**
+   * Waits until the store cluster actually has an elected leader serving again, after a store
+   * replica was restarted -- the one thing {@link #requireStoreQuorumMaintained} structurally
+   * cannot tell a caller. That gate reads TCP ports, and a fresh store process opens its port the
+   * moment it binds: well before it has rejoined the Raft cluster, caught its log up, or found a
+   * leader. A rollout that treats a bound port as proof of health therefore reports this step
+   * successful and moves straight on to the next machine, where taking down another replica while
+   * the cluster still has no leader is precisely the quorum loss the gate exists to prevent.
+   *
+   * <p>The probe is a leader-routed read for a node id no real node uses: it can only be answered
+   * where a leader is genuinely serving, and its (always empty) result is discarded -- that one
+   * answered at all is the whole signal. Failing here deliberately fails the command rather than
+   * warning: an operator who is told a rollout step succeeded will continue the rollout, which is
+   * the action that turns a slow recovery into an outage.
+   */
+  private static void awaitStoreLeaderServing(
+      final ClusterPlan clusterPlan,
+      final Topology topology,
+      final ProcessCommand restarted,
+      final PrintStream out) {
+    awaitStoreLeaderServing(clusterPlan, topology, restarted, out, STORE_LEADER_TIMEOUT);
+  }
+
+  /**
+   * The timeout-parameterised core of {@link #awaitStoreLeaderServing}, package-visible for the
+   * same reason {@link #restartRole}'s {@link ClusterPlan} overload is: it lets a test assert what
+   * this gate accepts and rejects without waiting out the production budget.
+   */
+  static void awaitStoreLeaderServing(
+      final ClusterPlan clusterPlan,
+      final Topology topology,
+      final ProcessCommand restarted,
+      final PrintStream out,
+      final Duration timeout) {
+    final List<SocketAddress> endpoints = storeClientEndpoints(clusterPlan);
+    if (endpoints.isEmpty()) {
+      return;
+    }
+    if (topology.transport() == Transport.MTLS) {
+      activateOperatorTls(topology);
+    }
+    out.println("  waiting for the store cluster to serve through a leader again...");
+    final long deadlineNanos = System.nanoTime() + timeout.toNanos();
+    String lastError = "no probe completed";
+    try (StoreClient client = new StoreClient(endpoints)) {
+      while (true) {
+        try {
+          client.getNodeHeartbeat(LEADER_PROBE_NODE_ID);
+          out.println("  store cluster is serving through a leader again");
+          return;
+        } catch (final RuntimeException e) {
+          lastError = String.valueOf(e.getMessage());
+        }
+        if (System.nanoTime() > deadlineNanos) {
+          break;
+        }
+        try {
+          Thread.sleep(STORE_LEADER_POLL_INTERVAL.toMillis());
+        } catch (final InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new HilmirException("interrupted waiting for a store leader after restart", e);
+        }
+      }
+    }
+    throw new HilmirException(
+        "store "
+            + restarted.id()
+            + " restarted and is listening, but the store cluster still has no leader serving"
+            + " after "
+            + timeout
+            + " (last error: "
+            + lastError
+            + ") -- not reporting this step healthy, since continuing the rollout would take"
+            + " another replica down while the cluster cannot serve");
+  }
+
+  /** Every store replica's client address anywhere in the cluster, the endpoints a client dials. */
+  private static List<SocketAddress> storeClientEndpoints(final ClusterPlan clusterPlan) {
+    final List<SocketAddress> endpoints = new ArrayList<>();
+    for (final MachinePlan machinePlan : clusterPlan.byMachine().values()) {
+      for (final ProcessCommand candidate : machinePlan.commands()) {
+        if (candidate.role() == ProcessRole.STORE && !candidate.readinessAddress().isBlank()) {
+          endpoints.add(ReadinessPoller.socketAddressOf(candidate.readinessAddress()));
+        }
+      }
+    }
+    return endpoints;
+  }
+
+  /**
+   * {@code StoreConnection} reads these lazily per socket, so they must be set before the {@link
+   * StoreClient} above opens one. Same three-file operator identity {@link #mintBootstrapToken}
+   * already uses for talking to an already-running cluster.
+   */
+  private static void activateOperatorTls(final Topology topology) {
+    final Path materialDir =
+        topology
+            .tls()
+            .orElseThrow(
+                () ->
+                    new HilmirException(
+                        "cannot reach the store cluster: mtls topology has no tls.materialDir"))
+            .materialDir();
+    System.setProperty("gimle.transport.protocol", "tls");
+    System.setProperty("gimle.tls.certFile", materialDir.resolve("operator.crt").toString());
+    System.setProperty("gimle.tls.keyFile", materialDir.resolve("operator.key").toString());
+    System.setProperty("gimle.tls.caFile", materialDir.resolve("ca.crt").toString());
   }
 
   private static List<ProcessCommand> otherStoreCommands(

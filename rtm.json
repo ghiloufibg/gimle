@@ -2590,21 +2590,23 @@
       "module": "gimle-mimir",
       "feature": "Check-Quorum Leader Self-Demotion",
       "category": "Raft Consensus",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Check-quorum now distinguishes an established leader from one that has not yet reached a majority even once: the 300ms window governs the former, a full peer-RPC attempt's worth of grace the latter. Judging a new leader by the window alone demoted it before its first connects could complete, and its successor repeated that indefinitely.",
       "coverage": "Covered",
       "holmgangScenarios": [
         {
           "featureFile": "gimle-holmgang/src/test/resources/features/partition-tolerance.feature",
           "scenario": "A store leader silently partitioned from its peers steps down and writes stay bounded",
-          "whyThisCounts": "Uses a Loki fault proxy to isolate the Raft leader from its peers (no crash, just silence) and asserts check-quorum self-demotion within 10s, plus a submitted write completing (not hanging) within 30s."
+          "whyThisCounts": "Uses a Loki fault proxy to isolate the Raft leader from its peers (no crash, just silence) and asserts check-quorum self-demotion within 10s, plus a submitted write completing (not hanging) within 30s. The isolated leader has already been serving, so this exercises the established-leader window; the newly-elected-leader grace is covered by unit tests only."
         }
       ],
       "gapNote": "",
-      "otherTestCoverage": "`RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`",
+      "otherTestCoverage": "`RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`; `RaftNodeVirtualTimeTest#election_timeout_and_check_quorum_self_demotion_both_fire_purely_from_advancing_virtual_time`",
       "sourceLocations": [
         "`RaftNode#checkQuorumTick`",
-        "`#CHECK_QUORUM_WINDOW`"
+        "`#CHECK_QUORUM_WINDOW`",
+        "`#LEADERSHIP_CONTACT_GRACE`",
+        "`PeerConnection#worstCaseCallDuration`"
       ]
     },
     {
@@ -6879,16 +6881,16 @@
       "module": "gimle-hilmir",
       "feature": "Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)",
       "category": "Release Management",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "A store restart is now gated a second time, after the replacement is listening: the rollout waits for the cluster to serve a leader-routed read again and fails the step if it does not. Port reachability alone passes the moment a fresh store binds, before it has rejoined Raft.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)\".",
-      "otherTestCoverage": "`UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple)",
+      "otherTestCoverage": "`UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple, incl. `#a_store_whose_port_is_open_but_serves_nothing_is_not_accepted_as_a_restored_cluster`)",
       "sourceLocations": [
         "`gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`",
         "`RoleRestarter.java`",
-        "`MachineLauncher.restartRole`/`requireStoreQuorumMaintained`"
+        "`MachineLauncher.restartRole`/`requireStoreQuorumMaintained`/`awaitStoreLeaderServing`"
       ]
     },
     {

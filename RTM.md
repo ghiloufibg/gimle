@@ -159,7 +159,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-142 | Proposal Timeout with Ghost-Write Prevention | Active | Covered | `partition-tolerance.feature` — "A leader's write proposed while partitioned is truncated and never resurfaces" |
 | GIMLE-143 | Chunked InstallSnapshot Transfer (Figure 13) | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
 | GIMLE-144 | Local Log Compaction / Snapshotting | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
-| GIMLE-145 | Check-Quorum Leader Self-Demotion | Active | Covered | `partition-tolerance.feature` — "A store leader silently partitioned from its peers steps down and writes stay bounded" |
+| GIMLE-145 | Check-Quorum Leader Self-Demotion | Modified | Covered | `partition-tolerance.feature` — "A store leader silently partitioned from its peers steps down and writes stay bounded" |
 | GIMLE-146 | Etcd-Style Live Membership Change (AddServer/RemoveServer) | Active | Covered | `membership-change.feature` — "A fourth store joins and then leaves, one server at a time" |
 | GIMLE-147 | Non-Voting Learner & Automatic Promotion | Active | Covered | `raft-resilience.feature` — "A learner catches up through a compacted leader's snapshot and only helps quorum once promoted" |
 | GIMLE-148 | Durable Raft Log Persistence | Active | Covered | `raft-resilience.feature` — "A store member dies mid-workload and nothing acknowledged is lost"; `raft-resilience.feature` — "The store leader dies mid-workload and nothing acknowledged is lost" |
@@ -411,7 +411,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-394 | Cluster TLS/PKI bootstrap (`hilmir pki init`) | Active | Not Covered | — |
 | GIMLE-395 | Raft store membership add (`hilmir store add`) | Active | Not Covered | — |
 | GIMLE-396 | Raft store membership remove (`hilmir store remove`) | Active | Not Covered | — |
-| GIMLE-397 | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Active | Not Covered | — |
+| GIMLE-397 | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Modified | Not Covered | — |
 | GIMLE-398 | Bundle-based fresh release deployment (`hilmir deploy`) | Active | Not Covered | — |
 | GIMLE-399 | Bundle upgrade with automatic resource pruning (`hilmir upgrade`) | Active | Not Covered | — |
 | GIMLE-400 | Release rollback to a prior revision (`hilmir rollback`) | Active | Not Covered | — |
@@ -2640,13 +2640,13 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-145 — Check-Quorum Leader Self-Demotion
 
 - **Category**: Raft Consensus
-- **Status**: Active
+- **Status**: Modified  _(Check-quorum now distinguishes an established leader from one that has not yet reached a majority even once: the 300ms window governs the former, a full peer-RPC attempt's worth of grace the latter. Judging a new leader by the window alone demoted it before its first connects could complete, and its successor repeated that indefinitely.)_
 - **Coverage**: Covered
 - **Holmgang feature file(s) + scenario(s)**:
   - `gimle-holmgang/src/test/resources/features/partition-tolerance.feature` — Scenario: *A store leader silently partitioned from its peers steps down and writes stay bounded*
-  - _Why this counts_: Uses a Loki fault proxy to isolate the Raft leader from its peers (no crash, just silence) and asserts check-quorum self-demotion within 10s, plus a submitted write completing (not hanging) within 30s.
-- **Other test coverage (non-Holmgang, informational only)**: `RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`
-- **Source location(s)**: `RaftNode#checkQuorumTick`, `#CHECK_QUORUM_WINDOW`
+  - _Why this counts_: Uses a Loki fault proxy to isolate the Raft leader from its peers (no crash, just silence) and asserts check-quorum self-demotion within 10s, plus a submitted write completing (not hanging) within 30s. The isolated leader has already been serving, so this exercises the established-leader window; the newly-elected-leader grace is covered by unit tests only.
+- **Other test coverage (non-Holmgang, informational only)**: `RaftClusterTest#a_leader_partitioned_from_the_majority_steps_down_on_its_own_via_check_quorum`, `#a_leader_with_a_reachable_majority_never_self_demotes_via_check_quorum`; `RaftNodeVirtualTimeTest#election_timeout_and_check_quorum_self_demotion_both_fire_purely_from_advancing_virtual_time`
+- **Source location(s)**: `RaftNode#checkQuorumTick`, `#CHECK_QUORUM_WINDOW`, `#LEADERSHIP_CONTACT_GRACE`, `PeerConnection#worstCaseCallDuration`
 
 #### GIMLE-146 — Etcd-Style Live Membership Change (AddServer/RemoveServer)
 
@@ -6249,11 +6249,11 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 #### GIMLE-397 — Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)
 
 - **Category**: Release Management
-- **Status**: Active
+- **Status**: Modified  _(A store restart is now gated a second time, after the replacement is listening: the rollout waits for the cluster to serve a leader-routed read again and fails the step if it does not. Port reachability alone passes the moment a fresh store binds, before it has rejoined Raft.)_
 - **Coverage**: Not Covered
 - **Gap note**: No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for "Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`)".
-- **Other test coverage (non-Holmgang, informational only)**: `UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple)
-- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`, `RoleRestarter.java`, `MachineLauncher.restartRole`/`requireStoreQuorumMaintained`
+- **Other test coverage (non-Holmgang, informational only)**: `UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple, incl. `#a_store_whose_port_is_open_but_serves_nothing_is_not_accepted_as_a_restored_cluster`)
+- **Source location(s)**: `gimle-hilmir/src/main/java/com/gimle/hilmir/upgrade/UpgradeClusterCommand.java`, `RoleRestarter.java`, `MachineLauncher.restartRole`/`requireStoreQuorumMaintained`/`awaitStoreLeaderServing`
 
 #### GIMLE-398 — Bundle-based fresh release deployment (`hilmir deploy`)
 
@@ -8709,7 +8709,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-393 | gimle-hilmir | Cluster teardown and status reporting (`hilmir down`/`status`) | Release Management | `MachineLauncherIntegrationTest.down_is_a_clean_no_op_for_an_already_dead_recorded_pid`, `status_reports_a_dead_pid_as_not_alive_and_a_never_bound_address_as_closed`; `HilmirCliDownStatusEndToEndTest`; `HilmirMainTest` (multiple) |
 | GIMLE-395 | gimle-hilmir | Raft store membership add (`hilmir store add`) | Release Management | `StoreCommandsClusterTest.add_joins_a_real_peer_and_it_becomes_a_visible_cluster_member`; `HilmirMainTest` (positional args, one-of-topology/server); `StoreEndpointsTest` |
 | GIMLE-396 | gimle-hilmir | Raft store membership remove (`hilmir store remove`) | Release Management | `StoreCommandsClusterTest.remove_drops_a_previously_added_peer_from_the_membership`, `remove_of_a_never_added_peer_fails_fast_with_a_clean_error` |
-| GIMLE-397 | gimle-hilmir | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Release Management | `UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple) |
+| GIMLE-397 | gimle-hilmir | Per-machine platform binary rolling upgrade with quorum-safe store restart (`hilmir upgrade-cluster`) | Release Management | `UpgradeClusterCommandTest` (multiple); `MachineLauncherRestartRoleIntegrationTest` (multiple); `MachineLauncherStoreQuorumGateTest` (multiple, incl. `#a_store_whose_port_is_open_but_serves_nothing_is_not_accepted_as_a_restored_cluster`) |
 | GIMLE-398 | gimle-hilmir | Bundle-based fresh release deployment (`hilmir deploy`) | Release Management | `DeployCommandTest` (multiple, incl. dry-run, unresolved value ref, json output, wait); `HilmirMainTest.deploy_requires_the_file_flag` |
 | GIMLE-399 | gimle-hilmir | Bundle upgrade with automatic resource pruning (`hilmir upgrade`) | Release Management | `UpgradeCommandTest` (prunes workload, requires existing release, dry-run computes prune with no mutating call) |
 | GIMLE-400 | gimle-hilmir | Release rollback to a prior revision (`hilmir rollback`) | Release Management | `RollbackCommandTest` (multiple); `HilmirMainTest.rollback_requires_the_release_flag` |
