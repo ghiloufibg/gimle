@@ -1592,11 +1592,17 @@ class ApiServerTest {
   }
 
   @Test
-  void get_events_requires_deployment_and_instance_query_params() throws Exception {
-    HttpResponse<String> response =
-        send(HttpRequest.newBuilder(URI.create(baseUrl + "/events")).GET().build());
+  void get_events_with_only_one_of_deployment_and_instance_is_rejected() throws Exception {
+    HttpResponse<String> deploymentOnly =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/events?deployment=orders-service"))
+                .GET()
+                .build());
+    HttpResponse<String> instanceOnly =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/events?instance=0")).GET().build());
 
-    assertEquals(400, response.statusCode());
+    assertEquals(400, deploymentOnly.statusCode());
+    assertEquals(400, instanceOnly.statusCode());
   }
 
   @Test

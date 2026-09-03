@@ -134,6 +134,7 @@ public sealed interface StoreRpc {
           GetWorkloadHealthState,
           ListWorkloadHealthStates,
           ListInstanceEvents,
+          ListAllInstanceEvents,
           ListAuditEvents,
           GetAuditTrailStatus,
           ListControllerRevisions,
@@ -432,6 +433,14 @@ public sealed interface StoreRpc {
   record ListWorkloadHealthStates() implements Request {}
 
   record ListInstanceEvents(Optional<String> tenantId, String deploymentName, int instanceIndex)
+      implements Request {}
+
+  /**
+   * The cluster-wide counterpart to {@link ListInstanceEvents}: every instance's own timeline at
+   * once rather than one, answered by {@link InstanceEventListResult} the same way. See {@code
+   * StateStore#listInstanceEvents(Optional, Optional)}'s own javadoc for the filter semantics.
+   */
+  record ListAllInstanceEvents(Optional<String> tenantId, Optional<Long> since)
       implements Request {}
 
   /**

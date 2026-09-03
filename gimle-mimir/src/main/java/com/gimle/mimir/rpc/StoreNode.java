@@ -206,6 +206,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListInstanceEvents r ->
           new StoreRpc.InstanceEventListResult(
               store.listInstanceEvents(r.tenantId(), r.deploymentName(), r.instanceIndex()));
+      case StoreRpc.ListAllInstanceEvents r ->
+          new StoreRpc.InstanceEventListResult(store.listInstanceEvents(r.tenantId(), r.since()));
       case StoreRpc.ListAuditEvents r ->
           new StoreRpc.AuditEventListResult(
               store.listAuditEvents(r.principal(), r.resourceKind(), r.tenantId(), r.since()));

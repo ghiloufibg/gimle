@@ -226,6 +226,32 @@ class StoreNodeTest {
         node.handle(new StoreRpc.ListInstanceEvents(Optional.empty(), "never-deployed", 0)));
   }
 
+  @Test
+  void a_cluster_wide_instance_events_read_merges_every_instances_own_timeline_over_the_wire() {
+    StoreNode node = leaderNode("events-cluster-wide");
+    InstanceEvent orders =
+        new InstanceEvent("evt-1", "orders", 0, InstanceEventKind.ACTIVE, "module active", 1_000L);
+    InstanceEvent ledger =
+        new InstanceEvent("evt-2", "ledger", 0, InstanceEventKind.ACTIVE, "module active", 2_000L);
+
+    node.handle(
+        new StoreRpc.Propose(new StateMutation.AppendInstanceEvent(Optional.empty(), orders)));
+    node.handle(
+        new StoreRpc.Propose(new StateMutation.AppendInstanceEvent(Optional.empty(), ledger)));
+
+    StoreRpc.Response listResponse =
+        node.handle(new StoreRpc.ListAllInstanceEvents(Optional.empty(), Optional.empty()));
+    assertEquals(new StoreRpc.InstanceEventListResult(List.of(ledger, orders)), listResponse);
+  }
+
+  @Test
+  void a_cluster_wide_instance_events_read_with_no_matches_is_empty() {
+    StoreNode node = leaderNode("events-cluster-wide-empty");
+    assertEquals(
+        new StoreRpc.InstanceEventListResult(List.of()),
+        node.handle(new StoreRpc.ListAllInstanceEvents(Optional.empty(), Optional.empty())));
+  }
+
   // ---- ListAuditEvents / AppendAuditEvent (audit trail) ----
 
   @Test

@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -1253,6 +1254,44 @@ public final class StateStore implements StoreReader {
     List<InstanceEvent> reversed = new ArrayList<>(events);
     Collections.reverse(reversed);
     return List.copyOf(reversed);
+  }
+
+  /**
+   * Cluster-wide, newest-first across every instance's own timeline at once -- the read side of
+   * {@link #putInstanceEvent} un-scoped to one instance, for "what has this cluster been doing"
+   * rather than one instance's own history. An absent {@code tenantId} matches every tenant's
+   * timelines (the untenanted namespace included); a present one narrows to exactly that tenant's
+   * own timelines, the same scoping {@link #instanceEventsKey} already keys them under -- unlike
+   * {@link #listInstanceEvents(Optional, String, int)}'s own single-instance convention, where an
+   * absent tenant addresses the untenanted namespace specifically rather than everything. An absent
+   * {@code since} matches every retained event; a present one is an inclusive lower bound, the same
+   * filter-after-retrieve shape {@link #listAuditEvents} already uses. Ties in {@code
+   * occurredAtEpochMilli} break on {@code id} so the merged order is fully deterministic regardless
+   * of the per-instance maps' own iteration order -- required for cursor pagination to see a stable
+   * sequence across repeated calls.
+   */
+  public List<InstanceEvent> listInstanceEvents(Optional<String> tenantId, Optional<Long> since) {
+    List<InstanceEvent> matching = new ArrayList<>();
+    for (Map.Entry<String, List<InstanceEvent>> entry : instanceEvents.entrySet()) {
+      if (tenantId.isPresent()
+          && !tenantId.get().equals(tenantOfInstanceEventsKey(entry.getKey()))) {
+        continue;
+      }
+      matching.addAll(entry.getValue());
+    }
+    return matching.stream()
+        .filter(e -> since.isEmpty() || e.occurredAtEpochMilli() >= since.get())
+        .sorted(
+            Comparator.comparingLong(InstanceEvent::occurredAtEpochMilli)
+                .reversed()
+                .thenComparing(InstanceEvent::id))
+        .toList();
+  }
+
+  /** The tenant segment {@link #scopedKey} prepends to an {@link #instanceEventsKey}. */
+  private static String tenantOfInstanceEventsKey(String key) {
+    int separator = key.indexOf('\0');
+    return separator < 0 ? "" : key.substring(0, separator);
   }
 
   // ---- cross-resource audit trail ----

@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 787,
+    "totalRequirements": 788,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 660,
+    "notCoveredByAutomatedTest": 661,
     "releaseReadinessPercent": 16.1
   },
   "items": [
@@ -8659,6 +8659,17 @@
       "category": "Web Console / Frontend",
       "feature": "An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each",
       "step": "Given a Deployment whose replicas are all placed but one instance is FAILED When I open the Applications screen Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node Given a Deployment placing 1 of 2 desired replicas, that one healthy Then it reads Progressing on health and OutOfSync on sync Given a Job that has SUCCEEDED Then it reads Healthy, because a Job's desired state is having run Given a CronJob whose newest generated Job FAILED Then it reads Degraded, naming that Job Given a custom resource whose status reports an observedGeneration behind its generation Then it reads Progressing and OutOfSync, naming both generations Given a control plane whose consoleAddons property does not name this addon Then the sidebar carries no Applications entry and its route explains which property would enable it",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-788",
+      "module": "gimle-controlplane",
+      "category": "Observability",
+      "feature": "Cluster-wide instance lifecycle event read",
+      "step": "Given lifecycle events recorded across several deployments and tenants; When GET /events is requested with no deployment/instance params; Then every matching event is returned merged newest-first, paginated the same since/limit/cursor way GET /audit already is. Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode. Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

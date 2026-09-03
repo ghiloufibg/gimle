@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 787,
+  "requirementCount": 788,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13645,6 +13645,25 @@
         "`gimle-console/public/addons.json`"
       ],
       "gapNote": "Holmgang drives the cluster's HTTP API directly and never opens a browser, so console-level behaviour is structurally outside its reach -- the same gap GIMLE-447 (Topology) and GIMLE-773/774 (the Gateway and Skald addon screens) record. Verifying this end to end needs a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one."
+    },
+    {
+      "id": "GIMLE-788",
+      "module": "gimle-controlplane",
+      "feature": "Cluster-wide instance lifecycle event read",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "New requirement: GET /events required both `deployment` and `instance` query params and 400'd without them, and the store behind it (`StateStore#listInstanceEvents`) was keyed strictly per-instance -- there was no way to read \"what changed recently\" across the cluster, only one already-known instance's own timeline. GET /events now has a second mode: when neither `deployment` nor `instance` is given, it reads every instance's own lifecycle timeline merged newest-first, paginated with the exact `since`/`limit`/`cursor` idiom `GET /audit` already established. Both `GET /events` modes are RBAC-gated identically: `DEPLOYMENT:READ` scoped to the caller-supplied `tenant`.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "StateStoreTest (6 new), StoreCodecTest (round-trip), StoreNodeTest (2 new), InstanceEventPageTest (8), ApiServerClusterInstanceEventsTest (11), ApiServerAuthzTest (1 new), ApiServerTest (1 updated).",
+      "sourceLocations": [
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`listInstanceEvents(Optional, Optional)`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java` (`ListAllInstanceEvents`)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/{InstanceEventCursor,InstanceEventPage}.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleEvents`, `handleClusterInstanceEvents`)"
+      ],
+      "gapNote": "No .feature scenario reads GET /events' cluster-wide mode. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

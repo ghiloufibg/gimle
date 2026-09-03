@@ -657,6 +657,100 @@ class StateStoreTest {
     assertTrue(reloaded.listInstanceEvents(Optional.empty(), "orders-service", 0).isEmpty());
   }
 
+  @Test
+  void cluster_wide_instance_events_read_is_empty_when_nothing_has_happened_yet() {
+    StateStore store = new StateStore();
+
+    assertTrue(store.listInstanceEvents(Optional.empty(), Optional.empty()).isEmpty());
+  }
+
+  @Test
+  void cluster_wide_instance_events_merge_every_instances_own_timeline_newest_first() {
+    StateStore store = new StateStore();
+    store.putInstanceEvent(Optional.empty(), instanceEventAt("evt-1", "orders", 0, 1_000L));
+    store.putInstanceEvent(Optional.empty(), instanceEventAt("evt-2", "orders", 1, 2_000L));
+    store.putInstanceEvent(Optional.empty(), instanceEventAt("evt-3", "ledger", 0, 3_000L));
+
+    List<InstanceEvent> events = store.listInstanceEvents(Optional.empty(), Optional.empty());
+
+    assertEquals(List.of("evt-3", "evt-2", "evt-1"), idsOf(events));
+  }
+
+  @Test
+  void cluster_wide_instance_events_since_is_an_inclusive_lower_bound() {
+    StateStore store = new StateStore();
+    store.putInstanceEvent(Optional.empty(), instanceEventAt("evt-old", "orders", 0, 1_000L));
+    store.putInstanceEvent(Optional.empty(), instanceEventAt("evt-boundary", "orders", 0, 2_000L));
+    store.putInstanceEvent(Optional.empty(), instanceEventAt("evt-new", "orders", 0, 3_000L));
+
+    List<InstanceEvent> events = store.listInstanceEvents(Optional.empty(), Optional.of(2_000L));
+
+    assertEquals(List.of("evt-new", "evt-boundary"), idsOf(events));
+  }
+
+  @Test
+  void cluster_wide_instance_events_with_a_present_tenant_see_only_that_tenants_own_timelines() {
+    StateStore store = new StateStore();
+    store.putInstanceEvent(Optional.of("acme"), instanceEventAt("evt-acme", "orders", 0, 1_000L));
+    store.putInstanceEvent(
+        Optional.of("globex"), instanceEventAt("evt-globex", "orders", 0, 2_000L));
+    store.putInstanceEvent(
+        Optional.empty(), instanceEventAt("evt-untenanted", "orders", 0, 3_000L));
+
+    List<InstanceEvent> events = store.listInstanceEvents(Optional.of("acme"), Optional.empty());
+
+    assertEquals(List.of("evt-acme"), idsOf(events));
+  }
+
+  @Test
+  void cluster_wide_instance_events_with_no_tenant_filter_see_every_tenant_including_untenanted() {
+    StateStore store = new StateStore();
+    store.putInstanceEvent(Optional.of("acme"), instanceEventAt("evt-acme", "orders", 0, 1_000L));
+    store.putInstanceEvent(
+        Optional.of("globex"), instanceEventAt("evt-globex", "orders", 0, 2_000L));
+    store.putInstanceEvent(
+        Optional.empty(), instanceEventAt("evt-untenanted", "orders", 0, 3_000L));
+
+    List<InstanceEvent> events = store.listInstanceEvents(Optional.empty(), Optional.empty());
+
+    assertEquals(List.of("evt-untenanted", "evt-globex", "evt-acme"), idsOf(events));
+  }
+
+  /**
+   * Merging two instances' own timelines means the result is no longer any one timeline's own
+   * append order, so ties in {@code occurredAtEpochMilli} need a deterministic secondary key --
+   * otherwise which of two equally-timed events sorts first (and therefore what a cursor anchored
+   * on it means) would depend on the per-instance maps' own unspecified iteration order.
+   */
+  @Test
+  void cluster_wide_instance_events_break_timestamp_ties_on_id_for_a_deterministic_order() {
+    StateStore store = new StateStore();
+    store.putInstanceEvent(Optional.empty(), instanceEventAt("evt-b", "orders", 1, 1_000L));
+    store.putInstanceEvent(Optional.empty(), instanceEventAt("evt-a", "orders", 0, 1_000L));
+
+    List<InstanceEvent> first = store.listInstanceEvents(Optional.empty(), Optional.empty());
+    List<InstanceEvent> second = store.listInstanceEvents(Optional.empty(), Optional.empty());
+
+    assertEquals(List.of("evt-a", "evt-b"), idsOf(first));
+    assertEquals(idsOf(first), idsOf(second));
+  }
+
+  private static List<String> idsOf(List<InstanceEvent> events) {
+    return events.stream().map(InstanceEvent::id).toList();
+  }
+
+  /** {@link #instanceEvent(String, String, int)} with an explicit timestamp. */
+  private static InstanceEvent instanceEventAt(
+      String id, String workloadName, int instanceIndex, long occurredAtEpochMilli) {
+    return new InstanceEvent(
+        id,
+        workloadName,
+        instanceIndex,
+        InstanceEventKind.ACTIVE,
+        "module active",
+        occurredAtEpochMilli);
+  }
+
   private static AuditEvent auditEvent(
       String id,
       String principal,

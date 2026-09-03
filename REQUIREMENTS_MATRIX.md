@@ -797,6 +797,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-785 | Gateway routes are a declarative, versioned Ingress resource rather than only a flat hand-authored config string | Networking | Complete | Yes |
 | GIMLE-786 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Worker Supervision | Complete | Yes |
 | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Web Console / Frontend | Complete | Yes |
+| GIMLE-788 | Cluster-wide instance lifecycle event read | Observability | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6532,6 +6533,21 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When a gateway configured with a control-plane endpoint reloads its routes
   Then the declared route is served alongside the gateway's own config-declared routes
   And re-submitting the Ingress with a stale expectedVersion is refused rather than silently overwriting
+  ```
+
+#### GIMLE-788 — Cluster-wide instance lifecycle event read
+
+- **Category**: Observability
+- **User story**: As an operator watching a rollout, I want to ask what the whole cluster's instances have been doing recently, not just one instance I already know to look at.
+- **Status**: GET /events required both `deployment` and `instance` query params and 400'd without them, and the store behind it (`StateStore#listInstanceEvents`) was keyed strictly per-instance -- there was no way to read "what changed recently" across the cluster, only one already-known instance's own timeline. GET /events now has a second mode: when neither `deployment` nor `instance` is given, it reads every instance's own lifecycle timeline merged newest-first, paginated with the exact `since`/`limit`/`cursor` idiom `GET /audit` already established (`InstanceEventPage`/`InstanceEventCursor`, mirroring `AuditPage`/`AuditCursor` rather than sharing code with them, so the two endpoints' pagination can evolve independently). Supplying only one of `deployment`/`instance` is still rejected with 400, never silently reinterpreted as the cluster-wide mode. `StateStore` gained a new overload, `listInstanceEvents(Optional<String> tenantId, Optional<Long> since)`, scanning every per-instance timeline, filtering by an exact tenant match when `tenant` is given (matching every tenant, untenanted namespace included, when it is omitted -- a deliberate divergence from the single-instance mode's own "omitted tenant addresses the untenanted namespace" convention, since a cluster-wide read has no one instance key for an absent tenant to resolve to), and breaking `occurredAtEpochMilli` ties on event id for a fully deterministic merge order independent of the per-instance maps' own iteration order. The read is plumbed through `StoreReader`/`StoreClient`/`StoreNode` as a new `StoreRpc.ListAllInstanceEvents` request (control-plane and store are separate processes talking over the network), reusing the existing `InstanceEventListResult` response shape. Both `GET /events` modes are RBAC-gated identically: `DEPLOYMENT:READ` scoped to the caller-supplied `tenant`.
+- **Confidence**: High
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`listInstanceEvents(Optional, Optional)`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java` (`ListAllInstanceEvents`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/{InstanceEventCursor,InstanceEventPage}.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleEvents`, `handleClusterInstanceEvents`)
+- **Test coverage**: StateStoreTest (6 new: empty result, newest-first merge across instances, `since` inclusive lower bound, tenant filter present/absent, deterministic tie-break); StoreCodecTest (round-trip); StoreNodeTest (2 new: cluster-wide read over the wire, empty result); InstanceEventPageTest (8, mirroring AuditPageTest: paging, cursor expiry on a pruned anchor, cursor/limit rejection, cursor encoding); ApiServerClusterInstanceEventsTest (11: empty page, newest-first merge, cursor walk, tenant filter present/absent, `since` filter, cross-filter cursor rejection, malformed cursor/limit/since rejection, blank cursor, single-instance mode unaffected); ApiServerAuthzTest (1 new: unscoped `DEPLOYMENT:READ` sees the merged timeline, no grant is forbidden); ApiServerTest (existing `GET /events` test updated to assert only-one-of-deployment/instance is still rejected, since the previous no-params case now differently succeeds via the new mode).
+- **Gherkin scenario**:
+  ```gherkin
+  Given lifecycle events recorded across several deployments and tenants; When GET /events is requested with no deployment/instance params; Then every matching event is returned merged newest-first, paginated the same since/limit/cursor way GET /audit already is.
+  Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode.
+  Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies.
   ```
 
 ### gimle-fafnir
