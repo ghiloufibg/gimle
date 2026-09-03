@@ -7,9 +7,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 ## Summary
 
 - **Total requirements**: 804
-- **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 677
-- **Release-readiness (automated coverage)**: 15.8%
+- **Covered by automated (Holmgang Cucumber) test**: 130
+- **Not covered by automated test**: 674
+- **Release-readiness (automated coverage)**: 16.2%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -42,7 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
-| gimle-hugin | 9 | 0 | 9 | 0.0% |
+| gimle-hugin | 9 | 3 | 6 | 33.3% |
 
 ## Checklist
 
@@ -2345,14 +2345,14 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-790 | `gimle top` renders a live, read-only cluster view of nodes and instances | Given a running cluster with nodes and placed instances When an operator runs `gimle top` Then both tables render live and refresh on a fixed interval without any further command | No |
+| [ ] | GIMLE-790 | `gimle top` renders a live, read-only cluster view of nodes and instances | Given a running cluster with nodes and placed instances When an operator runs `gimle top` Then both tables render live and refresh on a fixed interval without any further command | Yes |
 | [ ] | GIMLE-791 | A failed poll keeps the last good rows and ages them rather than clearing the screen | Given `gimle top` showing a healthy cluster When the control plane becomes unreachable Then the last good rows stay on screen, aged, with the failure's reason on the status line | No |
 | [ ] | GIMLE-792 | Instance drill-down with lifecycle timeline and a live log tail | Given `gimle top` with an instance selected When the operator presses Enter Then that instance's detail, recent lifecycle events and a live log tail are shown, and esc returns to the cluster view And its declared isolation tier and resource limit are shown, with a memory headroom gauge only where that limit is a per-instance ceiling | No |
 | [ ] | GIMLE-793 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | Given `gimle top` running against a cluster When the operator moves the selection, filters, pauses and quits Then each key does what the help overlay says, and quitting restores the terminal | No |
 | [ ] | GIMLE-794 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | Given a terminal that advertises a particular colour depth When `gimle top` renders a frame Then it emits the console's own token values at that depth, and nothing at all under NO_COLOR | No |
-| [ ] | GIMLE-796 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | Given a deployment asking for four replicas of which the scheduler placed two When an operator runs `gimle top` Then a NOT SETTLED line names that workload and its shortfall, and the status line counts the unplaced replicas | No |
+| [ ] | GIMLE-796 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | Given a deployment asking for four replicas of which the scheduler placed two When an operator runs `gimle top` Then a NOT SETTLED line names that workload and its shortfall, and the status line counts the unplaced replicas | Yes |
 | [ ] | GIMLE-797 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | Given a cluster running a Deployment, a DaemonSet and a StatefulSet When an operator runs `gimle top` Then all three kinds' instances appear in one table, each labelled with its own kind | No |
-| [ ] | GIMLE-798 | A services screen showing each Service's live endpoint resolution | Given a Service naming deployments that currently have no running instances When an operator presses `s` in `gimle top` Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read | No |
+| [ ] | GIMLE-798 | A services screen showing each Service's live endpoint resolution | Given a Service naming deployments that currently have no running instances When an operator presses `s` in `gimle top` Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read | Yes |
 
 #### Distribution
 

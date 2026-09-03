@@ -78,7 +78,9 @@ public final class TerminalViewSteps {
   public void theViewShowsNoLineContaining(final String needle) {
     assertFalse(
         frame.stream().anyMatch(line -> line.contains(needle)),
-        "unexpected line containing '" + needle + "' in rendered frame:\n"
+        "unexpected line containing '"
+            + needle
+            + "' in rendered frame:\n"
             + String.join("\n", frame));
   }
 
@@ -114,9 +116,7 @@ public final class TerminalViewSteps {
       @Override
       public InputStream openStream(final String path) {
         try {
-          return httpClient
-              .send(request(path), HttpResponse.BodyHandlers.ofInputStream())
-              .body();
+          return httpClient.send(request(path), HttpResponse.BodyHandlers.ofInputStream()).body();
         } catch (IOException e) {
           throw new HolmgangException("could not open " + path + ": " + e.getMessage(), e);
         } catch (InterruptedException e) {

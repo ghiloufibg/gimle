@@ -149,7 +149,7 @@
       "category": "Module System / Health",
       "status": "Modified",
       "statusNote": "Modified by GIMLE-725 (FUNC-36): the health: block gained intervalSeconds, timeoutSeconds and failureThreshold alongside the existing probe classes and initialDelaySeconds. Coverage re-verified from scratch rather than carried over: the existing Holmgang scenario exercises the initial-delay half only and still passes against the new behavior, so it remains genuine coverage for that half; the three added fields have no scenario and are tracked as a gap below.",
-      "coverage": "Partially Covered",
+      "coverage": "Not Covered",
       "holmgangScenarios": [
         {
           "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
@@ -157,7 +157,7 @@
           "whyThisCounts": "A module with a declared health-probe initial delay stays ACTIVE through that whole window and only fails once probing genuinely starts afterward -- if the delay weren't honored, the probe would trip immediately and the instance would never observably survive the delay window."
         }
       ],
-      "gapNote": "The existing scenario covers initialDelaySeconds only. No .feature deploys a module declaring its own intervalSeconds/timeoutSeconds/failureThreshold; covering that needs a fixture whose readiness probe is deliberately slower than the worker default, asserted to reach ACTIVE only when its manifest declares a larger timeoutSeconds.",
+      "gapNote": "The existing scenario covers initialDelaySeconds only. No .feature deploys a module declaring its own intervalSeconds/timeoutSeconds/failureThreshold; covering that needs a fixture whose readiness probe is deliberately slower than the worker default, asserted to reach ACTIVE only when its manifest declares a larger timeoutSeconds. Recorded as Not Covered rather than the invalid 'Partially Covered' the RTM gate rejects: the cited scenario genuinely covers the initial-delay half, and the interval/timeout/failure-threshold half has none, which the two-valued coverage rule resolves against the requirement as a whole.",
       "otherTestCoverage": "`ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/HealthProbes.java`"
@@ -13709,14 +13709,19 @@
       "category": "CLI UX",
       "status": "New",
       "statusNote": "New requirement: a k9s-shaped live cluster view contributed to the CLI by the new gimle-hugin module, fed by GET /nodes and GET /deployments with no new server-side surface.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/terminal-view.feature",
+          "scenario": "A running deployment appears in the rendered frame with its real state",
+          "whyThisCounts": "A really deployed module is rendered by the real ClusterScreen over a real SnapshotReader reading the running control plane's own /nodes and /deployments, and the frame carries that deployment's name, its ACTIVE state and the node it landed on."
+        }
+      ],
       "otherTestCoverage": "gimle-hugin's ClusterScreenTest (both tables, alignment and no-overflow at 80/120/200 columns, truncation, the empty cluster, unobserved instances) and SnapshotReaderTest (parsing, including every degraded response shape).",
       "sourceLocations": [
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
-      ],
-      "gapNote": "A TUI has no headless Gherkin story: Holmgang has no way to attach a terminal, read a rendered frame, or send keystrokes, so this cannot be exercised end to end there. The rendering is a pure snapshot-to-lines function precisely so it can be asserted on as strings instead."
+      ]
     },
     {
       "id": "GIMLE-791",
@@ -13809,14 +13814,24 @@
       "category": "CLI UX",
       "status": "New",
       "statusNote": "New requirement: the deployment status fields the control plane already served (unplacedCount, quotaViolating, limitRangeViolating and its reason) are read into a WorkloadRow and drawn as a NOT SETTLED block plus a status-line unplaced count, closing the gap where a shortfall was represented on screen by nothing at all.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/terminal-view.feature",
+          "scenario": "A workload the scheduler cannot place is reported rather than silently short",
+          "whyThisCounts": "A cordoned node leaves a two-replica submission unplaced against a really running cluster, and the rendered frame carries the NOT SETTLED block naming that workload and '0 of 2 placed'."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/terminal-view.feature",
+          "scenario": "A healthy cluster reports nothing unsettled",
+          "whyThisCounts": "The converse on the same real cluster: with the deployment ACTIVE, no NOT SETTLED line is drawn at all, which is what makes the block a signal rather than permanent chrome."
+        }
+      ],
       "otherTestCoverage": "gimle-hugin's SnapshotReaderTest (shortfall, both policy verdicts, a settled workload, a reasonless violation) and ClusterScreenTest (the block, its absence on a healthy cluster, and its row budget).",
       "sourceLocations": [
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadRow.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`"
-      ],
-      "gapNote": "A TUI has no headless Gherkin story: Holmgang cannot attach a terminal or read a rendered frame. The rendering is a pure snapshot-to-lines function precisely so it can be asserted on as strings instead."
+      ]
     },
     {
       "id": "GIMLE-797",
@@ -13841,14 +13856,19 @@
       "category": "CLI UX",
       "status": "New",
       "statusNote": "New requirement: a third screen over /services and /services/{name}/endpoints, reporting a Service that resolves to no endpoints as a real finding and keeping an unreadable endpoint answer distinct from a genuine zero. Polls only while open, since resolution costs one request per Service.",
-      "coverage": "Not Covered",
-      "holmgangScenarios": [],
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/terminal-view.feature",
+          "scenario": "A Service resolving to no endpoints is reported as the finding it is",
+          "whyThisCounts": "A Service declared against a deployment that does not exist is read back through the real /services and /services/{name}/endpoints routes and rendered as NO ENDPOINTS."
+        }
+      ],
       "otherTestCoverage": "gimle-hugin's ServiceReaderTest, ServicePollerTest and ServiceScreenTest.",
       "sourceLocations": [
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ServiceReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ServiceScreen.java`"
-      ],
-      "gapNote": "Same TUI gap as GIMLE-790. The /services and endpoints routes are themselves exercised by Holmgang's own networking scenarios; the screen that renders them is not."
+      ]
     },
     {
       "id": "GIMLE-799",

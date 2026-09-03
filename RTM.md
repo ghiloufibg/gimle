@@ -22,7 +22,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-005 | Kubernetes-shaped resource quantity parsing | Active | Not Covered | — |
 | GIMLE-006 | Tenant-scoped service export | Active | Not Covered | — |
 | GIMLE-007 | StatefulSet-shaped persistent volume declaration | Modified | Not Covered | — |
-| GIMLE-008 | Health probe configuration: probe classes, initial delay, and per-module interval/timeout/failure threshold | Modified | Partially Covered | — |
+| GIMLE-008 | Health probe configuration: probe classes, initial delay, and per-module interval/timeout/failure threshold | Modified | Not Covered | — |
 | GIMLE-009 | Vessel hosting mode (plain-process workload) | Active | Not Covered | — |
 | GIMLE-010 | Artifact-registry vs local-path reference resolution | Active | Not Covered | — |
 | GIMLE-011 | RBAC domain model (resources, verbs, permissions, roles, bindings) | Active | Covered | `console-security.feature` — "A role scoped to one tenant grants write access to that tenant alone" |
@@ -804,15 +804,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | New | Not Covered | — |
 | GIMLE-788 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | New | Not Covered | — |
 | GIMLE-789 | An extension is handed a read-only view of the control-plane API, never the client | New | Not Covered | — |
-| GIMLE-790 | `gimle top` renders a live, read-only cluster view of nodes and instances | New | Not Covered | — |
+| GIMLE-790 | `gimle top` renders a live, read-only cluster view of nodes and instances | New | Covered | `terminal-view.feature` — "A running deployment appears in the rendered frame with its real state" |
 | GIMLE-791 | A failed poll keeps the last good rows and ages them rather than clearing the screen | New | Not Covered | — |
 | GIMLE-792 | Instance drill-down with lifecycle timeline and a live log tail | New | Not Covered | — |
 | GIMLE-793 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | New | Not Covered | — |
 | GIMLE-794 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | New | Not Covered | — |
 | GIMLE-795 | The terminal view ships in the CLI archives and is removable in one directory delete | New | Not Covered | — |
-| GIMLE-796 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | New | Not Covered | — |
+| GIMLE-796 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | New | Covered | `terminal-view.feature` — "A workload the scheduler cannot place is reported rather than silently short"; `terminal-view.feature` — "A healthy cluster reports nothing unsettled" |
 | GIMLE-797 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | New | Not Covered | — |
-| GIMLE-798 | A services screen showing each Service's live endpoint resolution | New | Not Covered | — |
+| GIMLE-798 | A services screen showing each Service's live endpoint resolution | New | Covered | `terminal-view.feature` — "A Service resolving to no endpoints is reported as the finding it is" |
 | GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | New | Not Covered | — |
 | GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | New | Not Covered | — |
 | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | New | Not Covered | — |
@@ -899,8 +899,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: Module System / Health
 - **Status**: Modified  _(Modified by GIMLE-725 (FUNC-36): the health: block gained intervalSeconds, timeoutSeconds and failureThreshold alongside the existing probe classes and initialDelaySeconds. Coverage re-verified from scratch rather than carried over: the existing Holmgang scenario exercises the initial-delay half only and still passes against the new behavior, so it remains genuine coverage for that half; the three added fields have no scenario and are tracked as a gap below.)_
-- **Coverage**: Partially Covered
-- **Gap note**: The existing scenario covers initialDelaySeconds only. No .feature deploys a module declaring its own intervalSeconds/timeoutSeconds/failureThreshold; covering that needs a fixture whose readiness probe is deliberately slower than the worker default, asserted to reach ACTIVE only when its manifest declares a larger timeoutSeconds.
+- **Coverage**: Not Covered
+- **Gap note**: The existing scenario covers initialDelaySeconds only. No .feature deploys a module declaring its own intervalSeconds/timeoutSeconds/failureThreshold; covering that needs a fixture whose readiness probe is deliberately slower than the worker default, asserted to reach ACTIVE only when its manifest declares a larger timeoutSeconds. Recorded as Not Covered rather than the invalid 'Partially Covered' the RTM gate rejects: the cited scenario genuinely covers the initial-delay half, and the interval/timeout/failure-threshold half has none, which the two-valued coverage rule resolves against the requirement as a whole.
 - **Other test coverage (non-Holmgang, informational only)**: `ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws)
 - **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/module/HealthProbes.java`
 
@@ -8361,8 +8361,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: CLI UX
 - **Status**: New  _(New requirement: a k9s-shaped live cluster view contributed to the CLI by the new gimle-hugin module, fed by GET /nodes and GET /deployments with no new server-side surface.)_
-- **Coverage**: Not Covered
-- **Gap note**: A TUI has no headless Gherkin story: Holmgang has no way to attach a terminal, read a rendered frame, or send keystrokes, so this cannot be exercised end to end there. The rendering is a pure snapshot-to-lines function precisely so it can be asserted on as strings instead.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/terminal-view.feature` — Scenario: *A running deployment appears in the rendered frame with its real state*
+  - _Why this counts_: A really deployed module is rendered by the real ClusterScreen over a real SnapshotReader reading the running control plane's own /nodes and /deployments, and the frame carries that deployment's name, its ACTIVE state and the node it landed on.
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's ClusterScreenTest (both tables, alignment and no-overflow at 80/120/200 columns, truncation, the empty cluster, unobserved instances) and SnapshotReaderTest (parsing, including every degraded response shape).
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`
 
@@ -8415,8 +8417,12 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: CLI UX
 - **Status**: New  _(New requirement: the deployment status fields the control plane already served (unplacedCount, quotaViolating, limitRangeViolating and its reason) are read into a WorkloadRow and drawn as a NOT SETTLED block plus a status-line unplaced count, closing the gap where a shortfall was represented on screen by nothing at all.)_
-- **Coverage**: Not Covered
-- **Gap note**: A TUI has no headless Gherkin story: Holmgang cannot attach a terminal or read a rendered frame. The rendering is a pure snapshot-to-lines function precisely so it can be asserted on as strings instead.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/terminal-view.feature` — Scenario: *A workload the scheduler cannot place is reported rather than silently short*
+  - _Why this counts_: A cordoned node leaves a two-replica submission unplaced against a really running cluster, and the rendered frame carries the NOT SETTLED block naming that workload and '0 of 2 placed'.
+  - `gimle-holmgang/src/test/resources/features/terminal-view.feature` — Scenario: *A healthy cluster reports nothing unsettled*
+  - _Why this counts_: The converse on the same real cluster: with the deployment ACTIVE, no NOT SETTLED line is drawn at all, which is what makes the block a signal rather than permanent chrome.
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's SnapshotReaderTest (shortfall, both policy verdicts, a settled workload, a reasonless violation) and ClusterScreenTest (the block, its absence on a healthy cluster, and its row budget).
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadRow.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`
 
@@ -8433,8 +8439,10 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 - **Category**: CLI UX
 - **Status**: New  _(New requirement: a third screen over /services and /services/{name}/endpoints, reporting a Service that resolves to no endpoints as a real finding and keeping an unreadable endpoint answer distinct from a genuine zero. Polls only while open, since resolution costs one request per Service.)_
-- **Coverage**: Not Covered
-- **Gap note**: Same TUI gap as GIMLE-790. The /services and endpoints routes are themselves exercised by Holmgang's own networking scenarios; the screen that renders them is not.
+- **Coverage**: Covered
+- **Holmgang feature file(s) + scenario(s)**:
+  - `gimle-holmgang/src/test/resources/features/terminal-view.feature` — Scenario: *A Service resolving to no endpoints is reported as the finding it is*
+  - _Why this counts_: A Service declared against a deployment that does not exist is read back through the real /services and /services/{name}/endpoints routes and rendered as NO ENDPOINTS.
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's ServiceReaderTest, ServicePollerTest and ServiceScreenTest.
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ServiceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ServiceScreen.java`
 
@@ -8442,7 +8450,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**677 of 804 requirements are Not Covered.**
+**674 of 804 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8549,14 +8557,11 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-718 | gimle-cli | gimle get <workload-kind> <name> -o manifest projects the status response back into a re-appliable manifest, and apply -f - reads a manifest from stdin, closing the round-trip gap where get's own output could never be fed back into apply | CLI Tooling | GimleCliTest.get_deployment_as_manifest_then_reapplying_it_round_trips: applies a deployment, exports it via -o manifest, asserts the exported YAML contains kind:/name:/module:/replicas: and excludes moduleId/instances, then reapplies the exported file and asserts success -- the actual round trip the bug report described. GimleCliTest.apply_dash_f_dash_reads_the_manifest_from_stdin: redirects System.in to a manifest and asserts apply -f - succeeds and the resulting deployment is visible via a normal GET. |
 | GIMLE-635 | gimle-hilmir | hilmir scopes -h/--help the same way gimle-cli already does, instead of treating it as an unrecognized token | CLI UX | `HilmirMainTest` (top_level_dash_h_prints_the_full_usage_instead_of_rejecting_the_verb, top_level_dash_dash_help_prints_the_full_usage_instead_of_rejecting_the_verb, enable_dash_h_prints_the_enable_usage_instead_of_listing_unknown_extension_dash_h, enable_gateway_dash_h_prints_the_enable_usage_without_needing_a_server, disable_dash_h_prints_the_disable_usage_instead_of_listing_unknown_extension_dash_h, disable_gateway_dash_h_prints_the_disable_usage_without_needing_a_server) |
 | GIMLE-637 | gimle-cli | gimle get statefulsets/daemonsets render clean table columns by default, matching gimle get deployments, instead of dumping each row's raw spec/instances JSON per cell | CLI UX | `GimleCliTest` (get_statefulsets_renders_clean_table_columns_instead_of_raw_json_per_cell, get_daemonsets_renders_clean_table_columns_instead_of_raw_json_per_cell) |
-| GIMLE-790 | gimle-hugin | `gimle top` renders a live, read-only cluster view of nodes and instances | CLI UX | gimle-hugin's ClusterScreenTest (both tables, alignment and no-overflow at 80/120/200 columns, truncation, the empty cluster, unobserved instances) and SnapshotReaderTest (parsing, including every degraded response shape). |
 | GIMLE-791 | gimle-hugin | A failed poll keeps the last good rows and ages them rather than clearing the screen | CLI UX | gimle-hugin's ClusterPollerTest (failure keeps rows and age, recovery clears the marking, the pre-first-poll state, pause/resume) and ClusterScreenTest's stale status-line assertion. |
 | GIMLE-792 | gimle-hugin | Instance drill-down with lifecycle timeline and a live log tail | CLI UX | gimle-hugin's InstanceWatcherTest (backlog-then-follow ordering, the resume cursor, tenant scoping on every route, a failing route, a stream ending on its own) and InstanceScreenTest, plus SnapshotReaderTest's tier/limit parsing cases and InstanceScreenTest's per-tier rendering cases. |
 | GIMLE-793 | gimle-hugin | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | CLI UX | gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason. |
 | GIMLE-794 | gimle-hugin | Terminal colour is the console's own tokens, degrading to 256-colour and to none | CLI UX | gimle-hugin's StatusVariantTest (pins every lifecycle state against the console's mapping and fails when the platform adds one the mapping misses) and PainterTest (exact truecolor output, the 256-colour approximation, and NO_COLOR emitting nothing). |
-| GIMLE-796 | gimle-hugin | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | CLI UX | gimle-hugin's SnapshotReaderTest (shortfall, both policy verdicts, a settled workload, a reasonless violation) and ClusterScreenTest (the block, its absence on a healthy cluster, and its row budget). |
 | GIMLE-797 | gimle-hugin | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | CLI UX | gimle-hugin's SnapshotReaderTest (all three kinds in one ordered table, an unserved kind costing only its own rows, a DaemonSet declaring no replica count) and ClusterScreenTest (the KIND column, and its removal on a narrow terminal). |
-| GIMLE-798 | gimle-hugin | A services screen showing each Service's live endpoint resolution | CLI UX | gimle-hugin's ServiceReaderTest, ServicePollerTest and ServiceScreenTest. |
 | GIMLE-107 | gimle-agent | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Cgroup Management | `ResourceLimitEnforcementTest#a_spawned_jvm_honors_the_computed_memory_and_processor_ceiling` (gimle-agent, real subprocess); `PortableJvmFlagsResourceLimiterTest` (gimle-os) |
 | GIMLE-108 | gimle-agent | Tier 3 isolation rejection | Cgroup Management / Config | NONE recorded in the baseline |
 | GIMLE-639 | gimle-ragnarok | Chaos-plan and target YAML configuration for Fenrir/Surtr | Chaos Engineering | `ChaosPlanParserTest`, `TargetSpecParserTest` |

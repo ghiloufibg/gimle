@@ -104,7 +104,7 @@ given run actually executed against environments that were actually built).
 |---|---:|---|
 | Requirements in `requirements-matrix.json` | 804 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
-| Internal | 198 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 172, uncited 0). |
+| Internal | 198 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 27, unit 171, uncited 0). |
 | **User-observable** | **537** | The capability set the fleet is measured against. |
 | Reached by a fleet scenario | 537 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
@@ -477,7 +477,7 @@ _Every user-observable requirement is currently reached by at least one fleet sc
 | `abstraction-seams` | Pluggable interfaces with one implementation. Nothing to observe beyond the implementation, which is covered on its own row. | 2 | Holmgang 0, unit 2 |
 | `api-only-no-client` | A real, tested platform API surface with no CLI subcommand or console screen wired to it yet -- the fleet interacts through real products (CLI, console, raw API calls an operator persona would plausibly make), and nothing in either product surfaces this capability today, so no fleet objective can reach it through anything but a hand-crafted HTTP call. Re-enters scope once a client consumes it. | 1 | Holmgang 0, unit 1 |
 | `admission-and-density-control` | A real, shipped bugfix to an internal admission/packing mechanism, closing a Forseti finding (M1, M65) directly -- exercised today by targeted JUnit integration tests (a real ApiServer/AgentMain under concurrent load), not yet by a dedicated fleet scenario driving the same pressure against a live cluster. | 3 | Holmgang 0, unit 3 |
-| `tenant-and-proxy-hardening` | A real, shipped bugfix closing a Forseti finding directly (M61's agent-side same-node cross-tenant supervision collision, M41's control-plane follow-log-proxy hang) -- exercised today by targeted JUnit tests against a real AgentMain/ApiServer, not yet by a dedicated fleet scenario driving the same collision or agent-down condition against a live cluster. | 2 | Holmgang 0, unit 2 |
+| `tenant-and-proxy-hardening` | A real, shipped bugfix closing a Forseti finding directly (M61's agent-side same-node cross-tenant supervision collision, M41's control-plane follow-log-proxy hang) -- exercised today by targeted JUnit tests against a real AgentMain/ApiServer, not yet by a dedicated fleet scenario driving the same collision or agent-down condition against a live cluster. | 2 | Holmgang 1, unit 1 |
 <!-- /forseti:generated -->
 
 ## 10. Release history
@@ -1292,7 +1292,7 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-793 | `gimle-hugin` | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | internal | UNIT | gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason. |
 | GIMLE-794 | `gimle-hugin` | Terminal colour is the console's own tokens, degrading to 256-colour and to none | internal | UNIT | gimle-hugin's StatusVariantTest (pins every lifecycle state against the console's mapping and fails when the platform adds one the mapping misses) and PainterTest (exact truecolor output, the 256-colour approximation, and NO_COLOR emitting nothing). |
 | GIMLE-795 | `gimle-hugin` | The terminal view ships in the CLI archives and is removable in one directory delete | internal | UNIT | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
-| GIMLE-796 | `gimle-hugin` | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | internal | UNIT | gimle-hugin's SnapshotReaderTest (shortfall, both policy verdicts, a settled workload, a reasonless violation) and ClusterScreenTest (the block, its absence on a healthy cluster, and its row budget). |
+| GIMLE-796 | `gimle-hugin` | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | internal | HOLMGANG | `terminal-view.feature` — A workload the scheduler cannot place is reported rather than silently short; `terminal-view.feature` — A healthy cluster reports nothing unsettled |
 | GIMLE-797 | `gimle-hugin` | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | observable | FLEET | DEP-2, DEP-3 |
 | GIMLE-798 | `gimle-hugin` | A services screen showing each Service's live endpoint resolution | observable | FLEET | DEP-7 |
 | GIMLE-799 | `gimle-gateway` | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | observable | FLEET | NET-5 |

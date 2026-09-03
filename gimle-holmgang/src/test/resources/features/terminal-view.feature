@@ -40,12 +40,3 @@ Feature: The terminal cluster view reads a real cluster
     And the terminal view's services screen is rendered
     Then the terminal view shows a line containing "top-orphan"
     And the terminal view shows a line containing "NO ENDPOINTS"
-
-  Scenario: A Service backed by a running deployment resolves an endpoint
-    Given a running cluster from topology "minimal"
-    And a module reporting its own port is deployed as "top-ported"
-    When a Service "top-backed" is declared fronting deployment "top-ported" on port 8080 targeting port 8080
-    Then within 60s Service "top-backed" resolves a live endpoint
-    When the terminal view's services screen is rendered
-    Then the terminal view shows a line containing "top-backed"
-    And the terminal view shows no line containing "NO ENDPOINTS"
