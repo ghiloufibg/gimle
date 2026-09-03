@@ -43,6 +43,17 @@ public final class BuiltinRoles {
   public static final String GROUP_CONTROLPLANE = "gimle:controlplane";
 
   /**
+   * Stamped into an issued certificate's {@code O=} for a {@code CsrPurpose.WORKER_CLIENT}: the
+   * identity a node agent obtains for each worker JVM it spawns, beside (never instead of) the
+   * {@link #GROUP_TENANT_PREFIX} group naming the one tenant that worker hosts. Deliberately not
+   * {@link #GROUP_NODES}: a worker's certificate is what hosted-module code can reach, so it must
+   * carry no more than "this worker, of this tenant" -- none of the node self-service reads an
+   * agent's own certificate is granted. No {@link Role} is bound to it anywhere; its one consumer
+   * is the fabric listener, which needs only the tenant group beside it.
+   */
+  public static final String GROUP_WORKERS = "gimle:workers";
+
+  /**
    * Prefix of the tenant-membership group a {@code CsrPurpose.TENANT_CLIENT} certificate carries in
    * its {@code O=}: {@code gimle:tenant:acme} asserts "this caller belongs to tenant {@code acme}".
    * Like {@link #GROUP_OPERATORS}/{@link #GROUP_NODES} it is stamped server-side at issuance, never

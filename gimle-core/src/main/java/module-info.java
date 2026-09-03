@@ -4,6 +4,7 @@ module com.gimle.core {
   requires ch.qos.logback.core;
   requires jdk.httpserver;
   requires java.net.http;
+  requires java.naming; // LdapName, the JDK's own RFC 2253 parser, for CertificateIdentity
 
   exports com.gimle.core.ingress;
   exports com.gimle.core.manifest;

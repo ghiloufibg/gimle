@@ -25,4 +25,22 @@ public class GimleFabricAuthorizationException extends RuntimeException {
             + interfaceName
             + " -- rejected by the receiving worker's own tenant re-check");
   }
+
+  /**
+   * The request's own written tenant claim disagrees with the tenant the connection's verified
+   * client certificate carries: a caller that both holds a real worker identity and writes a
+   * different tenant into the frame is forging, not confused, so the receiving worker refuses the
+   * call outright rather than quietly deciding which of the two to believe.
+   */
+  public static GimleFabricAuthorizationException callerTenantMismatch(
+      String interfaceName, String claimedDescription, String certifiedDescription) {
+    return new GimleFabricAuthorizationException(
+        "call to "
+            + interfaceName
+            + " claims "
+            + claimedDescription
+            + " but the connection's client certificate certifies "
+            + certifiedDescription
+            + " -- rejected by the receiving worker's own identity check");
+  }
 }

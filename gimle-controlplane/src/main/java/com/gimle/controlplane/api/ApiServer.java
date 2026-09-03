@@ -8904,6 +8904,13 @@ public final class ApiServer implements AutoCloseable {
         handleTenantClientRequest(exchange, csr, submission.tenantId().orElseThrow());
         return;
       }
+      // Same reason: a WORKER_CLIENT submission is authenticated by the spawning agent's own node
+      // certificate, and mints a *different* subject than the one presented, so it must never
+      // reach the same-subject rotation branch below.
+      if (submission.purpose() == CsrPurpose.WORKER_CLIENT) {
+        handleWorkerClientRequest(exchange, csr, submission.tenantId());
+        return;
+      }
       Optional<X509Certificate> presented = peerCertificate(exchange);
       if (presented.isPresent()) {
         handleRotationRequest(exchange, csr, presented.get());
@@ -8912,7 +8919,7 @@ public final class ApiServer implements AutoCloseable {
       switch (submission.purpose()) {
         case NODE_CLIENT -> handleNodeJoinRequest(exchange, csr, submission.bootstrapToken());
         case OPERATOR_CLIENT -> handleOperatorJoinRequest(exchange, csr);
-        case TENANT_CLIENT -> throw new IllegalStateException("handled above");
+        case TENANT_CLIENT, WORKER_CLIENT -> throw new IllegalStateException("handled above");
       }
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
@@ -9058,6 +9065,77 @@ public final class ApiServer implements AutoCloseable {
         200,
         csr,
         Subjects.withOrganization(csr.getSubject(), BuiltinRoles.tenantGroup(tenantId)));
+  }
+
+  /**
+   * Signed immediately, but only over a node's own {@code gimle:nodes} certificate and only for a
+   * subject that node may vouch for: the requested CN must be prefixed by the presenting node's own
+   * id (a worker is named {@code <nodeId>:<instanceKey>}, so node-1 can never mint a certificate
+   * that reads as one of node-2's workers), and a requested tenant must be one the node currently
+   * holds an instance assignment for -- the identical level-triggered store check Fafnir already
+   * makes before letting a node read that tenant's secrets, so a node may only ever obtain worker
+   * identities for tenants the scheduler actually placed on it. The issued certificate carries
+   * {@code O=gimle:workers} plus {@code O=gimle:tenant:<id>} when tenanted, stamped server-side
+   * like every other issuance here and never taken from the CSR's own subject, and deliberately no
+   * {@code gimle:nodes}: the worker's key material is what hosted-module code can reach, so it must
+   * hold a worker's identity, not the node's. Both outcomes are audited under the node's own
+   * principal, the same "who was granted trust, and when" trail every other issuance leaves.
+   */
+  private void handleWorkerClientRequest(
+      HttpExchange exchange, PKCS10CertificationRequest csr, Optional<String> requestedTenantId)
+      throws IOException {
+    Optional<String> tenantId = requestedTenantId.filter(id -> !id.isBlank());
+    Optional<Principal> resolved = resolvePrincipal(exchange);
+    if (resolved.isEmpty()) {
+      respond(
+          exchange,
+          401,
+          "a worker certificate request must be authenticated by the node's own certificate");
+      return;
+    }
+    Principal node = resolved.get();
+    Optional<String> refusal = workerRequestRefusal(node, csr, tenantId);
+    recordAuditEvent(
+        node,
+        ResourceKind.CERTIFICATE_REQUEST,
+        Verb.APPROVE,
+        tenantId,
+        Optional.of(csr.getSubject().toString()),
+        refusal.isEmpty());
+    if (refusal.isPresent()) {
+      respond(exchange, 403, refusal.get());
+      return;
+    }
+    List<String> organizations = new ArrayList<>();
+    organizations.add(BuiltinRoles.GROUP_WORKERS);
+    tenantId.ifPresent(id -> organizations.add(BuiltinRoles.tenantGroup(id)));
+    respondSigned(
+        exchange,
+        200,
+        csr,
+        Subjects.withOrganizations(csr.getSubject(), organizations),
+        remoteAddress(exchange));
+  }
+
+  private Optional<String> workerRequestRefusal(
+      Principal node, PKCS10CertificationRequest csr, Optional<String> tenantId) {
+    if (!node.groups().contains(BuiltinRoles.GROUP_NODES)) {
+      return Optional.of("only a node's own certificate may request a worker certificate");
+    }
+    String requiredPrefix = node.name() + ":";
+    if (Subjects.commonNameOf(csr.getSubject())
+        .filter(commonName -> commonName.startsWith(requiredPrefix))
+        .isEmpty()) {
+      return Optional.of(
+          "a worker certificate's CN must be prefixed by the requesting node's own id ("
+              + requiredPrefix
+              + ")");
+    }
+    if (tenantId.isPresent() && !authorizer.isTenantAssignedToNode(node.name(), tenantId.get())) {
+      return Optional.of(
+          "node " + node.name() + " holds no instance assignment for tenant " + tenantId.get());
+    }
+    return Optional.empty();
   }
 
   /**

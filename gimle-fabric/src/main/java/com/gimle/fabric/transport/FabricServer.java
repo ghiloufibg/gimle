@@ -1,9 +1,11 @@
 package com.gimle.fabric.transport;
 
+import com.gimle.core.authz.BuiltinRoles;
 import com.gimle.core.exception.GimleFabricAuthorizationException;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.ServiceExport;
 import com.gimle.core.tenant.NetworkPolicyRule;
+import com.gimle.core.tls.CertificateIdentity;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
@@ -38,6 +40,8 @@ import java.net.UnixDomainSocketAddress;
 import java.nio.channels.Channels;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -51,7 +55,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.SSLServerSocket;
+import javax.net.ssl.SSLSocket;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -157,11 +163,13 @@ public final class FabricServer implements AutoCloseable {
    * {@code exportsOf} is the same "read the target module's own descriptor" function {@code
    * FabricServiceRegistry} already uses to filter candidates on the calling side -- passed here so
    * {@link #dispatch} can independently re-check a target's {@code ServiceExport.allowedTenantIds}
-   * against the inbound request's {@code callerTenantId}, rather than trusting that only the
-   * caller-side filter ever produced this request (see {@code GimleFabricAuthorizationException}'s
-   * own javadoc for why that re-check exists). Absent from every other constructor -- a test or a
-   * worker not wired up with a real {@code ModuleRegistry} yet gets "no declared exports," which
-   * permits every call, exactly today's unchanged behavior.
+   * against the caller's tenant -- read off the connection's verified client certificate on a TLS
+   * hop, off the request's own {@code callerTenantId} claim only where the transport carries no
+   * identity (see {@link #serveStreams}) -- rather than trusting that only the caller-side filter
+   * ever produced this request (see {@code GimleFabricAuthorizationException}'s own javadoc for why
+   * that re-check exists). Absent from every other constructor -- a test or a worker not wired up
+   * with a real {@code ModuleRegistry} yet gets "no declared exports," which permits every call,
+   * exactly today's unchanged behavior.
    *
    * <p>Back-compat: defaults {@code selfTenantId} to {@code Optional.empty()} -- see the 7-arg
    * constructor below.
@@ -527,9 +535,18 @@ public final class FabricServer implements AutoCloseable {
     }
   }
 
+  /**
+   * A Unix-domain-socket or plaintext-TCP connection carries no caller identity of its own, so
+   * every request on it is served with the tenant it claims for itself -- the kernel-mediated
+   * same-machine hop and a cluster that has not opted into TLS both trust their transport, the same
+   * posture every other plaintext surface here takes.
+   */
   private void serve(SocketChannel connection) {
     try (connection) {
-      serveStreams(Channels.newInputStream(connection), Channels.newOutputStream(connection));
+      serveStreams(
+          Channels.newInputStream(connection),
+          Channels.newOutputStream(connection),
+          Optional.empty());
     } catch (IOException e) {
       log.debug("fabric connection closed: {}", e.getMessage());
     } catch (RuntimeException e) {
@@ -539,11 +556,39 @@ public final class FabricServer implements AutoCloseable {
 
   private void serve(Socket connection) {
     try (connection) {
-      serveStreams(connection.getInputStream(), connection.getOutputStream());
+      serveStreams(
+          connection.getInputStream(), connection.getOutputStream(), verifiedCaller(connection));
     } catch (IOException e) {
       log.debug("fabric connection closed: {}", e.getMessage());
     } catch (RuntimeException e) {
       logMalformedFrame(e);
+    }
+  }
+
+  /**
+   * What a TLS connection's verified client certificate says about the caller: the tenant its
+   * {@code O=gimle:tenant:<id>} membership group names, or none for a certificate carrying no such
+   * group (an untenanted worker's). Present for every {@link SSLSocket} -- the listener requires a
+   * cluster-CA-signed client certificate at the handshake, so a connection that got this far has
+   * one -- and absent only for a socket that isn't TLS at all.
+   */
+  private record VerifiedCaller(Optional<String> tenantId) {}
+
+  private static Optional<VerifiedCaller> verifiedCaller(Socket connection) throws IOException {
+    if (!(connection instanceof SSLSocket sslSocket)) {
+      return Optional.empty();
+    }
+    sslSocket.startHandshake();
+    try {
+      Certificate[] peerCertificates = sslSocket.getSession().getPeerCertificates();
+      if (peerCertificates.length == 0 || !(peerCertificates[0] instanceof X509Certificate leaf)) {
+        return Optional.of(new VerifiedCaller(Optional.empty()));
+      }
+      return Optional.of(
+          new VerifiedCaller(
+              BuiltinRoles.tenantOf(CertificateIdentity.principalFrom(leaf).groups())));
+    } catch (SSLPeerUnverifiedException e) {
+      return Optional.of(new VerifiedCaller(Optional.empty()));
     }
   }
 
@@ -568,15 +613,47 @@ public final class FabricServer implements AutoCloseable {
     log.warn("dropping malformed fabric connection: {}", e.getMessage());
   }
 
-  private void serveStreams(InputStream in, OutputStream out) throws IOException {
+  /**
+   * With a {@code verifiedCaller}, every request is served under the tenant the connection's own
+   * client certificate certifies, never the one the frame claims: the claim is a field the caller
+   * wrote itself, and a worker that can open a raw connection to this listener can write any tenant
+   * into it. The certificate is stamped server-side at issuance for exactly one tenant, so it is
+   * the one thing about the caller this listener can actually verify -- the same reason a Bifrost
+   * listener reads a caller's tenant off its certificate rather than off the bytes it relays. A
+   * frame whose claim disagrees with the certificate is refused outright (see {@link
+   * GimleFabricAuthorizationException#callerTenantMismatch}) rather than silently corrected: that
+   * caller is forging, and the refusal is what makes the forgery visible.
+   */
+  private void serveStreams(InputStream in, OutputStream out, Optional<VerifiedCaller> verified)
+      throws IOException {
     FabricFrame frame;
     while ((frame = FabricCodec.read(in)) != null) {
-      if (frame instanceof FabricFrame.InvokeRequest request) {
-        FabricCodec.write(
-            out, deduplicator.dispatchOnce(request.correlationId(), () -> dispatch(request)));
-      } else {
+      if (!(frame instanceof FabricFrame.InvokeRequest request)) {
         log.warn("fabric server received an unexpected frame type: {}", frame);
+        continue;
       }
+      if (verified.isPresent()
+          && request.callerTenantId().isPresent()
+          && !request.callerTenantId().equals(verified.get().tenantId())) {
+        FabricCodec.write(
+            out,
+            new FabricFrame.InvokeError(
+                request.correlationId(),
+                ObjectMarshalling.serialize(
+                    GimleFabricAuthorizationException.callerTenantMismatch(
+                        request.interfaceName(),
+                        "tenant " + request.callerTenantId().get(),
+                        verified
+                            .get()
+                            .tenantId()
+                            .map(id -> "tenant " + id)
+                            .orElse("no tenant at all")))));
+        continue;
+      }
+      FabricFrame.InvokeRequest effective =
+          verified.isPresent() ? request.withCallerTenantId(verified.get().tenantId()) : request;
+      FabricCodec.write(
+          out, deduplicator.dispatchOnce(request.correlationId(), () -> dispatch(effective)));
     }
   }
 

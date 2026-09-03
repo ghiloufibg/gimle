@@ -24,6 +24,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 
 /**
  * {@code FabricServer#startChildSpanContext} reads the process-wide {@link GlobalOpenTelemetry}
@@ -35,6 +38,10 @@ import org.junit.jupiter.api.parallel.Isolated;
  * how little else could safely coexist with a real SDK installed as the global instance.
  */
 @Isolated
+// Reads gimle.transport.protocol (through FabricClient/FabricServer) without ever setting it: a
+// READ lock lets these plaintext classes run concurrently with each other while excluding any
+// class that mutates the JVM-global TLS properties mid-run (see FabricTransportTlsTest).
+@ResourceLock(value = Resources.SYSTEM_PROPERTIES, mode = ResourceAccessMode.READ)
 class FabricServerGlobalTracingTest {
 
   private static final ModuleId OWNER =

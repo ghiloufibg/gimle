@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 790,
+    "totalRequirements": 791,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 663,
+    "notCoveredByAutomatedTest": 664,
     "releaseReadinessPercent": 16.1
   },
   "items": [
@@ -6238,7 +6238,7 @@
       "module": "gimle-fabric",
       "category": "Fabric / Multi-tenancy",
       "feature": "Fabric listener-side tenant re-check on inbound service calls",
-      "step": "Given a module exporting an interface restricted to allowedTenantIds [\"tenant-a\"], When a caller wire-carrying callerTenantId \"tenant-b\" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException. Given the same restricted export, When a caller carrying callerTenantId \"tenant-a\" dials directly, Then the listener's own re-check permits the call through. Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default.",
+      "step": "Given a module exporting an interface restricted to allowedTenantIds [\"tenant-a\"], When a caller wire-carrying callerTenantId \"tenant-b\" dials the ServiceEndpoint's raw address directly (bypassing FabricServiceRegistry's own caller-side filter), Then FabricServer.dispatch independently rejects the call with GimleFabricAuthorizationException. Given the same restricted export, When a caller carrying callerTenantId \"tenant-a\" dials directly, Then the listener's own re-check permits the call through. Given an export with no allowedTenantIds restriction, When any caller (including an untenanted one) dials directly, Then the call is permitted -- the re-check enforces exactly what the module declared, never a stricter default. Given a module exporting an interface restricted to allowedTenantIds [\"tenant-a\"] behind a TLS listener, When a caller holding a worker certificate for tenant-b dials it directly and writes callerTenantId \"tenant-a\" into the frame, Then the listener refuses the call as a claim/certificate mismatch, naming the certified tenant-b. Given the same listener, When a caller holding a tenant-a worker certificate writes no claim at all, Then the call is served under tenant-a, read off the certificate.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -8692,6 +8692,17 @@
       "category": "Observability",
       "feature": "A durable, replica-agnostic read of whether an AlertRule is currently firing",
       "step": "Given an AlertRule that has just been declared and never evaluated; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=false and no firing field. Given an AlertRule that AlertReconciler has observed crossing its threshold; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=true and firing=true, on every control-plane replica that answers. Given a control-plane replica restarts (or a different replica answers) after a rule was already firing; When that replica's own AlertReconciler next ticks; Then it reads the durable verdict and does not re-send a FIRING notification for the same ongoing incident. Given a caller with no grant for ResourceKind.ALERT_RULE; When it requests GET /alertrules/{name}/firing over mTLS; Then the response is 403.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-791",
+      "module": "gimle-agent",
+      "category": "Security / Identity",
+      "feature": "Per-worker certificates: node-minted worker identity carrying the worker's tenant",
+      "step": "Given a node agent holding a gimle:nodes certificate and an instance assignment for tenant acme, When it submits a WORKER_CLIENT CSR with CN <nodeId>:<instanceKey> and tenantId acme, Then the control plane signs it with O=gimle:workers and O=gimle:tenant:acme, and the certificate cannot act as the node. Given the same node, When it requests a worker certificate for a tenant it holds no assignment for, or a CN prefixed by another node's id, Then the request is refused with 403 and audited. Given a TLS cluster, When the agent spawns a worker, Then the worker is started with its own per-worker certificate and key and only the cluster CA file shared from the agent. Given a supervised worker whose certificate is due for renewal, When the agent ticks, Then a fresh certificate is issued under the same subject, key written before certificate, and the worker reloads it through its own file watcher.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

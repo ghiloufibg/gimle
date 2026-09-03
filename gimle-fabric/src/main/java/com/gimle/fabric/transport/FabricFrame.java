@@ -40,6 +40,22 @@ public sealed interface FabricFrame {
       }
     }
 
+    /**
+     * The same call with {@code callerTenantId} replaced -- how {@code FabricServer} substitutes
+     * the tenant its connection's verified client certificate certifies for whatever the caller
+     * wrote.
+     */
+    public InvokeRequest withCallerTenantId(Optional<String> certifiedTenantId) {
+      return new InvokeRequest(
+          correlationId,
+          trace,
+          interfaceName,
+          methodName,
+          paramTypeNames,
+          serializedArgs,
+          certifiedTenantId);
+    }
+
     /** Back-compat: defaults {@code callerTenantId} to {@code Optional.empty()}. */
     public InvokeRequest(
         long correlationId,

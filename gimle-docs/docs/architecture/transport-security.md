@@ -31,12 +31,35 @@ classes. `CertificateAuthority` is the one signing code path shared by initial c
 node joining, a newly-approved operator, and rotation; `CertificateSigningRequests` builds the CSR
 side. `gimle-controlplane` (signs, at `/bootstrap/csr`), `gimle-mimir`, `gimle-agent`, and
 `gimle-cli` (the latter three generate their own CSRs, via the shared `OwnCertificateRotator` for
-rotation) depend on it — `gimle-worker` never does, since a worker JVM inherits its cert material
-from the agent that spawned it rather than bootstrapping its own. `gimle-mimir` submits its own
-rotation CSRs to a reachable `gimle-controlplane` replica's `/bootstrap/csr` rather than its own
-(it has no HTTP surface of its own) — CA custody stays on the API-server side even after the
-etcd-store-extraction split, mirroring how Kubernetes' own CSR API lives on `kube-apiserver`, not
-`etcd`.
+rotation) depend on it — `gimle-worker` never does: a worker JVM presents a certificate the agent
+that spawned it obtained on its behalf (see [Per-worker certificates](#per-worker-certificates)),
+never generating a CSR of its own. `gimle-mimir` submits its own rotation CSRs to a reachable
+`gimle-controlplane` replica's `/bootstrap/csr` rather than its own (it has no HTTP surface of its
+own) — CA custody stays on the API-server side even after the etcd-store-extraction split,
+mirroring how Kubernetes' own CSR API lives on `kube-apiserver`, not `etcd`.
+
+### Per-worker certificates
+
+A worker JVM presents its own leaf certificate on the fabric's cross-machine mTLS hops, not the
+node certificate of the agent that spawned it. Before first spawning an instance, `gimle-agent`
+generates a key pair and submits a `WORKER_CLIENT` CSR (`CN=<nodeId>:<instanceKey>`) to
+`/bootstrap/csr` over its own node identity. The control plane signs it only when the caller is a
+`gimle:nodes` certificate, the requested CN is prefixed by that node's own id (so one node can never
+mint a certificate that reads as another node's worker), and the requested tenant is one the node
+currently holds an instance assignment for — the same level-triggered store check Fafnir makes
+before letting a node read a tenant's secrets — stamping `O=gimle:workers` plus
+`O=gimle:tenant:<id>` (no tenant group at all for an untenanted deployment) and, deliberately,
+never `gimle:nodes`: a worker's key material is reachable by the hosted-module code it runs, so it
+holds a worker's identity, not the node's. The material lands under a `workers/<instanceKey>/`
+directory beside the agent's own certificate and reaches the worker as its `gimle.tls.certFile`/
+`keyFile` (only the CA file is the shared one); a Tier 1 density-packed worker hosting several
+instances of one tenant presents one certificate. This is what lets a receiving `FabricServer` read
+the calling worker's tenant off the verified peer certificate rather than off a claim written into
+the request — see [Service fabric](./service-fabric.md). Renewal is a fresh issuance under the
+same subject on the agent's tick, not the same-subject rotation branch the agent's own certificate
+uses: that branch authenticates by the certificate being rotated, and a worker never talks to the
+control plane itself. Every decision, refusals included, lands in the durable audit trail under the
+node's own principal.
 
 `mvn gimle:tls-init` generates a fresh cluster CA, the control plane's own leaf certificate, and the
 first human operator's leaf certificate in one shot (`com.gimle.pki.PkiBootstrapMain`). It also
@@ -116,9 +139,10 @@ rebind at all — `GossipMember` holds its `SSLContext` in an `AtomicReference`,
 DTLS session created afterward, both inbound and outbound.
 
 A worker JVM is the one case that can't trigger its own reload: it carries no `gimle-pki` dependency
-and never initiates a rotation itself, so `WorkerMain` runs a small `FabricServerTlsWatcher` that
-polls its certificate file's modification time and reloads `FabricServer` once it notices the
-agent-managed file changed underneath it. In every case, a connection attempted in the brief
+and never initiates a renewal itself, so `WorkerMain` runs a small `FabricServerTlsWatcher` that
+polls its certificate file's modification time and reloads `FabricServer` once it notices the agent
+rewrote its per-worker certificate underneath it (the agent writes the key before the certificate,
+so the watcher can never pair a fresh certificate with a stale key). In every case, a connection attempted in the brief
 close-to-rebind window fails and should be retried by the caller; already-established connections
 are unaffected.
 
