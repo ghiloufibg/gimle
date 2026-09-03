@@ -10313,18 +10313,21 @@
       "module": "gimle-fafnir",
       "feature": "Sealed SecretMap envelope crypto and key retirement",
       "category": "Secrets Management",
-      "status": "New",
-      "statusNote": "newly added as part of the Sealed SecretMap (v2) and key lifecycle work",
+      "status": "Modified",
+      "statusNote": "originally added as part of the Sealed SecretMap (v2) and key lifecycle work; modified to close a cross-replica correctness gap in symmetric secrets key retirement -- FafnirCrypto.retire now proposes a Raft-replicated PutSecretsKeyRetirement mutation and FafnirCrypto.decrypt checks it fresh per call, so retirement actually takes effect on every Fafnir replica, not only the one that received the retire-key call. The sealing (asymmetric) ring's retirement is unchanged and stays local-only.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises sealing/unsealing or key retirement against a real running cluster -- see GIMLE-588's identical gapNote.",
+      "gapNote": "No Holmgang Playwright/Cucumber scenario exercises sealing/unsealing or key retirement against a real running cluster -- see GIMLE-588's identical gapNote. That now also covers the cross-replica retirement fix specifically: no Holmgang scenario runs multiple Fafnir replicas and retires a key against one to prove a sibling replica also refuses to decrypt.",
       "sourceLocations": [
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealCipher.java`",
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/SealingKeyRing.java`, `SealingKeyFileManager.java`",
         "`gimle-fafnir/src/main/java/com/gimle/fafnir/secret/KeyFileManager.java` (`retire`)",
-        "`gimle-fafnir/src/main/java/com/gimle/fafnir/SealingCrypto.java`, `FafnirCrypto.java` (`retire`)"
+        "`gimle-fafnir/src/main/java/com/gimle/fafnir/SealingCrypto.java`, `FafnirCrypto.java` (`retire`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutSecretsKeyRetirement`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`putSecretsKeyRetirement`, `isSecretsKeyRetired`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java` (`isSecretsKeyRetired`)"
       ],
-      "otherTestCoverage": "`SealCipherTest`, `SealingKeyRingTest`, `SealingKeyFileManagerTest`, and `KeyFileManagerTest`'s new retirement cases cover the round-trip, rotation, and destructive-retirement behavior in full."
+      "otherTestCoverage": "`SealCipherTest`, `SealingKeyRingTest`, `SealingKeyFileManagerTest`, and `KeyFileManagerTest`'s new retirement cases cover the round-trip, rotation, and destructive-retirement behavior in full. `FafnirCryptoTest#retiring_a_key_on_one_replica_is_refused_by_a_second_replica_sharing_the_same_store` now covers the cross-replica retirement fix directly, and `StateStoreTest#secrets_key_retirements_round_trip_through_a_snapshot_and_clear_on_unretire`/`RaftCodecTest#round_trips_a_state_snapshot` cover the new replicated state."
     },
     {
       "id": "GIMLE-598",

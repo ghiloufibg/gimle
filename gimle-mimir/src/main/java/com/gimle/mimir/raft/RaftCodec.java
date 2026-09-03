@@ -166,6 +166,7 @@ public final class RaftCodec {
   private static final byte MUT_REMOVE_INGRESS = 75;
   private static final byte MUT_PUT_DAEMONSET_DESIRED_COUNT = 76;
   private static final byte MUT_PUT_ALERT_FIRING_STATE = 77;
+  private static final byte MUT_PUT_SECRETS_KEY_RETIREMENT = 78;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -460,6 +461,11 @@ public final class RaftCodec {
         out.writeByte(MUT_REMOVE_INGRESS);
         out.writeUTF(m.tenantId());
         out.writeUTF(m.name());
+      }
+      case StateMutation.PutSecretsKeyRetirement m -> {
+        out.writeByte(MUT_PUT_SECRETS_KEY_RETIREMENT);
+        out.writeByte(m.keyId());
+        out.writeBoolean(m.retired());
       }
       case StateMutation.AppendControllerRevision m -> {
         out.writeByte(MUT_APPEND_CONTROLLER_REVISION);
@@ -850,6 +856,8 @@ public final class RaftCodec {
         String ingressTenantId = in.readUTF();
         yield new StateMutation.RemoveIngress(ingressTenantId, in.readUTF());
       }
+      case MUT_PUT_SECRETS_KEY_RETIREMENT ->
+          new StateMutation.PutSecretsKeyRetirement(in.readByte(), in.readBoolean());
       case MUT_APPEND_CONTROLLER_REVISION ->
           new StateMutation.AppendControllerRevision(DomainCodec.readControllerRevision(in));
       case MUT_PUT_LIMIT_RANGE ->
@@ -1323,6 +1331,10 @@ public final class RaftCodec {
         out.writeUTF(e.getKey());
         out.writeBoolean(e.getValue());
       }
+      out.writeInt(snapshot.retiredSecretsKeyIds().size());
+      for (byte keyId : snapshot.retiredSecretsKeyIds()) {
+        out.writeByte(keyId);
+      }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -1605,6 +1617,11 @@ public final class RaftCodec {
       for (int i = 0; i < alertFiringStateCount; i++) {
         alertFiringState.put(in.readUTF(), in.readBoolean());
       }
+      Set<Byte> retiredSecretsKeyIds = new LinkedHashSet<>();
+      int retiredSecretsKeyIdCount = in.readInt();
+      for (int i = 0; i < retiredSecretsKeyIdCount; i++) {
+        retiredSecretsKeyIds.add(in.readByte());
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1652,7 +1669,8 @@ public final class RaftCodec {
           deploymentLastScale,
           ingresses,
           daemonSetDesiredCounts,
-          alertFiringState);
+          alertFiringState,
+          retiredSecretsKeyIds);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

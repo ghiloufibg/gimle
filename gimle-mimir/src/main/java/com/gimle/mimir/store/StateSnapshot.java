@@ -92,7 +92,8 @@ public record StateSnapshot(
     Map<String, Integer> daemonSetDesiredCounts,
     // Durable alert firing verdicts, keyed the same tenant-scoped way alertRules itself is -- see
     // StateStore#putAlertFiringState's own javadoc for the absent/true/false three-state meaning.
-    Map<String, Boolean> alertFiringState) {
+    Map<String, Boolean> alertFiringState,
+    Set<Byte> retiredSecretsKeyIds) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -164,5 +165,6 @@ public record StateSnapshot(
     deploymentLastScale = Map.copyOf(deploymentLastScale);
     daemonSetDesiredCounts = Map.copyOf(daemonSetDesiredCounts);
     alertFiringState = Map.copyOf(alertFiringState);
+    retiredSecretsKeyIds = Set.copyOf(retiredSecretsKeyIds);
   }
 }

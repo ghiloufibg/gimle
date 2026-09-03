@@ -277,13 +277,23 @@ the node agent's own direct fetch path, in that order (source: `diagrams/secrets
   warning rather than a hard failure. `POST /secrets/rotate-key` generates a new active key and
   re-encrypts every existing secret under it; old keys are kept, never deleted, so any entry the
   rotation walk hasn't reached yet still decrypts correctly under its original key. `POST
-  /secrets/retire-key` is the sharper operation: it deletes that id's key file outright, so any
-  value still encrypted under it — one rotation alone never re-encrypts an entry the walk missed —
-  becomes permanently unrecoverable. The console's **Secrets** screen exposes both, gated exactly
-  the way the Seal Keys screen gates the asymmetric ring (below): rotation is one button, while
-  retirement refuses locally every id Fafnir would refuse anyway and then requires the key id typed
-  out a second time in a confirmation dialog. Two equally irreversible operations behave
-  identically rather than each screen inventing its own weighting.
+  /secrets/retire-key` is the sharper operation: it deletes that id's key file on the replica that
+  handled the call, *and* proposes a `PutSecretsKeyRetirement` mutation through the Raft-replicated
+  store — the same small denylist-in-the-log pattern `StateStore#putCertificateRevocation` already
+  established for revoked certificates, with no key material of its own touching the replicated log.
+  `FafnirCrypto#decrypt` checks that store-backed flag fresh on every call rather than a field loaded
+  once at startup, which is what makes retirement actually cluster-wide: a real Fafnir HA deployment
+  runs several replicas sharing identically-provisioned key material (the same multi-replica shape
+  gap 2 above describes for the pre-extraction control plane), and a per-replica-only flag would let
+  every replica *other than* the one that handled `retire-key` keep decrypting under a key an
+  operator just retired in response to a suspected compromise, indefinitely. The store propose runs
+  first, deliberately — a failed propose leaves this replica's own local key file untouched and the
+  call safely retryable, rather than losing local key material a majority of the cluster never
+  actually agreed was retired. The console's **Secrets** screen exposes both operations, gated exactly the way
+  the Seal Keys screen gates the asymmetric ring (below): rotation is one button, while retirement
+  refuses locally every id Fafnir would refuse anyway and then requires the key id typed out a second
+  time in a confirmation dialog. Two equally irreversible operations behave identically rather than
+  each screen inventing its own weighting.
 - **Versioning** — every write claims a new, immutable version rather than overwriting the last one
   (`gimle secret set`/`GET .../versions`); `gimle secret get` defaults to the latest version,
   `--version N` reads a specific historical one. `gimle secret delete` soft-deletes by default

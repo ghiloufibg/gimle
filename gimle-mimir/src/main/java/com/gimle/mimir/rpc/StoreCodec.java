@@ -190,6 +190,8 @@ public final class StoreCodec {
   private static final byte TAG_GET_LIMIT_RANGE_VIOLATION_REASON = 111;
   private static final byte TAG_IS_CERTIFICATE_REVOKED = 112;
   private static final byte TAG_LIST_REVOKED_CERTIFICATE_SERIALS = 113;
+  private static final byte TAG_IS_SECRETS_KEY_RETIRED = -107;
+  private static final byte TAG_LIST_RETIRED_SECRETS_KEY_IDS = -106;
   private static final byte TAG_GET_WORKLOAD_TOKEN = 114;
   private static final byte TAG_WORKLOAD_TOKEN_RESULT = 115;
   private static final byte TAG_JOB_RUN_SUMMARY_RESULT = 117;
@@ -368,6 +370,11 @@ public final class StoreCodec {
         }
         case StoreRpc.ListRevokedCertificateSerials v ->
             out.writeByte(TAG_LIST_REVOKED_CERTIFICATE_SERIALS);
+        case StoreRpc.IsSecretsKeyRetired v -> {
+          out.writeByte(TAG_IS_SECRETS_KEY_RETIRED);
+          out.writeByte(v.keyId());
+        }
+        case StoreRpc.ListRetiredSecretsKeyIds v -> out.writeByte(TAG_LIST_RETIRED_SECRETS_KEY_IDS);
         case StoreRpc.GetSessionRevokedBeforeEpochMilli v -> {
           out.writeByte(TAG_GET_SESSION_REVOKED_BEFORE_EPOCH_MILLI);
           out.writeUTF(v.username());
@@ -1087,6 +1094,8 @@ public final class StoreCodec {
         case TAG_GET_NODE_TAINTS -> new StoreRpc.GetNodeTaints(in.readUTF());
         case TAG_IS_CERTIFICATE_REVOKED -> new StoreRpc.IsCertificateRevoked(in.readUTF());
         case TAG_LIST_REVOKED_CERTIFICATE_SERIALS -> new StoreRpc.ListRevokedCertificateSerials();
+        case TAG_IS_SECRETS_KEY_RETIRED -> new StoreRpc.IsSecretsKeyRetired(in.readByte());
+        case TAG_LIST_RETIRED_SECRETS_KEY_IDS -> new StoreRpc.ListRetiredSecretsKeyIds();
         case TAG_GET_SESSION_REVOKED_BEFORE_EPOCH_MILLI ->
             new StoreRpc.GetSessionRevokedBeforeEpochMilli(in.readUTF());
         case TAG_GET_WORKLOAD_TOKEN -> new StoreRpc.GetWorkloadToken(in.readUTF());

@@ -6568,7 +6568,7 @@
       "module": "gimle-fafnir",
       "category": "Secrets Management",
       "feature": "Sealed SecretMap envelope crypto and key retirement",
-      "step": "Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key.",
+      "step": "Given a value has been sealed under the sealing key's currently active id, When that id is retired after first rotating to a new active id, Then the sealed blob can no longer be unwrapped through `SealCipher.unseal` -- it fails, it does not silently succeed against a resurrected key. Given two Fafnir replicas sharing one store and identically-provisioned key material, When one replica retires a key id the other replica never received a retire call for, Then the second replica also refuses to decrypt any value still encrypted under that id.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

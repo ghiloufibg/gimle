@@ -96,6 +96,10 @@ public interface StoreReader {
 
   Set<String> listRevokedCertificateSerials();
 
+  boolean isSecretsKeyRetired(byte keyId);
+
+  Set<Byte> listRetiredSecretsKeyIds();
+
   /** {@code 0} (never revoked) for a username that has never logged out. */
   long getSessionRevokedBeforeEpochMilli(String username);
 

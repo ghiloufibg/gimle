@@ -76,7 +76,8 @@ class RaftLogTest {
         Map.of(), // deploymentLastScale
         List.of(), // ingresses
         Map.of(), // daemonSetDesiredCounts
-        Map.of()); // alertFiringState
+        Map.of(), // alertFiringState
+        Set.of()); // retiredSecretsKeyIds
   }
 
   /** {@link #emptySnapshot()} with only {@code quotaViolatingDeployments} overridden. */
@@ -130,7 +131,8 @@ class RaftLogTest {
         base.deploymentLastScale(),
         base.ingresses(),
         base.daemonSetDesiredCounts(),
-        base.alertFiringState());
+        base.alertFiringState(),
+        base.retiredSecretsKeyIds());
   }
 
   @Test
