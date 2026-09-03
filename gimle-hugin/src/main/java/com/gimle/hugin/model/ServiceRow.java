@@ -24,7 +24,6 @@ public record ServiceRow(
     List<String> deploymentNames,
     int port,
     OptionalInt targetPort,
-    boolean sessionAffinity,
     Optional<String> externalName,
     String protocol,
     OptionalInt endpointCount) {

@@ -242,7 +242,6 @@ class ServiceScreenTest {
         List.of(name + "-provider"),
         port,
         targetPort,
-        false,
         Optional.empty(),
         "TCP",
         endpointCount(endpoints));
@@ -260,7 +259,6 @@ class ServiceScreenTest {
         List.of(name + "-provider"),
         port,
         targetPort,
-        false,
         Optional.empty(),
         "TCP",
         endpointCount(endpoints));
@@ -273,7 +271,6 @@ class ServiceScreenTest {
         List.of(),
         port,
         OptionalInt.empty(),
-        false,
         Optional.of(host),
         "TCP",
         OptionalInt.of(1));

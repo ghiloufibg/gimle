@@ -45,7 +45,6 @@ public final class ServiceReader {
               deploymentNames(service.get("deploymentNames")),
               (int) number(service.get("port")),
               optionalPort(service.get("targetPort")),
-              Boolean.TRUE.equals(service.get("sessionAffinity")),
               optionalString(service.get("externalName")),
               stringOrDefault(service.get("protocol"), "TCP"),
               endpointCount(name, tenantId)));
