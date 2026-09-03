@@ -57,6 +57,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -967,11 +968,30 @@ public final class AndvariServer implements AutoCloseable {
    * peer certificate for a direct caller (a node agent's own pull, the CLI talking straight to this
    * port); finally falls back to this console's own session cookie -- a human operator signed in
    * through {@link #handleAuthLogin} directly, the one caller shape with neither a forwarded header
-   * nor a client certificate of its own. Mirrors {@code FafnirServer}'s own fallback exactly.
+   * nor a client certificate of its own. Mirrors {@code FafnirServer}'s own fallback exactly,
+   * revocation check included: a present peer certificate is checked against the store-backed
+   * revocation denylist before it is trusted for anything, since Andvari (like Fafnir) holds
+   * sensitive platform state and independently re-runs its own checks rather than trusting the CA
+   * trust chain alone -- an unexpired, correctly signed certificate satisfies that chain check even
+   * once revoked.
    */
   private Optional<Principal> resolvePrincipal(HttpExchange exchange) {
-    Optional<Principal> certificatePrincipal =
-        peerCertificate(exchange).map(Subjects::principalFrom);
+    Optional<X509Certificate> certificate = peerCertificate(exchange);
+    if (certificate.isPresent()) {
+      // The portable revocation check, mirroring ApiServer/FafnirServer's own: a compromised
+      // leaf's serial lands on the store-backed denylist and every request it makes from then on
+      // resolves no principal at all -- checked before either trust path below runs, and before
+      // this connection's own certificate is ever allowed to vouch for a forwarded claim.
+      String serial = certificateSerial(certificate.get());
+      if (storeClient.isCertificateRevoked(serial)) {
+        log.warn(
+            "rejecting revoked certificate serial {} presented by {}",
+            serial,
+            certificate.get().getSubjectX500Principal());
+        return Optional.empty();
+      }
+    }
+    Optional<Principal> certificatePrincipal = certificate.map(Subjects::principalFrom);
     Optional<String> forwardedName = firstHeader(exchange, FORWARDED_PRINCIPAL_HEADER);
     if (forwardedName.isPresent()
         && certificatePrincipal
@@ -1231,6 +1251,11 @@ public final class AndvariServer implements AutoCloseable {
     } catch (SSLPeerUnverifiedException | RuntimeException e) {
       return Optional.empty();
     }
+  }
+
+  /** Lowercase hex, the form {@code openssl x509 -serial} prints -- what operators paste back. */
+  private static String certificateSerial(X509Certificate certificate) {
+    return certificate.getSerialNumber().toString(16).toLowerCase(Locale.ROOT);
   }
 
   private static Map<String, Object> versionJson(StoredArtifact stored) {

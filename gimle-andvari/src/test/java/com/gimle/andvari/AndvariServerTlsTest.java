@@ -28,6 +28,7 @@ import java.security.KeyPair;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.pkcs.PKCS10CertificationRequest;
@@ -344,6 +345,67 @@ class AndvariServerTlsTest {
     assertEquals(403, send(plainPeer, forwardedOperator).statusCode());
   }
 
+  /**
+   * {@code B4}: Andvari independently re-checks a presented certificate's serial against the
+   * store-backed revocation denylist, the same one {@code gimle-controlplane}'s own {@code
+   * ApiServer#resolvePrincipal} and {@code FafnirServer#resolvePrincipal} already check -- it must
+   * not trust the CA trust chain alone (unexpired, correctly signed), which a
+   * revoked-but-not-yet-expired certificate still satisfies. Before this check existed, an
+   * operator's standard incident-response action for a compromised credential -- revoking its
+   * certificate -- left Andvari, holding the platform's own artifact catalog, still serving that
+   * exact caller.
+   */
+  @Test
+  @Timeout(10)
+  void a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission()
+      throws Exception {
+    TlsTestFixtures.IssuedLeaf operator =
+        tls.issueGroupLeafWithCertificate(ca, BuiltinRoles.GROUP_OPERATORS, "revocable-operator");
+    HttpClient client = operator.client();
+
+    // Accepted before revocation -- the cert is genuinely valid and the group grants it.
+    assertEquals(200, send(client, push("com.example.app", "1.0.0")).statusCode());
+
+    String serial = certificateSerial(operator.certificate());
+    store.client().propose(new StateMutation.PutCertificateRevocation(serial, true));
+
+    // Refused after revocation with the identical cert/key and the identical group membership
+    // still in place -- proving this is the revocation check, not a permission change.
+    assertEquals(401, send(client, pull("com.example.app", "1.0.0")).statusCode());
+  }
+
+  /**
+   * The forwarded-principal path shares the identical revocation gate: a revoked control-plane
+   * proxy certificate must not be allowed to keep vouching for a forwarded claim just because
+   * resolution would otherwise fall through to trusting the raw certificate identity unchecked.
+   */
+  @Test
+  @Timeout(10)
+  void a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused() throws Exception {
+    TlsTestFixtures.IssuedLeaf controlPlanePeer =
+        tls.issueGroupLeafWithCertificate(
+            ca, BuiltinRoles.GROUP_CONTROLPLANE, "revocable-controlplane");
+    HttpClient client = controlPlanePeer.client();
+    HttpRequest forwardedOperator =
+        HttpRequest.newBuilder(uri("com.example.app", "1.0.0"))
+            .header("X-Gimle-Forwarded-Principal", "user:admin")
+            .header("X-Gimle-Forwarded-Groups", BuiltinRoles.GROUP_OPERATORS)
+            .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
+            .build();
+    assertEquals(200, send(client, forwardedOperator).statusCode());
+
+    String serial = certificateSerial(controlPlanePeer.certificate());
+    store.client().propose(new StateMutation.PutCertificateRevocation(serial, true));
+
+    HttpRequest forwardedOperatorAgain =
+        HttpRequest.newBuilder(uri("com.example.app", "2.0.0"))
+            .header("X-Gimle-Forwarded-Principal", "user:admin")
+            .header("X-Gimle-Forwarded-Groups", BuiltinRoles.GROUP_OPERATORS)
+            .PUT(HttpRequest.BodyPublishers.ofByteArray(JAR))
+            .build();
+    assertEquals(401, send(client, forwardedOperatorAgain).statusCode());
+  }
+
   @Test
   @Timeout(10)
   void reloading_tls_material_lets_a_fresh_connection_succeed_without_restarting_the_server()
@@ -408,5 +470,9 @@ class AndvariServerTlsTest {
   private static HttpResponse<String> send(HttpClient client, HttpRequest request)
       throws Exception {
     return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  private static String certificateSerial(X509Certificate certificate) {
+    return certificate.getSerialNumber().toString(16).toLowerCase(Locale.ROOT);
   }
 }

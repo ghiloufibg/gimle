@@ -5907,14 +5907,16 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 #### GIMLE-624 — Certificate revocation denylist
 
 - **Category**: Security / PKI
-- **User story**: As an operator, I want to revoke a compromised leaf certificate by serial number so it stops authenticating immediately, reversibly, without CRL/OCSP infrastructure.
-- **Status**: Complete
+- **User story**: As an operator, I want to revoke a compromised leaf certificate by serial number so it stops authenticating immediately, reversibly, without CRL/OCSP infrastructure -- against every process that holds sensitive state, not only the control plane.
+- **Status**: Complete. Fixed a real gap: Fafnir and Andvari -- the processes holding the platform's secrets and artifact catalog -- validated a presented certificate only against the CA trust chain (unexpired, correctly signed), which a revoked-but-not-yet-expired certificate still satisfies, so revoking a compromised credential's serial stopped it authenticating against the control plane while Fafnir/Andvari kept returning live plaintext/artifacts for that exact caller. Both now independently check the identical store-backed denylist (FafnirServer#resolvePrincipal, AndvariServer#resolvePrincipal) before trusting a peer certificate for anything -- including before letting it vouch for a forwarded principal, not only its own direct identity -- matching the defense-in-depth posture both processes already apply to RBAC (never trust "arrived already-forwarded" as proof by itself).
 - **Confidence**: High
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`
-- **Test coverage**: `ApiServerAuthzTest` (a_revoked_certificate_stops_authenticating_until_unrevoked), `StateStoreTest` (certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke)
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`, `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `gimle-cli/src/main/java/com/gimle/cli/CertCommand.java`, `gimle-fafnir/src/main/java/com/gimle/fafnir/FafnirServer.java` (`resolvePrincipal`, `certificateSerial`), `gimle-andvari/src/main/java/com/gimle/andvari/AndvariServer.java` (`resolvePrincipal`, `certificateSerial`)
+- **Test coverage**: `ApiServerAuthzTest` (a_revoked_certificate_stops_authenticating_until_unrevoked); `StateStoreTest` (certificate_revocations_round_trip_through_a_snapshot_and_clear_on_unrevoke); `FafnirSecretsAuthzTest` (a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission, a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused); `AndvariServerTlsTest` (a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission, a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused)
 - **Gherkin scenario**:
   ```gherkin
   Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication.
+  Given the identical revoked serial, When the same certificate is presented directly to Fafnir or Andvari (not through the control plane), Then it is refused there too -- both processes re-check the store-backed denylist independently rather than trusting the CA trust chain alone.
+  Given a control-plane peer certificate is revoked, When that peer forwards a principal claim to Fafnir or Andvari, Then the forwarded claim is refused, not only the peer's own direct identity.
   ```
 
 #### GIMLE-625 — Workload identity: store-backed per-deployment tokens (ServiceAccount analogue)

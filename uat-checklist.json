@@ -6865,7 +6865,7 @@
       "module": "gimle-controlplane",
       "category": "Security / PKI",
       "feature": "Certificate revocation denylist",
-      "step": "Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication.",
+      "step": "Given a valid operator certificate, When its serial is revoked through the API, Then its very next request answers 401, the serial lists as revoked, and un-revoking restores authentication. Given the identical revoked serial, When the same certificate is presented directly to Fafnir or Andvari (not through the control plane), Then it is refused there too -- both processes re-check the store-backed denylist independently rather than trusting the CA trust chain alone. Given a control-plane peer certificate is revoked, When that peer forwards a principal claim to Fafnir or Andvari, Then the forwarded claim is refused, not only the peer's own direct identity.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

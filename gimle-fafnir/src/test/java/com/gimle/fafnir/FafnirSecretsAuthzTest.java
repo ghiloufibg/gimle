@@ -14,6 +14,7 @@ import com.gimle.fafnir.testsupport.InProcessStore;
 import com.gimle.fafnir.testsupport.TlsTestFixtures;
 import com.gimle.mimir.manifest.DeploymentSpec;
 import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.raft.StateMutation;
 import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.pki.CertificateAuthority;
@@ -23,6 +24,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.cert.X509Certificate;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -148,6 +151,107 @@ class FafnirSecretsAuthzTest {
         assertEquals(200, response.statusCode());
       }
     }
+  }
+
+  /**
+   * {@code B4}: Fafnir independently re-checks a presented certificate's serial against the
+   * store-backed revocation denylist, the same one {@code gimle-controlplane}'s own {@code
+   * ApiServer#resolvePrincipal} already checks -- it must not trust the CA trust chain alone
+   * (unexpired, correctly signed), which a revoked-but-not-yet-expired certificate still satisfies.
+   * Before this check existed, an operator's standard incident-response action for a compromised
+   * credential -- revoking its certificate -- left Fafnir, the process holding the platform's most
+   * sensitive data, still returning live plaintext for that exact caller.
+   */
+  @Test
+  @Timeout(10)
+  void a_revoked_certificate_is_refused_even_though_it_still_holds_the_permission()
+      throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      TlsTestFixtures.IssuedLeaf leaf = tls.issueLeafWithCertificate(ca, "caller");
+      HttpClient client = leaf.client();
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        String secretsUrl = "https://localhost:" + server.port() + "/secrets/acme";
+
+        // Accepted before revocation -- the cert is genuinely valid and the caller genuinely
+        // holds the permission.
+        assertEquals(
+            200,
+            client
+                .send(
+                    HttpRequest.newBuilder(URI.create(secretsUrl)).GET().build(),
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .statusCode());
+
+        String serial = certificateSerial(leaf.certificate());
+        inProcessStore.client().propose(new StateMutation.PutCertificateRevocation(serial, true));
+
+        // Refused after revocation with the identical cert/key and the identical RBAC grant
+        // still in place -- proving this is the revocation check, not a permission change.
+        assertEquals(
+            401,
+            client
+                .send(
+                    HttpRequest.newBuilder(URI.create(secretsUrl)).GET().build(),
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .statusCode());
+      }
+    }
+  }
+
+  /**
+   * The forwarded-principal path shares the identical revocation gate: a revoked control-plane
+   * proxy certificate must not be allowed to keep vouching for a forwarded claim just because
+   * resolution would otherwise fall through to trusting the raw certificate identity unchecked.
+   */
+  @Test
+  @Timeout(10)
+  void a_forwarded_principal_via_a_revoked_control_plane_certificate_is_refused() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "alice");
+      TlsTestFixtures.IssuedLeaf proxyLeaf =
+          tls.issueControlPlaneLeafWithCertificate(ca, "controlplane-proxy");
+      HttpClient client = proxyLeaf.client();
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpRequest forwardedRequest =
+            HttpRequest.newBuilder(
+                    URI.create("https://localhost:" + server.port() + "/secrets/acme"))
+                .header(FORWARDED_PRINCIPAL_HEADER, "alice")
+                .GET()
+                .build();
+
+        assertEquals(
+            200,
+            client
+                .send(forwardedRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .statusCode());
+
+        String serial = certificateSerial(proxyLeaf.certificate());
+        inProcessStore.client().propose(new StateMutation.PutCertificateRevocation(serial, true));
+
+        assertEquals(
+            401,
+            client
+                .send(forwardedRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .statusCode());
+      }
+    }
+  }
+
+  private static String certificateSerial(X509Certificate certificate) {
+    return certificate.getSerialNumber().toString(16).toLowerCase(Locale.ROOT);
   }
 
   @Test
