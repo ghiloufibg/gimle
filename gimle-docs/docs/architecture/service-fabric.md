@@ -116,12 +116,17 @@ exposes `POST`/`GET`/`DELETE /services` and `GET /services/{name}/endpoints` (re
 with `targetPort` present only when the Service declared one), RBAC-gated via
 `ResourceKind.SERVICE`.
 
-`GET /services/{name}/endpoints` resolves a Service addressed by bare name to its own tenant when
-the caller gives no `?tenant=` of its own, exactly as `GET /endpoints/{name}` already does for a
-workload name — an explicit `?tenant=` still wins. Both of the gateway's endpoint caches address
-their target by bare name (`VesselEndpointCache` through `/endpoints/{name}`,
-`ServiceEndpointCache` through this route), so without the fallback the two behaved differently for
-the same spelling and every tenant-scoped Service a `SERVICE` route named resolved to nothing.
+`GET /services/{name}/endpoints`, and the plain `GET`/`DELETE /services/{name}` routes alongside it,
+resolve a Service addressed by bare name to its own tenant when the caller gives no `?tenant=` of
+its own, exactly as `GET /endpoints/{name}` already does for a workload name — an explicit
+`?tenant=` still wins. Both of the gateway's endpoint caches address their target by bare name
+(`VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route), so
+without the fallback the two behaved differently for the same spelling and every tenant-scoped
+Service a `SERVICE` route named resolved to nothing. The plain GET/DELETE routes need the identical
+fallback for a sharper reason: without it, `DELETE /services/{name}` with no `?tenant=` against a
+tenant-scoped Service resolved an empty tenant hint and removed the untenanted key nothing was ever
+stored under — a silent no-op that still answered `200`, leaving the real entry (and its live
+endpoints) fully intact.
 
 ### `targetPort` is optional, and authoritative when present
 

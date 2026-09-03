@@ -106,6 +106,72 @@ class ApiServerAuditOutcomeTest {
         .toList();
   }
 
+  private List<AuditEvent> tenantWriteAuditEventsFor(String tenantId) {
+    return inProcessStore
+        .client()
+        .listAuditEvents(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())
+        .stream()
+        .filter(
+            e ->
+                e.resourceKind().equals("TENANT")
+                    && e.verb().equals("WRITE")
+                    && e.tenantId().equals(Optional.of(tenantId)))
+        .toList();
+  }
+
+  /**
+   * {@code B1}: a tenant-creation write plaintext mode goes on to refuse must record {@link
+   * AuditOutcome#REJECTED} in its own audit entry, not default to {@link AuditOutcome#APPLIED} the
+   * way {@link #requireAuthorized} would have recorded it before {@link
+   * ApiServer#rejectSecondTenantUnderPlaintext} ever got a chance to run. Before the fix, the audit
+   * trail for a refused second-tenant creation was byte-for-byte indistinguishable from a genuine
+   * success -- {@code allowed:true, outcome:APPLIED} either way -- which is exactly what an audit
+   * trail exists to prevent.
+   */
+  @Test
+  void a_tenant_creation_refused_under_plaintext_records_rejected_not_applied() throws Exception {
+    // A first real tenant, so plaintext's own single-real-tenant rule has something to refuse a
+    // second one against (see rejectSecondTenantUnderPlaintext's own javadoc: neither the
+    // reserved-system nor the default tenant counts toward this).
+    HttpResponse<String> firstTenantPut =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/audit-b1-tenant-a"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 1)))
+                .build());
+    assertEquals(200, firstTenantPut.statusCode());
+
+    HttpResponse<String> refusedSecondTenantPut =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/audit-b1-tenant-b"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1, 1, 1)))
+                .build());
+    assertEquals(403, refusedSecondTenantPut.statusCode());
+
+    // The refused id was never actually created...
+    HttpResponse<String> getRefused =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/audit-b1-tenant-b")).build());
+    assertEquals(404, getRefused.statusCode());
+
+    // ...and its own audit trail entry must say so: REJECTED, never APPLIED, even though
+    // plaintext mode's own RBAC carve-out did allow the attempt to reach admission at all.
+    List<AuditEvent> refusedEvents = tenantWriteAuditEventsFor("audit-b1-tenant-b");
+    assertEquals(1, refusedEvents.size());
+    assertTrue(refusedEvents.get(0).allowed(), "plaintext mode's RBAC carve-out did allow this");
+    assertEquals(AuditOutcome.REJECTED, refusedEvents.get(0).outcome());
+
+    // A genuine success -- updating the tenant that was actually created -- still records
+    // APPLIED, so the fix doesn't just flip every tenant write to REJECTED.
+    HttpResponse<String> genuineUpdate =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/audit-b1-tenant-a"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(2, 2, 2)))
+                .build());
+    assertEquals(200, genuineUpdate.statusCode());
+    List<AuditEvent> appliedEvents = tenantWriteAuditEventsFor("audit-b1-tenant-a");
+    assertEquals(2, appliedEvents.size(), "the initial create plus this update");
+    assertTrue(appliedEvents.stream().allMatch(e -> e.outcome() == AuditOutcome.APPLIED));
+  }
+
   @Test
   void a_deployment_writes_audit_outcome_matches_the_real_admission_result_not_just_rbac()
       throws Exception {

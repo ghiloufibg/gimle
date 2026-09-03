@@ -390,6 +390,22 @@ yet); both are still recorded, via an explicit `recordAuditEvent` call keyed to 
 `bootstrap-token`/`anonymous` principal — "who was granted trust, and when" needs a trace even when
 there's no ordinary RBAC decision to hang it off of.
 
+Every `AuditEvent` carries two separate verdicts, not one: `allowed` is whether RBAC/authorization
+itself said yes, and `outcome` (`APPLIED`/`REJECTED`) is whether the write actually took effect.
+They can and do diverge — an authorized caller's write can still fail admission (a tenant-quota
+violation, a name/kind mismatch, a manifest-specific guard that only runs after authorization), and
+that must record `REJECTED`, never default to `APPLIED` just because RBAC allowed the attempt to
+proceed. A route whose only possible refusal *is* the RBAC check itself (most `GET`/`DELETE`
+handlers) records its outcome the moment `requireAuthorized` returns. A route with real admission
+after authorization — every workload `PUT`, and `PUT /tenants/{id}` (`rejectSecondTenantUnderPlaintext`
+in particular, which is itself an admission-time check, not an RBAC one) — instead uses
+`requireAuthorizedForWrite`, which records nothing for an authorized caller and hands back the
+principal to audit with once the real outcome is known. Getting this ordering backwards is a real
+defect, not a hypothetical one: a refused second-tenant creation under plaintext mode was once
+recorded as `allowed:true`/`outcome:APPLIED` — byte-for-byte indistinguishable from a genuine
+success — because the audit event was written before the admission check that went on to refuse it
+ever ran.
+
 Eviction past the retention cap is itself observable, not silent: `StateStore` logs a throttled
 warning once the cap is first reached (then every 1000th eviction after that) and tracks a running
 total. `GET /audit`'s response is an envelope, not a bare array —

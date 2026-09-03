@@ -1269,7 +1269,7 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-773 | `gimle-console` | A Gateway console screen showing the declared route table and what each route currently resolves to | observable | FLEET | NET-4 |
 | GIMLE-774 | `gimle-console` | A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness | observable | FLEET | NET-2 |
 | GIMLE-775 | `gimle-console` | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | observable | FLEET | NET-4 |
-| GIMLE-776 | `gimle-controlplane` | A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing | observable | FLEET | NET-2, NET-4 |
+| GIMLE-776 | `gimle-controlplane` | A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing | observable | FLEET | NET-2, NET-4 |
 | GIMLE-777 | `gimle-controlplane` | A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog | observable | FLEET | NET-4 |
 | GIMLE-778 | `gimle-console` | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | observable | FLEET | NET-4 |
 | GIMLE-779 | `gimle-core` | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | observable | FLEET | DEP-1 |
