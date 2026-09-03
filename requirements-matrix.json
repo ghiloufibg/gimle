@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 905,
+  "requirementCount": 908,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -18638,6 +18638,65 @@
         "When a store replica's presented certificate is inspected",
         "Then its Subject names the store's own leaf, carrying no control-plane group",
         "And the cluster still functions end to end over mutual TLS"
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-906",
+      "module": "gimle-ivaldi",
+      "feature": "Blueprint document storage API",
+      "category": "Cluster designer backend / Internal-Infra",
+      "userStory": "As a developer designing a Gimle cluster, I want to create, list, read, update, and delete Blueprint documents through a small JSON HTTP API, so the designer's work persists between sessions without a database.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`",
+        "`BlueprintStore`"
+      ],
+      "testCoverageDetail": "`IvaldiServerTest.java` — \"creates_lists_reads_and_deletes_a_blueprint\", \"put_upserts_a_blueprint_at_an_explicit_id\", \"get_of_an_unknown_blueprint_is_404\", \"create_rejects_a_body_that_is_not_a_json_object\"; `BlueprintStoreTest.java` — id minting from name, atomic writes, corrupt-file skip on list, path-traversal id rejection",
+      "gherkinSteps": [
+        "Given a blueprint document named \"orders-platform-local\", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-907",
+      "module": "gimle-ivaldi",
+      "feature": "Blueprint tier-2 validation against the real platform parsers",
+      "category": "Cluster designer backend / Internal-Infra",
+      "userStory": "As a developer designing a cluster on the canvas, I want the designer's rendered topology.yaml/bundle.yaml/manifest files checked against the real Hilmir and Mimir parsers and validators before I run or download them, so mistakes a browser-side check alone can't catch surface immediately.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java`",
+        "`IvaldiServer#handleValidate`"
+      ],
+      "testCoverageDetail": "`FileSetValidatorTest.java` — 18 cases spanning topology/manifest/service/networkpolicy/bundle validation, including the apiVersion v1 artifactPath rejection and the v1alpha1 local-path deprecation warning; `IvaldiServerTest.java#validate_runs_the_real_topology_validator_against_rendered_yaml`",
+      "gherkinSteps": [
+        "Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-908",
+      "module": "gimle-maven-plugin",
+      "feature": "Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop)",
+      "category": "Developer tooling / Internal-Infra",
+      "userStory": "As a developer, I want `mvn gimle:ivaldi` to ensure a local Ivaldi server is running, reusing one already up rather than spawning a duplicate, and `mvn gimle:ivaldi-stop` to tear it down again — the same everyday workflow `gimle:saga`/`gimle:saga-stop` already provide.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/IvaldiMojo.java`",
+        "`IvaldiStopMojo`",
+        "`IvaldiServer` (plugin-side spawn/reuse helper)",
+        "`IvaldiClient`"
+      ],
+      "testCoverageDetail": "`IvaldiServerTest.java` (gimle-maven-plugin) — reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` — health check and shutdown against a stub server",
+      "gherkinSteps": [
+        "Given no Ivaldi server listening on the configured port, When I run mvn gimle:ivaldi twice in a row, Then the first spawns a detached server and the second reuses it without spawning a second one."
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

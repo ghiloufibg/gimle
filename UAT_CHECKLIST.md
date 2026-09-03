@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 904
+- **Total requirements**: 907
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 774
-- **Release-readiness (automated coverage)**: 14.4%
+- **Not covered by automated test**: 777
+- **Release-readiness (automated coverage)**: 14.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -29,7 +29,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-gateway | 21 | 0 | 21 | 0.0% |
 | gimle-cli | 49 | 0 | 49 | 0.0% |
 | gimle-hilmir | 38 | 0 | 38 | 0.0% |
-| gimle-maven-plugin | 19 | 0 | 19 | 0.0% |
+| gimle-maven-plugin | 20 | 0 | 20 | 0.0% |
 | gimle-console | 62 | 0 | 62 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 10 | 0 | 10 | 0.0% |
@@ -43,6 +43,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
+| gimle-ivaldi | 2 | 0 | 2 | 0.0% |
 
 ## Checklist
 
@@ -2062,6 +2063,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-884 | `gimle:controlplane` and `gimle:agent` can name a Muninn to ship to | Given a local cluster started with `gimle:muninn` running When `gimle:controlplane` and `gimle:agent` are given `muninnEndpoint` Then both processes ship to that Muninn And leaving it unset starts them with no Muninn flag at all | No |
 | [ ] | GIMLE-898 | `gimle:saga-import` derives its run id from the reports, so re-importing folds into the same run | Given a set of surefire reports imported into Saga once When `mvn gimle:saga-import` runs again over the unchanged set Then it folds into the same run rather than creating a second one And a report whose content changed derives a different run id | No |
 
+#### Developer tooling / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Given no Ivaldi server listening on the configured port, When I run mvn gimle:ivaldi twice in a row, Then the first spawns a detached server and the second reuses it without spawning a second one. | No |
+
 #### Internal/Infra
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -2524,3 +2531,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-812 | The terminal view ships in the CLI archives and is removable in one directory delete | Given the CLI distribution archive When gimle-hugin and its JLine jars are on its lib/ classpath Then `gimle top` resolves, and with them removed the verb is unknown again | No |
+
+### gimle-ivaldi
+
+#### Cluster designer backend / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-906 | Blueprint document storage API | Given a blueprint document named "orders-platform-local", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent. | No |
+| [ ] | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report. | No |

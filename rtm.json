@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 905,
+  "requirementCount": 908,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15642,6 +15642,56 @@
         "`gimle-holmgang/src/main/java/com/gimle/holmgang/cluster/GimleCluster.java`"
       ],
       "otherTestCoverage": "`PkiBootstrapMainTest#the_store_gets_its_own_leaf_rather_than_borrowing_the_control_planes`; `LaunchPlannerTest` asserts store replicas are launched with the store leaf"
+    },
+    {
+      "id": "GIMLE-906",
+      "module": "gimle-ivaldi",
+      "feature": "Blueprint document storage API",
+      "category": "Cluster designer backend / Internal-Infra",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "gimle-ivaldi is a brand-new local development tool backend (this change) with no Holmgang scenario yet -- its only coverage today is its own real-HTTP unit tests (IvaldiServerTest/BlueprintStoreTest). Not independently observable as a black-box cluster assertion in the sense Holmgang's own harness targets: it is a design-time tool sitting outside any deployed cluster, not a workload or control-plane behavior.",
+      "otherTestCoverage": "`IvaldiServerTest.java` -- \"creates_lists_reads_and_deletes_a_blueprint\", \"put_upserts_a_blueprint_at_an_explicit_id\", \"get_of_an_unknown_blueprint_is_404\", \"create_rejects_a_body_that_is_not_a_json_object\"; `BlueprintStoreTest.java` -- id minting from name, atomic writes, corrupt-file skip on list, path-traversal id rejection",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`",
+        "`BlueprintStore`"
+      ]
+    },
+    {
+      "id": "GIMLE-907",
+      "module": "gimle-ivaldi",
+      "feature": "Blueprint tier-2 validation against the real platform parsers",
+      "category": "Cluster designer backend / Internal-Infra",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises the Ivaldi validate endpoint; today's coverage is FileSetValidatorTest's own fixture suite plus one real-HTTP integration test in IvaldiServerTest. Could in principle be added to Holmgang as a design-time check, but Ivaldi is a local dev tool outside the deployed-cluster boundary Holmgang's own scenarios target.",
+      "otherTestCoverage": "`FileSetValidatorTest.java` -- 18 cases spanning topology/manifest/service/networkpolicy/bundle validation, including the apiVersion v1 artifactPath rejection and the v1alpha1 local-path deprecation warning; `IvaldiServerTest.java#validate_runs_the_real_topology_validator_against_rendered_yaml`",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java`",
+        "`IvaldiServer#handleValidate`"
+      ]
+    },
+    {
+      "id": "GIMLE-908",
+      "module": "gimle-maven-plugin",
+      "feature": "Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop)",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "Dev-tooling Maven goal, the same shape as gimle:saga/gimle:saga-stop -- neither of those has Holmgang coverage either (Holmgang boots real cluster processes directly, not through this plugin's spawn/reuse Mojos). Covered instead by IvaldiServerTest/IvaldiClientTest in gimle-maven-plugin's own suite.",
+      "otherTestCoverage": "`IvaldiServerTest.java` (gimle-maven-plugin) -- reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` -- health check and shutdown against a stub server",
+      "sourceLocations": [
+        "`gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/IvaldiMojo.java`",
+        "`IvaldiStopMojo`",
+        "`IvaldiServer` (plugin-side spawn/reuse helper)",
+        "`IvaldiClient`"
+      ]
     }
   ]
 }

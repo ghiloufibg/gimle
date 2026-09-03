@@ -920,6 +920,9 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-903 | A node bootstraps its own identity into its own writable data root, with a DNS-named leaf | New | Not Covered | — |
 | GIMLE-904 | A worker's handshake is applied to every instance packed onto that worker | New | Not Covered | — |
 | GIMLE-905 | A store replica presents its own leaf certificate rather than the control plane's | New | Not Covered | — |
+| GIMLE-906 | Blueprint document storage API | New | Not Covered | — |
+| GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | New | Not Covered | — |
+| GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -7500,6 +7503,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `SagaImportMojoTest#re_importing_an_unchanged_report_set_folds_into_the_run_id_it_already_used`, `#a_report_set_whose_content_changed_derives_its_own_run_id`, `#the_derived_run_id_ignores_a_reports_modification_time`
 - **Source location(s)**: `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/SagaImportMojo.java` (`deriveRunId`)
 
+#### GIMLE-908 — Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop)
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: Dev-tooling Maven goal, the same shape as gimle:saga/gimle:saga-stop -- neither of those has Holmgang coverage either (Holmgang boots real cluster processes directly, not through this plugin's spawn/reuse Mojos). Covered instead by IvaldiServerTest/IvaldiClientTest in gimle-maven-plugin's own suite.
+- **Other test coverage (non-Holmgang, informational only)**: `IvaldiServerTest.java` (gimle-maven-plugin) -- reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` -- health check and shutdown against a stub server
+- **Source location(s)**: `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/IvaldiMojo.java`, `IvaldiStopMojo`, `IvaldiServer` (plugin-side spawn/reuse helper), `IvaldiClient`
+
 ### gimle-console
 
 #### GIMLE-435 — Operator session login / logout
@@ -9456,11 +9468,31 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's VersionReaderTest (all four ledger shapes, ordering, no-ledger against empty, escaping) and VersionScreenTest (the in-effect label, blank rather than invented author and time, and the deleted marker).
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/VersionReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/VersionScreen.java`
 
+### gimle-ivaldi
+
+#### GIMLE-906 — Blueprint document storage API
+
+- **Category**: Cluster designer backend / Internal-Infra
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: gimle-ivaldi is a brand-new local development tool backend (this change) with no Holmgang scenario yet -- its only coverage today is its own real-HTTP unit tests (IvaldiServerTest/BlueprintStoreTest). Not independently observable as a black-box cluster assertion in the sense Holmgang's own harness targets: it is a design-time tool sitting outside any deployed cluster, not a workload or control-plane behavior.
+- **Other test coverage (non-Holmgang, informational only)**: `IvaldiServerTest.java` -- "creates_lists_reads_and_deletes_a_blueprint", "put_upserts_a_blueprint_at_an_explicit_id", "get_of_an_unknown_blueprint_is_404", "create_rejects_a_body_that_is_not_a_json_object"; `BlueprintStoreTest.java` -- id minting from name, atomic writes, corrupt-file skip on list, path-traversal id rejection
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`, `BlueprintStore`
+
+#### GIMLE-907 — Blueprint tier-2 validation against the real platform parsers
+
+- **Category**: Cluster designer backend / Internal-Infra
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises the Ivaldi validate endpoint; today's coverage is FileSetValidatorTest's own fixture suite plus one real-HTTP integration test in IvaldiServerTest. Could in principle be added to Holmgang as a design-time check, but Ivaldi is a local dev tool outside the deployed-cluster boundary Holmgang's own scenarios target.
+- **Other test coverage (non-Holmgang, informational only)**: `FileSetValidatorTest.java` -- 18 cases spanning topology/manifest/service/networkpolicy/bundle validation, including the apiVersion v1 artifactPath rejection and the v1alpha1 local-path deprecation warning; `IvaldiServerTest.java#validate_runs_the_real_topology_validator_against_rendered_yaml`
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java`, `IvaldiServer#handleValidate`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**775 of 905 requirements are Not Covered.**
+**778 of 908 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -9634,6 +9666,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-555 | gimle-holmgang | Utgard real machine loss (hard container kill) and rejoin | Cluster Validation | `UtgardMachineLossIT.a_killed_machine_is_rescheduled_around_and_can_rejoin_after_restart` |
 | GIMLE-556 | gimle-holmgang | Utgard network partition (vs hard kill) with reconvergence | Cluster Validation | `UtgardPartitionIT.a_partitioned_machine_is_rescheduled_around_then_the_cluster_converges_on_reconnect` |
 | GIMLE-557 | gimle-holmgang | Utgard real-hostname mTLS bootstrap across containers | Cluster Validation | `UtgardMtlsIT.an_mtls_cluster_bootstraps_across_containers_addressed_by_real_hostnames` |
+| GIMLE-906 | gimle-ivaldi | Blueprint document storage API | Cluster designer backend / Internal-Infra | `IvaldiServerTest.java` -- "creates_lists_reads_and_deletes_a_blueprint", "put_upserts_a_blueprint_at_an_explicit_id", "get_of_an_unknown_blueprint_is_404", "create_rejects_a_body_that_is_not_a_json_object"; `BlueprintStoreTest.java` -- id minting from name, atomic writes, corrupt-file skip on list, path-traversal id rejection |
+| GIMLE-907 | gimle-ivaldi | Blueprint tier-2 validation against the real platform parsers | Cluster designer backend / Internal-Infra | `FileSetValidatorTest.java` -- 18 cases spanning topology/manifest/service/networkpolicy/bundle validation, including the apiVersion v1 artifactPath rejection and the v1alpha1 local-path deprecation warning; `IvaldiServerTest.java#validate_runs_the_real_topology_validator_against_rendered_yaml` |
 | GIMLE-117 | gimle-agent | Persistent volume allocation for StatefulSet-shaped instances | Config | NONE recorded in the baseline |
 | GIMLE-119 | gimle-agent | Vessel port allocation (dynamic/fixed) and env resolution (literal/port/secret) | Config | NONE recorded in the baseline |
 | GIMLE-120 | gimle-agent | Vessel config-file rendering to disk | Config | NONE recorded in the baseline |
@@ -9662,6 +9696,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-661 | gimle-core | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir) |
 | GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip) |
 | GIMLE-664 | gimle-console | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests) |
+| GIMLE-908 | gimle-maven-plugin | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | `IvaldiServerTest.java` (gimle-maven-plugin) -- reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` -- health check and shutdown against a stub server |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
 | GIMLE-636 | gimle-examples | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation. |

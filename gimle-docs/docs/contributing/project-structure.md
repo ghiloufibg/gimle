@@ -67,6 +67,9 @@ graph LR
     saga --> sagaconsole[gimle-saga-console]
     hilmir[gimle-hilmir] --> core
     hilmir --> mimir
+    ivaldi[gimle-ivaldi] --> core
+    ivaldi --> hilmir
+    ivaldi --> mimir
     mavenplugin[gimle-maven-plugin] --> core
     dist[gimle-dist] --> mimir
     dist --> controlplane
@@ -143,6 +146,7 @@ Two things worth noticing in that graph, not just the boxes:
 | `gimle-console` | The web console SPA (Bun/Vite/React/TanStack Router) — no Java, embedded into `gimle-controlplane`'s own jar and served from there. |
 | `gimle-saga` | The test-report server (`SagaMain`) — a standalone local development tool, not a cluster process kind: ingests `SagaEvent` NDJSON streams (or imports Surefire XML), stores each run as an append-only event file plus derived metadata, maintains a cross-run flake ledger, and serves runs/live event tails/flaky scoreboard/per-test history over a JSON HTTP API with the bundled console at `/console`. Deliberately unauthenticated and loopback-bound by default. |
 | `gimle-saga-console` | Saga's own web console SPA — same no-Java Bun/Vite pattern as the other consoles, embedded into `gimle-saga`'s jar and served from there. |
-| `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:fafnir`, `mvn gimle:muninn`, `mvn gimle:andvari`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:bootstrap`, `mvn gimle:deploy`, `mvn gimle:publish`, `mvn gimle:tls-init`, `mvn gimle:docs`, `mvn gimle:doctor`, `mvn gimle:init`, `mvn gimle:saga`, `mvn gimle:saga-stop`, `mvn gimle:saga-import`, `mvn gimle:flaky-tests`, `mvn gimle:verify`) — dev tooling, not part of the running platform. See [`gimle-maven-plugin` goal reference](../reference/maven-plugin-goals.md) for what every goal does. |
+| `gimle-ivaldi` | The cluster designer's backend (`IvaldiMain`) — a standalone local development tool, not a cluster process kind: stores Blueprint documents as flat JSON files and validates their rendered `topology.yaml`/`bundle.yaml`/manifest output against the real `gimle-hilmir`/`gimle-mimir` parsers and validators (`TopologyParser`/`TopologyValidator`/`BundleParser`/`ManifestParser`) over a small JSON HTTP API. Deliberately unauthenticated and loopback-bound by default, the same posture `gimle-saga` already established. Driving a real local `hilmir up`/`deploy` run, and the bundled console SPA (`gimle-ivaldi-console`), are not built yet. |
+| `gimle-maven-plugin` | `spring-boot:run`-style developer-experience goals (`mvn gimle:store`, `mvn gimle:fafnir`, `mvn gimle:muninn`, `mvn gimle:andvari`, `mvn gimle:controlplane`, `mvn gimle:agent`, `mvn gimle:bootstrap`, `mvn gimle:deploy`, `mvn gimle:publish`, `mvn gimle:tls-init`, `mvn gimle:docs`, `mvn gimle:doctor`, `mvn gimle:init`, `mvn gimle:saga`, `mvn gimle:saga-stop`, `mvn gimle:saga-import`, `mvn gimle:flaky-tests`, `mvn gimle:ivaldi`, `mvn gimle:ivaldi-stop`, `mvn gimle:verify`) — dev tooling, not part of the running platform. See [`gimle-maven-plugin` goal reference](../reference/maven-plugin-goals.md) for what every goal does. |
 | `gimle-dist` | Packages the platform's already-built jars into three audience-specific distribution tarballs (a cluster-machine platform archive, a standalone CLI archive, a standalone `gimle-hilmir` archive) via `maven-assembly-plugin`, each with a checksum file and a CycloneDX SBOM. No Java sources — assembly descriptors and two shell wrapper scripts only. See [Distribution archives](../reference/distribution.md). |
 | `gimle-docs` | This documentation site (Docusaurus/Bun) — reactor-gated behind the `docs` Maven profile. |

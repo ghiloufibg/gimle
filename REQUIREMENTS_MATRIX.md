@@ -915,6 +915,9 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-903 | A node bootstraps its own identity into its own writable data root, with a DNS-named leaf | Security / Identity | Complete | Yes |
 | GIMLE-904 | A worker's handshake is applied to every instance packed onto that worker | Worker Supervision | Complete | Yes |
 | GIMLE-905 | A store replica presents its own leaf certificate rather than the control plane's | Transport Security | Complete | Yes |
+| GIMLE-906 | Blueprint document storage API | Cluster designer backend / Internal-Infra | Complete | Yes |
+| GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Cluster designer backend / Internal-Infra | Complete | Yes |
+| GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -10963,6 +10966,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And a report whose content changed derives a different run id
   ```
 
+#### GIMLE-908 — Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop)
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a developer, I want `mvn gimle:ivaldi` to ensure a local Ivaldi server is running, reusing one already up rather than spawning a duplicate, and `mvn gimle:ivaldi-stop` to tear it down again — the same everyday workflow `gimle:saga`/`gimle:saga-stop` already provide.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-maven-plugin/src/main/java/com/gimle/mavenplugin/IvaldiMojo.java`, `IvaldiStopMojo`, `IvaldiServer` (plugin-side spawn/reuse helper), `IvaldiClient`
+- **Test coverage**: `IvaldiServerTest.java` (gimle-maven-plugin) — reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` — health check and shutdown against a stub server
+- **Gherkin scenario**:
+  ```gherkin
+  Given no Ivaldi server listening on the configured port, When I run mvn gimle:ivaldi twice in a row, Then the first spawns a detached server and the second reuses it without spawning a second one.
+  ```
+
 ### gimle-console
 
 #### GIMLE-435 — Operator session login / logout
@@ -13844,4 +13860,32 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a config key written more than once
   When an operator selects it in the browser and presses `v`
   Then every revision is listed newest first, with the one currently in effect named
+  ```
+
+### gimle-ivaldi
+
+#### GIMLE-906 — Blueprint document storage API
+
+- **Category**: Cluster designer backend / Internal-Infra
+- **User story**: As a developer designing a Gimle cluster, I want to create, list, read, update, and delete Blueprint documents through a small JSON HTTP API, so the designer's work persists between sessions without a database.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`, `BlueprintStore`
+- **Test coverage**: `IvaldiServerTest.java` — "creates_lists_reads_and_deletes_a_blueprint", "put_upserts_a_blueprint_at_an_explicit_id", "get_of_an_unknown_blueprint_is_404", "create_rejects_a_body_that_is_not_a_json_object"; `BlueprintStoreTest.java` — id minting from name, atomic writes, corrupt-file skip on list, path-traversal id rejection
+- **Gherkin scenario**:
+  ```gherkin
+  Given a blueprint document named "orders-platform-local", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent.
+  ```
+
+#### GIMLE-907 — Blueprint tier-2 validation against the real platform parsers
+
+- **Category**: Cluster designer backend / Internal-Infra
+- **User story**: As a developer designing a cluster on the canvas, I want the designer's rendered topology.yaml/bundle.yaml/manifest files checked against the real Hilmir and Mimir parsers and validators before I run or download them, so mistakes a browser-side check alone can't catch surface immediately.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java`, `IvaldiServer#handleValidate`
+- **Test coverage**: `FileSetValidatorTest.java` — 18 cases spanning topology/manifest/service/networkpolicy/bundle validation, including the apiVersion v1 artifactPath rejection and the v1alpha1 local-path deprecation warning; `IvaldiServerTest.java#validate_runs_the_real_topology_validator_against_rendered_yaml`
+- **Gherkin scenario**:
+  ```gherkin
+  Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report.
   ```

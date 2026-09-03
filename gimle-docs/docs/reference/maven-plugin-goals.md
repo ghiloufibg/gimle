@@ -368,6 +368,37 @@ first, falling back to signalling the pid `gimle:saga` recorded at spawn time if
 unreachable. Never fails the build — "nothing was running" is a fine outcome for a stop command.
 Takes the same `gimle.saga.port` property as `gimle:saga` above, no others.
 
+## `mvn gimle:ivaldi`
+
+Ensures a real `IvaldiMain` process is up — the cluster designer's backend, storing Blueprint
+documents as flat JSON files and validating their rendered `topology.yaml`/`bundle.yaml`/manifest
+output against the real Hilmir and Mimir parsers (`GET /api/health`, `GET`/`POST
+/api/blueprints[/{id}]`, `POST /api/validate`). Idempotent, mirroring `gimle:saga` exactly: a
+healthy instance already answering its health check on the configured port is reused rather than a
+second one spawned, since a long-lived instance is what lets a design survive between designer
+sessions. `mvn gimle:ivaldi-stop` tears it down again. The console SPA (`gimle-ivaldi-console`) is
+not wired in yet — `/console` stays disabled until that module lands, the same graceful absence
+`SagaMain` logs for its own console when it's missing from the classpath.
+
+| Property | Default | Meaning |
+|---|---|---|
+| `gimle.ivaldi.port` | `9097` | Blueprint/validate HTTP port, and where the console will be served once bundled. |
+| `gimle.ivaldi.dataRoot` | `~/.gimle/ivaldi` | Where Blueprint JSON files persist to disk — outside the build, so `mvn clean` never touches it. |
+| `gimle.ivaldi.host` | *(unset, loopback)* | Bind address override — Ivaldi carries no authentication, so binding beyond loopback is a deliberate, logged choice. |
+| `gimle.ivaldi.serverVersion` | `${plugin.version}` | Version of `gimle-ivaldi` to resolve and spawn — defaults to this plugin's own version, since the two ship from one build. |
+
+```bash
+mvn gimle:ivaldi
+mvn gimle:ivaldi-stop
+```
+
+### `mvn gimle:ivaldi-stop`
+
+Best-effort shutdown of the local Ivaldi server: asks it to stop over its own `POST /api/shutdown`
+first, falling back to signalling the pid `gimle:ivaldi` recorded at spawn time if that's
+unreachable. Never fails the build — "nothing was running" is a fine outcome for a stop command.
+Takes the same `gimle.ivaldi.port` property as `gimle:ivaldi` above, no others.
+
 ## `mvn gimle:verify`
 
 The one-command report loop: ensures a Saga server is up (reusing one already running), mints a

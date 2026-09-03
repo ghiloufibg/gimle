@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 904,
+    "totalRequirements": 907,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 774,
-    "releaseReadinessPercent": 14.4
+    "notCoveredByAutomatedTest": 777,
+    "releaseReadinessPercent": 14.3
   },
   "items": [
     {
@@ -9946,6 +9946,39 @@
       "category": "Transport Security",
       "feature": "A store replica presents its own leaf certificate rather than the control plane's",
       "step": "Given a cluster bootstrapped with `hilmir pki init` When a store replica's presented certificate is inspected Then its Subject names the store's own leaf, carrying no control-plane group And the cluster still functions end to end over mutual TLS",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-906",
+      "module": "gimle-ivaldi",
+      "category": "Cluster designer backend / Internal-Infra",
+      "feature": "Blueprint document storage API",
+      "step": "Given a blueprint document named \"orders-platform-local\", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-907",
+      "module": "gimle-ivaldi",
+      "category": "Cluster designer backend / Internal-Infra",
+      "feature": "Blueprint tier-2 validation against the real platform parsers",
+      "step": "Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-908",
+      "module": "gimle-maven-plugin",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop)",
+      "step": "Given no Ivaldi server listening on the configured port, When I run mvn gimle:ivaldi twice in a row, Then the first spawns a detached server and the second reuses it without spawning a second one.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

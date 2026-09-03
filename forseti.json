@@ -552,8 +552,8 @@
         "GIMLE-562",
         "GIMLE-564",
         "GIMLE-611",
-        "GIMLE-642",
-        "GIMLE-635"
+        "GIMLE-635",
+        "GIMLE-642"
       ]
     },
     {
@@ -603,13 +603,13 @@
       "objective": "Stand Fleet up from a hand-written five-machine `topology.yaml` using only the platform archive's own docs: `hilmir validate` (fix every ERROR it names), `hilmir plan`, one `hilmir up --machine` per machine in an out-of-dependency order.",
       "oracle": "`validate`'s findings are specific and actionable; `up` on a machine whose prerequisites live elsewhere blocks then proceeds rather than racing; `hilmir status` on each machine matches reality; the density knob and log-format flag set in `jvm:` are honoured; every process answers its operator health signal.",
       "requirements": [
+        "GIMLE-021",
         "GIMLE-390",
         "GIMLE-391",
         "GIMLE-392",
         "GIMLE-393",
-        "GIMLE-021",
-        "GIMLE-746",
         "GIMLE-706",
+        "GIMLE-746",
         "GIMLE-887",
         "GIMLE-888",
         "GIMLE-890",
@@ -1469,9 +1469,9 @@
       "oracle": "`service endpoints` tracks live replicas exactly; a hosted module's reported port resolves; `targetPort` is authoritative when declared and absent when not; the overlap is announced as a warning; CLI and console agree.",
       "requirements": [
         "GIMLE-566",
+        "GIMLE-571",
         "GIMLE-578",
         "GIMLE-586",
-        "GIMLE-571",
         "GIMLE-728",
         "GIMLE-729",
         "GIMLE-800",
@@ -2665,6 +2665,20 @@
         "GIMLE-686",
         "GIMLE-706",
         "GIMLE-848"
+      ]
+    },
+    {
+      "id": "DEV-7",
+      "persona": "DEV",
+      "environments": [
+        "forge"
+      ],
+      "objective": "`mvn gimle:ivaldi` (twice — the second must reuse the running server); create a Blueprint via `POST /api/blueprints`, list it, GET it back by id, and delete it; `POST /api/validate` a rendered `topology.yaml` with no agents declared and one missing Fafnir; `mvn gimle:ivaldi-stop`.",
+      "oracle": "The second `gimle:ivaldi` invocation logs reusing the running server rather than spawning a second one; the created blueprint's id is minted from its name, its GET body round-trips exactly, and it is gone after delete; validate reports `NO_AGENTS` (warning) and `NO_FAFNIR` (error) naming `topology.yaml`, the same codes `hilmir validate` itself would report; stop is idempotent.",
+      "requirements": [
+        "GIMLE-906",
+        "GIMLE-907",
+        "GIMLE-908"
       ]
     }
   ]
