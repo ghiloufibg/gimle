@@ -100,24 +100,29 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
   private static final Duration CHECK_QUORUM_WINDOW = Duration.ofMillis(ELECTION_TIMEOUT_MAX_MS);
 
   /**
-   * How long a freshly-elected leader may go without having reached a majority before {@link
-   * #checkQuorumTick} is willing to call that a quorum failure rather than an answer it has not
-   * received yet. This is deliberately far larger than {@link #CHECK_QUORUM_WINDOW}, and for a
-   * different question: that window measures how long an *established* leader tolerates silence
-   * from peers it has already been talking to every {@link #HEARTBEAT_INTERVAL}, whereas this one
-   * covers the one-off cost of getting those conversations started at all.
+   * The absolute ceiling on how long a freshly-elected leader may go without having reached a
+   * majority before {@link #checkQuorumTick} is willing to call that a quorum failure rather than
+   * an answer it has not received yet -- an upper bound, not a fixed wait: {@link #checkQuorumTick}
+   * stops extending it the moment every voting peer's own first attempt this tenure has definitely
+   * resolved one way or the other (see {@link #peerFirstAttemptFailed}), so a *fast*-failing peer
+   * (an immediate connection refusal) is judged within the ordinary {@link #CHECK_QUORUM_WINDOW}
+   * like any other silence, never stalled out for the full duration below regardless of how quickly
+   * the real answer already came back.
    *
-   * <p>A new leader clears {@link #lastContactAt} and starts its peer senders from nothing: every
-   * peer socket must be opened from scratch -- a TCP connect, and under mTLS a full TLS handshake
-   * on top of it -- before a single round trip can complete. {@link PeerConnection} allows one
-   * attempt {@link PeerConnection#worstCaseCallDuration()} to finish or fail, which is more than an
-   * order of magnitude longer than {@code CHECK_QUORUM_WINDOW}. Judged against that window, a new
-   * leader whose first connects are merely slow -- a loaded machine, a peer still starting up
-   * during a rolling restart -- looks exactly like one whose peers are all gone, and demotes on its
-   * first tick. Its successor inherits the same empty table and the same deadline and does the same
-   * thing, so the cluster elects leaders indefinitely without any of them living long enough to
-   * serve a write. Allowing one full attempt (plus a tick's scheduling slop) means the check only
-   * ever fires on evidence of silence, never on the absence of evidence yet.
+   * <p>This value itself is sized for the *slow* case that still needs a ceiling: a new leader
+   * clears {@link #lastContactAt} and starts its peer senders from nothing, so every peer socket
+   * must be opened from scratch -- a TCP connect, and under mTLS a full TLS handshake on top of it
+   * -- before a single round trip can complete, or before a *slow* failure (a connect that hangs
+   * until it times out, rather than an immediate refusal) is even known to have failed. {@link
+   * PeerConnection} allows one such attempt {@link PeerConnection#worstCaseCallDuration()} to
+   * finish or fail, more than an order of magnitude longer than {@code CHECK_QUORUM_WINDOW}. Judged
+   * against that window instead, a new leader whose first connects are merely slow -- a loaded
+   * machine, a peer still starting up during a rolling restart -- looks exactly like one whose
+   * peers are all gone, and demotes on its first tick; its successor inherits the same empty table
+   * and the same deadline and does the same thing, so the cluster elects leaders indefinitely
+   * without any of them living long enough to serve a write. Allowing one full attempt (plus a
+   * tick's scheduling slop) as the ceiling means a slow-to-resolve attempt is never treated as
+   * evidence of silence before it possibly could be.
    */
   private static final Duration LEADERSHIP_CONTACT_GRACE =
       PeerConnection.worstCaseCallDuration().plus(HEARTBEAT_INTERVAL);
@@ -250,6 +255,21 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * then loses them is judged by the ordinary window, and still steps down within it.
    */
   private boolean initialQuorumContactMade;
+
+  /**
+   * Voting peer ids whose very first {@code AppendEntries}/{@code InstallSnapshot} attempt this
+   * leadership tenure has already come back a definite failure -- guarded by {@link #lock}, reset
+   * on every {@link #becomeLeaderLocked} alongside {@link #initialQuorumContactMade}, populated by
+   * {@link #sendOnce}/{@link #sendInstallSnapshot}'s own failure branch. A peer absent from this
+   * set and from {@link #lastContactAt} has an attempt still genuinely in flight (or not yet
+   * started); {@link #checkQuorumTick} extends {@link #LEADERSHIP_CONTACT_GRACE} only while at
+   * least one voting peer is in that state -- once every voting peer's first attempt has definitely
+   * resolved one way or the other, there is no more genuine uncertainty left to extend the grace
+   * for, no matter how much of the worst-case window remains. This is what keeps a *fast*-failing
+   * partition (an immediate connection refusal, not a slow timeout) caught within {@link
+   * #CHECK_QUORUM_WINDOW} rather than stalling out the full grace window regardless.
+   */
+  private final Set<String> peerFirstAttemptFailed = new HashSet<>();
 
   private ScheduledFuture<?> checkQuorumFuture;
 
@@ -1022,6 +1042,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
     lastContactAt.clear();
     leadershipEstablishedAt = clock.instant();
     initialQuorumContactMade = false;
+    peerFirstAttemptFailed.clear();
     // Started only for the duration of this leadership tenure -- see checkQuorumTick's own
     // javadoc. Ticking from one window in costs nothing while LEADERSHIP_CONTACT_GRACE is still
     // running: those early ticks observe the peer senders' progress and record the moment contact
@@ -1046,9 +1067,11 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
    * run firing just after this node already stopped being leader is guarded by the {@code role !=
    * Role.LEADER} check below, not by assuming the scheduler cancellation itself is instantaneous.
    *
-   * <p>Until this tenure has reached a majority even once, {@link #LEADERSHIP_CONTACT_GRACE}
-   * applies instead of the window -- see that constant for why a leader that has not yet finished
-   * opening its peer connections must not be read as one whose peers are gone.
+   * <p>Until this tenure has reached a majority even once, {@link #LEADERSHIP_CONTACT_GRACE} caps
+   * how long the check waits -- but only for as long as some voting peer's very first attempt this
+   * tenure is still genuinely unresolved (see {@link #peerFirstAttemptFailed}); the moment every
+   * voting peer has definitely either answered or failed, waiting out the rest of that worst-case
+   * window buys nothing, so the ordinary window governs immediately instead.
    */
   private void checkQuorumTick() {
     lock.lock();
@@ -1075,10 +1098,22 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
         return;
       }
       // No majority right now -- but for a leader that has not yet reached one even once, that is
-      // only the absence of an answer, not evidence of silence: its first round trip to each peer
-      // may still be in flight, and one attempt is allowed to run far longer than
-      // CHECK_QUORUM_WINDOW before it reports anything at all. See LEADERSHIP_CONTACT_GRACE.
+      // only the absence of an answer, not evidence of silence, *for whichever voting peers still
+      // have a genuinely outstanding first attempt*: one attempt is allowed to run far longer than
+      // CHECK_QUORUM_WINDOW before it reports anything at all. See LEADERSHIP_CONTACT_GRACE. A peer
+      // that has already returned a definite answer this tenure -- success (in lastContactAt,
+      // whether or not still recent) or failure (peerFirstAttemptFailed) -- contributes no more
+      // uncertainty for the grace to extend; once every voting peer has definitely resolved, a fast
+      // failure (an immediate connection refusal, not a slow timeout) is caught within
+      // CHECK_QUORUM_WINDOW like any other silence, not stalled out for the full worst-case grace.
+      boolean anyFirstAttemptStillOutstanding =
+          votingPeers.keySet().stream()
+              .anyMatch(
+                  peerId ->
+                      !lastContactAt.containsKey(peerId)
+                          && !peerFirstAttemptFailed.contains(peerId));
       if (!initialQuorumContactMade
+          && anyFirstAttemptStillOutstanding
           && clock.instant().isBefore(leadershipEstablishedAt.plus(LEADERSHIP_CONTACT_GRACE))) {
         return;
       }
@@ -1088,7 +1123,9 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
           selfId,
           recentlyContacted,
           votingPeers.size(),
-          initialQuorumContactMade ? CHECK_QUORUM_WINDOW : LEADERSHIP_CONTACT_GRACE);
+          !initialQuorumContactMade && anyFirstAttemptStillOutstanding
+              ? LEADERSHIP_CONTACT_GRACE
+              : CHECK_QUORUM_WINDOW);
       demoteToFollowerLocked();
       leaderHint = null;
       pendingMembershipChangeIndex = null;
@@ -1234,6 +1271,14 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       response = client.appendEntries(request);
     } catch (RuntimeException e) {
       // unreachable this cycle; the next tick retries. A bounded gap in replication is acceptable.
+      // Recorded so checkQuorumTick can tell a definite, already-resolved failure (this) apart
+      // from an attempt still genuinely in flight -- see peerFirstAttemptFailed's own javadoc.
+      lock.lock();
+      try {
+        peerFirstAttemptFailed.add(peerId);
+      } finally {
+        lock.unlock();
+      }
       return;
     }
 
@@ -1308,6 +1353,14 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
                 new InstallSnapshot(
                     term, selfId, lastIncludedIndex, lastIncludedTerm, offset, chunk, done));
       } catch (RuntimeException e) {
+        // Same check-quorum bookkeeping as sendOnce's own failure branch -- see
+        // peerFirstAttemptFailed's own javadoc.
+        lock.lock();
+        try {
+          peerFirstAttemptFailed.add(peerId);
+        } finally {
+          lock.unlock();
+        }
         return;
       }
       lock.lock();
@@ -1358,6 +1411,7 @@ public final class RaftNode implements RaftRpcHandler, MutationSink {
       // this path too, even though nothing here schedules the check-quorum tick that reads it.
       leadershipEstablishedAt = clock.instant();
       initialQuorumContactMade = false;
+      peerFirstAttemptFailed.clear();
       matchIndex.putAll(matchIndexOverrides);
       advanceCommitIndexLocked();
     } finally {

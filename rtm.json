@@ -2614,8 +2614,8 @@
       "module": "gimle-mimir",
       "feature": "Etcd-Style Live Membership Change (AddServer/RemoveServer)",
       "category": "Raft Consensus",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "M45 fix: `RemoveServer`/`AddServer` never once succeeded against an original member, only against a peer just added -- see requirements-matrix.json's own statusDetail for the full root cause (a `StoreNode` response-mapping bug, not a Raft consensus defect) and fix.",
       "coverage": "Covered",
       "holmgangScenarios": [
         {
@@ -2624,14 +2624,17 @@
           "whyThisCounts": "Drives a real AddServer then RemoveServer against a live 3-node store cluster via the topology's own bring-up path, asserting member count and continued write acceptance at each step."
         }
       ],
-      "gapNote": "",
-      "otherTestCoverage": "`RaftMembershipChangeTest#adding_a_server_joins_it_and_a_subsequent_mutation_still_commits`, `#a_second_membership_change_is_rejected_while_an_earlier_one_is_still_uncommitted`, `#removing_a_server_drops_it_from_the_peer_set_and_the_lone_remaining_node_still_commits`, `RaftClusterTest#a_three_node_cluster_grows_to_five_live_and_writes_continue_succeeding`",
+      "gapNote": "This Holmgang scenario's own \"the newest store leaves the cluster\" step only ever removes the peer just added, never an original one -- exactly the case M45 found broken and this fix addresses. Real coverage for removing an ORIGINAL member now exists (see otherTestCoverage), but not through this Holmgang scenario, which still only exercises reverting the addition; closing this specific gap needs a new Holmgang step removing a named *original* member instead of always \"the newest.\"",
+      "otherTestCoverage": "`RaftMembershipChangeTest#adding_a_server_joins_it_and_a_subsequent_mutation_still_commits`, `#a_second_membership_change_is_rejected_while_an_earlier_one_is_still_uncommitted`, `#removing_a_server_drops_it_from_the_peer_set_and_the_lone_remaining_node_still_commits`, `RaftClusterTest#a_three_node_cluster_grows_to_five_live_and_writes_continue_succeeding`, `#growing_to_four_then_removing_an_original_voter_converges_back_to_three_and_stays_healthy`, `#adding_a_voter_doing_real_work_removing_an_original_then_killing_the_leader_stays_healthy`; `StoreClientMembershipChangeTest#a_deterministic_rejection_from_the_real_leader_reports_its_real_reason_not_unreachable`, `#grows_to_four_then_removes_an_original_peer_through_the_real_client_and_protocol`",
       "sourceLocations": [
         "`RaftNode#addServer`",
         "`#removeServer`",
         "`#appendMembershipChangeLocked`",
         "`#reconfigurePeersLocked`",
-        "`MembershipChange`"
+        "`MembershipChange`",
+        "`StoreNode#handleAddServer`/`#handleRemoveServer`",
+        "`StoreClient#addServer`/`#removeServer`/`#throwIfRejected`",
+        "`GimleRaftException#membershipChangeRejected`"
       ]
     },
     {
@@ -6866,14 +6869,16 @@
       "module": "gimle-hilmir",
       "feature": "Raft store membership remove (`hilmir store remove`)",
       "category": "Release Management",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "M45 fix: this command never once succeeded against an original store replica, only against a peer it had itself just added -- see GIMLE-146's own statusNote/requirements-matrix.json statusDetail for the underlying `gimle-mimir` root cause and fix.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Raft store membership remove (`hilmir store remove`)\".",
-      "otherTestCoverage": "`StoreCommandsClusterTest.remove_drops_a_previously_added_peer_from_the_membership`, `remove_of_a_never_added_peer_fails_fast_with_a_clean_error`",
+      "gapNote": "No Holmgang step definition shells out to the `hilmir` binary today -- every scenario drives the cluster through `ClusterApi`'s direct HTTP calls instead. Closing this gap needs new step defs that spawn `hilmir` as a real subprocess against a live Holmgang cluster and assert on its stdout/exit code for \"Raft store membership remove (`hilmir store remove`)\". Separately, the closest existing Holmgang scenario (`membership-change.feature`, under GIMLE-146) only ever removes the peer just added, never an original one -- exactly the case M45 found broken.",
+      "otherTestCoverage": "`StoreCommandsClusterTest.remove_drops_a_previously_added_peer_from_the_membership`, `remove_of_a_never_added_peer_fails_fast_with_a_clean_error`; `StoreClientMembershipChangeTest#grows_to_four_then_removes_an_original_peer_through_the_real_client_and_protocol` (the same `StoreClient#removeServer` this command calls, removing an ORIGINAL member from a live-grown cluster) and `#a_deterministic_rejection_from_the_real_leader_reports_its_real_reason_not_unreachable`",
       "sourceLocations": [
-        "`gimle-hilmir/src/main/java/com/gimle/hilmir/store/StoreRemoveCommand.java`"
+        "`gimle-hilmir/src/main/java/com/gimle/hilmir/store/StoreRemoveCommand.java`",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreNode.java` (`handleRemoveServer`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreClient.java` (`removeServer`)"
       ]
     },
     {

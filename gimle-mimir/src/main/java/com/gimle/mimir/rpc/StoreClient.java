@@ -122,21 +122,36 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
 
   /**
    * Adds {@code peerId} to the cluster's Raft membership -- etcd-style, one server at a time.
-   * Leader-only, same redirect-and-retry posture as {@link #propose}: a rejection for any reason
-   * (already a member, another change still in flight, or a genuine non-leader) surfaces as {@link
-   * com.gimle.core.exception.GimleRaftException#storeUnreachable} once every endpoint -- including
-   * the leader hint -- has been tried, matching {@link #sendLeaderOnly}'s existing behavior for
-   * every other leader-only write.
+   * Leader-only, same redirect-and-retry posture as {@link #propose}: a genuine non-leader answer
+   * still surfaces as {@link com.gimle.core.exception.GimleRaftException#storeUnreachable} once
+   * every endpoint -- including the leader hint -- has been tried, matching {@link
+   * #sendLeaderOnly}'s existing behavior for every other leader-only write. A real, deterministic
+   * rejection the leader itself evaluated (already a member, or another change still in flight) is
+   * different: {@code sendLeaderOnly} returns it directly rather than exhausting every endpoint
+   * chasing a redirect that would only reject identically, so it is thrown here as {@link
+   * com.gimle.core.exception.GimleRaftException#membershipChangeRejected} carrying the leader's own
+   * reason verbatim, the same distinction {@link #propose} already draws for a mutation's own
+   * precondition rejection.
    */
   public void addServer(String peerId, PeerAddress address) {
-    sendLeaderOnly(
-        "addServer",
-        new StoreRpc.AddServer(peerId, address.host(), address.raftPort(), address.clientPort()));
+    StoreRpc.Response response =
+        sendLeaderOnly(
+            "addServer",
+            new StoreRpc.AddServer(
+                peerId, address.host(), address.raftPort(), address.clientPort()));
+    throwIfRejected(response);
   }
 
-  /** The symmetric removal counterpart to {@link #addServer}. */
+  /** The symmetric removal counterpart to {@link #addServer}, same rejection handling. */
   public void removeServer(String peerId) {
-    sendLeaderOnly("removeServer", new StoreRpc.RemoveServer(peerId));
+    StoreRpc.Response response = sendLeaderOnly("removeServer", new StoreRpc.RemoveServer(peerId));
+    throwIfRejected(response);
+  }
+
+  private static void throwIfRejected(StoreRpc.Response response) {
+    if (response instanceof StoreRpc.MutationRejected rejected) {
+      throw GimleRaftException.membershipChangeRejected(rejected.reason());
+    }
   }
 
   /**

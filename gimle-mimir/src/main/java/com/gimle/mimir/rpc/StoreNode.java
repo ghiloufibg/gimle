@@ -323,12 +323,21 @@ public final class StoreNode implements StoreRpcHandler {
   }
 
   /**
-   * Maps every rejection reason ({@link GimleRaftException#alreadyAMember}, {@link
-   * GimleRaftException#membershipChangeInFlight}, a genuine non-leader, or a proposal that timed
-   * out) onto the same {@link StoreRpc.NotLeader} redirect-and-retry response {@link
-   * #handlePropose} already uses for every {@code StateMutation} rejection -- deliberately not a
-   * dedicated response per rejection reason, matching that existing precedent rather than inventing
-   * a new one here.
+   * Distinguishes a genuine non-leader ({@link StoreRpc.NotLeader}, worth the client's own
+   * redirect-and-retry) from a real, deterministic rejection this node evaluated *as the leader*
+   * ({@link GimleRaftException#alreadyAMember}, {@link GimleRaftException#notAMember}, {@link
+   * GimleRaftException#membershipChangeInFlight}, or a proposal that timed out -- {@link
+   * StoreRpc.MutationRejected}, matching {@link #handlePropose}'s own precedent for the identical
+   * distinction). Collapsing both onto {@link #notLeaderResponse} unconditionally was the bug: a
+   * leader rejecting for one of these reasons still reports {@code leaderHint() == selfId}, so the
+   * client's own leader-follow retry lands right back on this same node, hits the same
+   * deterministic rejection again, and -- because every *other* configured endpoint also just
+   * redirects back to this same leader -- eventually exhausts its whole endpoint list and reports a
+   * misleading "unreachable," hiding the real, actionable reason a genuinely-a-member peer could
+   * never be removed. {@link RaftNode#isLeader} at the moment of the catch is what this node itself
+   * currently believes, not a stale snapshot from before the call -- good enough here since a role
+   * flip in the narrow window between the call failing and this check would just be judged by the
+   * ordinary not-leader path on the client's own next attempt either way.
    */
   private StoreRpc.Response handleAddServer(StoreRpc.AddServer request) {
     try {
@@ -337,7 +346,9 @@ public final class StoreNode implements StoreRpcHandler {
           new PeerAddress(request.host(), request.raftPort(), request.clientPort()));
       return new StoreRpc.Ok();
     } catch (GimleRaftException e) {
-      return notLeaderResponse();
+      return raftNode.isLeader()
+          ? new StoreRpc.MutationRejected(e.getMessage())
+          : notLeaderResponse();
     }
   }
 
@@ -347,7 +358,9 @@ public final class StoreNode implements StoreRpcHandler {
       raftNode.removeServer(request.peerId());
       return new StoreRpc.Ok();
     } catch (GimleRaftException e) {
-      return notLeaderResponse();
+      return raftNode.isLeader()
+          ? new StoreRpc.MutationRejected(e.getMessage())
+          : notLeaderResponse();
     }
   }
 

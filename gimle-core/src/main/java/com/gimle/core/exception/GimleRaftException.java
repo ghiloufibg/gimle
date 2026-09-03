@@ -69,4 +69,18 @@ public class GimleRaftException extends RuntimeException {
     return new GimleRaftException(
         "node " + nodeId + " cannot remove " + peerId + ": not a cluster member");
   }
+
+  /**
+   * The client-side counterpart to a {@code StoreNode}-answered {@code MutationRejected} for {@code
+   * addServer}/{@code removeServer}: the answering node genuinely was leader and evaluated the
+   * request, but rejected it for a real, deterministic reason (already a member, not a member, or
+   * another change still in flight) -- retrying against a *different* endpoint would just reach the
+   * same leader (or a follower that redirects back to it) and reject identically, unlike a genuine
+   * not-leader redirect, which retrying elsewhere actually resolves. {@code reason} is the leader's
+   * own rejection message, carried verbatim rather than re-derived, so the caller sees exactly what
+   * the leader evaluated rather than a generic "could not reach a leader" that hides it.
+   */
+  public static GimleRaftException membershipChangeRejected(String reason) {
+    return new GimleRaftException(reason);
+  }
 }
