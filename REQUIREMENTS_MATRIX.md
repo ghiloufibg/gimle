@@ -808,7 +808,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-796 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | CLI UX | Complete | Unit only |
 | GIMLE-797 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | CLI UX | Complete | Unit only |
 | GIMLE-798 | A services screen showing each Service's live endpoint resolution | CLI UX | Complete | Unit only |
-| GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | Complete | Yes |
+| GIMLE-799 | An activity view of what has been done to the cluster, over the audit trail | CLI UX | Complete | Unit only |
 | GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Networking/Service Discovery | Fixed | Yes |
 | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Web Console / Frontend | Fixed | Yes |
 | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Web Console / Frontend | Fixed | Yes |
@@ -8330,20 +8330,6 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then it observes a fully applied route table rather than partial state
   ```
 
-#### GIMLE-799 — Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart
-
-- **Category**: Transport Security
-- **User story**: As a platform operator updating a running TLS-terminating gateway's gateway.tlsCertificates config (adding, changing, or removing a virtual host's certificate binding), I want every already-running gateway instance to pick up the change on its own, the same way a gateway.routes change already does, so a DaemonSet-deployed fleet of gateway instances doesn't keep presenting a stale or missing per-host certificate to callers until whichever instances happen to restart next.
-- **Status**: Fixed. GatewayHooks#onStart parsed gateway.tlsCertificates exactly once and baked it into a fixed SniKeyManager built at HttpsServer construction time, with no listener, poll, or re-parse anywhere afterward -- unlike gateway.routes, which already gained a background reload (GIMLE-679). The gap was real, not merely a documented v1 limitation: SNI certificate selection already runs fresh on every new TLS handshake (see SniKeyManager#chooseServerAlias), so swapping which certificate a hostname resolves to was never actually a rebind the way changing gateway.port is -- there was nothing about an already-bound listener that needed to change, only a missing reload path to trigger the swap. Fixed by making the per-hostname binding set mutable in place: SniKeyManager now holds its alias map behind a volatile reference with a package-private updateHostBindings method, SslContexts.forMutualTls(TlsSettings, List<HostCertificate>) returns a new ReloadableSniContext (wrapping the built SSLContext together with the means to reload its bindings) instead of a bare SSLContext, and is now always built on a SniKeyManager -- even when the starting per-host list is empty -- rather than delegating to the plain KeyManagerFactory path for that case, since an empty starting set still needs to be able to gain bindings later. GatewayHooks#reloadTlsCertificatesIfChanged runs on the exact same background reload tick gateway.routes already reloads on: it re-reads gateway.tlsCertificates, and if it differs from what was last applied, calls ReloadableSniContext#reloadHostCertificates with the freshly parsed binding list -- no HttpsServer rebind, no new HttpsConfigurator, no new listener socket. A malformed update, or one naming unreadable certificate material, is rejected and logged the same way a malformed gateway.routes update already is, keeping whichever bindings are already selecting traffic.
-- **Confidence**: High
-- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java` (`updateHostBindings`), `gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java` (`forMutualTls(TlsSettings, List<HostCertificate>)`, `ReloadableSniContext`), `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`reloadTlsCertificatesIfChanged`, `createHttpServer`, `BoundServer`)
-- **Test coverage**: `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart` (a hostname gains a binding on a live instance and the very next handshake to it presents the new certificate, with the pre-existing binding still serving correctly across the swap), `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`; every pre-existing GatewayHooksTlsTest case re-verified passing unchanged.
-- **Gherkin scenario**:
-  ```gherkin
-  Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged.
-  Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged.
-  ```
-
 ### gimle-cli
 
 #### GIMLE-371 — Deployment resource management (get/apply/delete)
@@ -12178,4 +12164,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Service naming deployments that currently have no running instances
   When an operator presses `s` in `gimle top`
   Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read
+  ```
+
+#### GIMLE-799 — An activity view of what has been done to the cluster, over the audit trail
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see what has just been done to this cluster, so that a change someone else made is not something I have to infer from its effects.
+- **Status**: Complete. `a` opens a third screen over `GET /audit` -- the only cluster-wide feed the control plane serves, since `/events` is keyed to one instance and cannot answer "what has been happening here". Newest first, filterable by principal or target, with refusals counted on the status line, because a refusal is what an operator opens this feed to find. Two distinctions are kept rather than flattened: a decision refused for want of permission reads DENIED and one refused on its merits reads REJECTED; and a caller whose own certificate does not carry `ResourceKind.AUDIT` is told exactly that rather than shown an empty feed, which would read as a quiet cluster. That case is detected from the typed `CliExitCode.FORBIDDEN` a 403 already carries, not by matching on a message. Like the services screen it polls only while open. The view is labelled as the authorization trail it is: lifecycle transitions are a different record, and one this feed would silently fail to contain.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ActivitySnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`
+- **Test coverage**: ActivityReaderTest covers newest-first ordering, an event with no principal being dropped alone, a response with no events key reading as an empty trail, and DENIED staying distinct from REJECTED. ActivityScreenTest covers the row content, the refusal count, the missing-permission case reading as such rather than as an empty feed, an empty trail, filtering by principal and by target, a stale poll keeping its rows, width at 80/200 columns, and a no-colour frame carrying no escape sequences.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster where a deployment was created and a secret read was refused
+  When an operator presses `a` in `gimle top`
+  Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line
   ```

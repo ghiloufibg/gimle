@@ -34,6 +34,7 @@ public final class UiState {
   private boolean filterEditing;
   private boolean helpVisible;
   private boolean viewingServices;
+  private boolean viewingActivity;
   private SortKey sortKey = SortKey.NAME;
 
   public Optional<InstanceKey> selected() {
@@ -139,6 +140,18 @@ public final class UiState {
    */
   public void cycleSort() {
     sortKey = sortKey.next();
+  }
+
+  public boolean viewingActivity() {
+    return viewingActivity;
+  }
+
+  public void showActivity() {
+    viewingActivity = true;
+  }
+
+  public void closeActivity() {
+    viewingActivity = false;
   }
 
   public boolean viewingServices() {

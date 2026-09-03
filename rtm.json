@@ -13872,20 +13872,19 @@
     },
     {
       "id": "GIMLE-799",
-      "module": "gimle-gateway",
-      "feature": "Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart",
-      "category": "Transport Security",
+      "module": "gimle-hugin",
+      "feature": "An activity view of what has been done to the cluster, over the audit trail",
+      "category": "CLI UX",
       "status": "New",
-      "statusNote": "",
+      "statusNote": "New requirement: a third screen over GET /audit, the only cluster-wide feed the control plane serves. Keeps DENIED distinct from REJECTED, reports a caller without audit permission as such rather than as an empty feed (off the typed CliExitCode.FORBIDDEN), and polls only while open.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises a live gateway.tlsCertificates update. To close: add a scenario that boots a TLS-terminating gateway DaemonSet with a per-host certificate binding, updates gateway.tlsCertificates through the real API, and asserts (without restarting any instance) that a client's SNI-selected certificate changes to the new binding on its very next handshake.",
-      "otherTestCoverage": "`GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`.",
+      "otherTestCoverage": "gimle-hugin's ActivityReaderTest and ActivityScreenTest.",
       "sourceLocations": [
-        "`gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java`",
-        "`gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java`",
-        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
-      ]
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-790: no scenario can attach a terminal to read a rendered frame. The /audit route itself is reachable from a scenario; the screen that renders it is not."
     },
     {
       "id": "GIMLE-800",

@@ -1,6 +1,8 @@
 package com.gimle.hugin;
 
 import com.gimle.cli.spi.ClusterReader;
+import com.gimle.hugin.model.ActivityPoller;
+import com.gimle.hugin.model.ActivityReader;
 import com.gimle.hugin.model.ClusterPoller;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceKey;
@@ -11,6 +13,7 @@ import com.gimle.hugin.model.NodeRow;
 import com.gimle.hugin.model.ServicePoller;
 import com.gimle.hugin.model.ServiceReader;
 import com.gimle.hugin.model.SnapshotReader;
+import com.gimle.hugin.render.ActivityScreen;
 import com.gimle.hugin.render.ClusterScreen;
 import com.gimle.hugin.render.HelpOverlay;
 import com.gimle.hugin.render.InstanceScreen;
@@ -55,6 +58,8 @@ public final class Hugin {
   private LogCategory logCategory = LogCategory.APPLICATION;
   private InstanceWatcher watcher;
   private final NodeScreen nodeScreen;
+  private final ActivityScreen activityScreen;
+  private ActivityPoller activityPoller;
   private ServicePoller servicePoller;
   private boolean running = true;
 
@@ -70,6 +75,7 @@ public final class Hugin {
     this.instanceScreen = new InstanceScreen(painter);
     this.serviceScreen = new ServiceScreen(painter);
     this.nodeScreen = new NodeScreen(painter);
+    this.activityScreen = new ActivityScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
   }
 
@@ -85,6 +91,7 @@ public final class Hugin {
     } finally {
       closeWatcher();
       closeServicePoller();
+      closeActivityPoller();
     }
   }
 
@@ -93,6 +100,14 @@ public final class Hugin {
     Instant now = Instant.now();
     if (ui.helpVisible()) {
       return helpOverlay.render(viewport);
+    }
+    if (ui.viewingActivity() && activityPoller != null) {
+      return activityScreen.render(
+          activityPoller.current(), ui.filter(), viewport, activityPoller.paused(), now);
+    }
+    if (ui.viewingActivity() && activityPoller != null) {
+      return activityScreen.render(
+          activityPoller.current(), ui.filter(), viewport, activityPoller.paused(), now);
     }
     if (ui.viewingServices() && servicePoller != null) {
       return serviceScreen.render(servicePoller.current(), viewport, servicePoller.paused(), now);
@@ -137,8 +152,16 @@ public final class Hugin {
       ui.hideHelp();
       return;
     }
+    if (ui.viewingActivity()) {
+      handleActivityKey(key);
+      return;
+    }
     if (ui.viewingServices() && servicePoller != null) {
       handleServicesKey(key, servicePoller);
+      return;
+    }
+    if (ui.viewingActivity()) {
+      handleActivityKey(key);
       return;
     }
     if (ui.inspectingNode().isPresent()) {
@@ -183,6 +206,8 @@ public final class Hugin {
       }
     } else if (key.isChar('o')) {
       ui.cycleSort();
+    } else if (key.isChar('a')) {
+      openActivity();
     } else if (key.isChar('s')) {
       openServices();
     } else if (key.isChar('/')) {
@@ -249,6 +274,46 @@ public final class Hugin {
       ui.moveNodeSelection(nodeRows, delta);
     } else {
       ui.moveSelection(rows, delta);
+    }
+  }
+
+  private void handleActivityKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      closeActivity();
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
+    } else if (key.isChar('p') && activityPoller != null) {
+      activityPoller.togglePaused();
+    } else if (key.isChar('r') && activityPoller != null) {
+      activityPoller.refreshNow();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  /**
+   * Like the services screen, this polls only while it is open: the audit trail is a read an
+   * operator opens deliberately, and one nobody is looking at is a request per interval for a
+   * permission not every caller even has.
+   */
+  private void openActivity() {
+    ui.showActivity();
+    activityPoller =
+        new ActivityPoller(new ActivityReader(reader), refreshInterval, reader.serverAddress());
+    activityPoller.start();
+  }
+
+  private void closeActivity() {
+    ui.closeActivity();
+    closeActivityPoller();
+  }
+
+  private void closeActivityPoller() {
+    if (activityPoller != null) {
+      activityPoller.close();
+      activityPoller = null;
     }
   }
 

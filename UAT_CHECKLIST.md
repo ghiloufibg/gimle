@@ -26,7 +26,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
-| gimle-gateway | 21 | 0 | 21 | 0.0% |
+| gimle-gateway | 20 | 0 | 20 | 0.0% |
 | gimle-cli | 43 | 0 | 43 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
@@ -42,7 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
-| gimle-hugin | 9 | 3 | 6 | 33.3% |
+| gimle-hugin | 10 | 3 | 7 | 30.0% |
 
 ## Checklist
 
@@ -1761,7 +1761,6 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-722 | Gateway TLS selects a per-virtual-host certificate from the client's SNI extension | Given a gateway terminating TLS for two routed hostnames When a client connects with SNI naming the second hostname Then the gateway presents that hostname's own certificate And a client sending no SNI receives the cluster-wide certificate | No |
-| [ ] | GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged. Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged. | No |
 
 ### gimle-cli
 
@@ -2353,6 +2352,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-796 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | Given a deployment asking for four replicas of which the scheduler placed two When an operator runs `gimle top` Then a NOT SETTLED line names that workload and its shortfall, and the status line counts the unplaced replicas | Yes |
 | [ ] | GIMLE-797 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | Given a cluster running a Deployment, a DaemonSet and a StatefulSet When an operator runs `gimle top` Then all three kinds' instances appear in one table, each labelled with its own kind | No |
 | [ ] | GIMLE-798 | A services screen showing each Service's live endpoint resolution | Given a Service naming deployments that currently have no running instances When an operator presses `s` in `gimle top` Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read | Yes |
+| [ ] | GIMLE-799 | An activity view of what has been done to the cluster, over the audit trail | Given a cluster where a deployment was created and a secret read was refused When an operator presses `a` in `gimle top` Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line | No |
 
 #### Distribution
 

@@ -162,7 +162,14 @@ final class StatusBar {
         // "q quit" falls off the right edge is worse than one that lists fewer keys. The full set,
         // r included, is one "?" away.
         List.of(
-            "↑↓ move", "⏎ inspect", "s svc", "o sort", "/ filter", "p pause", "? help", "q quit"));
+            "↑↓ move", "⏎ open", "s svc", "a activity", "o sort", "/ filter", "p pause", "q quit"));
+  }
+
+  static String activityKeys(final Painter painter, final Viewport viewport) {
+    return keyBar(
+        painter,
+        viewport,
+        List.of("esc back", "/ filter", "p pause", "r refresh", "? help", "q quit"));
   }
 
   static String nodeKeys(final Painter painter, final Viewport viewport) {

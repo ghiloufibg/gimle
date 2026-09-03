@@ -18,6 +18,7 @@ public final class HelpOverlay {
           new String[] {"tab", "move the cursor between the node and instance tables"},
           new String[] {"s", "services and the endpoints they resolve to"},
           new String[] {"esc", "back to the cluster view"},
+          new String[] {"a", "what has been done to this cluster, newest first"},
           new String[] {"o", "cycle the sort: name, state, then each metric worst-first"},
           new String[] {"/", "filter; enter applies, esc clears"},
           new String[] {"p", "pause / resume refresh"},

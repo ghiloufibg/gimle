@@ -63,6 +63,17 @@ Only the focused table shows a cursor, so it is never ambiguous which one `⏎` 
 - A live tail of its own logs, seeded with recent backlog so a quiet instance still shows the lines
   that explain how it got here. `c` switches between the `APPLICATION` and `PLATFORM` categories.
 
+**Activity view** — `a` from the cluster view:
+
+- What has been done to this cluster, newest first: who asked, of what, and whether it was allowed
+  and applied. `/` filters by principal or target; refusals are counted on the status line.
+- It is the **authorization** trail, and says so. An instance's own lifecycle transitions are a
+  different record, readable only per instance in the drill-down — the control plane serves no
+  cluster-wide lifecycle feed.
+- It is the one read here gated on a permission of its own. A caller whose certificate lacks it is
+  told exactly that, because an empty feed would read as a quiet cluster.
+- Like the services view, it polls only while it is open.
+
 **Services view** — `s` from the cluster view:
 
 - Every declared Service: the deployments it fronts, its port and target port, protocol, and how
@@ -82,6 +93,7 @@ Only the focused table shows a cursor, so it is never ambiguous which one `⏎` 
 | `tab` | move the cursor between the node and instance tables |
 | `o` | cycle the sort: name, state, then each metric worst-first |
 | `s` | services and the endpoints they resolve to |
+| `a` | what has been done to this cluster, newest first |
 | `esc` | back to the cluster view |
 | `/` | filter; `enter` applies, `esc` clears |
 | `p` | pause / resume refresh |

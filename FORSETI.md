@@ -1295,7 +1295,7 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-796 | `gimle-hugin` | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | internal | HOLMGANG | `terminal-view.feature` — A workload the scheduler cannot place is reported rather than silently short; `terminal-view.feature` — A healthy cluster reports nothing unsettled |
 | GIMLE-797 | `gimle-hugin` | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | observable | FLEET | DEP-2, DEP-3 |
 | GIMLE-798 | `gimle-hugin` | A services screen showing each Service's live endpoint resolution | observable | FLEET | DEP-7 |
-| GIMLE-799 | `gimle-gateway` | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | observable | FLEET | NET-5 |
+| GIMLE-799 | `gimle-hugin` | An activity view of what has been done to the cluster, over the audit trail | observable | FLEET | NET-5 |
 | GIMLE-800 | `gimle-examples` | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | observable | FLEET | NET-1 |
 | GIMLE-801 | `gimle-console` | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | observable | FLEET | DEP-12 |
 | GIMLE-802 | `gimle-console` | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | observable | FLEET | NET-1 |
