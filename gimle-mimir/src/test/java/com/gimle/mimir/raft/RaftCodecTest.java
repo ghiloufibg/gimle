@@ -492,7 +492,8 @@ class RaftCodecTest {
                     5.0,
                     "https://hooks.example.com/greeter-alerts")),
             Map.of("greeter", Instant.ofEpochMilli(2_000L)),
-            List.of());
+            List.of(),
+            Set.of((byte) 2, (byte) 5));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -542,6 +543,7 @@ class RaftCodecTest {
     assertArrayEquals(originalResource.statusJson(), decodedResource.statusJson());
     assertEquals(
         snapshot.sessionRevokedBeforeEpochMilli(), decoded.sessionRevokedBeforeEpochMilli());
+    assertEquals(snapshot.retiredSecretsKeyIds(), decoded.retiredSecretsKeyIds());
   }
 
   @Test

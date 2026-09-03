@@ -90,6 +90,8 @@ public sealed interface StoreRpc {
           GetNodeTaints,
           IsCertificateRevoked,
           ListRevokedCertificateSerials,
+          IsSecretsKeyRetired,
+          ListRetiredSecretsKeyIds,
           GetSessionRevokedBeforeEpochMilli,
           GetWorkloadToken,
           ListAssignments,
@@ -334,6 +336,19 @@ public sealed interface StoreRpc {
   record IsCertificateRevoked(String serialNumber) implements Request {}
 
   record ListRevokedCertificateSerials() implements Request {}
+
+  /**
+   * Response reuses {@link BoolResult} -- same shape as {@link IsCertificateRevoked}'s, a different
+   * kind of compromised credential checked the identical way.
+   */
+  record IsSecretsKeyRetired(byte keyId) implements Request {}
+
+  /**
+   * Response reuses {@link StringSetResult} -- each retired key id as its decimal string, the same
+   * "small integer set as strings" shape {@link ListRevokedCertificateSerials} already needs no
+   * dedicated result type for.
+   */
+  record ListRetiredSecretsKeyIds() implements Request {}
 
   /**
    * Response reuses {@link GenerationResult} -- same shape as {@link GetDeploymentGeneration}'s.

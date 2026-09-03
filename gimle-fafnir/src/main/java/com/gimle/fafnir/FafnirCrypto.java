@@ -11,7 +11,6 @@ import com.gimle.mimir.rpc.StoreClient;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.OptionalInt;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,22 +30,18 @@ public final class FafnirCrypto {
   // Not final: #rotate replaces this with a new ring holding one more key, mirroring ApiServer's
   // own pre-extraction volatile secretKeyRing field.
   private volatile KeyRing keyRing;
-  // Not final: #retire adds to it. Tracked separately from keyRing itself -- a retired id is, by
-  // definition, no longer in keyRing.keysById(), so without this a decrypt attempt against it
-  // can't be told apart from one naming an id this ring never held at all (see
-  // KeyFileManager#loadRetiredKeyIds's own javadoc).
-  private volatile Set<Byte> retiredKeyIds;
 
   public FafnirCrypto(StoreClient storeClient, Path secretKeyFilePath) {
     this.storeClient = storeClient;
     this.secretKeyFilePath = secretKeyFilePath;
     this.keyRing = KeyFileManager.loadAllOrCreate(secretKeyFilePath);
-    this.retiredKeyIds = KeyFileManager.loadRetiredKeyIds(secretKeyFilePath);
     // Every Fafnir replica is provisioned with identical key files by an out-of-band operator
     // process this codebase doesn't control or verify (see KeyFileManager's own javadoc) --
     // Fafnir replicas today have no peer-discovery mechanism of their own to compare this
     // automatically, so the fingerprint is logged loudly at startup for an operator to diff by
     // hand across replicas, the cheapest available signal that provisioning silently drifted.
+    // Unlike a key's own material, *which* ids are retired is not left to that same out-of-band
+    // provisioning story -- see #decrypt's own javadoc for why.
     log.info("secrets key ring loaded, fingerprint={}", keyRing.fingerprint());
   }
 
@@ -88,9 +83,20 @@ public final class FafnirCrypto {
     return SecretCipher.encrypt(plaintext, ring.activeKey(), ring.activeKeyId());
   }
 
+  /**
+   * Checks the embedded key id against the store's own {@code isSecretsKeyRetired}, fresh on every
+   * call, rather than a field this process loaded once at startup: retirement exists to answer "cut
+   * off this key's ability to decrypt anything further" the moment an operator retires it, and a
+   * per-replica-only flag cannot do that in a multi-replica Fafnir deployment -- a key retired on
+   * the replica that handled the {@code retire-key} call would otherwise keep decrypting
+   * indefinitely on every other replica, which never saw that call at all. The check carries no key
+   * material of its own; only the small "is this id retired" decision is cluster-wide, the same
+   * boundary {@code StateStore#putCertificateRevocation} already draws for certificates.
+   */
   public byte[] decrypt(byte[] ciphertext) {
     OptionalInt embeddedKeyId = SecretCipher.peekKeyId(ciphertext);
-    if (embeddedKeyId.isPresent() && retiredKeyIds.contains((byte) embeddedKeyId.getAsInt())) {
+    if (embeddedKeyId.isPresent()
+        && storeClient.isSecretsKeyRetired((byte) embeddedKeyId.getAsInt())) {
       throw GimleSecretsException.keyRetired("secrets", embeddedKeyId.getAsInt());
     }
     return SecretCipher.decrypt(ciphertext, keyRing.keysById());
@@ -137,15 +143,22 @@ public final class FafnirCrypto {
 
   /**
    * Actually stops trusting {@code keyId}: see {@link KeyFileManager#retire}'s own javadoc for
-   * exactly what that means (destructive, not a soft flag -- any ciphertext still encrypted under
-   * this id becomes permanently unrecoverable through {@link #decrypt} from this point on). Unlike
-   * {@link #rotate}, there is no re-encryption sweep to run here -- nothing needs to move *to* a
-   * retired key, only away from one, and {@link #rotate} already handles that side.
+   * exactly what that means on this replica's own local key file (destructive, not a soft flag --
+   * any ciphertext still encrypted under this id becomes permanently unrecoverable through {@link
+   * #decrypt} from this point on). Unlike {@link #rotate}, there is no re-encryption sweep to run
+   * here -- nothing needs to move *to* a retired key, only away from one, and {@link #rotate}
+   * already handles that side.
+   *
+   * <p>The store propose runs first, deliberately: if it doesn't durably commit, this method throws
+   * and neither this replica's own local key file nor its in-memory ring is touched at all -- an
+   * operator who sees {@code retire-key} fail can safely retry, rather than this replica silently
+   * losing its own local copy of key material a majority of the cluster never actually agreed was
+   * retired.
    */
   public byte retire(byte keyId) {
+    storeClient.propose(new StateMutation.PutSecretsKeyRetirement(keyId, true));
     KeyRing newRing = KeyFileManager.retire(secretKeyFilePath, keyRing, keyId);
     keyRing = newRing;
-    retiredKeyIds = KeyFileManager.loadRetiredKeyIds(secretKeyFilePath);
     log.info(
         "secrets key id {} retired, new fingerprint={}",
         Byte.toUnsignedInt(keyId),

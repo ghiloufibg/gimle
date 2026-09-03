@@ -294,7 +294,8 @@ class RaftNodeSafetyMechanicsTest {
             Map.of(),
             List.of(),
             Map.of(),
-            List.of()));
+            List.of(),
+            Set.of()));
   }
 
   @Test

@@ -10,7 +10,6 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import javax.crypto.KeyGenerator;
@@ -144,13 +143,18 @@ public final class KeyFileManager {
   }
 
   /**
-   * Actually stops trusting {@code keyId}: deletes its on-disk key file and drops it from the
-   * returned {@link KeyRing}, so any ciphertext still encrypted under it becomes permanently
-   * unrecoverable through {@link SecretCipher#decrypt(byte[], Map)} the moment that ring replaces
-   * {@code current} in {@code FafnirCrypto} -- a deliberately destructive operation, not a soft
-   * flag, matching what "retire" is meant to accomplish. Rejects retiring {@code
-   * current.activeKeyId()} (rotate to a new active key first) or an id {@code current} doesn't
-   * hold.
+   * Actually stops trusting {@code keyId} on this one replica's own local disk: deletes its on-disk
+   * key file and drops it from the returned {@link KeyRing}, so any ciphertext still encrypted
+   * under it becomes permanently unrecoverable through {@link SecretCipher#decrypt(byte[], Map)}
+   * the moment that ring replaces {@code current} in {@code FafnirCrypto} -- a deliberately
+   * destructive operation, not a soft flag, matching what "retire" is meant to accomplish. Rejects
+   * retiring {@code current.activeKeyId()} (rotate to a new active key first) or an id {@code
+   * current} doesn't hold.
+   *
+   * <p>The cluster-wide "is this id retired" decision every Fafnir replica's own {@code
+   * FafnirCrypto#decrypt} actually checks lives in the Raft-replicated store, not in a local file
+   * here -- {@code FafnirCrypto#retire} proposes that separately, so a key retired on one replica
+   * takes effect on every replica, not only the one whose own local file this call deletes.
    */
   public static KeyRing retire(Path baseKeyFilePath, KeyRing current, byte keyId) {
     if (keyId == 0) {
@@ -173,62 +177,7 @@ public final class KeyFileManager {
     }
     Map<Byte, SecretKey> updated = new HashMap<>(current.keysById());
     updated.remove(keyId);
-    recordRetiredKeyId(baseKeyFilePath, keyId);
     return new KeyRing(current.activeKeyId(), updated);
-  }
-
-  /**
-   * Every key id ever retired for {@code baseKeyFilePath}, durably: the on-disk key file itself is
-   * gone the moment {@link #retire} runs (that's what makes retirement destructive rather than a
-   * soft flag), so without a separate record a later decrypt attempt against a retired id can't be
-   * told apart from one that names an id this ring never held at all -- both just come up "no such
-   * key." This is that record, read at startup by {@code FafnirCrypto} so it survives a restart,
-   * and used only to give a specific "that key was retired" error rather than change what decrypts.
-   */
-  public static Set<Byte> loadRetiredKeyIds(Path baseKeyFilePath) {
-    Path file = retiredKeyIdsFile(baseKeyFilePath);
-    if (!Files.exists(file)) {
-      return Set.of();
-    }
-    try {
-      Set<Byte> ids = new HashSet<>();
-      for (String token : Files.readString(file, StandardCharsets.UTF_8).split(",")) {
-        String trimmed = token.strip();
-        if (trimmed.isEmpty()) {
-          continue;
-        }
-        int id = Integer.parseInt(trimmed);
-        if (id >= 0 && id <= 255) {
-          ids.add((byte) id);
-        }
-      }
-      return Set.copyOf(ids);
-    } catch (IOException e) {
-      throw new UncheckedIOException("failed to read retired secrets key ids: " + file, e);
-    }
-  }
-
-  private static void recordRetiredKeyId(Path baseKeyFilePath, byte keyId) {
-    Set<Byte> retired = new HashSet<>(loadRetiredKeyIds(baseKeyFilePath));
-    retired.add(keyId);
-    StringBuilder csv = new StringBuilder();
-    for (byte id : retired) {
-      if (csv.length() > 0) {
-        csv.append(',');
-      }
-      csv.append(Byte.toUnsignedInt(id));
-    }
-    try {
-      Path file = retiredKeyIdsFile(baseKeyFilePath);
-      Files.writeString(file, csv.toString(), StandardCharsets.UTF_8);
-      restrictPermissions(file);
-    } catch (IOException e) {
-      throw new UncheckedIOException("failed to record retired secrets key id " + keyId, e);
-    }
-  }
-
-  private static Path retiredKeyIdsFile(Path baseKeyFilePath) {
-    return baseKeyFilePath.resolveSibling(baseKeyFilePath.getFileName() + ".retired");
   }
 
   // Id 0 is always the base file itself; every other id lives at "<baseFileName>.<id>" -- the

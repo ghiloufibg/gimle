@@ -119,6 +119,14 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListRevokedCertificateSerials r ->
           new StoreRpc.StringSetResult(
               store.listRevokedCertificateSerials().stream().sorted().toList());
+      case StoreRpc.IsSecretsKeyRetired r ->
+          new StoreRpc.BoolResult(store.isSecretsKeyRetired(r.keyId()));
+      case StoreRpc.ListRetiredSecretsKeyIds r ->
+          new StoreRpc.StringSetResult(
+              store.listRetiredSecretsKeyIds().stream()
+                  .map(id -> String.valueOf(Byte.toUnsignedInt(id)))
+                  .sorted()
+                  .toList());
       case StoreRpc.GetSessionRevokedBeforeEpochMilli r ->
           new StoreRpc.GenerationResult(store.getSessionRevokedBeforeEpochMilli(r.username()));
       case StoreRpc.GetWorkloadToken r -> {

@@ -121,6 +121,7 @@ public final class StateStore implements StoreReader {
   private final Map<String, Set<String>> nodeTaints = new ConcurrentHashMap<>();
   private final Map<String, WorkloadHealthState> workloadHealthStates = new ConcurrentHashMap<>();
   private final Map<String, Boolean> revokedCertificateSerials = new ConcurrentHashMap<>();
+  private final Map<Byte, Boolean> retiredSecretsKeyIds = new ConcurrentHashMap<>();
   private final Map<String, WorkloadTokenRecord> workloadTokens = new ConcurrentHashMap<>();
   // username -> the epoch-milli watermark set by that user's last console logout. Bounded by the
   // number of distinct usernames that have ever logged out (an operator account list, not
@@ -996,6 +997,31 @@ public final class StateStore implements StoreReader {
     return Set.copyOf(revokedCertificateSerials.keySet());
   }
 
+  // ---- secrets master key retirement bookkeeping ----
+
+  /**
+   * Marks (or clears) one Fafnir secrets master key id as retired -- the identical
+   * present-means-true shape {@link #putCertificateRevocation} already uses for a different kind of
+   * compromised credential, checked by every Fafnir replica's own {@code FafnirCrypto#decrypt}
+   * before attempting to decrypt anything, so retirement actually takes effect cluster-wide rather
+   * than only on whichever single replica processed the {@code retire-key} call.
+   */
+  public void putSecretsKeyRetirement(byte keyId, boolean retired) {
+    if (!retired) {
+      retiredSecretsKeyIds.remove(keyId);
+      return;
+    }
+    retiredSecretsKeyIds.put(keyId, Boolean.TRUE);
+  }
+
+  public boolean isSecretsKeyRetired(byte keyId) {
+    return retiredSecretsKeyIds.getOrDefault(keyId, Boolean.FALSE);
+  }
+
+  public Set<Byte> listRetiredSecretsKeyIds() {
+    return Set.copyOf(retiredSecretsKeyIds.keySet());
+  }
+
   // ---- console session revocation bookkeeping ----
 
   /**
@@ -1584,7 +1610,8 @@ public final class StateStore implements StoreReader {
         Map.copyOf(sessionRevokedBeforeEpochMilli),
         List.copyOf(alertRules.values()),
         Map.copyOf(deploymentLastScale),
-        List.copyOf(ingresses.values()));
+        List.copyOf(ingresses.values()),
+        Set.copyOf(retiredSecretsKeyIds.keySet()));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1651,6 +1678,7 @@ public final class StateStore implements StoreReader {
     nodeCordons.clear();
     nodeTaints.clear();
     revokedCertificateSerials.clear();
+    retiredSecretsKeyIds.clear();
     workloadTokens.clear();
     sessionRevokedBeforeEpochMilli.clear();
     configEntries.clear();
@@ -1728,6 +1756,7 @@ public final class StateStore implements StoreReader {
             (nodeId, tenantIds) ->
                 tenantIds.forEach(tenantId -> putNodeTaint(nodeId, tenantId, true)));
     snapshot.revokedCertificateSerials().forEach(serial -> putCertificateRevocation(serial, true));
+    snapshot.retiredSecretsKeyIds().forEach(keyId -> putSecretsKeyRetirement(keyId, true));
     snapshot.workloadTokens().forEach(record -> putWorkloadToken(record, 0L));
     snapshot.sessionRevokedBeforeEpochMilli().forEach(this::putSessionRevocation);
     snapshot.configEntries().forEach(this::putConfigEntry);

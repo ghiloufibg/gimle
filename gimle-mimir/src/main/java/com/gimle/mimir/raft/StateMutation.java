@@ -569,6 +569,28 @@ public sealed interface StateMutation extends RaftLogPayload {
   }
 
   /**
+   * Marks (or clears) one secrets master key id as retired, the identical {@link
+   * #PutCertificateRevocation} shape applied to a different kind of compromised credential: {@code
+   * FafnirCrypto#decrypt} refuses a ciphertext embedding a retired key id before attempting
+   * decryption, checked fresh against this store entry on every call rather than a
+   * loaded-once-at-startup local field, so a key retired on one Fafnir replica takes effect on
+   * every replica -- retirement is meant to answer "cut off this key's ability to decrypt anything
+   * further," which a per-replica-only flag cannot do in any multi-replica deployment. Deliberately
+   * carries no key material of its own, the same boundary {@code PutCertificateRevocation} draws
+   * for certificates: only the small "is this id retired" decision is Raft-replicated, never the
+   * AES key bytes themselves, which stay exactly where they are today -- provisioned to each
+   * replica's own local key file, out-of-band, the same operational precondition {@code
+   * FafnirCrypto}'s own constructor javadoc already documents.
+   */
+  record PutSecretsKeyRetirement(byte keyId, boolean retired) implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putSecretsKeyRetirement(keyId, retired);
+      return MutationOutcome.accepted();
+    }
+  }
+
+  /**
    * Advances one username's session "revoked before" watermark -- {@code
    * ApiServer#handleAuthLogout} proposes this for whichever username the logged-out cookie verified
    * to, and {@code ApiServer#resolvePrincipal} rejects any session cookie for that username issued

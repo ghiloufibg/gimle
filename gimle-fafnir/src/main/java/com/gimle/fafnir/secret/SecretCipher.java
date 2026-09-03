@@ -92,12 +92,12 @@ public final class SecretCipher {
 
   /**
    * The key id a new-format blob (per {@link #CURRENT_VERSION}) claims to be encrypted under,
-   * without attempting to decrypt anything -- lets a caller holding a durable record of which key
-   * ids it has retired (see {@code KeyFileManager#loadRetiredKeyIds}) give a specific, diagnosable
-   * error ("that key id was retired") before running the real decrypt attempt, which for a
-   * retired-and-therefore-unknown key id would otherwise fall through to a confusing legacy-format
-   * failure instead. Empty for a legacy-format or too-short blob, neither of which names a key id
-   * at all.
+   * without attempting to decrypt anything -- lets a caller holding a record of which key ids are
+   * retired (see {@code FafnirCrypto#decrypt}, which checks the Raft-replicated store) give a
+   * specific, diagnosable error ("that key id was retired") before running the real decrypt
+   * attempt, which for a retired-and-therefore-unknown key id would otherwise fall through to a
+   * confusing legacy-format failure instead. Empty for a legacy-format or too-short blob, neither
+   * of which names a key id at all.
    */
   public static OptionalInt peekKeyId(byte[] blob) {
     if (blob.length >= PREFIX_LENGTH + GCM_IV_LENGTH_BYTES && blob[0] == CURRENT_VERSION) {
