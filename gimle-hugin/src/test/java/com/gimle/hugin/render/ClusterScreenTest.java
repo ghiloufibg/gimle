@@ -4,13 +4,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.WorkloadKind;
+import com.gimle.hugin.model.WorkloadRow;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -105,6 +110,7 @@ class ClusterScreenTest {
             List.of(
                 instance(
                     "a-deployment-with-a-really-very-long-name", 0, "node-alpha", "ACTIVE", 1.0)),
+            List.of(),
             Optional.empty());
 
     List<String> lines = render(snapshot, new Viewport(80, 24));
@@ -175,7 +181,7 @@ class ClusterScreenTest {
   void an_empty_cluster_says_so_rather_than_drawing_two_empty_tables() {
     ClusterSnapshot empty =
         new ClusterSnapshot(
-            "localhost:8080", Optional.of(NOW), List.of(), List.of(), Optional.empty());
+            "localhost:8080", Optional.of(NOW), List.of(), List.of(), List.of(), Optional.empty());
 
     List<String> lines = render(empty, new Viewport(120, 30));
 
@@ -239,7 +245,7 @@ class ClusterScreenTest {
 
   private void assertColumnsAlign(final Viewport viewport) {
     List<String> lines = render(snapshot(), viewport);
-    String header = lineContaining(lines, "DEPLOYMENT");
+    String header = lineContaining(lines, "WORKLOAD");
     int stateColumn = header.indexOf("STATE");
 
     for (String deployment :
@@ -250,6 +256,107 @@ class ClusterScreenTest {
           List.of("ACTIVE", "STARTING", "FAILED", "COMPLETED", "PENDING").contains(state),
           "expected a lifecycle state at column " + stateColumn + " of: " + row);
     }
+  }
+
+  @Test
+  void the_instance_table_labels_each_row_with_the_kind_of_workload_it_belongs_to() {
+    List<String> lines = render(snapshot(), new Viewport(140, 30));
+
+    String header = lineContaining(lines, "WORKLOAD");
+    assertTrue(header.contains("KIND"), header);
+    assertTrue(lineContaining(lines, "checkout-api").contains("DEPLOY"), lines.toString());
+  }
+
+  @Test
+  void a_narrow_terminal_drops_the_kind_column_rather_than_truncating_every_workload_name() {
+    // The kind is the same word on most rows; the name is what identifies one. At 80 columns the
+    // name keeps the width, and the kind stays reachable through the filter and the drill-down.
+    List<String> lines = render(snapshot(), new Viewport(80, 30));
+
+    assertFalse(lineContaining(lines, "WORKLOAD").contains("KIND"));
+    assertTrue(lineContaining(lines, "greeter-provider").contains("greeter-provider"));
+  }
+
+  @Test
+  void a_workload_the_scheduler_could_not_fully_place_gets_a_line_of_its_own() {
+    // The whole point: two of four replicas exist as instance rows, and without this block the
+    // other two are represented by nothing at all.
+    List<String> lines = render(withUnsettled(shortOfReplicas()), new Viewport(120, 30));
+
+    String row = lineContaining(lines, "checkout-api");
+    assertTrue(row.contains("2 of 4 placed"), row);
+    assertTrue(lines.stream().anyMatch(line -> line.startsWith("NOT SETTLED")), lines.toString());
+    assertTrue(lines.getFirst().contains("unplaced 2"), lines.getFirst());
+  }
+
+  @Test
+  void a_quota_or_limit_range_verdict_is_named_rather_than_left_as_a_bare_shortfall() {
+    List<String> lines =
+        render(
+            withUnsettled(
+                new WorkloadRow(
+                    WorkloadKind.DEPLOYMENT,
+                    Optional.of("acme"),
+                    "billing-api",
+                    3,
+                    3,
+                    0,
+                    true,
+                    true,
+                    Optional.of("memory limit 2Gi exceeds tenant maximum 1Gi"))),
+            new Viewport(160, 30));
+
+    String row = lineContaining(lines, "billing-api");
+    assertTrue(row.contains("acme"), row);
+    assertTrue(row.contains("quota exceeded"), row);
+    assertTrue(row.contains("memory limit 2Gi exceeds tenant maximum 1Gi"), row);
+    // Fully placed, so there is no shortfall clause to report alongside the two verdicts.
+    assertFalse(row.contains("placed"), row);
+  }
+
+  @Test
+  void a_healthy_cluster_draws_no_not_settled_block_at_all() {
+    List<String> lines = render(snapshot(), new Viewport(120, 30));
+
+    assertFalse(lines.stream().anyMatch(line -> line.startsWith("NOT SETTLED")), lines.toString());
+    assertFalse(lines.getFirst().contains("unplaced"), lines.getFirst());
+  }
+
+  @Test
+  void the_not_settled_block_costs_instance_rows_rather_than_overflowing_the_frame() {
+    Viewport viewport = new Viewport(120, 22);
+
+    List<String> lines = render(withUnsettled(shortOfReplicas()), viewport);
+
+    assertEquals(22, lines.size());
+    for (String line : lines) {
+      assertTrue(Ansi.visibleWidth(line) <= 120, "line wider than 120: " + line);
+    }
+    assertTrue(lines.getLast().contains("q quit"), lines.getLast());
+  }
+
+  private static WorkloadRow shortOfReplicas() {
+    return new WorkloadRow(
+        WorkloadKind.DEPLOYMENT,
+        Optional.empty(),
+        "checkout-api",
+        4,
+        2,
+        2,
+        false,
+        false,
+        Optional.empty());
+  }
+
+  private static ClusterSnapshot withUnsettled(final WorkloadRow workload) {
+    ClusterSnapshot base = snapshot();
+    return new ClusterSnapshot(
+        base.serverAddress(),
+        base.fetchedAt(),
+        base.nodes(),
+        base.instances(),
+        List.of(workload),
+        base.staleReason());
   }
 
   private List<String> render(final ClusterSnapshot snapshot, final Viewport viewport) {
@@ -277,6 +384,7 @@ class ClusterScreenTest {
             instance("greeter-consumer", 0, "node-alpha", "ACTIVE", 12.0),
             instance("greeter-provider", 1, "node-charlie", "STARTING", 0.0),
             instance("report-nightly", 0, "node-alpha", "COMPLETED", 0.0)),
+        List.of(),
         Optional.empty());
   }
 
@@ -308,6 +416,7 @@ class ClusterScreenTest {
     boolean observed = !"PENDING".equals(state);
     return new InstanceRow(
         new InstanceKey(Optional.empty(), deployment, index),
+        WorkloadKind.DEPLOYMENT,
         nodeId,
         observed,
         state,
@@ -319,6 +428,10 @@ class ClusterScreenTest {
         observed ? 96L * 1024L * 1024L : 0L,
         observed ? 90L : 0L,
         Optional.of(deployment + "@1.0.0"),
-        Optional.of("worker-4471"));
+        Optional.of("worker-4471"),
+        Optional.of(IsolationTier.TIER_2),
+        Optional.of(new ResourceSpec("512Mi", "500m")),
+        Map.of(),
+        0L);
   }
 }

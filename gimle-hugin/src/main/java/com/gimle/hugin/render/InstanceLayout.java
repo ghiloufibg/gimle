@@ -2,7 +2,7 @@ package com.gimle.hugin.render;
 
 /**
  * Column widths for the instance table, derived once from the terminal's width so the header and
- * every row agree on them by construction.
+ * every row agree on them by construction. A width of zero means the column is not drawn at all.
  *
  * <p>The numeric columns are fixed -- they hold numbers whose width is already known -- and the two
  * name columns absorb whatever is left, within bounds: below their minimum the table would stop
@@ -11,6 +11,7 @@ package com.gimle.hugin.render;
  */
 public record InstanceLayout(
     int deployment,
+    int kind,
     int index,
     int node,
     int state,
@@ -34,6 +35,10 @@ public record InstanceLayout(
     boolean compact = columns < COMPACT_BELOW;
     int gap = compact ? 1 : 2;
     int index = 3;
+    // "STATEFUL" is the longest label at 8. A narrow terminal drops the column outright rather
+    // than paying for it out of the workload name: the name is what identifies a row, the kind is
+    // the same word on most of them, and it stays reachable through the filter and the drill-down.
+    int kind = compact ? 0 : 8;
     // "UNINSTALLED" is the longest lifecycle state at 11; the compact width truncates it, which is
     // the deliberate trade for keeping every metric column on screen at 80.
     int state = compact ? 9 : 11;
@@ -44,11 +49,11 @@ public record InstanceLayout(
     int memory = compact ? 6 : 7;
     int cpu = compact ? 5 : 6;
 
-    int fixed = index + state + ready + rate + errors + queue + memory + cpu;
-    int flexible = columns - fixed - 9 * gap;
+    int fixed = index + kind + state + ready + rate + errors + queue + memory + cpu;
+    int flexible = columns - fixed - (compact ? 9 : 10) * gap;
     int deployment = Math.clamp(Math.round(flexible * 0.6f), MIN_DEPLOYMENT, MAX_DEPLOYMENT);
     int node = Math.clamp(flexible - deployment, MIN_NODE, MAX_NODE);
     return new InstanceLayout(
-        deployment, index, node, state, ready, rate, errors, queue, memory, cpu, gap);
+        deployment, kind, index, node, state, ready, rate, errors, queue, memory, cpu, gap);
   }
 }

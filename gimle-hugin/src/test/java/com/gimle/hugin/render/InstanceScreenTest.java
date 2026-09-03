@@ -1,13 +1,17 @@
 package com.gimle.hugin.render;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.cli.spi.ClusterReader;
+import com.gimle.core.module.IsolationTier;
+import com.gimle.core.module.ResourceSpec;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
 import com.gimle.hugin.model.LogCategory;
+import com.gimle.hugin.model.WorkloadKind;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -47,6 +51,83 @@ class InstanceScreenTest {
     assertTrue(lines.stream().anyMatch(line -> line.startsWith("err/s") && line.contains("0.4")));
     assertTrue(
         lines.stream().anyMatch(line -> line.startsWith("worker") && line.contains("worker-4471")));
+  }
+
+  @Test
+  void reported_ports_and_volume_usage_appear_when_the_instance_reports_them() {
+    List<String> lines = render(row(true), watcher(), new Viewport(120, 34));
+
+    String ports =
+        lines.stream().filter(line -> line.startsWith("ports")).findFirst().orElseThrow();
+    // Sorted by name, so the pane reads the same on every refresh whatever order they arrived in.
+    assertTrue(ports.contains("admin 9090"), ports);
+    assertTrue(ports.contains("http 8080"), ports);
+    assertTrue(ports.indexOf("admin") < ports.indexOf("http"), ports);
+    assertTrue(
+        lines.stream().anyMatch(line -> line.startsWith("volume") && line.contains("512Mi")),
+        lines.toString());
+  }
+
+  @Test
+  void an_instance_reporting_neither_spends_no_line_on_either() {
+    List<String> lines = render(rowReporting(Map.of(), 0L), watcher(), new Viewport(120, 34));
+
+    assertFalse(lines.stream().anyMatch(line -> line.startsWith("ports")), lines.toString());
+    assertFalse(lines.stream().anyMatch(line -> line.startsWith("volume")), lines.toString());
+  }
+
+  @Test
+  void a_dedicated_worker_draws_measured_memory_against_its_own_declared_ceiling() {
+    List<String> lines = render(row(true), watcher(), new Viewport(120, 30));
+
+    assertTrue(
+        lines.stream().anyMatch(line -> line.startsWith("tier") && line.contains("TIER_2")),
+        lines.toString());
+    assertTrue(
+        lines.stream().anyMatch(line -> line.startsWith("limit") && line.contains("512Mi memory")),
+        lines.toString());
+    String memory =
+        lines.stream().filter(line -> line.startsWith("memory")).findFirst().orElseThrow();
+    assertTrue(memory.contains("96Mi of 512Mi"), memory);
+    assertTrue(memory.contains("▇") && memory.contains("19%"), memory);
+  }
+
+  @Test
+  void a_shared_worker_shows_the_same_limit_as_an_admission_bound_with_no_headroom_bar() {
+    List<String> lines =
+        render(
+            row(
+                true,
+                Optional.of(IsolationTier.TIER_1),
+                Optional.of(new ResourceSpec("512Mi", "500m"))),
+            watcher(),
+            new Viewport(120, 30));
+
+    assertTrue(
+        lines.stream().anyMatch(line -> line.startsWith("limit") && line.contains("512Mi memory")),
+        lines.toString());
+    assertTrue(
+        lines.stream().anyMatch(line -> line.contains("not a per-instance ceiling")),
+        lines.toString());
+    // One heap serves every instance on a shared worker, so a bar drawn against this figure would
+    // read as headroom this instance does not individually have.
+    String memory =
+        lines.stream().filter(line -> line.startsWith("memory")).findFirst().orElseThrow();
+    assertTrue(memory.contains("96Mi"), memory);
+    assertFalse(memory.contains("▇") || memory.contains("of 512Mi"), memory);
+  }
+
+  @Test
+  void a_control_plane_serving_neither_field_reads_as_absent_rather_than_as_a_default_tier() {
+    List<String> lines =
+        render(row(true, Optional.empty(), Optional.empty()), watcher(), new Viewport(120, 30));
+
+    assertTrue(
+        lines.stream().anyMatch(line -> line.startsWith("tier") && line.contains(Text.ABSENT)),
+        lines.toString());
+    assertTrue(
+        lines.stream().anyMatch(line -> line.startsWith("limit") && line.contains(Text.ABSENT)),
+        lines.toString());
   }
 
   @Test
@@ -106,6 +187,16 @@ class InstanceScreenTest {
   }
 
   @Test
+  void a_terminal_too_short_for_the_panes_still_ends_in_the_key_bar() {
+    // The panes above it are cut instead: a frame that ended wherever a pane happened to reach the
+    // bottom row would leave an operator no visible way back out of the drill-down.
+    List<String> lines = render(row(true), watcher(), new Viewport(120, 12));
+
+    assertEquals(12, lines.size());
+    assertTrue(lines.getLast().contains("esc back"), lines.getLast());
+  }
+
+  @Test
   void a_narrow_terminal_cuts_every_pane_rather_than_wrapping_any_of_them() {
     Viewport narrow = new Viewport(60, 24);
 
@@ -127,8 +218,42 @@ class InstanceScreenTest {
   }
 
   private static InstanceRow row(final boolean observed) {
+    return row(
+        observed,
+        Optional.of(IsolationTier.TIER_2),
+        Optional.of(new ResourceSpec("512Mi", "500m")));
+  }
+
+  private static InstanceRow rowReporting(final Map<String, Integer> ports, final long volume) {
+    InstanceRow base = row(true);
+    return new InstanceRow(
+        base.key(),
+        base.kind(),
+        base.nodeId(),
+        base.observed(),
+        base.lifecycleState(),
+        base.alive(),
+        base.ready(),
+        base.requestRatePerSecond(),
+        base.errorRatePerSecond(),
+        base.queueDepth(),
+        base.memoryBytesUsed(),
+        base.cpuMillicoresUsed(),
+        base.moduleCoordinate(),
+        base.workerId(),
+        base.isolationTier(),
+        base.resourceLimit(),
+        ports,
+        volume);
+  }
+
+  private static InstanceRow row(
+      final boolean observed,
+      final Optional<IsolationTier> isolationTier,
+      final Optional<ResourceSpec> resourceLimit) {
     return new InstanceRow(
         new InstanceKey(Optional.of("acme"), "greeter-consumer", 0),
+        WorkloadKind.DEPLOYMENT,
         "node-alpha",
         observed,
         observed ? "ACTIVE" : "PENDING",
@@ -140,7 +265,11 @@ class InstanceScreenTest {
         96L * 1024L * 1024L,
         90L,
         Optional.of("greeter-consumer@1.0.0"),
-        Optional.of("worker-4471"));
+        Optional.of("worker-4471"),
+        isolationTier,
+        resourceLimit,
+        Map.of("http", 8080, "admin", 9090),
+        512L * 1024L * 1024L);
   }
 
   /** A watcher over canned responses, already settled by the time the assertions run. */

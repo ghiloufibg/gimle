@@ -7,11 +7,14 @@ import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
 import com.gimle.hugin.model.LogCategory;
+import com.gimle.hugin.model.ServicePoller;
+import com.gimle.hugin.model.ServiceReader;
 import com.gimle.hugin.model.SnapshotReader;
 import com.gimle.hugin.render.ClusterScreen;
 import com.gimle.hugin.render.HelpOverlay;
 import com.gimle.hugin.render.InstanceScreen;
 import com.gimle.hugin.render.Painter;
+import com.gimle.hugin.render.ServiceScreen;
 import com.gimle.hugin.render.Viewport;
 import com.gimle.hugin.term.Key;
 import com.gimle.hugin.term.TerminalSession;
@@ -43,11 +46,13 @@ public final class Hugin {
   private final TerminalSession terminal;
   private final ClusterScreen clusterScreen;
   private final InstanceScreen instanceScreen;
+  private final ServiceScreen serviceScreen;
   private final HelpOverlay helpOverlay;
   private final UiState ui = new UiState();
 
   private LogCategory logCategory = LogCategory.APPLICATION;
   private InstanceWatcher watcher;
+  private ServicePoller servicePoller;
   private boolean running = true;
 
   public Hugin(final ClusterReader reader, final TerminalSession terminal, final Painter painter) {
@@ -55,6 +60,7 @@ public final class Hugin {
     this.terminal = terminal;
     this.clusterScreen = new ClusterScreen(painter);
     this.instanceScreen = new InstanceScreen(painter);
+    this.serviceScreen = new ServiceScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
   }
 
@@ -69,6 +75,7 @@ public final class Hugin {
       }
     } finally {
       closeWatcher();
+      closeServicePoller();
     }
   }
 
@@ -77,6 +84,9 @@ public final class Hugin {
     Instant now = Instant.now();
     if (ui.helpVisible()) {
       return helpOverlay.render(viewport);
+    }
+    if (ui.viewingServices() && servicePoller != null) {
+      return serviceScreen.render(servicePoller.current(), viewport, servicePoller.paused(), now);
     }
     Optional<InstanceRow> inspected = ui.inspecting().flatMap(snapshot::find);
     if (inspected.isPresent() && watcher != null) {
@@ -106,6 +116,10 @@ public final class Hugin {
       ui.hideHelp();
       return;
     }
+    if (ui.viewingServices() && servicePoller != null) {
+      handleServicesKey(key, servicePoller);
+      return;
+    }
     if (ui.inspectingInstance()) {
       handleInstanceKey(key, poller);
       return;
@@ -126,10 +140,26 @@ public final class Hugin {
       ui.selectLast(rows);
     } else if (key.is(Key.Kind.ENTER)) {
       openInspection(rows);
+    } else if (key.isChar('s')) {
+      openServices();
     } else if (key.isChar('/')) {
       ui.beginFilter();
     } else if (key.is(Key.Kind.ESCAPE)) {
       ui.clearFilter();
+    } else if (key.isChar('p')) {
+      poller.togglePaused();
+    } else if (key.isChar('r')) {
+      poller.refreshNow();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  private void handleServicesKey(final Key key, final ServicePoller poller) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      closeServices();
     } else if (key.isChar('p')) {
       poller.togglePaused();
     } else if (key.isChar('r')) {
@@ -175,6 +205,31 @@ public final class Hugin {
   private void closeInspection() {
     ui.closeInspection();
     closeWatcher();
+  }
+
+  /**
+   * The services poll lives only as long as the screen showing it. One read costs a request per
+   * declared Service -- the endpoint set has to be asked for one Service at a time -- which is not
+   * a price to keep paying on a two-second interval while nobody is looking at the answer.
+   */
+  private void openServices() {
+    ui.showServices();
+    closeServicePoller();
+    servicePoller =
+        new ServicePoller(new ServiceReader(reader), REFRESH_INTERVAL, reader.serverAddress());
+    servicePoller.start();
+  }
+
+  private void closeServices() {
+    ui.closeServices();
+    closeServicePoller();
+  }
+
+  private void closeServicePoller() {
+    if (servicePoller != null) {
+      servicePoller.close();
+      servicePoller = null;
+    }
   }
 
   /** Reopens the tail on the other category, keeping the same instance open. */

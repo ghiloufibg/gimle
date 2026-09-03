@@ -15,6 +15,7 @@ public final class HelpOverlay {
       List.of(
           new String[] {"↑ ↓ / j k", "move the selection"},
           new String[] {"⏎", "inspect the selected instance"},
+          new String[] {"s", "services and the endpoints they resolve to"},
           new String[] {"esc", "back to the cluster view"},
           new String[] {"/", "filter; enter applies, esc clears"},
           new String[] {"p", "pause / resume refresh"},

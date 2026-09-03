@@ -21,6 +21,7 @@ public record ClusterSnapshot(
     Optional<Instant> fetchedAt,
     List<NodeRow> nodes,
     List<InstanceRow> instances,
+    List<WorkloadRow> workloads,
     Optional<String> staleReason) {
 
   public ClusterSnapshot {
@@ -32,17 +33,24 @@ public record ClusterSnapshot(
     }
     nodes = List.copyOf(nodes);
     instances = List.copyOf(instances);
+    workloads = List.copyOf(workloads);
   }
 
   /** The starting state: connected to nothing yet, showing nothing. */
   public static ClusterSnapshot connecting(final String serverAddress) {
     return new ClusterSnapshot(
-        serverAddress, Optional.empty(), List.of(), List.of(), Optional.of("connecting"));
+        serverAddress,
+        Optional.empty(),
+        List.of(),
+        List.of(),
+        List.of(),
+        Optional.of("connecting"));
   }
 
   /** This snapshot's rows, re-labelled as the last good data behind a now-failing poll. */
   public ClusterSnapshot stale(final String reason) {
-    return new ClusterSnapshot(serverAddress, fetchedAt, nodes, instances, Optional.of(reason));
+    return new ClusterSnapshot(
+        serverAddress, fetchedAt, nodes, instances, workloads, Optional.of(reason));
   }
 
   public boolean connected() {
@@ -69,6 +77,16 @@ public record ClusterSnapshot(
     return nodes.stream()
         .filter(node -> node.nodeId().toLowerCase(Locale.ROOT).contains(needle))
         .toList();
+  }
+
+  /** Only the workloads not running what they were asked to run -- the rest need no line. */
+  public List<WorkloadRow> unsettledWorkloads() {
+    return workloads.stream().filter(workload -> !workload.settled()).toList();
+  }
+
+  /** Replicas the scheduler has not placed anywhere, across every workload. */
+  public int unplacedCount() {
+    return workloads.stream().mapToInt(WorkloadRow::unplacedCount).sum();
   }
 
   public Optional<InstanceRow> find(final InstanceKey key) {

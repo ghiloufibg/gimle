@@ -122,6 +122,15 @@ public final class InstanceScreen {
             Text.rate(row.errorRatePerSecond()),
             row.errorRatePerSecond() > 0 ? Style.fg(Palette.BAD) : Style.PLAIN));
     lines.add(field("queue", String.valueOf(row.queueDepth()), Style.PLAIN));
+    // Both are absent on most instances -- a module that only answers over the fabric reports no
+    // port, and one with no volume reports no usage -- so each earns its line only when there is
+    // something to put on it, rather than standing as a permanent em dash.
+    if (!row.ports().isEmpty()) {
+      lines.add(field("ports", row.portSummary(), Style.PLAIN));
+    }
+    if (row.volumeUsageBytes() > 0) {
+      lines.add(field("volume", Text.bytes(row.volumeUsageBytes()), Style.PLAIN));
+    }
     return lines;
   }
 

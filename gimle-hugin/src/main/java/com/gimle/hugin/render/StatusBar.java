@@ -3,8 +3,11 @@ package com.gimle.hugin.render;
 import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceRow;
+import com.gimle.hugin.model.ServiceSnapshot;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The two bars that frame every screen: a status line across the top and a key hint line across the
@@ -38,6 +41,44 @@ final class StatusBar {
         .add(String.valueOf(snapshot.instances().size()), bar.asBold())
         .add("  ", bar);
     appendHealthSplit(line, snapshot.instances(), bar);
+    // Replicas the scheduler placed nowhere have no instance row, so they are absent from the
+    // split above and need saying separately or they go unsaid entirely.
+    int unplaced = snapshot.unplacedCount();
+    if (unplaced > 0) {
+      line.add("   unplaced ", bar)
+          .add(String.valueOf(unplaced), Style.fg(Palette.WARN).on(Palette.CARD).asBold());
+    }
+    if (paused) {
+      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
+    }
+    return line.fillTo(viewport.columns(), bar).build();
+  }
+
+  static String services(
+      final Painter painter,
+      final ServiceSnapshot snapshot,
+      final Viewport viewport,
+      final boolean paused,
+      final Instant now) {
+    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
+    Line line =
+        new Line(painter)
+            .add(" ", bar)
+            .add("GIMLÉ", brand())
+            .add(" TOP", bar.asBold())
+            .add("   SERVICES", bar.asBold())
+            .add("   ", bar)
+            .add(snapshot.serverAddress(), bar);
+    appendConnection(line, snapshot.connected(), snapshot.staleReason(), snapshot.age(now), bar);
+    line.add("   services ", bar)
+        .add(String.valueOf(snapshot.services().size()), bar.asBold())
+        .add("  endpoints ", bar)
+        .add(String.valueOf(snapshot.endpointCount()), bar.asBold());
+    int unresolved = snapshot.unresolvedCount();
+    if (unresolved > 0) {
+      line.add("   ", bar)
+          .add(unresolved + " unresolved", Style.fg(Palette.BAD).on(Palette.CARD).asBold());
+    }
     if (paused) {
       line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
     }
@@ -50,16 +91,29 @@ final class StatusBar {
 
   private static void appendConnection(
       final Line line, final ClusterSnapshot snapshot, final Style bar, final Instant now) {
+    appendConnection(line, snapshot.connected(), snapshot.staleReason(), snapshot.age(now), bar);
+  }
+
+  /**
+   * The indicator, its wording and, when there is one, the age of the rows behind it -- written
+   * against the three readings every snapshot kind exposes rather than against one snapshot type,
+   * so a second view's status line cannot drift into saying "stale" differently.
+   */
+  private static void appendConnection(
+      final Line line,
+      final boolean connected,
+      final Optional<String> staleReason,
+      final Optional<Duration> age,
+      final Style bar) {
     line.add("  ", bar);
-    if (snapshot.connected()) {
+    if (connected) {
       line.add("●", Style.fg(Palette.OK).on(Palette.CARD)).add(" connected", bar);
       return;
     }
-    String reason = snapshot.staleReason().orElse("disconnected");
     Style warn = Style.fg(Palette.WARN).on(Palette.CARD);
     line.add("●", warn);
-    String age = snapshot.age(now).map(Text::age).map(value -> " " + value + " old").orElse("");
-    line.add(" " + reason + age, warn);
+    String suffix = age.map(Text::age).map(value -> " " + value + " old").orElse("");
+    line.add(" " + staleReason.orElse("disconnected") + suffix, warn);
   }
 
   /**
@@ -104,7 +158,15 @@ final class StatusBar {
     return keyBar(
         painter,
         viewport,
-        List.of("↑↓ move", "⏎ inspect", "/ filter", "p pause", "r refresh", "? help", "q quit"));
+        List.of(
+            "↑↓ move",
+            "⏎ inspect",
+            "s services",
+            "/ filter",
+            "p pause",
+            "r refresh",
+            "? help",
+            "q quit"));
   }
 
   static String instanceKeys(final Painter painter, final Viewport viewport) {
@@ -112,6 +174,11 @@ final class StatusBar {
         painter,
         viewport,
         List.of("esc back", "c category", "p pause", "g/G top/bottom", "? help", "q quit"));
+  }
+
+  static String serviceKeys(final Painter painter, final Viewport viewport) {
+    return keyBar(
+        painter, viewport, List.of("esc back", "p pause", "r refresh", "? help", "q quit"));
   }
 
   /** Each hint's leading key glyphs in the primary colour, its wording in the bar's own. */

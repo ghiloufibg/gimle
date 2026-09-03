@@ -4,6 +4,7 @@ import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.WorkloadRow;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,6 +36,13 @@ public final class ClusterScreen {
     lines.add(StatusBar.cluster(painter, snapshot, viewport, paused, now));
     lines.add("");
 
+    // Drawn above the tables, and only when there is something to draw: a shortfall has no
+    // instance row of its own to appear in, so on a healthy cluster this block is absent entirely
+    // and the view reads exactly as it did before.
+    List<WorkloadRow> unsettled = snapshot.unsettledWorkloads();
+    List<String> unsettledLines = unsettledBlock(unsettled, viewport);
+    lines.addAll(unsettledLines);
+
     List<NodeRow> nodes = snapshot.nodesMatching(ui.filter());
     lines.add(sectionLabel("NODES", nodes.size(), snapshot.nodes().size(), ui.filter()));
     lines.add(nodeHeader(viewport));
@@ -52,7 +60,13 @@ public final class ClusterScreen {
     lines.add(instanceHeader(viewport));
 
     int available =
-        Math.max(1, viewport.rows() - CHROME_ROWS - nodes.size() - (nodes.isEmpty() ? 1 : 0));
+        Math.max(
+            1,
+            viewport.rows()
+                - CHROME_ROWS
+                - nodes.size()
+                - (nodes.isEmpty() ? 1 : 0)
+                - unsettledLines.size());
     if (instances.isEmpty()) {
       lines.add(
           emptyNote(snapshot.instances().isEmpty() ? "no instances placed" : "no instances match"));
@@ -70,6 +84,35 @@ public final class ClusterScreen {
     }
     lines.add(StatusBar.clusterKeys(painter, ui, viewport));
     return Frame.fit(lines, viewport);
+  }
+
+  private List<String> unsettledBlock(final List<WorkloadRow> unsettled, final Viewport viewport) {
+    if (unsettled.isEmpty()) {
+      return List.of();
+    }
+    int nameCells = Math.min(32, Math.max(12, viewport.columns() / 4));
+    List<String> lines = new ArrayList<>();
+    lines.add(
+        new Line(painter)
+            .add("NOT SETTLED", Style.fg(Palette.WARN).asBold())
+            .add("  " + unsettled.size(), Style.fg(Palette.MUTED_FOREGROUND))
+            .build());
+    for (WorkloadRow workload : unsettled) {
+      Line line =
+          new Line(painter)
+              .pad(2)
+              .cell(workload.name(), nameCells, Style.PLAIN)
+              .pad(2)
+              .cell(workload.kind().label(), 8, Style.fg(Palette.MUTED_FOREGROUND))
+              .pad(2);
+      workload
+          .tenantId()
+          .ifPresent(tenant -> line.cell(tenant, 12, Style.fg(Palette.MUTED_FOREGROUND)).pad(2));
+      int problemCells = Math.max(10, viewport.columns() - line.width());
+      lines.add(line.cell(workload.problem(), problemCells, Style.fg(Palette.WARN)).build());
+    }
+    lines.add("");
+    return lines;
   }
 
   /**
@@ -159,6 +202,14 @@ public final class ClusterScreen {
         .build();
   }
 
+  /**
+   * A selected row is one flat highlight, so the kind keeps the row's own style there; everywhere
+   * else it is muted, because it labels the row rather than saying anything about its health.
+   */
+  private static Style kindStyle(final Style base) {
+    return base == Style.PLAIN ? Style.fg(Palette.MUTED_FOREGROUND) : base;
+  }
+
   /** A "used/total" reading, right-aligned against its own bar so the bars line up as a column. */
   private void resourceGauge(
       final Line line, final String reading, final double fraction, final int cells) {
@@ -173,10 +224,11 @@ public final class ClusterScreen {
   private String instanceHeader(final Viewport viewport) {
     InstanceLayout layout = InstanceLayout.forWidth(viewport.columns());
     Style style = Style.fg(Palette.MUTED_FOREGROUND);
-    return new Line(painter)
-        .cell("DEPLOYMENT", layout.deployment(), style)
-        .pad(layout.gap())
-        .rightCell("IDX", layout.index(), style)
+    Line line = new Line(painter).cell("WORKLOAD", layout.deployment(), style).pad(layout.gap());
+    if (layout.kind() > 0) {
+      line.cell("KIND", layout.kind(), style).pad(layout.gap());
+    }
+    return line.rightCell("IDX", layout.index(), style)
         .pad(layout.gap())
         .cell("NODE", layout.node(), style)
         .pad(layout.gap())
@@ -225,17 +277,18 @@ public final class ClusterScreen {
       final Style stateStyle,
       final Style metricStyle) {
     Line line =
-        new Line(painter)
-            .cell(row.deploymentName(), layout.deployment(), base)
-            .pad(layout.gap())
-            .rightCell(String.valueOf(row.instanceIndex()), layout.index(), base)
-            .pad(layout.gap())
-            .cell(row.nodeId(), layout.node(), base)
-            .pad(layout.gap())
-            .cell(row.lifecycleState(), layout.state(), stateStyle)
-            .pad(layout.gap())
-            .cell(readyGlyph(row), layout.ready(), stateStyle)
-            .pad(layout.gap());
+        new Line(painter).cell(row.deploymentName(), layout.deployment(), base).pad(layout.gap());
+    if (layout.kind() > 0) {
+      line.cell(row.kind().label(), layout.kind(), kindStyle(base)).pad(layout.gap());
+    }
+    line.rightCell(String.valueOf(row.instanceIndex()), layout.index(), base)
+        .pad(layout.gap())
+        .cell(row.nodeId(), layout.node(), base)
+        .pad(layout.gap())
+        .cell(row.lifecycleState(), layout.state(), stateStyle)
+        .pad(layout.gap())
+        .cell(readyGlyph(row), layout.ready(), stateStyle)
+        .pad(layout.gap());
     if (!row.observed()) {
       // Nothing has been measured yet, so no metric column shows a number: a zero here would read
       // as "idle" about an instance nobody has heard from.

@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
+import com.gimle.hugin.model.WorkloadKind;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -87,6 +89,17 @@ class UiStateTest {
   }
 
   @Test
+  void the_services_view_opens_on_its_own_key_and_closes_back_to_the_cluster_view() {
+    assertFalse(ui.viewingServices());
+
+    ui.showServices();
+    assertTrue(ui.viewingServices());
+
+    ui.closeServices();
+    assertFalse(ui.viewingServices());
+  }
+
+  @Test
   void inspecting_nothing_opens_nothing() {
     ui.inspectSelected(List.of());
 
@@ -100,6 +113,7 @@ class UiStateTest {
   private static InstanceRow row(final String key) {
     return new InstanceRow(
         key(key),
+        WorkloadKind.DEPLOYMENT,
         "node-alpha",
         true,
         "ACTIVE",
@@ -111,7 +125,11 @@ class UiStateTest {
         0L,
         0L,
         Optional.empty(),
-        Optional.empty());
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Map.of(),
+        0L);
   }
 
   private static InstanceKey key(final String value) {

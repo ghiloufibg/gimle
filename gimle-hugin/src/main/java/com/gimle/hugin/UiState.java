@@ -7,7 +7,8 @@ import java.util.Optional;
 
 /**
  * Everything the operator has done that the cluster itself doesn't know about: where the cursor is,
- * what's typed in the filter, whether refresh is paused, and which instance (if any) is open.
+ * what's typed in the filter, whether refresh is paused, and which of the views -- the cluster
+ * table, the services table, one instance's drill-down -- is open.
  *
  * <p>Owned by the render loop's own thread and never touched by the poller, so it needs no
  * synchronization of its own. Selection is held as an {@link InstanceKey} rather than a row index:
@@ -21,6 +22,7 @@ public final class UiState {
   private String filter = "";
   private boolean filterEditing;
   private boolean helpVisible;
+  private boolean viewingServices;
 
   public Optional<InstanceKey> selected() {
     return selected;
@@ -44,6 +46,18 @@ public final class UiState {
 
   public boolean helpVisible() {
     return helpVisible;
+  }
+
+  public boolean viewingServices() {
+    return viewingServices;
+  }
+
+  public void showServices() {
+    viewingServices = true;
+  }
+
+  public void closeServices() {
+    viewingServices = false;
   }
 
   public void toggleHelp() {
