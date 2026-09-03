@@ -764,6 +764,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-747 | Gateway route-table and server fields are guarded under one monitor | New | Not Covered | — |
 | GIMLE-748 | A closed Bifrost service listener never serves one more connection | New | Not Covered | — |
 | GIMLE-749 | Proxied query parameters are URL-encoded rather than relayed decoded | New | Not Covered | — |
+| GIMLE-750 | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4522,6 +4523,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: ApiServerLogsFallbackTest covers a text filter containing a space surviving the proxy hop to both the live-agent and Muninn-fallback paths.
 - **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`forwardedQuery`)
 
+#### GIMLE-750 — ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic
+
+- **Category**: Control plane / API server
+- **Status**: New  _(New requirement: Fixed: closes Forseti finding M1. ApiServer's HttpServer/HttpsServer ran every route on an unbounded virtual-thread-per-task executor with no admission control in front of it, so a large concurrent flood against an ordinary read route (GET /deployments in the reported incident) was accepted without limit until raw thread/connection volume exhausted the JVM before any 429 path was ever reached, starving the node agent's own heartbeat calls on the same executor and triggering a false-stale-node mass rescheduling. Added a ConcurrencyLimiter admission gate in gimle-core and wired two independent instances into ApiServer#instrument: a general budget gating every ordinary route, and a separate, structurally isolated budget gating only the node-agent-facing /nodes/{nodeId}/... endpoint, so a flood saturating the general lane can never starve node heartbeats.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang .feature scenario drives a real concurrent flood against a live cluster's control plane to exercise this end to end; coverage today is a real-ApiServer JUnit integration test (ApiServerAdmissionControlTest), which the RTM coverage rule does not count as Holmgang coverage.
+- **Other test coverage (non-Holmgang, informational only)**: ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout.
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/throttle/ConcurrencyLimiter.java` (new), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`generalAdmission`, `nodeAdmission`, `instrument`)
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -7890,7 +7900,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**622 of 749 requirements are Not Covered.**
+**623 of 750 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8037,6 +8047,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-582 | gimle-mimir | Deployment `configMapRefs` field with admission-time collision rejection | Configuration Management | `DeploymentManifestParserTest` (parses `configMapRefs:`, absent field defaults to empty, non-string entry rejected); `DomainCodecTest` (`configMapRefs` round-trips through the wire); `ConfigMapRefsPluginTest` (empty refs allowed with no store reads, no-tenantId rejected, unknown reference rejected, two refs colliding rejected, a ref colliding with flat config rejected, a clean reference allowed) |
 | GIMLE-583 | gimle-agent | Narrowed config delivery to instances declaring `configMapRefs` | Configuration Management | Covered indirectly through `AssignedInstance`'s own back-compat-constructor tests and `ApiServerConfigMapTest`'s batch-get coverage; no dedicated `AgentMainTest` fixture exists for `fetchConfigMaps`/`deliverConfig`'s narrowed branch specifically (see gapNote in rtm.json). |
 | GIMLE-632 | gimle-console | Toast notifications render app-wide (write failures, and every other toast call site) | Console | No direct test; verified by a full app build plus the existing 254-test Vitest suite passing unchanged |
+| GIMLE-750 | gimle-controlplane | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | Control plane / API server | ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout. |
 | GIMLE-661 | gimle-core | Per-kind RBAC via the CUSTOM_RESOURCE permission qualifier ({kind} for specs, {kind}/status for status only) | Custom Kinds (Galdr) | `CustomResourceQualifierAuthzTest` (gimle-controlplane), `AuthorizerTest` qualifier cases (gimle-mimir) |
 | GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip) |
 | GIMLE-664 | gimle-console | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests) |

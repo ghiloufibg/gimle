@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 749
+- **Total requirements**: 750
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 622
-- **Release-readiness (automated coverage)**: 17.0%
+- **Not covered by automated test**: 623
+- **Release-readiness (automated coverage)**: 16.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 53 | 6 | 47 | 11.3% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 104 | 17 | 87 | 16.3% |
+| gimle-controlplane | 105 | 17 | 88 | 16.2% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -1111,6 +1111,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-581 | ConfigMap store and API with optimistic-concurrency writes | Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote. | No |
+
+#### Control plane / API server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-750 | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | Given the control plane's general admission budget is set to a small number When a concurrent flood of ordinary API requests well past that budget arrives Then every request resolves to a fast 200 or 429, never a hang or timeout, and at least one request is rejected Given the same flood is saturating the general admission lane When a node agent concurrently sends its own heartbeat requests Then every heartbeat request still succeeds, because it draws from its own reserved admission lane | No |
 
 #### Custom Kinds (Galdr)
 

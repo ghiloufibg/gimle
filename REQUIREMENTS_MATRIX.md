@@ -759,6 +759,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-747 | Gateway route-table and server fields are guarded under one monitor | Internal/Infra | Complete | Partial |
 | GIMLE-748 | A closed Bifrost service listener never serves one more connection | Networking | Complete | Yes |
 | GIMLE-749 | Proxied query parameters are URL-encoded rather than relayed decoded | Internal/Infra | Complete | Yes |
+| GIMLE-750 | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | Control plane / API server | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -6266,6 +6267,24 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a proxied request whose query value contains a space
   When the control plane forwards it upstream
   Then the value arrives intact rather than producing an invalid URI
+  ```
+
+#### GIMLE-750 — ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic
+
+- **Category**: Control plane / API server
+- **User story**: As a platform operator, I want a flood of ordinary API traffic to be turned away with fast 429s once past a concurrency budget, and a node agent's own heartbeat/assignment traffic to keep succeeding regardless, so a flood on one read route cannot exhaust the process and cascade into the control plane mistaking a live node for a dead one.
+- **Status**: Fixed: closes Forseti finding M1. ApiServer's HttpServer/HttpsServer ran every route on Executors.newVirtualThreadPerTaskExecutor() with no admission control in front of it -- RequestRateLimiter (csrAddressRateLimiter/csrClusterRateLimiter) and LoginThrottle only ever governed acceptance rate on /bootstrap/csr and /auth/login specifically, so a large concurrent flood against any other route (GET /deployments in the reported incident) was accepted and dispatched without limit until raw thread/connection volume exhausted the JVM, well before any 429 path was ever reached. A large enough flood then starved the node agent's own /nodes/{nodeId}/heartbeat calls sharing the same unbounded executor, which the control plane read as the node having gone dark, triggering a mass rescheduling of that node's instances. Added ConcurrencyLimiter (gimle-core, a non-blocking Semaphore-backed admission gate distinct from RequestRateLimiter's time-based budget) and wired two independent instances into ApiServer#instrument, which now runs admission control before any handler work begins: generalAdmission (default 200 concurrent, gimle.controlplane.admission.maxConcurrentRequests) gates every ordinary route, and a separate nodeAdmission (default 64 concurrent, gimle.controlplane.admission.maxConcurrentNodeRequests) gates only the "nodes" endpoint -- register/heartbeat/assignments/cordon/taint/events under /nodes/{nodeId}/... -- so a flood that fully saturates the general lane can never leave the node lane with nothing to acquire. A caller finding no permit free gets an immediate 429 with Retry-After, never dispatched to the delegate at all.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/throttle/ConcurrencyLimiter.java` (new), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`generalAdmission`, `nodeAdmission`, `instrument`, `ADMISSION_GENERAL_LIMIT_PROPERTY`, `ADMISSION_NODE_LIMIT_PROPERTY`)
+- **Test coverage**: ConcurrencyLimiterTest (6): admits exactly up to the limit then refuses, a released slot is reacquired, inFlight() tracking, a refusal claims no slot, non-positive limit rejected, and exactly the configured limit admitted under 100 racing virtual threads holding their slots open. ApiServerAdmissionControlTest drives a real 400-request concurrent flood against a real ApiServer's GET /deployments with the general admission budget set to 4, asserting every response is a definite 200 or 429 (never a hang/timeout) with at least one real rejection, while a concurrent node-heartbeat hammer running for the flood's full duration gets 200 on every single call.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the control plane's general admission budget is set to a small number
+  When a concurrent flood of ordinary API requests well past that budget arrives
+  Then every request resolves to a fast 200 or 429, never a hang or timeout, and at least one request is rejected
+  Given the same flood is saturating the general admission lane
+  When a node agent concurrently sends its own heartbeat requests
+  Then every heartbeat request still succeeds, because it draws from its own reserved admission lane
   ```
 
 ### gimle-fafnir
