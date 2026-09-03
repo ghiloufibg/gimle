@@ -67,16 +67,25 @@ Only the focused table shows a cursor, so it is never ambiguous which one `⏎` 
 - A live tail of its own logs, seeded with recent backlog so a quiet instance still shows the lines
   that explain how it got here. `c` switches between the `APPLICATION` and `PLATFORM` categories.
 
-**Activity view** — `a` from the cluster view:
+**Activity view** — `a` from the cluster view, `c` to switch feed:
 
-- What has been done to this cluster, newest first: who asked, of what, and whether it was allowed
-  and applied. `/` filters by principal or target; refusals are counted on the status line.
-- It is the **authorization** trail, and says so. An instance's own lifecycle transitions are a
-  different record, readable only per instance in the drill-down — the control plane serves no
-  cluster-wide lifecycle feed.
-- It is the one read here gated on a permission of its own. A caller whose certificate lacks it is
-  told exactly that, because an empty feed would read as a quiet cluster.
-- Like the services view, it polls only while it is open.
+Three records of what is going on, sharing one table because they read the same shape. The label
+always names which one is showing — they answer different questions, and a feed mistaken for
+another would silently omit exactly what was being looked for.
+
+- **audit** — authorization decisions: who asked, of what, and whether it was allowed. A decision
+  refused for want of permission reads `DENIED`; one refused on its merits reads `REJECTED`.
+- **lifecycle** — instance transitions across every workload, from the cluster-wide events read.
+  This is the same record the drill-down shows for one instance, without having to pick one first.
+- **alerts** — declared alert rules and whether each is currently firing. Firing rules sort first.
+  A disabled rule says so without being asked; a rule the control plane has no reading for yet
+  reads `UNKNOWN` rather than being reported as quiet.
+
+`/` filters, `m` loads older entries on the two paged feeds, and the status line counts the rows
+worth finding — refusals, or firing rules. Each feed is gated on a permission of its own; a caller
+whose certificate lacks one is told exactly that, because an empty feed would read as a quiet
+cluster. Like the services view this polls only while open — the alert feed additionally costs one
+request per declared rule, since the rule list carries no firing state of its own.
 
 **Services view** — `s` from the cluster view:
 
@@ -97,8 +106,8 @@ Only the focused table shows a cursor, so it is never ambiguous which one `⏎` 
 | `tab` | move the cursor between the node and instance tables |
 | `o` | cycle the sort: name, state, then each metric worst-first |
 | `s` | services and the endpoints they resolve to |
-| `a` | what has been done to this cluster, newest first |
-| `m` | load older decisions (activity view) |
+| `a` | cluster activity; `c` switches audit / lifecycle / alerts |
+| `m` | load older entries (activity view, audit and lifecycle feeds) |
 | `esc` | back to the cluster view |
 | `/` | filter; `enter` applies, `esc` clears |
 | `p` | pause / resume refresh |
@@ -145,10 +154,10 @@ carries meaning on its own:
   ordinary Job — so its firings appear in the table as Jobs. A Job's live run does appear, keyed by
   its attempt, which is the same wire field as an instance's index; a run that has already finished
   is left out rather than drawn as one still waiting to start.
-- **A DaemonSet never reads as short of replicas.** Its desired count is "one per eligible node",
-  which the control plane does not compute and therefore does not serve — so a DaemonSet missing
-  from a node is not something this view can report, and it does not invent a number to imply
-  otherwise.
+- **A DaemonSet's shortfall comes from the control plane, not from arithmetic here.** It declares
+  no `replicas` of its own — its desired count is one per eligible node, which only the scheduler
+  can work out — so the view reads the `desired` count the control plane publishes. A workload
+  carrying neither reports nothing to be short of rather than guessing.
 - **A limit reads differently per tier.** The instance view shows the declared isolation tier and
   resource limit, and draws measured memory against that limit only for `TIER_2`, where the
   instance has a dedicated worker JVM started with that figure as its own `-Xmx`. A `TIER_1`

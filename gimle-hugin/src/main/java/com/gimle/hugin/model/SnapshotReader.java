@@ -86,7 +86,7 @@ public final class SnapshotReader {
               kind,
               optionalString(spec.get("tenantId")),
               name,
-              (int) number(spec.get("replicas")),
+              desiredCount(spec, deployment),
               placed,
               (int) number(deployment.get("unplacedCount")),
               Boolean.TRUE.equals(deployment.get("quotaViolating")),
@@ -272,6 +272,21 @@ public final class SnapshotReader {
     Map<String, Object> asInstance = new LinkedHashMap<>(run);
     asInstance.put("instanceIndex", number(run.get("attempt")));
     return List.of(asInstance);
+  }
+
+  /**
+   * What the workload asked to run. A Deployment and a StatefulSet declare {@code replicas} in
+   * their own spec; a DaemonSet has no such number to declare -- its desired count is one per
+   * eligible node -- so the control plane computes it and publishes it as {@code desired} on the
+   * status instead. Neither is read as a fallback for a missing other: whichever the kind actually
+   * carries is the honest figure, and a kind carrying neither reports nothing to be short of.
+   */
+  private static int desiredCount(
+      final Map<String, Object> spec, final Map<String, Object> workload) {
+    return (int)
+        (spec.get("replicas") instanceof Number
+            ? number(spec.get("replicas"))
+            : number(workload.get("desired")));
   }
 
   /** A JSON array read as strings, dropping any element that is not one. */

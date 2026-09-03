@@ -181,7 +181,7 @@ final class StatusBar {
     return keyBar(
         painter,
         viewport,
-        List.of("esc back", "/ filter", "m more", "p pause", "? help", "q quit"));
+        List.of("esc back", "c feed", "/ filter", "m more", "p pause", "? help", "q quit"));
   }
 
   static String nodeKeys(final Painter painter, final Viewport viewport) {

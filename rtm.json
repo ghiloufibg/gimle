@@ -13897,10 +13897,10 @@
       "feature": "DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments",
       "category": "CLI UX",
       "status": "New",
-      "statusNote": "New requirement: /daemonsets and /statefulsets are read alongside /deployments into one flat table with a KIND column, which a narrow terminal drops rather than paying for out of the workload name. Jobs and CronJobs stay out: they report a run and an attempt, not a live instance list.",
+      "statusNote": "New requirement: /daemonsets and /statefulsets are read alongside /deployments into one flat table with a KIND column, which a narrow terminal drops rather than paying for out of the workload name. A DaemonSet's desired count is read from the `desired` the control plane computes for it, since it declares no replicas of its own. Jobs and CronJobs stay out: they report a run and an attempt, not a live instance list.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "otherTestCoverage": "gimle-hugin's SnapshotReaderTest (all three kinds in one ordered table, an unserved kind costing only its own rows, a DaemonSet declaring no replica count) and ClusterScreenTest (the KIND column, and its removal on a narrow terminal).",
+      "otherTestCoverage": "gimle-hugin's SnapshotReaderTest (all three kinds in one ordered table, an unserved kind costing only its own rows, a DaemonSet's shortfall read from its computed desired count, and a workload carrying neither figure) and ClusterScreenTest (the KIND column, and its removal on a narrow terminal).",
       "sourceLocations": [
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadKind.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
@@ -13946,19 +13946,19 @@
     },
     {
       "id": "GIMLE-803",
-      "module": "gimle-console",
-      "feature": "Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array",
-      "category": "Web Console / Frontend",
+      "module": "gimle-hugin",
+      "feature": "The activity view reads three cluster records: authorization, lifecycle and alerts",
+      "category": "CLI UX",
       "status": "New",
-      "statusNote": "New requirement: Fixed. ReplicaGrid on the Topology screen labeled and highlighted each badge by its position in the instances array rather than the instance's own instanceIndex, mislabeling badges whenever the control plane returned instances out of ascending-index order. The badge-slot computation is now a pure, tested function (replicaBadgeSlots) that sorts by instanceIndex first.",
+      "statusNote": "New requirement: the activity view gained a feed mode cycled with `c`, consuming the three cluster-wide reads the control plane now serves -- /audit, the cluster-wide branch of /events, and /alertrules with per-rule firing state. Keeps DENIED distinct from REJECTED and DISABLED/UNKNOWN distinct from OK, and polls only while open.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang Cucumber scenario drives the Topology screen against a real cluster returning instances out of order; coverage today is a pure-function Vitest suite only.",
-      "otherTestCoverage": "`lib/topology.test.ts` -- see requirements-matrix.json for detail",
+      "otherTestCoverage": "gimle-hugin's ActivityReaderTest (all three feeds' parses and their degraded shapes) and ActivityScreenTest (per-feed labelling, headings, colour and width).",
       "sourceLocations": [
-        "`gimle-console/src/lib/topology.ts`",
-        "`gimle-console/src/routes/topology.tsx`"
-      ]
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The three routes themselves are reachable from a scenario; the screen that renders them is not."
     },
     {
       "id": "GIMLE-804",

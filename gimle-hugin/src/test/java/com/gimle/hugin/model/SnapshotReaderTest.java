@@ -309,9 +309,35 @@ class SnapshotReaderTest {
   }
 
   @Test
-  void a_daemon_set_declares_no_replica_count_so_it_never_reads_as_short_of_one() {
-    // A DaemonSet's desired count is "one per eligible node", which the control plane does not
-    // serve -- so there is no shortfall to compute and claiming one would be invented.
+  void a_daemon_set_reads_its_shortfall_from_the_desired_count_the_control_plane_computes() {
+    // A DaemonSet declares no replicas of its own -- its desired count is one per eligible node,
+    // which only the control plane can work out, so it publishes it on the status instead.
+    FakeClusterReader reader =
+        new FakeClusterReader()
+            .withList("/nodes", List.of(Fixtures.node("node-alpha", 0, 4000, 0, 8)))
+            .withList(
+                "/daemonsets",
+                List.of(
+                    Map.of(
+                        "spec",
+                        Map.of("name", "log-shipper"),
+                        "desired",
+                        3,
+                        "unplacedCount",
+                        2,
+                        "instances",
+                        List.of(Fixtures.instance(0, "node-alpha", "ACTIVE", 0, 0)))));
+
+    WorkloadRow row = new SnapshotReader(reader).read().workloads().getFirst();
+
+    assertEquals(WorkloadKind.DAEMON_SET, row.kind());
+    assertEquals(3, row.desiredReplicas());
+    assertFalse(row.settled());
+    assertTrue(row.problem().contains("1 of 3 placed"), row.problem());
+  }
+
+  @Test
+  void a_workload_carrying_neither_replicas_nor_a_desired_count_reports_nothing_to_be_short_of() {
     FakeClusterReader reader =
         new FakeClusterReader()
             .withList("/nodes", List.of(Fixtures.node("node-alpha", 0, 4000, 0, 8)))
@@ -322,18 +348,7 @@ class SnapshotReaderTest {
                         "spec", Map.of("name", "log-shipper"),
                         "instances", List.of(Fixtures.instance(0, "node-alpha", "ACTIVE", 0, 0)))));
 
-    WorkloadRow row = new SnapshotReader(reader).read().workloads().getFirst();
-
-    assertEquals(WorkloadKind.DAEMON_SET, row.kind());
-    assertTrue(row.settled());
-  }
-
-  private static WorkloadRow workloadFrom(final Map<String, Object> deployment) {
-    FakeClusterReader reader =
-        new FakeClusterReader()
-            .withList("/nodes", List.of(Fixtures.node("node-alpha", 0, 4000, 0, 8)))
-            .withList("/deployments", List.of(deployment));
-    return new SnapshotReader(reader).read().workloads().getFirst();
+    assertTrue(new SnapshotReader(reader).read().workloads().getFirst().settled());
   }
 
   @Test
@@ -402,6 +417,14 @@ class SnapshotReaderTest {
     ClusterSnapshot snapshot = new SnapshotReader(reader).read();
 
     assertTrue(snapshot.instances().isEmpty(), snapshot.instances().toString());
+  }
+
+  private static WorkloadRow workloadFrom(final Map<String, Object> deployment) {
+    FakeClusterReader reader =
+        new FakeClusterReader()
+            .withList("/nodes", List.of(Fixtures.node("node-alpha", 0, 4000, 0, 8)))
+            .withList("/deployments", List.of(deployment));
+    return new SnapshotReader(reader).read().workloads().getFirst();
   }
 
   private static Map<String, Object> withIsolation(

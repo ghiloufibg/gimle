@@ -296,6 +296,8 @@ public final class Hugin {
       closeActivity();
     } else if (key.isChar('/')) {
       ui.beginFilter();
+    } else if (key.isChar('c')) {
+      cycleActivityFeed();
     } else if (key.isChar('m') && activityReader != null) {
       activityReader.loadMore();
       activityPoller.refreshNow();
@@ -311,17 +313,28 @@ public final class Hugin {
   }
 
   /**
-   * Like the services screen, this polls only while it is open: the audit trail is a read an
-   * operator opens deliberately, and one nobody is looking at is a request per interval for a
-   * permission not every caller even has.
+   * Like the services screen, this polls only while it is open: these are reads an operator opens
+   * deliberately, and one nobody is looking at is a request per interval for a permission not every
+   * caller even has -- the alert feed additionally costing one request per declared rule.
    */
   private void openActivity() {
     ui.showActivity();
-    activityReader = new ActivityReader(reader);
+    startActivityPoller();
+  }
+
+  /** Switching feed replaces the poller: each reads a different route and pages independently. */
+  private void cycleActivityFeed() {
+    ui.cycleFeedMode();
+    closeActivityPoller();
+    startActivityPoller();
+  }
+
+  private void startActivityPoller() {
+    activityReader = new ActivityReader(reader, ui.feedMode());
     activityPoller =
         new SnapshotPoller<>(
             activityReader::read,
-            ActivitySnapshot.connecting(reader.serverAddress()),
+            ActivitySnapshot.connecting(reader.serverAddress(), ui.feedMode()),
             intervals.activity(),
             "hugin-activity");
     activityPoller.start();

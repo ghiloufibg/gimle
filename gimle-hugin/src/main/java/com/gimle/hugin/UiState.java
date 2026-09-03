@@ -1,5 +1,6 @@
 package com.gimle.hugin;
 
+import com.gimle.hugin.model.FeedMode;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
@@ -36,6 +37,7 @@ public final class UiState {
   private boolean helpVisible;
   private boolean viewingServices;
   private boolean viewingActivity;
+  private FeedMode feedMode = FeedMode.AUDIT;
   private SortKey sortKey = SortKey.NAME;
   private NodeSortKey nodeSortKey = NodeSortKey.ID;
 
@@ -151,6 +153,14 @@ public final class UiState {
   /** Cycles the node ordering. Which table {@code o} acts on follows the cursor's own focus. */
   public void cycleNodeSort() {
     nodeSortKey = nodeSortKey.next();
+  }
+
+  public FeedMode feedMode() {
+    return feedMode;
+  }
+
+  public void cycleFeedMode() {
+    feedMode = feedMode.next();
   }
 
   public boolean viewingActivity() {

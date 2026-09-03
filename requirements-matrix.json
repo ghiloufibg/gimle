@@ -16305,7 +16305,7 @@
       "feature": "DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments",
       "category": "CLI UX",
       "userStory": "As an operator, I want every long-running workload kind in one table, so that the live view is not silently blind to two thirds of what is running.",
-      "statusDetail": "Complete. `/daemonsets` and `/statefulsets` serve the identical `status.instances[].observation` shape `/deployments` does, and the platform keys an instance on the tenant-scoped `(name, index)` pair regardless of kind, so the existing instance identity, event route and log route all carry over unchanged. All three are read into one flat name-ordered table with a `KIND` column, which is dropped below 100 columns rather than paid for out of the workload name: the kind is the same word on most rows, the name is what identifies one, and the kind stays reachable through the filter and the drill-down. Jobs and CronJobs are deliberately excluded -- they report a run and an attempt rather than a live instance list, which is a different thing to draw. A DaemonSet never reads as short of replicas: its desired count is one per eligible node, which the control plane does not compute and does not serve, so no shortfall is inferred for it.",
+      "statusDetail": "Complete. `/daemonsets` and `/statefulsets` serve the identical `status.instances[].observation` shape `/deployments` does, and the platform keys an instance on the tenant-scoped `(name, index)` pair regardless of kind, so the existing instance identity, event route and log route all carry over unchanged. All three are read into one flat name-ordered table with a `KIND` column, which is dropped below 100 columns rather than paid for out of the workload name: the kind is the same word on most rows, the name is what identifies one, and the kind stays reachable through the filter and the drill-down. Jobs and CronJobs are deliberately excluded -- they report a run and an attempt rather than a live instance list, which is a different thing to draw. A DaemonSet reads its shortfall like any other kind: it declares no `replicas` of its own -- its desired count is one per eligible node -- so the control plane computes that number and publishes it as `desired` on the status, which is where the table reads it from. Neither field is a fallback for the other: whichever the kind actually carries is the honest figure, and a kind carrying neither reports nothing to be short of.",
       "confidence": "High",
       "sourceLocations": [
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadKind.java`",
@@ -16313,7 +16313,7 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/InstanceLayout.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`"
       ],
-      "testCoverageDetail": "SnapshotReaderTest covers all three kinds landing in one name-ordered table with their kinds attached, a kind the control plane serves nothing for costing only its own rows, and a DaemonSet never reading as short of a replica count it does not declare. ClusterScreenTest covers the KIND column and header, and a narrow terminal dropping that column rather than truncating every workload name.",
+      "testCoverageDetail": "SnapshotReaderTest covers all three kinds landing in one name-ordered table with their kinds attached, a kind the control plane serves nothing for costing only its own rows, and a DaemonSet reading its shortfall from the computed desired count instead of the replicas it does not declare. ClusterScreenTest covers the KIND column and header, and a narrow terminal dropping that column rather than truncating every workload name.",
       "gherkinSteps": [
         "Given a cluster running a Deployment, a DaemonSet and a StatefulSet",
         "When an operator runs `gimle top`",
@@ -16370,23 +16370,26 @@
     },
     {
       "id": "GIMLE-803",
-      "module": "gimle-console",
-      "feature": "Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array",
-      "category": "Web Console / Frontend",
-      "userStory": "As an operator reading the Topology screen's per-replica badges, I want each badge's \"instance N\" label to name the real instance it represents, so I can trust which replica index actually sits on which node instead of a label that silently swaps whenever the control plane returns instances out of ascending-index order.",
-      "statusDetail": "Fixed. `ReplicaGrid` (the Topology screen's per-deployment row of placement squares) labeled and highlighted each badge by its position `i` in `d.instances`, not `d.instances[i].instanceIndex` -- correct only when the control plane happens to return instances already sorted by ascending index. Confirmed against a real 3-replica deployment whose instances array arrived in descending order (indices 2, 1, 0 for agent-2/agent-1/agent-edge respectively): the console mislabeled instance 0 as agent-edge and instance 2 as agent-2 -- indices 0 and 2 swapped -- while index 1 (the one entry whose array position happened to coincidentally match its own instanceIndex) rendered correctly, reproduced identically in both the \"by tenant\" and \"by node\" groupings. The badge-slot computation is now a pure, tested function (`replicaBadgeSlots`, `gimle-console/src/lib/topology.ts`) that sorts a copy of the instances by their own `instanceIndex` before building the badge list and pads trailing `null` slots for any replica the manifest asks for but nothing has placed yet, so a badge's label and its node-hover-highlight behavior always describe the instance actually rendered at that position regardless of the API's own array order. `topology-drawer.tsx`'s own instance rows already read `instanceIndex` correctly and needed no change.",
+      "module": "gimle-hugin",
+      "feature": "The activity view reads three cluster records: authorization, lifecycle and alerts",
+      "category": "CLI UX",
+      "userStory": "As an operator, I want the three records of what is going on in this cluster in one place, so that finding out why something changed does not mean guessing which surface holds the answer.",
+      "statusDetail": "Complete. `a` opens the view and `c` cycles it through the three feeds the control plane now serves cluster-wide: the audit trail (`GET /audit`), instance lifecycle transitions (`GET /events` with neither a deployment nor an instance named), and declared alert rules with their firing state (`GET /alertrules` plus `/alertrules/{name}/firing` per rule). They share one table because they read the same shape -- when, who or what, the action, the state, the subject -- and the label always names which record is showing, since a feed mistaken for another would silently omit exactly what was being looked for. Distinctions kept rather than flattened: a decision refused for want of permission reads DENIED and one refused on its merits REJECTED; a disabled alert rule says so without being asked, and a rule the control plane has no reading for reads UNKNOWN rather than being reported as quiet. The lifecycle feed widens its own state column because TRANSITION_FAILED is both the longest kind and the one an operator opened the feed to find. Each feed is gated on its own permission and reports a refusal as such rather than as an empty feed; switching feed replaces the poller, since each reads a different route and pages independently, and the whole view polls only while open -- the alert feed additionally costing one request per rule, the rule list carrying no firing state of its own.",
       "confidence": "High",
       "sourceLocations": [
-        "`gimle-console/src/lib/topology.ts` (`replicaBadgeSlots`)",
-        "`gimle-console/src/routes/topology.tsx` (`ReplicaGrid`)"
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/FeedMode.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/FeedRow.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`"
       ],
-      "testCoverageDetail": "`lib/topology.test.ts` (new): orders_slots_by_each_instance's_own_instanceIndex,_not_the_array's_arrival_order (reproduces the exact reported case -- three instances at indices 0/1/2 returned as 2, 1, 0), already-ordered_input_stays_in_the_same_order, pads_trailing_null_slots_for_replicas_the_manifest_asks_for_but_nothing_has_placed_yet, and never_truncates_below_the_placed_count_even_if_replicas_somehow_reports_fewer.",
+      "testCoverageDetail": "ActivityReaderTest covers each feed's parse: audit newest-first ordering with DENIED distinct from REJECTED and a principal-less event dropped alone; lifecycle rows built from the cluster-wide events read with their cause folded in, and an event naming no deployment dropped; alerts asking each enabled rule for its firing state with firing sorted first, a disabled rule never asked at all, an unknown reading never reported as quiet, and the feed never paging. ActivityScreenTest covers each feed naming itself, the per-feed column headings, an alert rule showing no time because it is a standing declaration, a firing rule and a failed transition both reading as bad in words, width at 80/200 columns and a no-colour frame carrying no escape sequences.",
       "gherkinSteps": [
-        "Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array.",
-        "Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance."
+        "Given a cluster with a refused request, a failed instance transition and a firing alert rule",
+        "When an operator presses `a` and cycles the feed with `c`",
+        "Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line"
       ],
-      "statusSummary": "Fixed",
-      "testCoverageLevel": "Yes"
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Unit only"
     },
     {
       "id": "GIMLE-804",
