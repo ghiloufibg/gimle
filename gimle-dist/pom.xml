@@ -15,9 +15,9 @@
 
   <name>Gimle Dist</name>
   <description>
-    Packages the platform's own already-built jars into four audience-specific distribution
-    tarballs (a cluster-machine platform archive, a standalone CLI archive, a standalone Hilmir
-    archive, and the Midgard Docker dev-cluster build context) -- no Java sources of its own,
+    Packages the platform's own already-built jars into six audience-specific distribution
+    tarballs (a cluster-machine platform archive; standalone CLI, Hilmir, Ragnarok, and Ivaldi
+    archives; and the Midgard Docker dev-cluster build context) -- no Java sources of its own,
     only assembly descriptors, the two shell wrapper scripts every archive ships, and the Midgard
     archive's Docker/topology/seeding files.
   </description>
@@ -71,6 +71,10 @@
     </dependency>
     <dependency>
       <groupId>com.gimle</groupId>
+      <artifactId>gimle-ivaldi</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
       <artifactId>gimle-ragnarok</artifactId>
     </dependency>
     <dependency>
@@ -121,7 +125,7 @@
     empirically verified by the root pom's own runtime-image profile. Duplicated rather than
     referenced across the module boundary, matching this codebase's own established convention for
     small, stable, cross-module config (see ControlPlaneApi/ExtensionFlags/ProbeInterfaces' own
-    javadoc for the precedent): gimle-dist depends on these eight modules' already-built jars only,
+    javadoc for the precedent): gimle-dist depends on these eleven modules' already-built jars only,
     never on their POMs' own properties. gimle-agent and gimle-worker deliberately have no property
     here at all: this feature never bundles a JRE for either (see the dist-with-jre profile's own
     comment for why).
@@ -148,6 +152,8 @@
     <!-- duplicated from gimle-cli/pom.xml's own gimle.runtimeImage.jdkModules; java.logging is
          there for JLine, which this archive ships alongside gimle-hugin for the `top` verb -->
     <gimle.dist.jre.cli.jdkModules>java.base,java.net.http,java.logging</gimle.dist.jre.cli.jdkModules>
+    <!-- duplicated from gimle-ivaldi/pom.xml's own gimle.runtimeImage.jdkModules -->
+    <gimle.dist.jre.ivaldi.jdkModules>java.base,java.xml,java.naming,jdk.httpserver</gimle.dist.jre.ivaldi.jdkModules>
     <!-- duplicated from gimle-ragnarok/pom.xml's own gimle.runtimeImage.jdkModules -->
     <gimle.dist.jre.ragnarok.jdkModules>java.base,java.net.http</gimle.dist.jre.ragnarok.jdkModules>
 
@@ -272,6 +278,20 @@
               <appendAssemblyId>false</appendAssemblyId>
             </configuration>
           </execution>
+          <execution>
+            <id>ivaldi</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/main/assembly/ivaldi.xml</descriptor>
+              </descriptors>
+              <finalName>gimle-ivaldi-${project.version}</finalName>
+              <appendAssemblyId>false</appendAssemblyId>
+            </configuration>
+          </execution>
           <!--
             Deliberately not given a -with-jre override by the dist-with-jre profile: the Midgard
             image runs everything on its base image's own full JRE (see the Dockerfile's comment
@@ -351,6 +371,8 @@
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <checksum file="${project.build.directory}/gimle-ragnarok-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
+                <checksum file="${project.build.directory}/gimle-ivaldi-${project.version}.tar.gz"
+                          algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <checksum file="${project.build.directory}/gimle-midgard-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <copy file="${project.build.directory}/bom-platform.json"
@@ -395,6 +417,8 @@
                       tofile="${project.build.directory}/gimle-hilmir-${project.version}-cyclonedx.json"/>
                 <copy file="${project.basedir}/../gimle-ragnarok/target/bom.json"
                       tofile="${project.build.directory}/gimle-ragnarok-${project.version}-cyclonedx.json"/>
+                <copy file="${project.basedir}/../gimle-ivaldi/target/bom.json"
+                      tofile="${project.build.directory}/gimle-ivaldi-${project.version}-cyclonedx.json"/>
               </target>
             </configuration>
           </execution>
@@ -651,6 +675,25 @@
                   </arguments>
                 </configuration>
               </execution>
+              <execution>
+                <id>jlink-ivaldi</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>exec</goal>
+                </goals>
+                <configuration>
+                  <executable>${java.home}/bin/jlink</executable>
+                  <arguments>
+                    <argument>--add-modules</argument>
+                    <argument>${gimle.dist.jre.ivaldi.jdkModules}</argument>
+                    <argument>--output</argument>
+                    <argument>${project.build.directory}/jre-images/ivaldi/jre</argument>
+                    <argument>--strip-debug</argument>
+                    <argument>--no-header-files</argument>
+                    <argument>--no-man-pages</argument>
+                  </arguments>
+                </configuration>
+              </execution>
             </executions>
           </plugin>
 
@@ -775,6 +818,20 @@
                     <descriptor>src/main/assembly/ragnarok-with-jre.xml</descriptor>
                   </descriptors>
                   <finalName>gimle-ragnarok-${project.version}</finalName>
+                  <appendAssemblyId>false</appendAssemblyId>
+                </configuration>
+              </execution>
+              <execution>
+                <id>ivaldi</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>single</goal>
+                </goals>
+                <configuration>
+                  <descriptors combine.self="override">
+                    <descriptor>src/main/assembly/ivaldi-with-jre.xml</descriptor>
+                  </descriptors>
+                  <finalName>gimle-ivaldi-${project.version}</finalName>
                   <appendAssemblyId>false</appendAssemblyId>
                 </configuration>
               </execution>

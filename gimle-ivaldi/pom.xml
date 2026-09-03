@@ -20,10 +20,18 @@
     output against the real Hilmir and Mimir parsers -- the same TopologyParser/TopologyValidator/
     BundleParser/ManifestParser a real hilmir up/deploy would run -- so a design is checked against
     the platform's own rules before anything is run. Driving a real local hilmir up/deploy is a
-    later addition, once the console's own run-panel contract is settled. A development tool,
-    deliberately unauthenticated and loopback-bound by default, never part of a deployed Gimle
-    cluster's own process topology -- the same posture gimle-saga already established.
+    later addition, once the console's own run-panel contract is settled. Deliberately
+    unauthenticated and loopback-bound by default, the same posture gimle-saga already
+    established, but -- unlike Saga -- meant to reach an operator or developer with no source
+    checkout: it ships in gimle-dist (standalone archive and bundled into the platform archive),
+    the same distribution posture as gimle-hilmir/gimle-cli, not gimle-saga's dev-tree-only one.
   </description>
+
+  <properties>
+    <!-- Runtime-image profile (root pom): see gimle-agent/pom.xml for how this list was derived. -->
+    <gimle.runtimeImage.launcherClass>com.gimle.ivaldi.IvaldiMain</gimle.runtimeImage.launcherClass>
+    <gimle.runtimeImage.jdkModules>java.base,java.xml,java.naming,jdk.httpserver</gimle.runtimeImage.jdkModules>
+  </properties>
 
   <dependencies>
     <dependency>

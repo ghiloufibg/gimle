@@ -7,10 +7,10 @@
     dist-with-jre-profile-built jlink JRE (target/jre-images/<component>/jre) into the archive's own
     jre/<component>/. Never used by the default (no-profile) build: see the dist-with-jre profile's
     own comment in ../../../pom.xml for why this is a separate file rather than a change to
-    platform.xml itself. All nine safe components are bundled here (gimle-controlplane, gimle-mimir,
-    gimle-fafnir, gimle-muninn, gimle-andvari, gimle-skald, gimle-pki, gimle-hilmir, gimle-cli):
-    this archive already contains every one of their own jars, plus hilmir/gimle themselves.
-    Deliberately no
+    platform.xml itself. All ten safe components are bundled here (gimle-controlplane, gimle-mimir,
+    gimle-fafnir, gimle-muninn, gimle-andvari, gimle-skald, gimle-pki, gimle-hilmir, gimle-cli,
+    gimle-ivaldi): this archive already contains every one of their own jars, plus hilmir/gimle/
+    ivaldi themselves. Deliberately no
     jre/agent/ or jre/worker/: neither is ever bundled, see the profile's own comment for why.
 
     No fileMode is set on these fileSets, unlike the bin/ one below: an explicit fileMode would
@@ -39,6 +39,8 @@
         <include>hilmir.cmd</include>
         <include>gimle</include>
         <include>gimle.cmd</include>
+        <include>ivaldi</include>
+        <include>ivaldi.cmd</include>
       </includes>
     </fileSet>
     <fileSet>
@@ -76,6 +78,10 @@
     <fileSet>
       <directory>${project.build.directory}/jre-images/cli/jre</directory>
       <outputDirectory>jre/cli</outputDirectory>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/ivaldi/jre</directory>
+      <outputDirectory>jre/ivaldi</outputDirectory>
     </fileSet>
   </fileSets>
 

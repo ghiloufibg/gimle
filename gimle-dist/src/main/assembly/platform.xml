@@ -26,6 +26,8 @@
         <include>hilmir.cmd</include>
         <include>gimle</include>
         <include>gimle.cmd</include>
+        <include>ivaldi</include>
+        <include>ivaldi.cmd</include>
       </includes>
     </fileSet>
   </fileSets>

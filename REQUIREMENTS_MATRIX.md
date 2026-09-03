@@ -918,6 +918,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-906 | Blueprint document storage API | Cluster designer backend / Internal-Infra | Complete | Yes |
 | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Cluster designer backend / Internal-Infra | Complete | Yes |
 | GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-909 | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Complete | Manual |
 
 ## Detailed Requirements
 
@@ -13418,6 +13419,19 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Test coverage**: Manual: extracted archive's `bin/ragnarok --help` and `bin/ragnarok preflight` run correctly off only the archive's own bundled jars
 - **Gherkin scenario**:
   ```gherkin
+  ```
+
+#### GIMLE-909 — Ivaldi ships as a distribution archive (standalone and platform-bundled)
+
+- **Category**: Distribution / Internal-Infra
+- **User story**: As an operator or developer with no source checkout, I want to unpack a gimle-ivaldi-<version>.tar.gz (or the platform archive) and run bin/ivaldi directly, the same distribution posture gimle-hilmir/gimle-cli already have, rather than needing mvn gimle:ivaldi from a reactor.
+- **Status**: Complete
+- **Confidence**: High
+- **Source location(s)**: `gimle-dist/src/main/assembly/ivaldi.xml`, `ivaldi-with-jre.xml`, `gimle-dist/src/main/dist/bin/ivaldi`, `ivaldi.cmd`, `gimle-dist/pom.xml`
+- **Test coverage**: Manually verified end to end this change (no automated IT yet, matching gimle-hilmir/gimle-cli's own archives, which also have none): built the standalone and dist-with-jre archives, extracted both, ran bin/ivaldi with no JAVA_HOME against the bundled jre/ivaldi/ and confirmed /api/health, blueprint create/read, and topology validation all work; confirmed the platform archive's bin/ivaldi works the same way against the shared cluster lib/.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a freshly unpacked gimle-ivaldi-<version>.tar.gz built with -P dist-with-jre and no JAVA_HOME set, When I run ./bin/ivaldi, Then it launches against its own bundled jre/ivaldi/bin/java and answers GET /api/health.
   ```
 
 ### gimle-skald

@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 908,
+  "requirementCount": 909,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -18700,6 +18700,28 @@
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-909",
+      "module": "gimle-dist",
+      "feature": "Ivaldi ships as a distribution archive (standalone and platform-bundled)",
+      "category": "Distribution / Internal-Infra",
+      "userStory": "As an operator or developer with no source checkout, I want to unpack a gimle-ivaldi-<version>.tar.gz (or the platform archive) and run bin/ivaldi directly, the same distribution posture gimle-hilmir/gimle-cli already have, rather than needing mvn gimle:ivaldi from a reactor.",
+      "statusDetail": "Complete",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-dist/src/main/assembly/ivaldi.xml`",
+        "`ivaldi-with-jre.xml`",
+        "`gimle-dist/src/main/dist/bin/ivaldi`",
+        "`ivaldi.cmd`",
+        "`gimle-dist/pom.xml`"
+      ],
+      "testCoverageDetail": "Manually verified end to end this change (no automated IT yet, matching gimle-hilmir/gimle-cli's own archives, which also have none): built the standalone and dist-with-jre archives, extracted both, ran bin/ivaldi with no JAVA_HOME against the bundled jre/ivaldi/ and confirmed /api/health, blueprint create/read, and topology validation all work; confirmed the platform archive's bin/ivaldi works the same way against the shared cluster lib/.",
+      "gherkinSteps": [
+        "Given a freshly unpacked gimle-ivaldi-<version>.tar.gz built with -P dist-with-jre and no JAVA_HOME set, When I run ./bin/ivaldi, Then it launches against its own bundled jre/ivaldi/bin/java and answers GET /api/health."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Manual"
     }
   ]
 }

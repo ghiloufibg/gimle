@@ -1,0 +1,72 @@
+<assembly xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3 http://maven.apache.org/xsd/assembly-1.1.3.xsd">
+  <!--
+    The standalone Ivaldi archive: bin/ivaldi plus exactly gimle-ivaldi's own runtime dependency
+    closure, nothing else; confirmed via `mvn -pl gimle-ivaldi dependency:tree -Dscope=runtime`.
+    gimle-ivaldi depends on gimle-hilmir and gimle-mimir directly (its own tier-2 validation runs
+    the real TopologyParser/TopologyValidator/BundleParser/ManifestParser), which is why this
+    closure pulls in gimle-pki/BouncyCastle and gimle-observability/Micrometer/OpenTelemetry too,
+    gimle-mimir's own compile dependencies, not anything gimle-ivaldi calls directly. Omitting
+    any of them here would leave the very first blueprint validate/create call throwing an
+    uncaught NoClassDefFoundError from this archive, the same failure mode gimle-cli's own
+    dependency set already documents guarding against.
+  -->
+  <id>ivaldi</id>
+  <formats>
+    <format>tar.gz</format>
+  </formats>
+  <includeBaseDirectory>true</includeBaseDirectory>
+  <baseDirectory>gimle-ivaldi-${project.version}</baseDirectory>
+
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>lib</outputDirectory>
+      <useProjectArtifact>false</useProjectArtifact>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+      <includes>
+        <include>com.gimle:gimle-ivaldi</include>
+        <include>com.gimle:gimle-core</include>
+        <include>com.gimle:gimle-hilmir</include>
+        <include>com.gimle:gimle-mimir</include>
+        <include>com.gimle:gimle-pki</include>
+        <include>org.bouncycastle:bcpkix-jdk18on</include>
+        <include>org.bouncycastle:bcutil-jdk18on</include>
+        <include>org.bouncycastle:bcprov-jdk18on</include>
+        <include>com.gimle:gimle-observability</include>
+        <include>io.micrometer:micrometer-core</include>
+        <include>io.micrometer:micrometer-commons</include>
+        <include>io.micrometer:micrometer-observation</include>
+        <include>org.jspecify:jspecify</include>
+        <include>org.hdrhistogram:HdrHistogram</include>
+        <include>org.latencyutils:LatencyUtils</include>
+        <include>io.opentelemetry:opentelemetry-api</include>
+        <include>io.opentelemetry:opentelemetry-context</include>
+        <include>io.opentelemetry:opentelemetry-common</include>
+        <include>io.opentelemetry:opentelemetry-sdk</include>
+        <include>io.opentelemetry:opentelemetry-sdk-common</include>
+        <include>io.opentelemetry:opentelemetry-sdk-trace</include>
+        <include>io.opentelemetry:opentelemetry-sdk-metrics</include>
+        <include>io.opentelemetry:opentelemetry-sdk-logs</include>
+        <include>io.opentelemetry:opentelemetry-exporter-logging</include>
+        <include>org.yaml:snakeyaml</include>
+        <include>org.slf4j:slf4j-api</include>
+        <include>ch.qos.logback:logback-classic</include>
+        <include>ch.qos.logback:logback-core</include>
+      </includes>
+    </dependencySet>
+  </dependencySets>
+
+  <fileSets>
+    <fileSet>
+      <directory>${project.basedir}/src/main/dist/bin</directory>
+      <outputDirectory>bin</outputDirectory>
+      <fileMode>0755</fileMode>
+      <includes>
+        <include>ivaldi</include>
+        <include>ivaldi.cmd</include>
+      </includes>
+    </fileSet>
+  </fileSets>
+</assembly>

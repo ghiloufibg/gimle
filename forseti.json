@@ -544,8 +544,8 @@
       "environments": [
         "forge"
       ],
-      "objective": "Unpack every distribution archive (`gimle-platform`, `gimle-cli`, `gimle-hilmir`, `gimle-midgard`, `gimle-ragnarok`); verify each `.sha256` against its archive; open each archive's CycloneDX SBOM; run each `bin/` launcher with `-h`.",
-      "oracle": "Checksums pass; each SBOM lists that archive's own dependency set, not a copy of another's; every launcher prints scoped help and exits 0 — `hilmir -h` included, not treated as an unknown token.",
+      "objective": "Unpack every distribution archive (`gimle-platform`, `gimle-cli`, `gimle-hilmir`, `gimle-midgard`, `gimle-ragnarok`, `gimle-ivaldi`); verify each `.sha256` against its archive; open each archive's CycloneDX SBOM; run each `bin/` launcher with `-h`.",
+      "oracle": "Checksums pass; each SBOM lists that archive's own dependency set, not a copy of another's; every launcher prints scoped help and exits 0 -- `hilmir -h` included, not treated as an unknown token -- except `ivaldi -h`, which IvaldiMain reads no positional arguments at all (only -D system properties), so `-h` there is the underlying `java` launcher's own generic usage text, not a scoped one; still exits 0.",
       "requirements": [
         "GIMLE-560",
         "GIMLE-561",
@@ -553,7 +553,9 @@
         "GIMLE-564",
         "GIMLE-611",
         "GIMLE-635",
-        "GIMLE-642"
+        "GIMLE-642",
+        "GIMLE-849",
+        "GIMLE-909"
       ]
     },
     {

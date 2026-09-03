@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 907
+- **Total requirements**: 908
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 777
+- **Not covered by automated test**: 778
 - **Release-readiness (automated coverage)**: 14.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -40,7 +40,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
-| gimle-dist | 7 | 0 | 7 | 0.0% |
+| gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
 | gimle-ivaldi | 2 | 0 | 2 | 0.0% |
@@ -2457,6 +2457,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-642 | Standalone Ragnarok distribution archive | Manually verify: Standalone Ragnarok distribution archive. Packaging/distribution concern, not a platform behavior; verified manually (extracted archive's bin/ragnarok --help and preflight run correctly), not by any Holmgang scenario. | No |
+
+#### Distribution / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-909 | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Given a freshly unpacked gimle-ivaldi-<version>.tar.gz built with -P dist-with-jre and no JAVA_HOME set, When I run ./bin/ivaldi, Then it launches against its own bundled jre/ivaldi/bin/java and answers GET /api/health. | No |
 
 #### Packaging
 

@@ -4,8 +4,8 @@ sidebar_position: 7
 
 # Distribution archives
 
-`gimle-dist` packages the platform's own already-built jars into five audience-specific tarballs —
-no Java sources of its own, only `maven-assembly-plugin` descriptors, three wrapper scripts (each
+`gimle-dist` packages the platform's own already-built jars into six audience-specific tarballs —
+no Java sources of its own, only `maven-assembly-plugin` descriptors, four wrapper scripts (each
 shipped as both a POSIX `sh` version and a Windows `.cmd` version), and the Midgard archive's
 Docker/topology/seeding files. It's an opt-in reactor member the same way `gimle-docs` is: `mvn
 install` builds every module including `gimle-dist`, since `gimle-dist` is a plain (always-in)
@@ -18,50 +18,58 @@ mvn -pl gimle-dist -am install
 ```
 
 `-am` builds every module `gimle-dist` depends on first (every process-kind module, plus
-`gimle-hilmir`, `gimle-ragnarok`, `gimle-cli`, `gimle-gateway`, and the example modules the Midgard
-archive bundles); `gimle-dist` itself then assembles five tarballs under `gimle-dist/target/`, each
-with a `.sha256` checksum file and a CycloneDX SBOM (`*-cyclonedx.json`) beside it.
+`gimle-hilmir`, `gimle-ragnarok`, `gimle-ivaldi`, `gimle-cli`, `gimle-gateway`, and the example
+modules the Midgard archive bundles); `gimle-dist` itself then assembles six tarballs under
+`gimle-dist/target/`, each with a `.sha256` checksum file and a CycloneDX SBOM
+(`*-cyclonedx.json`) beside it.
 
 Add `-P dist-with-jre` to also bundle a per-component jlink JRE into each archive (see [Bundling a
 JRE into the archives](#bundling-a-jre-into-the-archives) below) — the default build above is
 completely unaffected by this profile's existence.
 
-## The five archives
+## The six archives
 
 | Archive | Audience | Contents |
 |---|---|---|
-| `gimle-platform-<version>.tar.gz` | Cluster machines | `bin/hilmir`(`.cmd`), `bin/gimle`(`.cmd`), a flat `lib/` holding every process-kind jar (`StoreMain`, `ControlPlaneMain`, `AgentMain`, `WorkerMain`, `FafnirMain`, `MuninnMain`, `AndvariMain`, `SkaldMain`, `PkiBootstrapMain`) plus `gimle-hilmir`/`gimle-cli` themselves and their full deduplicated runtime dependency closure, and a `modules/` directory holding `gimle-gateway`'s own jar (the hosted-module payload for a future `hilmir enable gateway` verb — not on any process's own classpath). |
+| `gimle-platform-<version>.tar.gz` | Cluster machines | `bin/hilmir`(`.cmd`), `bin/gimle`(`.cmd`), `bin/ivaldi`(`.cmd`), a flat `lib/` holding every process-kind jar (`StoreMain`, `ControlPlaneMain`, `AgentMain`, `WorkerMain`, `FafnirMain`, `MuninnMain`, `AndvariMain`, `SkaldMain`, `PkiBootstrapMain`) plus `gimle-hilmir`/`gimle-cli`/`gimle-ivaldi` themselves and their full deduplicated runtime dependency closure, and a `modules/` directory holding `gimle-gateway`'s own jar (the hosted-module payload for a future `hilmir enable gateway` verb — not on any process's own classpath). |
 | `gimle-cli-<version>.tar.gz` | A workstation that only needs the `gimle` client | `bin/gimle`(`.cmd`) plus exactly `gimle-cli`'s own runtime dependency closure. Nothing else. |
 | `gimle-hilmir-<version>.tar.gz` | A workstation that only needs to run `hilmir`'s release verbs against an already-running cluster | `bin/hilmir`(`.cmd`) plus exactly `gimle-hilmir`'s own runtime dependency closure. Nothing else. |
 | `gimle-ragnarok-<version>.tar.gz` | An operator running chaos/stress tests against a real, already-running cluster | `bin/ragnarok`(`.cmd`) plus exactly `gimle-ragnarok`'s own runtime dependency closure — see [`gimle-ragnarok` reference](./ragnarok-reference.md). |
+| `gimle-ivaldi-<version>.tar.gz` | An operator or developer running the cluster designer without a source checkout | `bin/ivaldi`(`.cmd`) plus exactly `gimle-ivaldi`'s own runtime dependency closure (`gimle-hilmir`/`gimle-mimir` and, transitively through `gimle-mimir`, `gimle-pki`/`gimle-observability` — confirmed via `mvn -pl gimle-ivaldi dependency:tree -Dscope=runtime`, the same diligence [`mvn gimle:ivaldi`](./maven-plugin-goals.md#mvn-gimleivaldi) itself needs none of, since that goal resolves the equivalent closure through Aether instead). |
 | `gimle-midgard-<version>.tar.gz` | Local development and manual QA | The [Midgard dev cluster](#the-midgard-dev-cluster-image): a self-contained Docker build context booting a complete single-machine cluster inside one container, pre-seeded with the example modules. |
 
 Unpacking any archive creates its own top-level directory (`gimle-platform-<version>/`,
 `gimle-cli-<version>/`, `gimle-hilmir-<version>/`, `gimle-ragnarok-<version>/`,
-`gimle-midgard-<version>/`); the intended install location on a cluster machine is
-`/opt/gimle/<version>`, matching `gimle-hilmir`'s own topology YAML convention of pointing
-`runtime.classpath` at an already-unpacked `lib/` (see [`gimle-hilmir`
+`gimle-ivaldi-<version>/`, `gimle-midgard-<version>/`); the intended install location on a cluster
+machine is `/opt/gimle/<version>`, matching `gimle-hilmir`'s own topology YAML convention of
+pointing `runtime.classpath` at an already-unpacked `lib/` (see [`gimle-hilmir`
 reference](./hilmir-reference.md)). The Midgard archive is the exception: it unpacks anywhere
 Docker runs, and nothing in it is executed on the host directly.
 
 ## The wrapper scripts
 
-`bin/hilmir`/`bin/hilmir.cmd`, `bin/gimle`/`bin/gimle.cmd`, and `bin/ragnarok`/`bin/ragnarok.cmd`
-are the same six files reused verbatim across the archives (the Midgard archive ships only the
-POSIX `hilmir`/`gimle` pair — everything in it runs inside a Linux container, and it never runs
-`ragnarok` at all) — a POSIX `sh` script for Linux/macOS and a Windows `.cmd` counterpart per tool,
-kept behaviorally identical. Each resolves its own directory (so `../lib` / `..\lib` is found
-regardless of the caller's working directory), builds a classpath from every jar under that `lib/`,
-and launches `java -cp "$CLASSPATH" com.gimle.hilmir.HilmirMain "$@"` (`com.gimle.cli.GimleCli` for
-the `gimle`/`gimle.cmd` pair, `com.gimle.ragnarok.RagnarokMain` for the `ragnarok`/`ragnarok.cmd`
-pair). The `java` each script launches itself with follows this precedence: an explicit `JAVA_HOME`
-environment variable always wins (a deliberate operator override); otherwise, if the archive was
-built with `-P dist-with-jre`, each script prefers its own bundled JRE (`jre/hilmir/bin/java`(`.exe`)
-for the `hilmir` pair, `jre/cli/bin/java`(`.exe`) for the `gimle` pair, `jre/ragnarok/bin/java`(`.exe`)
-for the `ragnarok` pair); otherwise all three fall back to plain `java` on `PATH`, exactly as they
-did before this archive ever bundled a JRE of its own. A plain default-build archive (no `-P
-dist-with-jre`) simply has no `jre/` directory at all, so every unpacked archive built that way
-always falls through to the `JAVA_HOME`/`PATH` behavior.
+`bin/hilmir`/`bin/hilmir.cmd`, `bin/gimle`/`bin/gimle.cmd`, `bin/ragnarok`/`bin/ragnarok.cmd`, and
+`bin/ivaldi`/`bin/ivaldi.cmd` are the same eight files reused verbatim across the archives (the
+Midgard archive ships only the POSIX `hilmir`/`gimle` pair — everything in it runs inside a Linux
+container, and it never runs `ragnarok` or `ivaldi` at all) — a POSIX `sh` script for Linux/macOS
+and a Windows `.cmd` counterpart per tool, kept behaviorally identical. Each resolves its own
+directory (so `../lib` / `..\lib` is found regardless of the caller's working directory), builds a
+classpath from every jar under that `lib/`, and launches `java -cp "$CLASSPATH"
+com.gimle.hilmir.HilmirMain "$@"` (`com.gimle.cli.GimleCli` for the `gimle`/`gimle.cmd` pair,
+`com.gimle.ragnarok.RagnarokMain` for the `ragnarok`/`ragnarok.cmd` pair). `bin/ivaldi`/`bin/ivaldi.cmd`
+differ in one respect: `IvaldiMain` reads no positional arguments at all, only `-D` system
+properties (`gimle.ivaldi.port`/`dataRoot`/`host`), so those two scripts place `"$@"`/`%*` *before*
+`com.gimle.ivaldi.IvaldiMain` on the `java` command line rather than after it — a `-D` flag is a
+JVM option, not a program argument, and only ever takes effect there. The `java` each script
+launches itself with follows this precedence: an explicit `JAVA_HOME` environment variable always
+wins (a deliberate operator override); otherwise, if the archive was built with `-P dist-with-jre`,
+each script prefers its own bundled JRE (`jre/hilmir/bin/java`(`.exe`) for the `hilmir` pair,
+`jre/cli/bin/java`(`.exe`) for the `gimle` pair, `jre/ragnarok/bin/java`(`.exe`) for the `ragnarok`
+pair, `jre/ivaldi/bin/java`(`.exe`) for the `ivaldi` pair) when that file actually exists next to
+it; otherwise all four fall back to plain `java` on `PATH`, exactly as they did before this archive
+ever bundled a JRE of its own. A plain default-build archive (no `-P dist-with-jre`) simply has no
+`jre/` directory at all, so every unpacked archive built that way always falls through to the
+`JAVA_HOME`/`PATH` behavior.
 
 Two failure cases each script reports rather than swallowing:
 
@@ -198,26 +206,26 @@ SBOM.
 
 `-P dist-with-jre` is an opt-in, additive build option: `mvn -pl gimle-dist -am install
 -P dist-with-jre` builds the same archives the default build produces, with the platform, CLI,
-Hilmir, and Ragnarök ones each additionally
+Hilmir, Ragnarök, and Ivaldi ones each additionally
 carrying a per-component jlink-trimmed JRE under a new top-level `jre/` directory. It never changes
 what the default (no-profile) build produces — no `jre/` directory exists in an archive built
 without this flag.
 
 ### Which components, and why not all of them
 
-Only **ten** of the twelve process/client modules are safe to bundle a trimmed JRE for, and this
-profile bundles exactly those ten — never more:
+Only **eleven** of the thirteen process/client modules are safe to bundle a trimmed JRE for, and
+this profile bundles exactly those eleven — never more:
 
 | Bundled (`jre/<name>/`) | Never bundled |
 |---|---|
-| `controlplane`, `mimir`, `fafnir`, `muninn`, `andvari`, `skald`, `pki`, `hilmir`, `cli`, `ragnarok` | `agent`, `worker` |
+| `controlplane`, `mimir`, `fafnir`, `muninn`, `andvari`, `skald`, `pki`, `hilmir`, `cli`, `ragnarok`, `ivaldi` | `agent`, `worker` |
 
 `gimle-agent` and `gimle-worker` are excluded on purpose, not by oversight: the node agent spawns
 arbitrary vessel workloads (plain runnable jars, e.g. a Spring Boot app) as child processes, and the
 worker hosts arbitrary Gimlé modules inside its own JVM via `ModuleLayer` — in both cases the actual
 JDK module needs of the code that ends up running are only known once that workload is deployed,
 long after this archive was built. jlink's `--add-modules` list, by contrast, is derived once, ahead
-of time, from a fixed set of platform code that never changes at runtime — true for the other ten
+of time, from a fixed set of platform code that never changes at runtime — true for the other eleven
 process kinds (each one only ever runs the platform's own code), but never true for the agent or the
 worker. Bundling a trimmed JRE for either would silently break any vessel or module that happens to
 need a JDK module outside whatever set was baked in at build time, with no way to detect the mismatch
@@ -241,10 +249,11 @@ Archive contents:
 
 | Archive | `jre/` contents when built with `-P dist-with-jre` |
 |---|---|
-| `gimle-platform-<version>.tar.gz` | The nine cluster-machine process kinds only: `jre/controlplane/`, `jre/mimir/`, `jre/fafnir/`, `jre/muninn/`, `jre/andvari/`, `jre/skald/`, `jre/pki/`, `jre/hilmir/`, `jre/cli/`. `jre/ragnarok/` is never bundled here — Ragnarök runs from an operator's own workstation against a real cluster, not from a cluster machine itself, so it has no reason to ship inside the platform archive. |
+| `gimle-platform-<version>.tar.gz` | The ten cluster-machine process kinds plus Ivaldi: `jre/controlplane/`, `jre/mimir/`, `jre/fafnir/`, `jre/muninn/`, `jre/andvari/`, `jre/skald/`, `jre/pki/`, `jre/hilmir/`, `jre/cli/`, `jre/ivaldi/`. `jre/ragnarok/` is never bundled here — Ragnarök runs from an operator's own workstation against a real cluster, not from a cluster machine itself, so it has no reason to ship inside the platform archive; Ivaldi is bundled despite the same "runs from a workstation" shape, since an operator or developer already on a cluster machine sketching or validating a topology change is a real enough case to justify the extra jar there. |
 | `gimle-cli-<version>.tar.gz` | `jre/cli/` only. |
 | `gimle-hilmir-<version>.tar.gz` | `jre/hilmir/` only. |
 | `gimle-ragnarok-<version>.tar.gz` | `jre/ragnarok/` only. |
+| `gimle-ivaldi-<version>.tar.gz` | `jre/ivaldi/` only. |
 
 Every one of those archives also carries a one-line `jre/PLATFORM` file naming the platform its
 images were built for — see the next section.
@@ -287,7 +296,7 @@ file name; nothing in the build does that renaming for you.
 
 ### How it gets used
 
-Both wrapper scripts auto-prefer their own bundled JRE when present (see [The wrapper
+Every wrapper script auto-prefers its own bundled JRE when present (see [The wrapper
 scripts](#the-wrapper-scripts) above), and `gimle-hilmir`'s own `runtime.useBundledJre` topology
 field controls whether `hilmir up`/`hilmir pki init` launch the *spawned* cluster processes against
 their own bundled JREs too — see [`gimle-hilmir`
@@ -300,7 +309,7 @@ which `java` `hilmir` spawns every other process kind with.
 ### Storage tradeoff
 
 A single trimmed per-component JRE (`java.base` plus a handful of modules, `--strip-debug`) is
-meaningfully smaller than a full JDK install, but the platform archive bundles nine of them side by
+meaningfully smaller than a full JDK install, but the platform archive bundles ten of them side by
 side — its total size is measurably larger than the default build's. This is why bundling stays
 opt-in rather than becoming the default: an operator who doesn't need a self-contained JRE bundled
 into the archive (a machine that already has a suitable `java` installed, or one where minimizing

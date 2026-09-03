@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 908 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 909 | The whole denominator before any classification. |
 | Out of scope | 70 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 203 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 177, uncited 0). |
-| **User-observable** | **635** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 611 | **96.2%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **636** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 612 | **96.2%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 24 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -122,7 +122,7 @@ not carry over to the new one.
 <!-- forseti:generated roster -->
 | ID | Persona | Who they are | Environments | Scenarios | Requirements reached |
 |---|---|---|---|---:|---:|
-| **OPS** | Ops — Platform operator | The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day. | A B C | 15 | 75 |
+| **OPS** | Ops — Platform operator | The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day. | A B C | 15 | 76 |
 | **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 7 | 58 |
 | **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 67 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 62 |
@@ -154,7 +154,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 
 | ID | Env | Objective | Oracle | Requirements |
 |---|---|---|---|---|
-| **OPS-1** | G | Unpack every distribution archive (`gimle-platform`, `gimle-cli`, `gimle-hilmir`, `gimle-midgard`, `gimle-ragnarok`); verify each `.sha256` against its archive; open each archive's CycloneDX SBOM; run each `bin/` launcher with `-h`. | Checksums pass; each SBOM lists that archive's own dependency set, not a copy of another's; every launcher prints scoped help and exits 0 — `hilmir -h` included, not treated as an unknown token. | GIMLE-560, GIMLE-561, GIMLE-562, GIMLE-564, GIMLE-611, GIMLE-635, GIMLE-642 |
+| **OPS-1** | G | Unpack every distribution archive (`gimle-platform`, `gimle-cli`, `gimle-hilmir`, `gimle-midgard`, `gimle-ragnarok`, `gimle-ivaldi`); verify each `.sha256` against its archive; open each archive's CycloneDX SBOM; run each `bin/` launcher with `-h`. | Checksums pass; each SBOM lists that archive's own dependency set, not a copy of another's; every launcher prints scoped help and exits 0 -- `hilmir -h` included, not treated as an unknown token -- except `ivaldi -h`, which IvaldiMain reads no positional arguments at all (only -D system properties), so `-h` there is the underlying `java` launcher's own generic usage text, not a scoped one; still exits 0. | GIMLE-560, GIMLE-561, GIMLE-562, GIMLE-564, GIMLE-611, GIMLE-635, GIMLE-642, GIMLE-849, GIMLE-909 |
 | **OPS-2** | A | Boot Midgard cold from the archive (`docker compose up -d`) with no prior state; where no Docker daemon exists, `mvn gimle:bootstrap` instead, noted in the run. | Becomes healthy; the three seeded examples reach ACTIVE; all five documented URLs load (main, Fafnir and Andvari consoles served from the classpath, deep links resolve client-side); each process prints a legible startup banner; Andvari's and Muninn's plaintext warnings are loud and specific; the reserved `gimle-system` tenant exists; the Fafnir console needs no login in plaintext mode. | GIMLE-611, GIMLE-392, GIMLE-027, GIMLE-020, GIMLE-316, GIMLE-332, GIMLE-271, GIMLE-291, GIMLE-039, GIMLE-040, GIMLE-272, GIMLE-292, GIMLE-650 |
 | **OPS-3** | A | `docker compose stop`/`start` Midgard after scaling one example and deleting another; then `down -v` and `up` again. | Edits survive the restart (the store's durable log replayed); after `down -v` the cluster is genuinely empty and re-seeds; `hilmir status` inside the container agrees with what is running. | GIMLE-148, GIMLE-152, GIMLE-393 |
 | **OPS-4** | B | Stand Fleet up from a hand-written five-machine `topology.yaml` using only the platform archive's own docs: `hilmir validate` (fix every ERROR it names), `hilmir plan`, one `hilmir up --machine` per machine in an out-of-dependency order. | `validate`'s findings are specific and actionable; `up` on a machine whose prerequisites live elsewhere blocks then proceeds rather than racing; `hilmir status` on each machine matches reality; the density knob and log-format flag set in `jvm:` are honoured; every process answers its operator health signal. | GIMLE-021, GIMLE-390, GIMLE-391, GIMLE-392, GIMLE-393, GIMLE-706, GIMLE-746, GIMLE-887, GIMLE-888, GIMLE-890, GIMLE-891 |
@@ -1372,7 +1372,7 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-846 | `gimle-agent` | A vessel probe's named port survives the assignments round trip | observable | FLEET | BATCH-8 |
 | GIMLE-847 | `gimle-agent` | One unparseable assignment is skipped and reported rather than aborting the whole batch | observable | FLEET | BATCH-8 |
 | GIMLE-848 | `gimle-agent` | Startup registration is retried with backoff instead of killing the agent | observable | FLEET | CHAOS-10 |
-| GIMLE-849 | `gimle-controlplane` | `/health` answers from a background store probe rather than dialing the store inline | observable | FLEET | OPS-11, CHAOS-6 |
+| GIMLE-849 | `gimle-controlplane` | `/health` answers from a background store probe rather than dialing the store inline | observable | FLEET | OPS-1, OPS-11, CHAOS-6 |
 | GIMLE-850 | `gimle-controlplane` | An operator can label a running node, and the label counts for placement | observable | FLEET | SCHED-1 |
 | GIMLE-851 | `gimle-hilmir` | A release is recorded in the ledger before `--wait`, so a timed-out wait still leaves it undeployable | observable | FLEET | OPS-12 |
 | GIMLE-852 | `gimle-controlplane` | A Service declaring no tenant defaults to the default tenant, so it can front its deployments | observable | FLEET | NET-1, GOV-8 |
@@ -1432,4 +1432,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-906 | `gimle-ivaldi` | Blueprint document storage API | observable | FLEET | DEV-7 |
 | GIMLE-907 | `gimle-ivaldi` | Blueprint tier-2 validation against the real platform parsers | observable | FLEET | DEV-7 |
 | GIMLE-908 | `gimle-maven-plugin` | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | observable | FLEET | DEV-7 |
+| GIMLE-909 | `gimle-dist` | Ivaldi ships as a distribution archive (standalone and platform-bundled) | observable | FLEET | OPS-1 |
 <!-- /forseti:generated -->

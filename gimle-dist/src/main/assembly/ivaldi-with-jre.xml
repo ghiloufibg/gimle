@@ -1,0 +1,77 @@
+<assembly xmlns="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3 http://maven.apache.org/xsd/assembly-1.1.3.xsd">
+  <!--
+    The dist-with-jre profile's own variant of ivaldi.xml: everything the default descriptor
+    already includes, plus jre/ivaldi/ (this archive's own dist-with-jre-profile-built jlink JRE
+    for gimle-ivaldi, from target/jre-images/ivaldi/jre). Never used by the default (no-profile)
+    build: see the dist-with-jre profile's own comment in ../../../pom.xml for why this is a
+    separate file rather than a change to ivaldi.xml itself.
+
+    No fileMode is set on the jre/ivaldi fileSet, unlike the bin/ one below: an explicit fileMode
+    would overwrite the executable bit jlink already set on jre/ivaldi/bin/java and friends, so
+    this deliberately relies on maven-assembly-plugin's own default of preserving each source
+    file's real permissions when no fileMode is given.
+  -->
+  <id>ivaldi</id>
+  <formats>
+    <format>tar.gz</format>
+  </formats>
+  <includeBaseDirectory>true</includeBaseDirectory>
+  <baseDirectory>gimle-ivaldi-${project.version}</baseDirectory>
+
+  <dependencySets>
+    <dependencySet>
+      <outputDirectory>lib</outputDirectory>
+      <useProjectArtifact>false</useProjectArtifact>
+      <unpack>false</unpack>
+      <scope>runtime</scope>
+      <includes>
+        <include>com.gimle:gimle-ivaldi</include>
+        <include>com.gimle:gimle-core</include>
+        <include>com.gimle:gimle-hilmir</include>
+        <include>com.gimle:gimle-mimir</include>
+        <include>com.gimle:gimle-pki</include>
+        <include>org.bouncycastle:bcpkix-jdk18on</include>
+        <include>org.bouncycastle:bcutil-jdk18on</include>
+        <include>org.bouncycastle:bcprov-jdk18on</include>
+        <include>com.gimle:gimle-observability</include>
+        <include>io.micrometer:micrometer-core</include>
+        <include>io.micrometer:micrometer-commons</include>
+        <include>io.micrometer:micrometer-observation</include>
+        <include>org.jspecify:jspecify</include>
+        <include>org.hdrhistogram:HdrHistogram</include>
+        <include>org.latencyutils:LatencyUtils</include>
+        <include>io.opentelemetry:opentelemetry-api</include>
+        <include>io.opentelemetry:opentelemetry-context</include>
+        <include>io.opentelemetry:opentelemetry-common</include>
+        <include>io.opentelemetry:opentelemetry-sdk</include>
+        <include>io.opentelemetry:opentelemetry-sdk-common</include>
+        <include>io.opentelemetry:opentelemetry-sdk-trace</include>
+        <include>io.opentelemetry:opentelemetry-sdk-metrics</include>
+        <include>io.opentelemetry:opentelemetry-sdk-logs</include>
+        <include>io.opentelemetry:opentelemetry-exporter-logging</include>
+        <include>org.yaml:snakeyaml</include>
+        <include>org.slf4j:slf4j-api</include>
+        <include>ch.qos.logback:logback-classic</include>
+        <include>ch.qos.logback:logback-core</include>
+      </includes>
+    </dependencySet>
+  </dependencySets>
+
+  <fileSets>
+    <fileSet>
+      <directory>${project.basedir}/src/main/dist/bin</directory>
+      <outputDirectory>bin</outputDirectory>
+      <fileMode>0755</fileMode>
+      <includes>
+        <include>ivaldi</include>
+        <include>ivaldi.cmd</include>
+      </includes>
+    </fileSet>
+    <fileSet>
+      <directory>${project.build.directory}/jre-images/ivaldi/jre</directory>
+      <outputDirectory>jre/ivaldi</outputDirectory>
+    </fileSet>
+  </fileSets>
+</assembly>

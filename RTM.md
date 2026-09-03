@@ -923,6 +923,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-906 | Blueprint document storage API | New | Not Covered | — |
 | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | New | Not Covered | — |
 | GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | New | Not Covered | — |
+| GIMLE-909 | Ivaldi ships as a distribution archive (standalone and platform-bundled) | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -9195,6 +9196,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Manual smoke test of the extracted archive
 - **Source location(s)**: `gimle-dist/src/main/assembly/ragnarok.xml`, `gimle-dist/src/main/dist/bin/ragnarok`
 
+#### GIMLE-909 — Ivaldi ships as a distribution archive (standalone and platform-bundled)
+
+- **Category**: Distribution / Internal-Infra
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises gimle-dist's own archives at all (gimle-hilmir-<version>.tar.gz/gimle-cli-<version>.tar.gz have none either) -- packaging/distribution is outside what Holmgang's cluster-behavior scenarios target. Verified manually this change instead: built, extracted, and ran the standalone and dist-with-jre archives end to end.
+- **Other test coverage (non-Holmgang, informational only)**: Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology.
+- **Source location(s)**: `gimle-dist/src/main/assembly/ivaldi.xml`, `ivaldi-with-jre.xml`, `gimle-dist/src/main/dist/bin/ivaldi`, `ivaldi.cmd`
+
 ### gimle-skald
 
 #### GIMLE-569 — gimle-skald: cluster DNS server resolving Service names to live endpoints
@@ -9492,7 +9502,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**778 of 908 requirements are Not Covered.**
+**779 of 909 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -9699,6 +9709,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-908 | gimle-maven-plugin | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | `IvaldiServerTest.java` (gimle-maven-plugin) -- reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` -- health check and shutdown against a stub server |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
+| GIMLE-909 | gimle-dist | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology. |
 | GIMLE-636 | gimle-examples | orders-platform's NetworkPolicy example documents both the raw API and the gimle set networkpolicy CLI form, with the CLI's required --deny-all-callers flag spelled out explicitly | Documentation | Documentation-only change, cross-checked against NetworkPolicyCommandTest and NetworkPolicySpecTest's existing coverage of the same validation. |
 | GIMLE-638 | gimle-examples | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | Documentation / Examples | Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module. |
 | GIMLE-125 | gimle-agent | SWIM gossip membership integration with service catalog relay | Fabric | NONE recorded in the baseline |
