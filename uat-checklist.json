@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 791,
+    "totalRequirements": 792,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 664,
-    "releaseReadinessPercent": 16.1
+    "notCoveredByAutomatedTest": 665,
+    "releaseReadinessPercent": 16.0
   },
   "items": [
     {
@@ -8703,6 +8703,17 @@
       "category": "Security / Identity",
       "feature": "Per-worker certificates: node-minted worker identity carrying the worker's tenant",
       "step": "Given a node agent holding a gimle:nodes certificate and an instance assignment for tenant acme, When it submits a WORKER_CLIENT CSR with CN <nodeId>:<instanceKey> and tenantId acme, Then the control plane signs it with O=gimle:workers and O=gimle:tenant:acme, and the certificate cannot act as the node. Given the same node, When it requests a worker certificate for a tenant it holds no assignment for, or a CN prefixed by another node's id, Then the request is refused with 403 and audited. Given a TLS cluster, When the agent spawns a worker, Then the worker is started with its own per-worker certificate and key and only the cluster CA file shared from the agent. Given a supervised worker whose certificate is due for renewal, When the agent ticks, Then a fresh certificate is issued under the same subject, key written before certificate, and the worker reloads it through its own file watcher.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-792",
+      "module": "gimle-controlplane",
+      "category": "Control plane / API server",
+      "feature": "ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic",
+      "step": "Given the control plane's general admission budget is set to a small number When a concurrent flood of ordinary API requests well past that budget arrives Then every request resolves to a fast 200 or 429, never a hang or timeout, and at least one request is rejected Given the same flood is saturating the general admission lane When a node agent concurrently sends its own heartbeat requests Then every heartbeat request still succeeds, because it draws from its own reserved admission lane",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

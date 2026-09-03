@@ -102,12 +102,12 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 791 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 792 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 193 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 167, uncited 0). |
-| **User-observable** | **529** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 529 | **100.0%** of the user-observable set — meets the 90% target. |
-| Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
+| **User-observable** | **530** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 529 | **99.8%** of the user-observable set — meets the 90% target. |
+| Observable, not fleet-reached | 1 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
 **Keeping it in sync.** Adding a `GIMLE-NNN` to `requirements-matrix.json` means also placing it in
@@ -443,7 +443,9 @@ named in the catalog.
 ### Residual — user-observable requirements no fleet scenario reaches
 
 <!-- forseti:generated residual -->
-_Every user-observable requirement is currently reached by at least one fleet scenario; nothing to list._
+| ID | Feature | Mechanism | Evidence |
+|---|---|---|---|
+| GIMLE-792 | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | UNIT | ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout. |
 <!-- /forseti:generated -->
 
 ### Exclusions — out of scope, with reasons
@@ -1286,4 +1288,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-789 | `gimle-controlplane` | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | observable | FLEET | BATCH-3 |
 | GIMLE-790 | `gimle-controlplane` | A durable, replica-agnostic read of whether an AlertRule is currently firing | observable | FLEET | OBS-9 |
 | GIMLE-791 | `gimle-agent` | Per-worker certificates: node-minted worker identity carrying the worker's tenant | observable | FLEET | NET-6 |
+| GIMLE-792 | `gimle-controlplane` | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | observable | UNIT | ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout. |
 <!-- /forseti:generated -->

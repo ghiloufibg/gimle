@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 791,
+  "requirementCount": 792,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16086,6 +16086,30 @@
         "Given the same node, When it requests a worker certificate for a tenant it holds no assignment for, or a CN prefixed by another node's id, Then the request is refused with 403 and audited.",
         "Given a TLS cluster, When the agent spawns a worker, Then the worker is started with its own per-worker certificate and key and only the cluster CA file shared from the agent.",
         "Given a supervised worker whose certificate is due for renewal, When the agent ticks, Then a fresh certificate is issued under the same subject, key written before certificate, and the worker reloads it through its own file watcher."
+      ],
+      "statusSummary": "Complete",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-792",
+      "module": "gimle-controlplane",
+      "feature": "ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic",
+      "category": "Control plane / API server",
+      "userStory": "As a platform operator, I want a flood of ordinary API traffic to be turned away with fast 429s once past a concurrency budget, and a node agent's own heartbeat/assignment traffic to keep succeeding regardless, so a flood on one read route cannot exhaust the process and cascade into the control plane mistaking a live node for a dead one.",
+      "statusDetail": "Fixed: closes Forseti finding M1. ApiServer's HttpServer/HttpsServer ran every route on Executors.newVirtualThreadPerTaskExecutor() with no admission control in front of it -- RequestRateLimiter (csrAddressRateLimiter/csrClusterRateLimiter) and LoginThrottle only ever governed acceptance rate on /bootstrap/csr and /auth/login specifically, so a large concurrent flood against any other route (GET /deployments in the reported incident) was accepted and dispatched without limit until raw thread/connection volume exhausted the JVM, well before any 429 path was ever reached. A large enough flood then starved the node agent's own /nodes/{nodeId}/heartbeat calls sharing the same unbounded executor, which the control plane read as the node having gone dark, triggering a mass rescheduling of that node's instances. Added ConcurrencyLimiter (gimle-core, a non-blocking Semaphore-backed admission gate distinct from RequestRateLimiter's time-based budget) and wired two independent instances into ApiServer#instrument, which now runs admission control before any handler work begins: generalAdmission (default 200 concurrent, gimle.controlplane.admission.maxConcurrentRequests) gates every ordinary route, and a separate nodeAdmission (default 64 concurrent, gimle.controlplane.admission.maxConcurrentNodeRequests) gates only the \"nodes\" endpoint -- register/heartbeat/assignments/cordon/taint/events under /nodes/{nodeId}/... -- so a flood that fully saturates the general lane can never leave the node lane with nothing to acquire. A caller finding no permit free gets an immediate 429 with Retry-After, never dispatched to the delegate at all.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/throttle/ConcurrencyLimiter.java` (new)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`generalAdmission`, `nodeAdmission`, `instrument`, `ADMISSION_GENERAL_LIMIT_PROPERTY`, `ADMISSION_NODE_LIMIT_PROPERTY`)"
+      ],
+      "testCoverageDetail": "ConcurrencyLimiterTest (6): admits exactly up to the limit then refuses, a released slot is reacquired, inFlight() tracking, a refusal claims no slot, non-positive limit rejected, and exactly the configured limit admitted under 100 racing virtual threads holding their slots open. ApiServerAdmissionControlTest drives a real 400-request concurrent flood against a real ApiServer's GET /deployments with the general admission budget set to 4, asserting every response is a definite 200 or 429 (never a hang/timeout) with at least one real rejection, while a concurrent node-heartbeat hammer running for the flood's full duration gets 200 on every single call.",
+      "gherkinSteps": [
+        "Given the control plane's general admission budget is set to a small number",
+        "When a concurrent flood of ordinary API requests well past that budget arrives",
+        "Then every request resolves to a fast 200 or 429, never a hang or timeout, and at least one request is rejected",
+        "Given the same flood is saturating the general admission lane",
+        "When a node agent concurrently sends its own heartbeat requests",
+        "Then every heartbeat request still succeeds, because it draws from its own reserved admission lane"
       ],
       "statusSummary": "Complete",
       "testCoverageLevel": "Yes"

@@ -95,6 +95,7 @@ import com.gimle.core.session.SessionTokens;
 import com.gimle.core.tenant.ResourceQuota;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tenant.TenantIsolationPosture;
+import com.gimle.core.throttle.ConcurrencyLimiter;
 import com.gimle.core.throttle.LoginThrottle;
 import com.gimle.core.throttle.RequestRateLimiter;
 import com.gimle.core.tls.SslContexts;
@@ -381,6 +382,30 @@ public final class ApiServer implements AutoCloseable {
   // operator's bulk apply, and a console page load's asset burst all sit far below it, so the
   // limit is only ever reached by traffic no legitimate caller generates.
   private final Optional<RequestRateLimiter> requestRateLimiter = buildRequestRateLimiter();
+  // Bounds how many requests may be executing at once across every ordinary route -- a second,
+  // orthogonal defense from the rate limiter just above. requestRateLimiter (and
+  // csrAddressRateLimiter/csrClusterRateLimiter/loginThrottle) govern *acceptance*: how often a key
+  // may be charged a fresh attempt. None of them bounds how many already-accepted requests may be
+  // running concurrently, so a flood spread across enough distinct addresses to stay under the
+  // per-address rate limit still piles up as raw thread/connection volume until the JVM itself
+  // falls over -- accepted and left to time out rather than ever reaching a 429. tryAcquire is
+  // non-blocking, so a caller past the budget is turned away immediately instead of queued behind
+  // whoever is already in flight.
+  static final String ADMISSION_GENERAL_LIMIT_PROPERTY =
+      "gimle.controlplane.admission.maxConcurrentRequests";
+  private final ConcurrencyLimiter generalAdmission =
+      new ConcurrencyLimiter(Integer.getInteger(ADMISSION_GENERAL_LIMIT_PROPERTY, 200));
+  // A second, structurally independent budget for node-agent traffic (register/heartbeat/
+  // assignments/cordon/taint/events, everything under /nodes/{nodeId}/...) -- its own Semaphore,
+  // never a carve-out of generalAdmission's own count, so a flood that exhausts every ordinary
+  // route's budget can never leave a node agent's own heartbeat with nothing to acquire. This is
+  // the specific cascade a flood on an unrelated read endpoint used to trigger: a node's heartbeat
+  // timing out, the control plane concluding the node had gone dark, and reconcilers rescheduling
+  // every instance it was told to run.
+  static final String ADMISSION_NODE_LIMIT_PROPERTY =
+      "gimle.controlplane.admission.maxConcurrentNodeRequests";
+  private final ConcurrencyLimiter nodeAdmission =
+      new ConcurrencyLimiter(Integer.getInteger(ADMISSION_NODE_LIMIT_PROPERTY, 64));
   private final PendingCsrStore pendingCsrStore = new PendingCsrStore();
   private final Instant startedAt = Instant.now();
   // Absent in plaintext mode, or in TLS mode when gimle.tls.caKeyFile isn't configured on this
@@ -669,16 +694,31 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Wraps a handler with request-count/latency/error Micrometer recording, at context-registration
-   * time rather than inside each handler body -- the identical pattern {@code
-   * FafnirServer.instrument} already established, copied rather than shared since the two classes
-   * have no common base to hang it on. {@code error} is read from the exchange's own response code
-   * after the delegate finishes, not from an escaping exception -- every handler here already sends
-   * a real status and closes the exchange itself.
+   * Wraps a handler with admission control and request-count/latency/error Micrometer recording,
+   * at context-registration time rather than inside each handler body -- the identical
+   * metrics-recording pattern {@code FafnirServer.instrument} already established, copied rather
+   * than shared since the two classes have no common base to hang it on. {@code error} is read from
+   * the exchange's own response code after the delegate finishes, not from an escaping exception --
+   * every handler here already sends a real status and closes the exchange itself.
+   *
+   * <p>Admission control runs first, before the delegate does any work at all: the {@code "nodes"}
+   * endpoint (every {@code /nodes/{nodeId}/...} action, including register/heartbeat/assignments)
+   * draws from {@link #nodeAdmission}, its own reserved budget; every other endpoint draws from the
+   * shared {@link #generalAdmission}. A caller finding no permit free is refused with a fast
+   * {@code 429} rather than being handed to the delegate and left to contend for whatever resource
+   * is actually saturated.
    */
   private HttpHandler instrument(String endpoint, HttpHandler delegate) {
+    ConcurrencyLimiter admission = "nodes".equals(endpoint) ? nodeAdmission : generalAdmission;
     return exchange -> {
       String verb = exchange.getRequestMethod();
+      if (!admission.tryAcquire()) {
+        metrics.recordRequest(endpoint, verb, Duration.ZERO, true);
+        exchange.getResponseHeaders().add("Retry-After", "1");
+        respondQuietly(exchange, 429, "control plane at capacity; retry shortly");
+        exchange.close();
+        return;
+      }
       long startNanos = System.nanoTime();
       try {
         Optional<Instant> retryAt = rateLimited(exchange);
@@ -689,6 +729,7 @@ public final class ApiServer implements AutoCloseable {
         }
         delegate.handle(exchange);
       } finally {
+        admission.release();
         Duration latency = Duration.ofNanos(System.nanoTime() - startNanos);
         int status = exchange.getResponseCode();
         boolean error = status <= 0 || status >= 400;

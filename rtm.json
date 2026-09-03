@@ -13740,6 +13740,22 @@
         "`gimle-agent/src/main/java/com/gimle/agent/WorkerCertificates.java`",
         "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
       ]
+    },
+    {
+      "id": "GIMLE-792",
+      "module": "gimle-controlplane",
+      "feature": "ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic",
+      "category": "Control plane / API server",
+      "status": "New",
+      "statusNote": "New requirement: Fixed: closes Forseti finding M1. ApiServer's HttpServer/HttpsServer ran every route on an unbounded virtual-thread-per-task executor with no admission control in front of it, so a large concurrent flood against an ordinary read route (GET /deployments in the reported incident) was accepted without limit until raw thread/connection volume exhausted the JVM before any 429 path was ever reached, starving the node agent's own heartbeat calls on the same executor and triggering a false-stale-node mass rescheduling. Added a ConcurrencyLimiter admission gate in gimle-core and wired two independent instances into ApiServer#instrument: a general budget gating every ordinary route, and a separate, structurally isolated budget gating only the node-agent-facing /nodes/{nodeId}/... endpoint, so a flood saturating the general lane can never starve node heartbeats.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/throttle/ConcurrencyLimiter.java` (new)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`generalAdmission`, `nodeAdmission`, `instrument`)"
+      ],
+      "gapNote": "No Holmgang .feature scenario drives a real concurrent flood against a live cluster's control plane to exercise this end to end; coverage today is a real-ApiServer JUnit integration test (ApiServerAdmissionControlTest), which the RTM coverage rule does not count as Holmgang coverage."
     }
   ]
 }
