@@ -238,6 +238,51 @@ class ApiServerServicesTest {
     assertEquals(404, get.statusCode());
   }
 
+  /**
+   * {@code B6}: {@code DELETE /services/{name}} with no explicit {@code ?tenant=} against a
+   * tenant-scoped Service used to resolve {@code tenant} as {@link Optional#empty()} and remove the
+   * untenanted key -- a silent no-op that still answered 200, leaving the real, tenant-scoped entry
+   * (and its endpoints) fully intact. The GET branch shares the same {@code tenant} resolution and
+   * had the identical bug for reads, asserted here too. Both now fall back to {@link
+   * ApiServer#resolveTenantForServiceName}, the same fallback the {@code /endpoints} sub-route
+   * already had (see {@link #a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name}).
+   */
+  @Test
+  @Timeout(10)
+  void delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    """
+                    {"name": "orders", "tenantId": "acme",
+                     "deploymentNames": ["orders-service"], "port": 8080}
+                    """))
+            .build());
+
+    // GET with no ?tenant= must already resolve the tenant-scoped Service by its bare name...
+    HttpResponse<String> getBeforeDelete =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders")).GET().build());
+    assertEquals(200, getBeforeDelete.statusCode());
+    assertEquals("orders", Json.asObject(Json.parse(getBeforeDelete.body())).get("name"));
+
+    // ...and DELETE with no ?tenant= must remove that same real entry, not silently no-op
+    // against an untenanted key nothing was ever stored under.
+    HttpResponse<String> delete =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders")).DELETE().build());
+    assertEquals(200, delete.statusCode());
+
+    HttpResponse<String> getAfterDelete =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders")).GET().build());
+    assertEquals(404, getAfterDelete.statusCode(), "the Service must actually be gone");
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/services")).GET().build());
+    assertTrue(
+        Json.asArray(Json.parse(list.body())).isEmpty(),
+        "the Service must not reappear in the collection listing");
+  }
+
   @Test
   @Timeout(10)
   void services_list_endpoint_returns_every_service() throws Exception {

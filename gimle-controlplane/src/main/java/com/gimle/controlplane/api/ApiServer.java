@@ -2163,10 +2163,16 @@ public final class ApiServer implements AutoCloseable {
             name);
         return;
       }
-      // Caller-declared ?tenant= hint, same convention as dispatchResourceRequest's own GET/
-      // DELETE (see its javadoc): a per-tenant Service name can no longer resolve its own tenant
-      // from the bare name alone.
-      Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      // Caller-declared ?tenant= hint, falling back to resolveTenantForServiceName the same way
+      // the /endpoints sub-route above already does -- see declaredOrExistingTenant's own
+      // javadoc for the full reasoning. Without this fallback, a DELETE (or GET) against a
+      // tenant-scoped Service with no explicit ?tenant= resolved to Optional.empty(), which
+      // ServiceRegistry#remove then removed under the untenanted key rather than the Service's
+      // real tenant-scoped one -- a silent no-op that still answered 200: the Service reappeared
+      // in the next listing with its endpoints intact, on every replica, indistinguishable from
+      // success.
+      Optional<String> tenant =
+          declaredOrExistingTenant(exchange, this::resolveTenantForServiceName, name);
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
           if (requireAuthorized(exchange, ResourceKind.SERVICE, Verb.READ, tenant)) {
@@ -5111,10 +5117,49 @@ public final class ApiServer implements AutoCloseable {
       }
       switch (exchange.getRequestMethod()) {
         case "PUT" -> {
-          if (requireAuthorized(exchange, ResourceKind.TENANT, Verb.WRITE, Optional.of(id))
-              && !rejectIfReservedSystemTenant(exchange, Optional.of(id))
-              && !rejectSecondTenantUnderPlaintext(exchange, id)) {
-            handlePutTenant(exchange, id);
+          // Deferred past authorization itself (see requireAuthorizedForWrite's javadoc): an
+          // authorized caller isn't audited by that call alone, because
+          // rejectIfReservedSystemTenant/rejectSecondTenantUnderPlaintext -- admission checks
+          // that only run *after* authorization -- can still refuse the write. Recording
+          // "allowed" before those checks run was exactly the bug this defers past: a tenant
+          // creation plaintext mode went on to refuse still landed in the audit trail as
+          // allowed:true/APPLIED, indistinguishable from a genuine success.
+          //
+          // Unlike dispatchResourceRequest's own workload-PUT branch, though, the real outcome
+          // here is already fully known the moment both guards below resolve -- handlePutTenant
+          // itself has no rejection path of its own, so there is no further admission stage left
+          // to run inside it the way tenant-quota/LimitRange admission runs inside a workload
+          // put.run. The audit event is therefore recorded before handlePutTenant runs, not
+          // after: this route's own pre-existing audit-before-response ordering, which a durable
+          // read immediately following the HTTP response (no intervening round trip to give a
+          // deferred-after write time to land) already depends on.
+          Optional<Principal> auditPrincipal =
+              requireAuthorizedForWrite(exchange, ResourceKind.TENANT, Optional.of(id));
+          if (auditPrincipal.isPresent()) {
+            if (rejectIfReservedSystemTenant(exchange, Optional.of(id))
+                || rejectSecondTenantUnderPlaintext(exchange, id)) {
+              // Both guards have already written their own 403 by this point -- see
+              // recordAuditEventBestEffort's own javadoc for why a failure recording this event
+              // must never be allowed to disturb a response already on the wire.
+              recordAuditEventBestEffort(
+                  auditPrincipal.get(),
+                  ResourceKind.TENANT,
+                  Verb.WRITE,
+                  Optional.of(id),
+                  Optional.empty(),
+                  true,
+                  AuditOutcome.REJECTED);
+            } else {
+              recordAuditEventBestEffort(
+                  auditPrincipal.get(),
+                  ResourceKind.TENANT,
+                  Verb.WRITE,
+                  Optional.of(id),
+                  Optional.empty(),
+                  true,
+                  AuditOutcome.APPLIED);
+              handlePutTenant(exchange, id);
+            }
           }
         }
         case "GET" -> {
