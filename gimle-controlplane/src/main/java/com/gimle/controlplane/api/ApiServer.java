@@ -2339,9 +2339,16 @@ public final class ApiServer implements AutoCloseable {
             .toList());
   }
 
+  /**
+   * {@code GET}/{@code DELETE /alertrules/{name}}, plus the {@code /alertrules/{name}/firing}
+   * sub-route -- resolved the same way {@code /services/{name}/endpoints} carries a second path
+   * segment under one context.
+   */
   private void handleAlertRule(HttpExchange exchange) {
     try {
-      String name = pathSegmentAfter(exchange, "/alertrules/");
+      String tail = pathSegmentAfter(exchange, "/alertrules/");
+      int slash = tail.indexOf('/');
+      String name = slash < 0 ? tail : tail.substring(0, slash);
       if (name.isBlank()) {
         respond(exchange, 400, "missing alert rule name");
         return;
@@ -2349,6 +2356,17 @@ public final class ApiServer implements AutoCloseable {
       // Caller-declared ?tenant= hint, same convention #handleService's own GET/DELETE uses: a
       // per-tenant AlertRule name can't resolve its own tenant from the bare name alone.
       Optional<String> tenant = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+      if (slash >= 0) {
+        String subResource = tail.substring(slash + 1);
+        if (!"firing".equals(subResource)) {
+          respond(exchange, 404, "unknown alert rule endpoint: " + subResource);
+          return;
+        }
+        if (requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.READ, tenant)) {
+          handleAlertRuleFiring(exchange, tenant, name);
+        }
+        return;
+      }
       switch (exchange.getRequestMethod()) {
         case "GET" -> {
           if (requireAuthorized(exchange, ResourceKind.ALERT_RULE, Verb.READ, tenant)) {
@@ -2381,6 +2399,32 @@ public final class ApiServer implements AutoCloseable {
       return;
     }
     respondJson(exchange, 200, alertRuleToJson(spec.get()));
+  }
+
+  /**
+   * The durable verdict {@code AlertReconciler} maintains for {@code name} -- see {@code
+   * StateStore#putAlertFiringState}'s own javadoc for why this moved out of the reconciler's own
+   * process. {@code known} is {@code false} (with no {@code firing} field at all) when the rule has
+   * never crossed or resolved yet, a genuinely different answer from "known, not firing" -- an
+   * empty verdict is a valid 200, not a 404, exactly like {@code handleServiceEndpoints}'s own
+   * empty endpoints list: the alert rule itself exists, only its verdict is not yet known.
+   */
+  private void handleAlertRuleFiring(
+      HttpExchange exchange, Optional<String> tenantHint, String name) throws IOException {
+    if (!"GET".equals(exchange.getRequestMethod())) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    if (alertRuleRegistry.get(tenantHint, name).isEmpty()) {
+      respond(exchange, 404, "no such alert rule: " + name);
+      return;
+    }
+    Map<String, Object> map = new LinkedHashMap<>();
+    map.put("name", name);
+    Optional<Boolean> firing = alertRuleRegistry.getFiringState(tenantHint, name);
+    map.put("known", firing.isPresent());
+    firing.ifPresent(value -> map.put("firing", value));
+    respondJson(exchange, 200, map);
   }
 
   private static Map<String, Object> alertRuleToJson(AlertRuleSpec spec) {

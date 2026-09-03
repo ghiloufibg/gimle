@@ -280,6 +280,13 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
     return ((StoreRpc.AlertRuleListResult) sendRead(new StoreRpc.ListAlertRules())).values();
   }
 
+  public Optional<Boolean> getAlertFiringState(Optional<String> tenantId, String name) {
+    StoreRpc.AlertFiringStateResult r =
+        (StoreRpc.AlertFiringStateResult)
+            sendRead(new StoreRpc.GetAlertFiringState(tenantId, name));
+    return r.present() ? Optional.of(r.firing()) : Optional.empty();
+  }
+
   public Optional<LimitRangeSpec> getLimitRange(String tenantId) {
     StoreRpc.LimitRangeResult r =
         (StoreRpc.LimitRangeResult) sendRead(new StoreRpc.GetLimitRange(tenantId));

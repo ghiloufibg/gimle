@@ -164,6 +164,7 @@ public final class RaftCodec {
   private static final byte MUT_PUT_DEPLOYMENT_LAST_SCALE = 73;
   private static final byte MUT_PUT_INGRESS = 74;
   private static final byte MUT_REMOVE_INGRESS = 75;
+  private static final byte MUT_PUT_ALERT_FIRING_STATE = 76;
 
   private static final byte PAYLOAD_STATE_MUTATION = 0;
   private static final byte PAYLOAD_MEMBERSHIP_CHANGE = 1;
@@ -796,6 +797,12 @@ public final class RaftCodec {
         DomainCodec.writeOptionalString(out, m.tenantId());
         out.writeUTF(m.name());
       }
+      case StateMutation.PutAlertFiringState m -> {
+        out.writeByte(MUT_PUT_ALERT_FIRING_STATE);
+        DomainCodec.writeOptionalString(out, m.tenantId());
+        out.writeUTF(m.name());
+        out.writeBoolean(m.firing());
+      }
       case StateMutation.RestoreSnapshot m -> {
         out.writeByte(MUT_RESTORE_SNAPSHOT);
         // Reuses encodeSnapshot's own already-versioned encoding wholesale rather than a second
@@ -1062,6 +1069,11 @@ public final class RaftCodec {
         Optional<String> tenantId = DomainCodec.readOptionalString(in);
         yield new StateMutation.RemoveAlertRule(tenantId, in.readUTF());
       }
+      case MUT_PUT_ALERT_FIRING_STATE -> {
+        Optional<String> tenantId = DomainCodec.readOptionalString(in);
+        String name = in.readUTF();
+        yield new StateMutation.PutAlertFiringState(tenantId, name, in.readBoolean());
+      }
       default -> throw new IllegalArgumentException("unknown StateMutation tag: " + tag);
     };
   }
@@ -1288,6 +1300,11 @@ public final class RaftCodec {
       for (Map.Entry<String, Instant> e : snapshot.deploymentLastScale().entrySet()) {
         out.writeUTF(e.getKey());
         out.writeLong(e.getValue().toEpochMilli());
+      }
+      out.writeInt(snapshot.alertFiringState().size());
+      for (Map.Entry<String, Boolean> e : snapshot.alertFiringState().entrySet()) {
+        out.writeUTF(e.getKey());
+        out.writeBoolean(e.getValue());
       }
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -1561,6 +1578,11 @@ public final class RaftCodec {
       for (int i = 0; i < deploymentLastScaleCount; i++) {
         deploymentLastScale.put(in.readUTF(), Instant.ofEpochMilli(in.readLong()));
       }
+      Map<String, Boolean> alertFiringState = new LinkedHashMap<>();
+      int alertFiringStateCount = in.readInt();
+      for (int i = 0; i < alertFiringStateCount; i++) {
+        alertFiringState.put(in.readUTF(), in.readBoolean());
+      }
       return new StateSnapshot(
           deployments,
           deploymentGenerations,
@@ -1606,7 +1628,8 @@ public final class RaftCodec {
           sessionRevokedBeforeEpochMilli,
           alertRules,
           deploymentLastScale,
-          ingresses);
+          ingresses,
+          alertFiringState);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

@@ -86,7 +86,10 @@ public record StateSnapshot(
     // When the autoscaler last moved each deployment's effectiveReplicas -- what makes an
     // AutoscalePolicy's stabilization windows survive a control-plane restart or failover.
     Map<String, Instant> deploymentLastScale,
-    List<IngressSpec> ingresses) {
+    List<IngressSpec> ingresses,
+    // Durable alert firing verdicts, keyed the same tenant-scoped way alertRules itself is -- see
+    // StateStore#putAlertFiringState's own javadoc for the absent/true/false three-state meaning.
+    Map<String, Boolean> alertFiringState) {
 
   public StateSnapshot {
     deployments = List.copyOf(deployments);
@@ -156,5 +159,6 @@ public record StateSnapshot(
     sessionRevokedBeforeEpochMilli = Map.copyOf(sessionRevokedBeforeEpochMilli);
     alertRules = List.copyOf(alertRules);
     deploymentLastScale = Map.copyOf(deploymentLastScale);
+    alertFiringState = Map.copyOf(alertFiringState);
   }
 }

@@ -74,6 +74,13 @@ public interface StoreReader {
 
   List<AlertRuleSpec> listAlertRules();
 
+  /**
+   * Empty means the rule has never crossed or resolved since it (or a same-named predecessor) was
+   * created -- see {@code StateStore#putAlertFiringState}'s own javadoc for the full three-state
+   * meaning.
+   */
+  Optional<Boolean> getAlertFiringState(Optional<String> tenantId, String name);
+
   List<InstanceAssignment> listAssignmentsFor(Optional<String> tenantId, String deploymentName);
 
   boolean isQuotaViolating(Optional<String> tenantId, String deploymentName);

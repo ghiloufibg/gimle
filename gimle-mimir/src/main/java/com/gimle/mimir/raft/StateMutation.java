@@ -196,6 +196,21 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
+  /**
+   * Proposed by {@code AlertReconciler} only on an actual crossed/resolved transition, never on
+   * every tick a rule's condition merely continues to hold or not hold -- see {@code
+   * StateStore#putAlertFiringState}'s own javadoc for why this state moved out of the reconciler's
+   * own process.
+   */
+  record PutAlertFiringState(Optional<String> tenantId, String name, boolean firing)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putAlertFiringState(tenantId, name, firing);
+      return MutationOutcome.accepted();
+    }
+  }
+
   record PutAssignment(InstanceAssignment assignment) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {

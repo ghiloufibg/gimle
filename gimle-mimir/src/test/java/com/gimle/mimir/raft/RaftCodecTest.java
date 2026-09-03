@@ -311,6 +311,25 @@ class RaftCodecTest {
   }
 
   @Test
+  void round_trips_a_put_alert_firing_state_mutation_both_true_and_false() {
+    LogEntry firingEntry =
+        logEntry(
+            1L,
+            new StateMutation.PutAlertFiringState(
+                Optional.of("tenant-1"), "greeter-error-rate", true));
+    LogEntry decodedFiring = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(firingEntry));
+    assertEquals(firingEntry, decodedFiring);
+
+    LogEntry resolvedEntry =
+        logEntry(
+            2L,
+            new StateMutation.PutAlertFiringState(
+                Optional.of("tenant-1"), "greeter-error-rate", false));
+    LogEntry decodedResolved = RaftCodec.decodeLogEntry(RaftCodec.encodeLogEntry(resolvedEntry));
+    assertEquals(resolvedEntry, decodedResolved);
+  }
+
+  @Test
   void round_trips_a_deployment_last_scale_stamp() {
     LogEntry original =
         logEntry(
@@ -492,7 +511,8 @@ class RaftCodecTest {
                     5.0,
                     "https://hooks.example.com/greeter-alerts")),
             Map.of("greeter", Instant.ofEpochMilli(2_000L)),
-            List.of());
+            List.of(),
+            Map.of("tenant-1\0greeter-error-rate", true));
 
     byte[] bytes = RaftCodec.encodeSnapshot(snapshot);
     StateSnapshot decoded = RaftCodec.decodeSnapshot(bytes);
@@ -542,6 +562,7 @@ class RaftCodecTest {
     assertArrayEquals(originalResource.statusJson(), decodedResource.statusJson());
     assertEquals(
         snapshot.sessionRevokedBeforeEpochMilli(), decoded.sessionRevokedBeforeEpochMilli());
+    assertEquals(snapshot.alertFiringState(), decoded.alertFiringState());
   }
 
   @Test

@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 787
+- **Total requirements**: 788
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 660
+- **Not covered by automated test**: 661
 - **Release-readiness (automated coverage)**: 16.1%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -21,7 +21,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-agent | 56 | 6 | 50 | 10.7% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 114 | 17 | 97 | 14.9% |
+| gimle-controlplane | 115 | 17 | 98 | 14.8% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
@@ -1225,6 +1225,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-711 | A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved | Given an enabled AlertRule on deployment 'checkout-service' with metric=ERROR_RATE_PER_SECOND, comparator=GREATER_THAN, threshold=5.0; When the deployment's averaged observed error rate rises to 8.0 on a reconcile tick; Then exactly one FIRING webhook notification is sent. Given the rule from the previous scenario is already firing; When a later reconcile tick observes the error rate still above threshold; Then no additional notification is sent. Given the rule is firing; When the observed error rate drops back to 1.0; Then exactly one RESOLVED webhook notification is sent, and no further notification is sent while it stays resolved. Given a disabled AlertRule whose metric is currently crossed; When the reconciler evaluates it; Then no notification is ever sent. | No |
 | [ ] | GIMLE-766 | The audit trail pages with an eviction-safe cursor | Given an audit trail longer than one page When the next page is requested by cursor Then the following events are returned without skipping or repeating And a cursor whose anchor has been evicted reports the walk as expired rather than guessing | No |
 | [ ] | GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | Given tenants `acme` and `globex` each running a deployment named `api` When an operator reads the per-deployment rollup Then two rows are returned, one naming each tenant, neither merged into a single average And an untenanted deployment named `api` is a third, distinct row carrying a null tenant | No |
+| [ ] | GIMLE-788 | A durable, replica-agnostic read of whether an AlertRule is currently firing | Given an AlertRule that has just been declared and never evaluated; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=false and no firing field. Given an AlertRule that AlertReconciler has observed crossing its threshold; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=true and firing=true, on every control-plane replica that answers. Given a control-plane replica restarts (or a different replica answers) after a rule was already firing; When that replica's own AlertReconciler next ticks; Then it reads the durable verdict and does not re-send a FIRING notification for the same ongoing incident. Given a caller with no grant for ResourceKind.ALERT_RULE; When it requests GET /alertrules/{name}/firing over mTLS; Then the response is 403. | No |
 
 #### Orchestration / Internal-Infra
 
