@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 788,
+    "totalRequirements": 789,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 661,
+    "notCoveredByAutomatedTest": 662,
     "releaseReadinessPercent": 16.1
   },
   "items": [
@@ -8670,6 +8670,17 @@
       "category": "Observability",
       "feature": "Cluster-wide instance lifecycle event read",
       "step": "Given lifecycle events recorded across several deployments and tenants; When GET /events is requested with no deployment/instance params; Then every matching event is returned merged newest-first, paginated the same since/limit/cursor way GET /audit already is. Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode. Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-789",
+      "module": "gimle-controlplane",
+      "category": "Reconciliation / Orchestration",
+      "feature": "DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances",
+      "step": "Given a DaemonSet with 3 eligible nodes and 2 currently placed; When its status is read; Then desired is 3 and unplacedCount is 1, not absent. Given a node backing a DaemonSet is cordoned; When DaemonSetReconciler ticks; Then desired drops by one on that same tick, and rises again once the node is uncordoned and re-eligible. Given a DaemonSet spec with no reconciler tick yet against it; When its status is read; Then desired and unplacedCount are both absent rather than a misleading zero.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

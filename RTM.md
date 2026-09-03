@@ -803,6 +803,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-786 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | New | Not Covered | — |
 | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | New | Not Covered | — |
 | GIMLE-788 | Cluster-wide instance lifecycle event read | New | Not Covered | — |
+| GIMLE-789 | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -4696,6 +4697,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: StateStoreTest (6 new), StoreCodecTest (round-trip), StoreNodeTest (2 new), InstanceEventPageTest (8), ApiServerClusterInstanceEventsTest (11), ApiServerAuthzTest (1 new), ApiServerTest (1 updated).
 - **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`listInstanceEvents(Optional, Optional)`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StoreReader.java`, `gimle-mimir/src/main/java/com/gimle/mimir/rpc/{StoreRpc,StoreCodec,StoreNode,StoreClient}.java` (`ListAllInstanceEvents`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/{InstanceEventCursor,InstanceEventPage}.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleEvents`, `handleClusterInstanceEvents`)
 
+#### GIMLE-789 — DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances
+
+- **Category**: Reconciliation / Orchestration
+- **Status**: New  _(New requirement: Implemented. Closes gimle#15 sub-item 2 -- DaemonSetReconciler now publishes the eligible-node count it already computes every tick (StateMutation.PutDaemonSetDesiredCount), and ApiServer.daemonSetStatus surfaces it as desired/unplacedCount alongside the placed instance count, the same shape Deployment/StatefulSet status already exposes.)_
+- **Coverage**: Not Covered
+- **Gap note**: No .feature scenario reads a DaemonSet's status and asserts desired/unplacedCount against a real cluster. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: DaemonSetReconcilerTest (six new convergence tests: zero eligible nodes, every node eligible, required-label narrowing, a node becoming ineligible then eligible again across ticks, an arbitrary starting snapshot with no prior desired-count history, and clearing on daemonset deletion) and ApiServerTest (two new tests asserting the field on both GET /daemonsets/{name} and GET /daemonsets, plus an extension asserting it is absent before any reconciler tick).
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`daemonSetStatus`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`daemonSetDesiredCounts`)
+
 ### gimle-fafnir
 
 #### GIMLE-276 — AES-256-GCM secret value encryption with versioned key IDs
@@ -8280,7 +8290,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**661 of 788 requirements are Not Covered.**
+**662 of 789 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8710,6 +8720,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-236 | gimle-controlplane | Job active-deadline enforcement | Reconciliation / Orchestration | `JobReconcilerTest#exceeding_the_active_deadline_marks_the_job_permanently_failed_even_mid_attempt` |
 | GIMLE-237 | gimle-controlplane | CronJob schedule-driven Job materialization | Reconciliation / Orchestration | `CronJobReconcilerTest` — `first_tick_records_a_baseline_and_materializes_nothing`, `a_due_firing_materializes_a_job_named_with_the_epoch_second_suffix` |
 | GIMLE-238 | gimle-controlplane | CronJob concurrency policy (Allow/Forbid/Replace) | Reconciliation / Orchestration | `CronJobReconcilerTest` — `concurrency_policy_forbid_skips_a_firing_while_the_previous_one_is_still_running`, `concurrency_policy_replace_removes_the_still_running_job_before_placing_the_new_one`, `concurrency_policy_allow_lets_a_new_firing_run_alongside_a_still_running_one` |
+| GIMLE-789 | gimle-controlplane | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | Reconciliation / Orchestration | DaemonSetReconcilerTest (six new convergence tests: zero eligible nodes, every node eligible, required-label narrowing, a node becoming ineligible then eligible again across ticks, an arbitrary starting snapshot with no prior desired-count history, and clearing on daemonset deletion) and ApiServerTest (two new tests asserting the field on both GET /daemonsets/{name} and GET /daemonsets, plus an extension asserting it is absent before any reconciler tick). |
 | GIMLE-230 | gimle-controlplane | Autoscaling WEIGHTED combination mode | Reconciliation / Scheduling | `AutoscaleReconcilerTest` — `weighted_mode_blends_two_signals_instead_of_taking_the_max`, `weighted_mode_with_no_weights_configured_behaves_like_an_unweighted_average` |
 | GIMLE-224 | gimle-controlplane | Node-death instance reclamation (`ReplicaCountReconciler`) | Reconciliation / Self-healing | `ReplicaCountReconcilerTest` (grace-period and persisted-state convergence tests present) |
 | GIMLE-226 | gimle-controlplane | Unhealthy-instance backoff-gated reschedule (`HealthReconciler`) | Reconciliation / Self-healing | `HealthReconcilerTest` — `an_unhealthy_instance_is_rescheduled_once_its_backoff_elapses`, `repeated_failures_across_reschedules_eventually_exhaust_the_budget_and_stop_retrying`, `converges_correctly_from_an_arbitrary_mix_of_persisted_backoff_states` |

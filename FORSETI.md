@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 788 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 789 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 193 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 167, uncited 0). |
-| **User-observable** | **526** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 526 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **527** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 527 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -125,7 +125,7 @@ not carry over to the new one.
 | **OPS** | Ops — Platform operator | The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day. | A B C | 15 | 65 |
 | **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 6 | 49 |
 | **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 58 |
-| **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 54 |
+| **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 55 |
 | **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 38 |
 | **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 62 |
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
@@ -205,7 +205,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 |---|---|---|---|---|
 | **BATCH-1** | A | Apply a Job; apply one with an `activeDeadline` it will exceed; apply one that fails; create one from the console's Jobs form. | Exactly one run to COMPLETED that does not linger like a Deployment; the deadline kills and marks the second; the third retries under exponential backoff, not every tick; the console form and list agree with the CLI. | GIMLE-372, GIMLE-052, GIMLE-092, GIMLE-235, GIMLE-236, GIMLE-680, GIMLE-440, GIMLE-713, GIMLE-787 |
 | **BATCH-2** | A | Apply a CronJob on a one-minute schedule; let two fires happen; `cronjob trigger` between them; try each concurrency policy; suspend and resume; set history limits of 1/1; put the tenant over quota before a fire. | Three completed runs with no duplicate or skipped fire; Forbid/Replace behave as documented; suspension stops fires without deletion; terminal Jobs are pruned to the limits; the over-quota fire is refused through admission like any other Job. | GIMLE-373, GIMLE-171, GIMLE-237, GIMLE-238, GIMLE-239, GIMLE-724, GIMLE-670, GIMLE-658, GIMLE-441, GIMLE-713 |
-| **BATCH-3** | A B | Apply a DaemonSet on Midgard, then on Fleet; add a node after the fact; taint one node and set `tolerateAllTaints`. | Exactly one instance per eligible node including the late-joining one; the tainted node is skipped until the toleration is set; console list/detail match `get daemonsets`. | GIMLE-374, GIMLE-218, GIMLE-231, GIMLE-442, GIMLE-675 |
+| **BATCH-3** | A B | Apply a DaemonSet on Midgard, then on Fleet; add a node after the fact; taint one node and set `tolerateAllTaints`. | Exactly one instance per eligible node including the late-joining one; the tainted node is skipped until the toleration is set; console list/detail match `get daemonsets`, including the reconciler-published desired (eligible-node) count tracking the placed count as nodes join/taint/untaint. | GIMLE-374, GIMLE-218, GIMLE-231, GIMLE-442, GIMLE-675, GIMLE-789 |
 | **BATCH-4** | A | Roll a bad version onto a DaemonSet and a StatefulSet, then `rollback` each; also change only the artifact of a StatefulSet. | Every node/index reverts, not just some; an artifact-only change is recognised as a rolling update. | GIMLE-601, GIMLE-602, GIMLE-694, GIMLE-714 |
 | **BATCH-5** | A B | Apply a StatefulSet with three ordered replicas declaring a volume; kill a worker; scale 3→1; inspect the Volumes screen. | Start is ordered; each index keeps its identity, its node and gets its own volume back after the restart; scale-down retires one index at a time; volumes are tenant-scoped and their soft disk usage shows in the console. | GIMLE-375, GIMLE-007, GIMLE-069, GIMLE-117, GIMLE-160, GIMLE-217, GIMLE-233, GIMLE-234, GIMLE-443, GIMLE-612, GIMLE-621, GIMLE-622, GIMLE-751, GIMLE-630, GIMLE-655 |
 | **BATCH-6** | A | Delete a StatefulSet and inspect its volumes; `gimle volume destroy` with and without `--tenant`, and against a coordinate with nothing on disk. | Volumes are retained by default and listed as orphaned; destroy targets the named tenant's volume only; a destroy that removed nothing returns 404, not a false success. | GIMLE-612, GIMLE-621, GIMLE-770, GIMLE-771, GIMLE-751 |
@@ -1283,4 +1283,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-786 | `gimle-agent` | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | observable | FLEET | DEP-5, SCHED-10 |
 | GIMLE-787 | `gimle-console` | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | observable | FLEET | DEP-1, BATCH-1, OBS-7, JRN-7 |
 | GIMLE-788 | `gimle-controlplane` | Cluster-wide instance lifecycle event read | internal | UNIT | StateStoreTest (6 new), StoreCodecTest (round-trip), StoreNodeTest (2 new), InstanceEventPageTest (8), ApiServerClusterInstanceEventsTest (11), ApiServerAuthzTest (1 new), ApiServerTest (1 updated). |
+| GIMLE-789 | `gimle-controlplane` | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | observable | FLEET | BATCH-3 |
 <!-- /forseti:generated -->

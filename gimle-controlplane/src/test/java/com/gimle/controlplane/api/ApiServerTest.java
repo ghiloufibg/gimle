@@ -850,6 +850,59 @@ class ApiServerTest {
     Map<String, Object> placement = Json.asObject(spec.get("placement"));
     assertEquals(List.of("gpu"), placement.get("requiredLabels"));
     assertTrue(Json.asObjectList(status.get("instances")).isEmpty(), "nothing reconciled yet");
+    assertFalse(
+        status.containsKey("desired"),
+        "desired is absent until DaemonSetReconciler's first tick, the same shape "
+            + "getEffectiveReplicas already uses");
+    assertFalse(status.containsKey("unplacedCount"));
+  }
+
+  /**
+   * {@code desired} and {@code unplacedCount} are read straight off {@code
+   * StateStore#daemonSetDesiredCounts} -- this test sets it directly (bypassing a real reconciler
+   * tick) the same way it bypasses the scheduler for every other daemonset status field here, and
+   * asserts the API surfaces it alongside the placed (instances) count.
+   */
+  @Test
+  void get_a_daemonset_surfaces_the_reconciler_published_desired_count() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+            .PUT(HttpRequest.BodyPublishers.ofString(daemonSetYaml("node-exporter")))
+            .build());
+    // An untenanted manifest resolves to Tenant.DEFAULT_TENANT_ID at parse time, never
+    // Optional.empty() -- see ApiServer's own note on why no workload ever lands in the
+    // untenanted namespace.
+    store.putDaemonSetDesiredCount(Optional.of(Tenant.DEFAULT_TENANT_ID), "node-exporter", 3);
+
+    HttpResponse<String> get =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+                .GET()
+                .build());
+
+    assertEquals(200, get.statusCode());
+    Map<String, Object> status = Json.asObject(Json.parse(get.body()));
+    assertEquals(3, ((Number) status.get("desired")).intValue());
+    // No instances placed yet, so the whole desired count is currently unplaced.
+    assertEquals(3, ((Number) status.get("unplacedCount")).intValue());
+  }
+
+  @Test
+  void daemonsets_list_endpoint_also_surfaces_the_desired_count() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets/node-exporter"))
+            .PUT(HttpRequest.BodyPublishers.ofString(daemonSetYaml("node-exporter")))
+            .build());
+    store.putDaemonSetDesiredCount(Optional.of(Tenant.DEFAULT_TENANT_ID), "node-exporter", 2);
+
+    HttpResponse<String> list =
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/daemonsets")).GET().build());
+
+    assertEquals(200, list.statusCode());
+    List<Map<String, Object>> statuses = Json.asObjectList(Json.parse(list.body()));
+    assertEquals(1, statuses.size());
+    assertEquals(2, ((Number) statuses.get(0).get("desired")).intValue());
+    assertEquals(2, ((Number) statuses.get(0).get("unplacedCount")).intValue());
   }
 
   @Test

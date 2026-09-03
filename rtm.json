@@ -13664,6 +13664,23 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleEvents`, `handleClusterInstanceEvents`)"
       ],
       "gapNote": "No .feature scenario reads GET /events' cluster-wide mode. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-789",
+      "module": "gimle-controlplane",
+      "feature": "DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances",
+      "category": "Reconciliation / Orchestration",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. Closes gimle#15 sub-item 2 -- DaemonSetReconciler now publishes the eligible-node count it already computes every tick (StateMutation.PutDaemonSetDesiredCount), and ApiServer.daemonSetStatus surfaces it as desired/unplacedCount alongside the placed instance count, the same shape Deployment/StatefulSet status already exposes.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "DaemonSetReconcilerTest (six new convergence tests: zero eligible nodes, every node eligible, required-label narrowing, a node becoming ineligible then eligible again across ticks, an arbitrary starting snapshot with no prior desired-count history, and clearing on daemonset deletion) and ApiServerTest (two new tests asserting the field on both GET /daemonsets/{name} and GET /daemonsets, plus an extension asserting it is absent before any reconciler tick).",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/reconcile/DaemonSetReconciler.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`daemonSetStatus`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java` (`daemonSetDesiredCounts`)"
+      ],
+      "gapNote": "No .feature scenario reads a DaemonSet's status and asserts desired/unplacedCount against a real cluster. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     }
   ]
 }

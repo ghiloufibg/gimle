@@ -471,6 +471,14 @@ public final class StoreClient implements MutationSink, StoreReader, AutoCloseab
             .values());
   }
 
+  public Optional<Integer> getDaemonSetDesiredCount(
+      Optional<String> tenantId, String daemonSetName) {
+    StoreRpc.IntResult r =
+        (StoreRpc.IntResult)
+            sendRead(new StoreRpc.GetDaemonSetDesiredCount(tenantId, daemonSetName));
+    return r.present() ? Optional.of(r.value()) : Optional.empty();
+  }
+
   public Optional<StatefulSetSpec> getStatefulSetSpec(Optional<String> tenantId, String name) {
     StoreRpc.StatefulSetSpecResult r =
         (StoreRpc.StatefulSetSpecResult) sendRead(new StoreRpc.GetStatefulSetSpec(tenantId, name));

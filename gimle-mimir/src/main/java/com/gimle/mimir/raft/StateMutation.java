@@ -344,6 +344,20 @@ public sealed interface StateMutation extends RaftLogPayload {
     }
   }
 
+  /**
+   * The count of nodes {@code DaemonSetReconciler} found eligible on its most recent tick --
+   * "desired", the same quantity {@code DeploymentSpec#replicas()} is for a Deployment, but
+   * recomputed from live node state each tick rather than read off the spec.
+   */
+  record PutDaemonSetDesiredCount(Optional<String> tenantId, String daemonSetName, int desiredCount)
+      implements StateMutation {
+    @Override
+    public MutationOutcome applyTo(StateStore store) {
+      store.putDaemonSetDesiredCount(tenantId, daemonSetName, desiredCount);
+      return MutationOutcome.accepted();
+    }
+  }
+
   record PutStatefulSetSpec(StatefulSetSpec spec) implements StateMutation {
     @Override
     public MutationOutcome applyTo(StateStore store) {

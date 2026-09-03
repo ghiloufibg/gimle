@@ -131,6 +131,12 @@ public interface StoreReader {
 
   Set<String> getRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName);
 
+  /**
+   * Empty until the reconciler's first tick for this daemonset -- see {@code
+   * StateStore#daemonSetDesiredCounts}'s own field javadoc.
+   */
+  Optional<Integer> getDaemonSetDesiredCount(Optional<String> tenantId, String daemonSetName);
+
   Optional<StatefulSetSpec> getStatefulSetSpec(Optional<String> tenantId, String name);
 
   List<StatefulSetSpec> listStatefulSetSpecs();

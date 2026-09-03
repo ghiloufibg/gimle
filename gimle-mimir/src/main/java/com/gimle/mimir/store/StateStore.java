@@ -79,6 +79,11 @@ public final class StateStore implements StoreReader {
   // rollingIndices above, same "only persist while in flight" shape. Sized by the deployment's own
   // effective maxUnavailable (small, bounded), not by cluster size.
   private final Map<String, Set<String>> rollingDaemonSetNodes = new ConcurrentHashMap<>();
+  // The eligible-node count DaemonSetReconciler computed on its most recent tick -- "desired",
+  // read by the API server's DaemonSet status surface alongside the placed (assignment) count.
+  // Absent until the first tick after the spec was admitted, the same "not yet known" shape
+  // getEffectiveReplicas already uses.
+  private final Map<String, Integer> daemonSetDesiredCounts = new ConcurrentHashMap<>();
   private final Map<String, StatefulSetSpec> statefulSetSpecs = new ConcurrentHashMap<>();
   // Keyed by statefulSetAssignmentKey (statefulSetName#instanceIndex) -- a real per-index key,
   // unlike DaemonSetAssignment's node-keyed one, since a StatefulSet index is a stable identity
@@ -504,6 +509,7 @@ public final class StateStore implements StoreReader {
   public void removeDaemonSetSpec(Optional<String> tenantId, String name) {
     daemonSetSpecs.remove(scopedKey(tenantId, name));
     clearAllRollingDaemonSetNodes(tenantId, name);
+    daemonSetDesiredCounts.remove(scopedKey(tenantId, name));
     controllerRevisions.remove(ControllerRevision.revisionKey("DaemonSet", tenantId, name));
     clearInstanceEventsFor(tenantId, name);
   }
@@ -569,6 +575,25 @@ public final class StateStore implements StoreReader {
   private void clearAllRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName) {
     Set.copyOf(rollingDaemonSetNodes.getOrDefault(scopedKey(tenantId, daemonSetName), Set.of()))
         .forEach(nodeId -> removeRollingDaemonSetNode(tenantId, daemonSetName, nodeId));
+  }
+
+  // ---- daemonset desired-count bookkeeping ----
+
+  /**
+   * Set by {@code DaemonSetReconciler} every tick to the count of nodes it found eligible via
+   * {@code Scheduler#eligibleNodes} -- the DaemonSet analogue of {@link DeploymentSpec#replicas()},
+   * recomputed rather than read off the spec since a DaemonSet's desired count depends on live node
+   * state.
+   */
+  public void putDaemonSetDesiredCount(
+      Optional<String> tenantId, String daemonSetName, int desiredCount) {
+    daemonSetDesiredCounts.put(scopedKey(tenantId, daemonSetName), desiredCount);
+  }
+
+  /** Empty until the reconciler's first tick for this daemonset. */
+  public Optional<Integer> getDaemonSetDesiredCount(
+      Optional<String> tenantId, String daemonSetName) {
+    return Optional.ofNullable(daemonSetDesiredCounts.get(scopedKey(tenantId, daemonSetName)));
   }
 
   // ---- statefulsets ----
@@ -1623,7 +1648,8 @@ public final class StateStore implements StoreReader {
         Map.copyOf(sessionRevokedBeforeEpochMilli),
         List.copyOf(alertRules.values()),
         Map.copyOf(deploymentLastScale),
-        List.copyOf(ingresses.values()));
+        List.copyOf(ingresses.values()),
+        Map.copyOf(daemonSetDesiredCounts));
   }
 
   /** The deep-copied {@code nodeTaints} shape {@link #snapshot()} embeds. */
@@ -1680,6 +1706,7 @@ public final class StateStore implements StoreReader {
     daemonSetAssignments.clear();
     daemonSetSpecs.clear();
     rollingDaemonSetNodes.clear();
+    daemonSetDesiredCounts.clear();
     statefulSetAssignments.clear();
     statefulSetSpecs.clear();
     statefulSetIndexNodes.clear();
@@ -1806,6 +1833,9 @@ public final class StateStore implements StoreReader {
                 customResources.put(
                     customResourceKey(resource.kindName(), resource.tenantId(), resource.name()),
                     resource));
+    snapshot
+        .daemonSetDesiredCounts()
+        .forEach((key, count) -> daemonSetDesiredCounts.put(key, count));
   }
 
   /**

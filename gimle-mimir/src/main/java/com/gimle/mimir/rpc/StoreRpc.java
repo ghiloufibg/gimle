@@ -107,6 +107,7 @@ public sealed interface StoreRpc {
           ListDaemonSetAssignments,
           ListDaemonSetAssignmentsFor,
           ListRollingDaemonSetNodes,
+          GetDaemonSetDesiredCount,
           GetStatefulSetSpec,
           ListStatefulSetSpecs,
           ListStatefulSetAssignments,
@@ -375,6 +376,10 @@ public sealed interface StoreRpc {
       implements Request {}
 
   record ListRollingDaemonSetNodes(Optional<String> tenantId, String daemonSetName)
+      implements Request {}
+
+  /** Empty until the reconciler's first tick -- see {@code StateStore#daemonSetDesiredCounts}. */
+  record GetDaemonSetDesiredCount(Optional<String> tenantId, String daemonSetName)
       implements Request {}
 
   record GetStatefulSetSpec(Optional<String> tenantId, String name) implements Request {}

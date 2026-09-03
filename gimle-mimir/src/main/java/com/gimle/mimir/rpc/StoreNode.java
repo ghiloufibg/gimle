@@ -152,6 +152,8 @@ public final class StoreNode implements StoreRpcHandler {
       case StoreRpc.ListRollingDaemonSetNodes r ->
           new StoreRpc.StringSetResult(
               List.copyOf(store.getRollingDaemonSetNodes(r.tenantId(), r.daemonSetName())));
+      case StoreRpc.GetDaemonSetDesiredCount r ->
+          intResult(store.getDaemonSetDesiredCount(r.tenantId(), r.daemonSetName()));
       case StoreRpc.GetStatefulSetSpec r ->
           statefulSetSpecResult(store.getStatefulSetSpec(r.tenantId(), r.name()));
       case StoreRpc.ListStatefulSetSpecs r ->
