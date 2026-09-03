@@ -1,6 +1,5 @@
 package com.gimle.controlplane.api;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,10 +31,10 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
 
 /**
- * Regression coverage for the flood-to-unresponsiveness failure the fleet's own load test found:
- * a large concurrent burst against an ordinary read route (here, {@code GET /deployments}, the
- * exact route flooded) must be turned away with fast {@code 429}s once past the admission budget,
- * never accepted and left to time out -- and a node agent's own heartbeat traffic, hitting its own
+ * Regression coverage for the flood-to-unresponsiveness failure the fleet's own load test found: a
+ * large concurrent burst against an ordinary read route (here, {@code GET /deployments}, the exact
+ * route flooded) must be turned away with fast {@code 429}s once past the admission budget, never
+ * accepted and left to time out -- and a node agent's own heartbeat traffic, hitting its own
  * reserved lane, must keep succeeding throughout even while the general lane is fully saturated.
  */
 // Real ApiServer + real java.net.http.HttpClient on a loopback ephemeral port: excludes this class
@@ -156,8 +155,7 @@ class ApiServerAdmissionControlTest {
         .timeout(Duration.ofSeconds(10))
         .POST(
             HttpRequest.BodyPublishers.ofString(
-                "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}",
-                StandardCharsets.UTF_8))
+                "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}", StandardCharsets.UTF_8))
         .build();
   }
 

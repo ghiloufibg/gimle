@@ -694,8 +694,8 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
-   * Wraps a handler with admission control and request-count/latency/error Micrometer recording,
-   * at context-registration time rather than inside each handler body -- the identical
+   * Wraps a handler with admission control and request-count/latency/error Micrometer recording, at
+   * context-registration time rather than inside each handler body -- the identical
    * metrics-recording pattern {@code FafnirServer.instrument} already established, copied rather
    * than shared since the two classes have no common base to hang it on. {@code error} is read from
    * the exchange's own response code after the delegate finishes, not from an escaping exception --
@@ -704,9 +704,9 @@ public final class ApiServer implements AutoCloseable {
    * <p>Admission control runs first, before the delegate does any work at all: the {@code "nodes"}
    * endpoint (every {@code /nodes/{nodeId}/...} action, including register/heartbeat/assignments)
    * draws from {@link #nodeAdmission}, its own reserved budget; every other endpoint draws from the
-   * shared {@link #generalAdmission}. A caller finding no permit free is refused with a fast
-   * {@code 429} rather than being handed to the delegate and left to contend for whatever resource
-   * is actually saturated.
+   * shared {@link #generalAdmission}. A caller finding no permit free is refused with a fast {@code
+   * 429} rather than being handed to the delegate and left to contend for whatever resource is
+   * actually saturated.
    */
   private HttpHandler instrument(String endpoint, HttpHandler delegate) {
     ConcurrencyLimiter admission = "nodes".equals(endpoint) ? nodeAdmission : generalAdmission;

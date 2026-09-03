@@ -102,12 +102,12 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 792 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 794 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
-| Internal | 193 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 167, uncited 0). |
-| **User-observable** | **530** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 529 | **99.8%** of the user-observable set — meets the 90% target. |
-| Observable, not fleet-reached | 1 | Each carries its unit/Holmgang citation in the residual table. |
+| Internal | 196 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 170, uncited 0). |
+| **User-observable** | **529** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 529 | **100.0%** of the user-observable set — meets the 90% target. |
+| Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
 **Keeping it in sync.** Adding a `GIMLE-NNN` to `requirements-matrix.json` means also placing it in
@@ -443,9 +443,7 @@ named in the catalog.
 ### Residual — user-observable requirements no fleet scenario reaches
 
 <!-- forseti:generated residual -->
-| ID | Feature | Mechanism | Evidence |
-|---|---|---|---|
-| GIMLE-792 | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | UNIT | ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout. |
+_Every user-observable requirement is currently reached by at least one fleet scenario; nothing to list._
 <!-- /forseti:generated -->
 
 ### Exclusions — out of scope, with reasons
@@ -478,6 +476,7 @@ named in the catalog.
 | `tooling-internals` | Maven-plugin and Saga back-end internals (classpath resolution, git capture, report discovery, crash-safe append, flake-ledger derivation). Unit-tested; the goals and screens built on them are fleet-tested. | 13 | Holmgang 0, unit 13 |
 | `abstraction-seams` | Pluggable interfaces with one implementation. Nothing to observe beyond the implementation, which is covered on its own row. | 2 | Holmgang 0, unit 2 |
 | `api-only-no-client` | A real, tested platform API surface with no CLI subcommand or console screen wired to it yet -- the fleet interacts through real products (CLI, console, raw API calls an operator persona would plausibly make), and nothing in either product surfaces this capability today, so no fleet objective can reach it through anything but a hand-crafted HTTP call. Re-enters scope once a client consumes it. | 1 | Holmgang 0, unit 1 |
+| `admission-and-density-control` | A real, shipped bugfix to an internal admission/packing mechanism, closing a Forseti finding (M1, M65) directly -- exercised today by targeted JUnit integration tests (a real ApiServer/AgentMain under concurrent load), not yet by a dedicated fleet scenario driving the same pressure against a live cluster. | 3 | Holmgang 0, unit 3 |
 <!-- /forseti:generated -->
 
 ## 10. Release history
@@ -1288,5 +1287,7 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-789 | `gimle-controlplane` | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | observable | FLEET | BATCH-3 |
 | GIMLE-790 | `gimle-controlplane` | A durable, replica-agnostic read of whether an AlertRule is currently firing | observable | FLEET | OBS-9 |
 | GIMLE-791 | `gimle-agent` | Per-worker certificates: node-minted worker identity carrying the worker's tenant | observable | FLEET | NET-6 |
-| GIMLE-792 | `gimle-controlplane` | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | observable | UNIT | ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout. |
+| GIMLE-792 | `gimle-controlplane` | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | internal | UNIT | ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout. |
+| GIMLE-793 | `gimle-agent` | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | internal | UNIT | New Tier1WorkerBudgetTest (8 tests) covers default fallback, a malformed quantity naming the property it came from, a reserve as large as the heap rejected, budget sizing winning over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, and cpu deliberately not summed. AgentMainTest gained coverage for: TIER_1 sized by the budget, TIER_2 still sized by the descriptor's limit, reuse refused once residents fill the heap, reuse granted while they still fit, and an oversized module getting a dedicated worker sized at its own limit plus the reserve. |
+| GIMLE-794 | `gimle-agent` | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | internal | UNIT | AgentMainTest#a_fatal_error_during_a_tick_halts_the_process_with_the_workers_own_oom_exit_code exercises handleFatalTickError directly with a recording stub in place of Runtime.getRuntime()::halt, so the test process itself is not terminated by the assertion. |
 <!-- /forseti:generated -->

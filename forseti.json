@@ -508,6 +508,14 @@
         "ids": [
           "GIMLE-788"
         ]
+      },
+      "admission-and-density-control": {
+        "note": "A real, shipped bugfix to an internal admission/packing mechanism, closing a Forseti finding (M1, M65) directly -- exercised today by targeted JUnit integration tests (a real ApiServer/AgentMain under concurrent load), not yet by a dedicated fleet scenario driving the same pressure against a live cluster.",
+        "ids": [
+          "GIMLE-792",
+          "GIMLE-793",
+          "GIMLE-794"
+        ]
       }
     }
   },

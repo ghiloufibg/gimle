@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 792,
+    "totalRequirements": 794,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 665,
+    "notCoveredByAutomatedTest": 667,
     "releaseReadinessPercent": 16.0
   },
   "items": [
@@ -1211,7 +1211,7 @@
       "module": "gimle-agent",
       "category": "Worker Supervision",
       "feature": "Tier 1 density — shared-worker reuse for multiple module instances",
-      "step": "Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap When findReusableTier1Worker is consulted for a new TIER_1 assignment Then it returns that worker's representative instance for reuse Given the worker is at the density cap, already hosts the same moduleId, hosts a non-TIER_1 instance, or has no established connection yet Then it is never reused",
+      "step": "Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap and shared-worker budget When findReusableTier1Worker is consulted for a new TIER_1 assignment Then it returns that worker's owning instance for reuse, whether or not that worker has finished connecting yet Given the worker is at the density cap, over its shared-worker budget, already hosts the same moduleId, hosts a non-TIER_1 instance, or its owning instance is no longer present Then it is never reused Given twelve Tier-1 instances of distinct modules are all assigned in the same reconcile tick, with a density cap of four When each is placed via findReusableTier1Worker in turn Then they land on three shared workers, not twelve separate ones",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -8714,6 +8714,28 @@
       "category": "Control plane / API server",
       "feature": "ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic",
       "step": "Given the control plane's general admission budget is set to a small number When a concurrent flood of ordinary API requests well past that budget arrives Then every request resolves to a fast 200 or 429, never a hang or timeout, and at least one request is rejected Given the same flood is saturating the general admission lane When a node agent concurrently sends its own heartbeat requests Then every heartbeat request still succeeds, because it draws from its own reserved admission lane",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-793",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "step": "Given an agent with a declared Tier-1 shared-worker heap budget When a TIER_1 instance spawns a worker Then that worker is sized from the budget, not from the instance's own declared limit Given a shared worker whose residents' declared memory limits already fill its heap When another TIER_1 instance of the same tenant is assigned to that node Then it is not packed into that worker and gets a fresh one, sized to its own declared limit plus the reserve, instead",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-794",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie",
+      "step": "Given the agent's tick loop is running When reconcileAssignments (or any other step of a tick) throws a fatal Error such as OutOfMemoryError Then the agent logs the failure and halts the JVM with the same exit code a worker's own OOM exit uses And it does not merely let the main thread die while other agent threads keep the process alive",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

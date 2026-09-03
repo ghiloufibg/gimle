@@ -36,12 +36,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -56,6 +59,24 @@ import org.junit.jupiter.api.io.TempDir;
  * hand-built command that never goes through either of these call sites.
  */
 class AgentMainTest {
+
+  // ---- tick loop: a fatal Error halts the agent rather than only killing the main thread ----
+
+  @Test
+  void a_fatal_error_during_a_tick_halts_the_process_with_the_workers_own_oom_exit_code() {
+    // Regression: the tick loop's own catch clause used to catch only RuntimeException/IOException,
+    // so an uncaught OutOfMemoryError (the exact failure mode a burst of allocation while
+    // reconciling a large set of pre-existing deployments against this agent's own fixed heap can
+    // trigger) killed only the main thread -- every other non-daemon thread the agent started
+    // (gossip, the admin API, the relays) kept the process alive as a zombie that never ticks or
+    // heartbeats again. handleFatalTickError is what the tick loop's catch (Error e) now calls;
+    // exercised directly here (with a recording stub instead of Runtime.getRuntime()::halt) so the
+    // test process itself is not terminated.
+    List<Integer> exitCodes = new ArrayList<>();
+    AgentMain.handleFatalTickError(new OutOfMemoryError("simulated"), exitCodes::add);
+
+    assertEquals(List.of(WorkerProcessSupervisor.OOM_EXIT_CODE), exitCodes);
+  }
 
   private static final ResourceSpec REQUEST = new ResourceSpec("16Mi", "500m");
   private static final ResourceSpec LIMIT = new ResourceSpec("64Mi", "2000m");
@@ -685,6 +706,21 @@ class AgentMainTest {
         Map.of());
   }
 
+  private static ModuleDescriptor descriptorWithLimit(String name, String memory, String cpu) {
+    return new ModuleDescriptor(
+        name,
+        Version.parse("1.0.0"),
+        List.of(),
+        List.of(),
+        IsolationTier.TIER_1,
+        new ResourceSpec("4Mi", "100m"),
+        new ResourceSpec(memory, cpu),
+        HealthProbes.NONE,
+        Optional.empty(),
+        Optional.empty(),
+        Map.of());
+  }
+
   private static AssignedInstance assignedInstance(
       String deploymentName, ModuleDescriptor descriptor, Optional<String> tenantId) {
     return new AssignedInstance(
@@ -693,8 +729,9 @@ class AgentMainTest {
 
   /**
    * A real (but never connected) {@link SocketChannel}-backed {@link WorkerConnection} -- only its
-   * object identity matters to {@code findReusableTier1Worker}'s connection-grouping logic, not its
-   * ability to actually send/receive.
+   * object identity matters here (a null vs. non-null connection is what {@code
+   * installIntoExistingWorker}'s own connect/join split cares about), not its ability to actually
+   * send/receive.
    */
   private static WorkerConnection fakeConnection() {
     try {
@@ -704,6 +741,54 @@ class AgentMainTest {
     }
   }
 
+  /**
+   * Stands in for the *owning* instance of a worker -- carries {@code key} as its own {@code
+   * workerKey}, exactly the invariant {@code AgentMain#startInstance} establishes for a real spawn
+   * ("its own key for an instance that got a freshly spawned worker" -- see {@link
+   * SupervisedInstance#workerKey}'s own javadoc). {@code connection} may be {@code null} to
+   * simulate a worker whose spawn hasn't finished connecting yet -- {@code findReusableTier1Worker}
+   * must still be able to group and admit against such an owner, since that is exactly the state
+   * every instance in a same-tick batch is in.
+   */
+  private static SupervisedInstance ownerInstance(
+      String key,
+      AssignedInstance assigned,
+      ModuleDescriptor descriptor,
+      WorkerConnection connection) {
+    return ownerInstance(key, assigned, descriptor, connection, null);
+  }
+
+  private static SupervisedInstance ownerInstance(
+      String key,
+      AssignedInstance assigned,
+      ModuleDescriptor descriptor,
+      WorkerConnection connection,
+      ResourceSpec workerLimit) {
+    SupervisedInstance instance =
+        new SupervisedInstance(assigned, null, null, descriptor, key, workerLimit);
+    instance.connection = connection;
+    return instance;
+  }
+
+  /**
+   * Stands in for an instance already packed onto {@code ownerKey}'s worker -- carries {@code
+   * ownerKey}, not its own map key, as {@code workerKey}, exactly what {@code
+   * AgentMain#installIntoExistingWorker} does for a real packed instance.
+   */
+  private static SupervisedInstance packedInstance(
+      String ownerKey,
+      AssignedInstance assigned,
+      ModuleDescriptor descriptor,
+      WorkerConnection connection) {
+    SupervisedInstance instance =
+        new SupervisedInstance(assigned, null, null, descriptor, ownerKey, null);
+    instance.connection = connection;
+    return instance;
+  }
+
+  /**
+   * A bare {@link SupervisedInstance} with no worker behind it at all -- {@code workerKey} null.
+   */
   private static SupervisedInstance supervisedInstance(
       AssignedInstance assigned, ModuleDescriptor descriptor, WorkerConnection connection) {
     SupervisedInstance instance = new SupervisedInstance(assigned, null, null, descriptor);
@@ -723,21 +808,6 @@ class AgentMainTest {
     return instance;
   }
 
-  private static ModuleDescriptor descriptorWithLimit(String name, String memory, String cpu) {
-    return new ModuleDescriptor(
-        name,
-        Version.parse("1.0.0"),
-        List.of(),
-        List.of(),
-        IsolationTier.TIER_1,
-        new ResourceSpec("4Mi", "100m"),
-        new ResourceSpec(memory, cpu),
-        HealthProbes.NONE,
-        Optional.empty(),
-        Optional.empty(),
-        Map.of());
-  }
-
   @Test
   void a_tier1_instance_reuses_an_existing_tier1_worker_of_the_same_tenant() {
     WorkerConnection sharedConnection = fakeConnection();
@@ -745,7 +815,8 @@ class AgentMainTest {
     AssignedInstance existingAssigned =
         assignedInstance("provider-deployment", existingDescriptor, Optional.of("acme"));
     SupervisedInstance existing =
-        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection);
+        ownerInstance(
+            "provider-deployment#0", existingAssigned, existingDescriptor, sharedConnection);
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
     supervised.put("provider-deployment#0", existing);
 
@@ -774,7 +845,8 @@ class AgentMainTest {
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
     supervised.put(
         "provider-deployment#0",
-        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection));
+        ownerInstance(
+            "provider-deployment#0", existingAssigned, existingDescriptor, sharedConnection));
 
     ModuleDescriptor tier2Descriptor = descriptor("dedicated", IsolationTier.TIER_2);
     AssignedInstance tier2Assigned =
@@ -800,7 +872,8 @@ class AgentMainTest {
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
     supervised.put(
         "provider-deployment#0",
-        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection));
+        ownerInstance(
+            "provider-deployment#0", existingAssigned, existingDescriptor, sharedConnection));
 
     ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
     AssignedInstance newAssigned =
@@ -826,7 +899,8 @@ class AgentMainTest {
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
     supervised.put(
         "provider-deployment#0",
-        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection));
+        ownerInstance(
+            "provider-deployment#0", existingAssigned, existingDescriptor, sharedConnection));
 
     ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
     AssignedInstance newAssigned =
@@ -853,7 +927,8 @@ class AgentMainTest {
         assignedInstance("greeter-deployment", descriptor, Optional.empty());
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
     supervised.put(
-        "greeter-deployment#0", supervisedInstance(replicaZero, descriptor, sharedConnection));
+        "greeter-deployment#0",
+        ownerInstance("greeter-deployment#0", replicaZero, descriptor, sharedConnection));
 
     AssignedInstance replicaOne =
         new AssignedInstance(
@@ -874,14 +949,18 @@ class AgentMainTest {
   void a_worker_at_the_density_cap_is_not_reused() {
     WorkerConnection sharedConnection = fakeConnection();
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    String ownerKey = "occupant-0-deployment#0";
     // Fill the shared worker up to the default density cap with that many distinct modules.
     for (int i = 0; i < AgentMain.DEFAULT_MAX_TIER1_DENSITY; i++) {
       ModuleDescriptor occupantDescriptor = descriptor("occupant-" + i, IsolationTier.TIER_1);
       AssignedInstance occupantAssigned =
           assignedInstance("occupant-" + i + "-deployment", occupantDescriptor, Optional.empty());
+      String key = "occupant-" + i + "-deployment#0";
       supervised.put(
-          "occupant-" + i + "-deployment#0",
-          supervisedInstance(occupantAssigned, occupantDescriptor, sharedConnection));
+          key,
+          i == 0
+              ? ownerInstance(ownerKey, occupantAssigned, occupantDescriptor, sharedConnection)
+              : packedInstance(ownerKey, occupantAssigned, occupantDescriptor, sharedConnection));
     }
 
     ModuleDescriptor newDescriptor = descriptor("one-too-many", IsolationTier.TIER_1);
@@ -900,14 +979,23 @@ class AgentMainTest {
   }
 
   @Test
-  void a_worker_with_no_established_connection_yet_is_never_reused() {
-    // Still starting up (server.accept() hasn't returned yet) -- connection is null.
+  void a_worker_with_no_established_connection_yet_is_still_reused() {
+    // The fix for the real-world failure this method exists to prevent: a batch of brand-new
+    // Tier-1 instances arriving in the very same reconcile tick all spawn or join a worker before
+    // any of them has actually finished connecting -- connection is still null here, the same as
+    // it would be moments after AgentMain#startInstance returns. Refusing to pack onto a
+    // not-yet-connected worker (the previous behavior this test used to assert) meant every
+    // instance in such a batch always spawned its own worker, since none of them could ever see a
+    // same-tick sibling as "already connected" -- "one worker per instance, zero sharing"
+    // regardless of the configured density cap. See also
+    // twelve_tier1_instances_arriving_in_one_batch_share_fewer_than_twelve_workers below.
     ModuleDescriptor existingDescriptor = descriptor("provider", IsolationTier.TIER_1);
     AssignedInstance existingAssigned =
         assignedInstance("provider-deployment", existingDescriptor, Optional.empty());
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
     supervised.put(
-        "provider-deployment#0", supervisedInstance(existingAssigned, existingDescriptor, null));
+        "provider-deployment#0",
+        ownerInstance("provider-deployment#0", existingAssigned, existingDescriptor, null));
 
     ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
     AssignedInstance newAssigned =
@@ -921,8 +1009,38 @@ class AgentMainTest {
             AgentMain.DEFAULT_MAX_TIER1_DENSITY,
             DEFAULT_TIER1_BUDGET);
 
-    assertFalse(reusable.isPresent());
+    assertTrue(reusable.isPresent());
   }
+
+  @Test
+  void an_owner_that_has_since_been_removed_leaves_nothing_to_reuse() {
+    // A packed instance can outlive the map entry its own workerKey points at (the owning
+    // instance renamed or torn down while it lives on) -- findReusableTier1Worker must not treat
+    // a worker with no resolvable owner as reusable, since there is no connection or workerLimit
+    // left to read for it.
+    ModuleDescriptor residentDescriptor = descriptor("resident", IsolationTier.TIER_1);
+    AssignedInstance residentAssigned =
+        assignedInstance("resident-deployment", residentDescriptor, Optional.empty());
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    supervised.put(
+        "resident-deployment#0",
+        packedInstance("owner-gone#0", residentAssigned, residentDescriptor, fakeConnection()));
+
+    ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
+    AssignedInstance newAssigned =
+        assignedInstance("consumer-deployment", newDescriptor, Optional.empty());
+
+    assertFalse(
+        AgentMain.findReusableTier1Worker(
+                newAssigned,
+                newDescriptor,
+                supervised,
+                AgentMain.DEFAULT_MAX_TIER1_DENSITY,
+                DEFAULT_TIER1_BUDGET)
+            .isPresent());
+  }
+
+  // ---- Tier 1 density: the summed-limit budget ----
 
   @Test
   void a_worker_is_not_reused_once_the_residents_declared_limits_fill_its_heap() {
@@ -938,7 +1056,8 @@ class AgentMainTest {
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
     supervised.put(
         "resident-deployment#0",
-        supervisedInstance(
+        ownerInstance(
+            "resident-deployment#0",
             residentAssigned,
             residentDescriptor,
             sharedConnection,
@@ -967,7 +1086,8 @@ class AgentMainTest {
     AssignedInstance residentAssigned =
         assignedInstance("resident-deployment", residentDescriptor, Optional.of("acme"));
     SupervisedInstance resident =
-        supervisedInstance(
+        ownerInstance(
+            "resident-deployment#0",
             residentAssigned,
             residentDescriptor,
             sharedConnection,
@@ -1024,10 +1144,14 @@ class AgentMainTest {
   }
 
   @Test
-  void a_worker_still_carries_its_recorded_size_once_the_instance_that_spawned_it_is_gone() {
-    // Tier 1 density keeps a worker alive past its spawning instance's teardown, so the sizing has
-    // to travel with every instance on it -- recomputing it from whoever happens to be left would
-    // silently re-answer the question with a different number.
+  void a_worker_is_not_offered_for_reuse_once_the_instance_that_owns_it_is_gone() {
+    // findReusableTier1Worker groups by workerKey and then looks up that key's own entry in
+    // `supervised` to find the owner -- the one instance the density javadoc names as the source of
+    // truth for the worker's real spawn-time size. A packed sibling surviving its owner's teardown
+    // does not get promoted to stand in for it: the group is treated as "nothing to reuse" rather
+    // than reasoning about a worker with no owner left to ask, even though the sibling itself is
+    // still running fine on it. This is a real, accepted trade-off, not an oversight -- see
+    // findReusableTier1Worker's own javadoc for why.
     Tier1WorkerBudget budget = Tier1WorkerBudget.parse("128Mi", "4000m", "32Mi");
     WorkerConnection sharedConnection = fakeConnection();
     ModuleDescriptor spawnerDescriptor = descriptorWithLimit("spawner", "512Mi", "500m");
@@ -1040,6 +1164,8 @@ class AgentMainTest {
     ModuleDescriptor survivorDescriptor = descriptorWithLimit("survivor", "8Mi", "500m");
     AssignedInstance survivorAssigned =
         assignedInstance("survivor-deployment", survivorDescriptor, Optional.of("acme"));
+    // workerKey ("worker", from the 4-arg helper) never has its own entry in `supervised` --
+    // standing in for the spawner having since been torn down while this packed sibling survives.
     SupervisedInstance survivor =
         supervisedInstance(survivorAssigned, survivorDescriptor, sharedConnection, spawned.limit());
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
@@ -1049,9 +1175,8 @@ class AgentMainTest {
     AssignedInstance candidateAssigned =
         assignedInstance("candidate-deployment", candidateDescriptor, Optional.of("acme"));
 
-    // Only the 544Mi the departed spawner's worker was actually sized at leaves room for this.
     assertEquals(
-        Optional.of(survivor),
+        Optional.empty(),
         AgentMain.findReusableTier1Worker(
             candidateAssigned,
             candidateDescriptor,
@@ -1096,7 +1221,8 @@ class AgentMainTest {
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
     supervised.put(
         "provider-deployment#0",
-        supervisedInstance(existingAssigned, existingDescriptor, sharedConnection));
+        ownerInstance(
+            "provider-deployment#0", existingAssigned, existingDescriptor, sharedConnection));
 
     ModuleDescriptor newDescriptor = descriptor("consumer", IsolationTier.TIER_1);
     AssignedInstance newAssigned =
@@ -1112,13 +1238,17 @@ class AgentMainTest {
   void a_raised_density_packs_past_what_the_default_would_have_allowed() {
     WorkerConnection sharedConnection = fakeConnection();
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    String ownerKey = "occupant-0-deployment#0";
     for (int i = 0; i < AgentMain.DEFAULT_MAX_TIER1_DENSITY; i++) {
       ModuleDescriptor occupantDescriptor = descriptor("occupant-" + i, IsolationTier.TIER_1);
       AssignedInstance occupantAssigned =
           assignedInstance("occupant-" + i + "-deployment", occupantDescriptor, Optional.empty());
+      String key = "occupant-" + i + "-deployment#0";
       supervised.put(
-          "occupant-" + i + "-deployment#0",
-          supervisedInstance(occupantAssigned, occupantDescriptor, sharedConnection));
+          key,
+          i == 0
+              ? ownerInstance(ownerKey, occupantAssigned, occupantDescriptor, sharedConnection)
+              : packedInstance(ownerKey, occupantAssigned, occupantDescriptor, sharedConnection));
     }
 
     ModuleDescriptor newDescriptor = descriptor("one-more", IsolationTier.TIER_1);
@@ -1133,6 +1263,88 @@ class AgentMainTest {
                 AgentMain.DEFAULT_MAX_TIER1_DENSITY + 1,
                 DEFAULT_TIER1_BUDGET)
             .isPresent());
+  }
+
+  // ---- Tier 1 density: a batch of new instances in one reconcile tick still packs ----
+
+  @Test
+  void twelve_tier1_instances_arriving_in_one_batch_share_fewer_than_twelve_workers() {
+    // Reproduces the real-world failure directly: fetchAssignments returning many brand-new
+    // Tier-1 instances at once (a scale-up, or a first reconcile after this agent restarts and
+    // finds a pile of pre-existing assignments) used to spawn one worker per instance regardless
+    // of the density cap, because none of a same-tick batch's connections are established yet.
+    // Simulates that same-tick condition directly: every new instance below is placed with no
+    // connection at all, exactly as AgentMain#startInstance leaves one immediately after
+    // spawning, well before its driveInstanceUp thread's accept() could possibly have returned.
+    int density = 4;
+    int instanceCount = 12;
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    for (int i = 0; i < instanceCount; i++) {
+      ModuleDescriptor instanceDescriptor = descriptor("small-" + i, IsolationTier.TIER_1);
+      AssignedInstance assigned =
+          assignedInstance("small-" + i + "-deployment", instanceDescriptor, Optional.empty());
+      String key = "small-" + i + "-deployment#0";
+      Optional<SupervisedInstance> reusable =
+          AgentMain.findReusableTier1Worker(
+              assigned, instanceDescriptor, supervised, density, DEFAULT_TIER1_BUDGET);
+      SupervisedInstance instance =
+          reusable.isPresent()
+              ? packedInstance(reusable.get().workerKey, assigned, instanceDescriptor, null)
+              : ownerInstance(key, assigned, instanceDescriptor, null);
+      supervised.put(key, instance);
+    }
+
+    Set<String> workersUsed =
+        supervised.values().stream()
+            .map(instance -> instance.workerKey)
+            .collect(Collectors.toSet());
+
+    assertEquals(3, workersUsed.size());
+    assertTrue(workersUsed.size() < instanceCount);
+  }
+
+  @Test
+  void an_oversized_tier1_module_still_gets_its_own_dedicated_worker_sized_at_limit_plus_reserve() {
+    // The companion case: however many small instances pack together, one that declares more
+    // memory than a whole shared worker holds must never be folded in -- it gets a worker sized
+    // exactly to its own limit plus the budget's overhead reserve (Tier1WorkerBudget#sizeFor), and
+    // that worker is then correctly full, with nothing else able to join it.
+    Tier1WorkerBudget budget = Tier1WorkerBudget.parse("256Mi", "4000m", "32Mi");
+    Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
+    String smallOwnerKey = "small-0-deployment#0";
+    for (int i = 0; i < 3; i++) {
+      ModuleDescriptor smallDescriptor = descriptorWithLimit("small-" + i, "8Mi", "100m");
+      AssignedInstance smallAssigned =
+          assignedInstance("small-" + i + "-deployment", smallDescriptor, Optional.empty());
+      String key = "small-" + i + "-deployment#0";
+      supervised.put(
+          key,
+          i == 0
+              ? ownerInstance(
+                  smallOwnerKey,
+                  smallAssigned,
+                  smallDescriptor,
+                  null,
+                  budget.sizeFor(smallDescriptor))
+              : packedInstance(smallOwnerKey, smallAssigned, smallDescriptor, null));
+    }
+
+    ModuleDescriptor bigDescriptor = descriptorWithLimit("big", "300Mi", "500m");
+    AssignedInstance bigAssigned =
+        assignedInstance("big-deployment", bigDescriptor, Optional.empty());
+
+    // 300Mi does not fit alongside the small instances (nor would it fit on its own, against a
+    // 256Mi budget with 32Mi reserved) -- it must never be offered the small instances' worker.
+    assertFalse(
+        AgentMain.findReusableTier1Worker(bigAssigned, bigDescriptor, supervised, 10, budget)
+            .isPresent());
+
+    // And the size it is actually spawned at is its own declared limit plus the reserve, not the
+    // node's nominal shared-worker size.
+    PortableJvmFlagsResourceLimiter resourceLimiter = new PortableJvmFlagsResourceLimiter();
+    ResourceLimitHandle handle =
+        AgentMain.prepareResourceLimit(resourceLimiter, "big-deployment#0", bigDescriptor, budget);
+    assertEquals(new ResourceSpec("332Mi", "500m").memoryBytes(), handle.limit().memoryBytes());
   }
 
   // ---- requiresReplacement: a rolling update's moduleId/artifactPath change at a fixed key ----

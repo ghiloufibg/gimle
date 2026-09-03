@@ -58,7 +58,9 @@ startup rather than being ignored), and within the node's shared-worker heap bud
 (`-Dgimle.agent.tier1WorkerHeap`, default `1Gi`, less `-Dgimle.agent.tier1WorkerOverheadReserve`,
 default `128Mi`): an instance joins a shared worker only while the declared
 `resources.limit.memory` of everything already in it, plus its own, still fits. An instance that
-doesn't fit gets a fresh worker rather than being refused. See [Node sizing and worker
+doesn't fit gets a fresh worker rather than being refused. This holds however many Tier-1 instances
+arrive in the same reconcile tick, not only one at a time -- packing is decided as soon as a worker
+exists, not once it has finished connecting. See [Node sizing and worker
 density](../reference/node-sizing.md) for how to choose these values and what they cost. This is
 deliberately agent-local and invisible to the control plane: the scheduler still reasons about
 node-level capacity only, with no concept of which worker a Tier-1 instance lands in once it's
