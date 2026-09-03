@@ -108,7 +108,12 @@ class WorkerStartupBenchIT {
             Optional.empty(),
             Optional.empty(),
             Map.of());
-    limitHandle = AgentMain.prepareResourceLimit(resourceLimiter, "sleipnir-bench#0", descriptor);
+    limitHandle =
+        AgentMain.prepareResourceLimit(
+            resourceLimiter,
+            "sleipnir-bench#0",
+            descriptor,
+            Tier1WorkerBudget.parse(null, null, null));
     assigned =
         new AssignedInstance(
             "sleipnir-bench", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());

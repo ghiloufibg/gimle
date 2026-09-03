@@ -759,6 +759,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-747 | Gateway route-table and server fields are guarded under one monitor | Internal/Infra | Complete | Partial |
 | GIMLE-748 | A closed Bifrost service listener never serves one more connection | Networking | Complete | Yes |
 | GIMLE-749 | Proxied query parameters are URL-encoded rather than relayed decoded | Internal/Infra | Complete | Yes |
+| GIMLE-750 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Worker Supervision | Complete | Yes |
+| GIMLE-751 | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | Worker Supervision | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -2650,17 +2652,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Worker Supervision
 - **User story**: As the platform, I want up to MAX_TIER1_DENSITY (4) Tier 1 instances of the same tenant, distinct modules, to be packed into one already-running worker JVM instead of always spawning a fresh one, so that classloader-level density is realized without a per-instance JVM cost.
-- **Status**: Complete
+- **Status**: Fixed: the previous connection-identity grouping meant packing never actually occurred for the ordinary case of several new Tier-1 instances arriving in the same reconcile tick (a scale-up, or a first reconcile after this agent restarts and finds a pile of pre-existing assignments) -- every instance in such a batch saw every sibling's WorkerConnection as still null (filled in asynchronously once each spawned worker's JVM actually connects) and so always spawned its own worker, regardless of the configured density cap or available shared-worker budget. findReusableTier1Worker now groups supervised by workerKey (set synchronously at construction time, either an instance's own key for a freshly spawned worker or its owning instance's key for one already packed) instead of by WorkerConnection identity, so a same-tick sibling is visible immediately. installIntoExistingWorker now handles packing onto a worker whose connection isn't open yet: it proceeds synchronously when already connected, and otherwise waits (bounded, 30s) on a dedicated thread for the owner's connection before sending the install sequence, the same never-block-the-poll-loop posture driveInstanceUp already takes for a freshly spawned worker's own owning instance.
 - **Confidence**: High
-- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`findReusableTier1Worker`, `installIntoExistingWorker`)
-- **Test coverage**: `AgentMainTest#a_worker_already_hosting_the_same_module_is_never_reused_for_another_replica`, `#a_worker_at_the_density_cap_is_not_reused`, `#a_worker_with_no_established_connection_yet_is_never_reused`; `Tier1DensityIntegrationTest#two_modules_share_one_worker_process_and_survive_one_being_stopped`
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`findReusableTier1Worker`, `installIntoExistingWorker`, `joinSharedWorkerOnceConnected`, `completeSharedWorkerInstall`)
+- **Test coverage**: `AgentMainTest#a_worker_already_hosting_the_same_module_is_never_reused_for_another_replica`, `#a_worker_at_the_density_cap_is_not_reused`, `#a_worker_with_no_established_connection_yet_is_still_reused`, `#an_owner_that_has_since_been_removed_leaves_nothing_to_reuse`, `#twelve_tier1_instances_arriving_in_one_batch_share_fewer_than_twelve_workers`; `Tier1DensityIntegrationTest#two_modules_share_one_worker_process_and_survive_one_being_stopped`
 - **Gherkin scenario**:
   ```gherkin
-  Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap
+  Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap and shared-worker budget
   When findReusableTier1Worker is consulted for a new TIER_1 assignment
-  Then it returns that worker's representative instance for reuse
-  Given the worker is at the density cap, already hosts the same moduleId, hosts a non-TIER_1 instance, or has no established connection yet
+  Then it returns that worker's owning instance for reuse, whether or not that worker has finished connecting yet
+  Given the worker is at the density cap, over its shared-worker budget, already hosts the same moduleId, hosts a non-TIER_1 instance, or its owning instance is no longer present
   Then it is never reused
+  Given twelve Tier-1 instances of distinct modules are all assigned in the same reconcile tick, with a density cap of four
+  When each is placed via findReusableTier1Worker in turn
+  Then they land on three shared workers, not twelve separate ones
   ```
 
 #### GIMLE-111 — Instance rename-in-place (no restart)
@@ -3361,6 +3366,40 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a Bifrost listener for a Service
   When that Service disappears from the source
   Then a subsequent connection attempt is refused rather than proxied
+  ```
+
+#### GIMLE-750 — Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits
+
+- **Category**: Worker Supervision
+- **User story**: As an operator declaring resources.limit on a Tier-1 module, I want a shared worker JVM to be sized by the node rather than by whichever instance happened to spawn it, and to admit further instances only while their declared limits still fit, so that a Tier-1 limit is a real admission input with a predictable worker behind it instead of a number the runtime discards.
+- **Status**: Fixed. A Tier-1 worker's -Xmx was whatever the first instance to land on it declared, and installIntoExistingWorker never re-derived one, so every later instance ran under an arbitrary ceiling: a small module could allocate far past its declared limit, and a large one was strangled by a ceiling it never asked for. Tier1WorkerBudget now holds the node's shared-worker heap/cpu (gimle.agent.tier1WorkerHeap, default 1Gi; gimle.agent.tier1WorkerCpu, default 2000m) and an overhead reserve held back for the worker JVM's own footprint (gimle.agent.tier1WorkerOverheadReserve, default 128Mi), all parsed and validated at agent startup. prepareResourceLimit sizes a TIER_1 worker from that budget (a TIER_2 worker still from the instance's own limit), never below the spawning instance's own declared limit plus the reserve so a large module is not strangled; findReusableTier1Worker additionally refuses reuse once the summed resources.limit.memory of the residents plus the candidate would exceed the heap the worker was actually spawned with, recorded on the worker's owning instance (SupervisedInstance.workerLimit) so the answer survives the spawning instance being stopped. Limits are summed rather than requests, since a shared unpartitioned heap has no per-instance ceiling to fall back on; CPU is deliberately not summed, being time-shared rather than exhaustible. Overflow spawns a fresh worker rather than refusing the assignment. This is a reservation, not enforcement: one JVM has one heap, so a module overrunning its declared limit can still OOM its co-tenants, which remains the reason TIER_2 exists.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/Tier1WorkerBudget.java` (new), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`prepareResourceLimit`, `findReusableTier1Worker`, `workerSizeOf`, `installIntoExistingWorker`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`workerLimit`)
+- **Test coverage**: `Tier1WorkerBudgetTest` (8: default fallback, malformed quantity naming its property, a reserve as large as the heap rejected, budget sizing over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, cpu not summed); `AgentMainTest#a_tier1_worker_is_sized_by_the_shared_budget_not_by_whichever_instance_spawned_it`, `#a_tier2_worker_is_sized_by_the_descriptors_limit_not_its_request`, `#a_worker_is_not_reused_once_the_residents_declared_limits_fill_its_heap`, `#a_worker_is_reused_while_the_declared_limits_still_fit_inside_its_heap`, `#an_oversized_tier1_module_still_gets_its_own_dedicated_worker_sized_at_limit_plus_reserve`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an agent with a declared Tier-1 shared-worker heap budget
+  When a TIER_1 instance spawns a worker
+  Then that worker is sized from the budget, not from the instance's own declared limit
+  Given a shared worker whose residents' declared memory limits already fill its heap
+  When another TIER_1 instance of the same tenant is assigned to that node
+  Then it is not packed into that worker and gets a fresh one, sized to its own declared limit plus the reserve, instead
+  ```
+
+#### GIMLE-751 — The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie
+
+- **Category**: Worker Supervision
+- **User story**: As an operator running node agents under a process supervisor (systemd/hilmir/docker), I want the agent's own JVM to terminate when its tick loop suffers a fatal error, so that the supervisor can restart it instead of the agent staying visible and running in `ps aux` while its heartbeat and log go permanently silent.
+- **Status**: Fixed. The tick loop's own `catch (RuntimeException | IOException e)` did not catch Error, so an uncaught OutOfMemoryError (reconciling a large enough set of pre-existing deployments against this agent's own fixed -Xmx is exactly the kind of allocation burst that can trigger one) killed only the main thread -- every other non-daemon thread the agent started (gossip, the admin API, the config/network-policy relays, Bifrost) kept the process alive indefinitely with no scheduling or heartbeat ever happening again. Unlike the worker JVMs this agent spawns (whose launch always carries -XX:+ExitOnOutOfMemoryError via stableWorkerFlags), the agent's own JVM is launched without that flag by the surrounding tooling (gimle-hilmir's LaunchPlanner / a topology.yaml's jvm.agent list) -- a launch-time option this running process cannot add to itself. The tick loop now also catches Error and calls handleFatalTickError, which logs the failure and calls Runtime.getRuntime().halt() with the same exit code (3) HotSpot's own -XX:+ExitOnOutOfMemoryError uses for a worker, so the agent's own supervisor sees a real process exit and restarts it. halt (not exit) skips shutdown hooks and finalizers, which themselves risk allocating under the same low-memory condition that caused this. This closes only the gimle-agent-side half of the underlying finding: adding -XX:+ExitOnOutOfMemoryError to the agent's own launch command line (gimle-hilmir's LaunchPlanner and/or gimle-dist's topology.yaml jvm.agent lists) remains open as a separate, cross-module follow-up, since it is not something gimle-agent's own code can express.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`main`'s tick loop, `handleFatalTickError`)
+- **Test coverage**: `AgentMainTest#a_fatal_error_during_a_tick_halts_the_process_with_the_workers_own_oom_exit_code` (exercises handleFatalTickError directly with a recording stub in place of Runtime.getRuntime()::halt, so the test process itself is not terminated).
+- **Gherkin scenario**:
+  ```gherkin
+  Given the agent's tick loop is running
+  When reconcileAssignments (or any other step of a tick) throws a fatal Error such as OutOfMemoryError
+  Then the agent logs the failure and halts the JVM with the same exit code a worker's own OOM exit uses
+  And it does not merely let the main thread die while other agent threads keep the process alive
   ```
 
 ### gimle-mimir

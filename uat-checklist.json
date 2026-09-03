@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 749,
+    "totalRequirements": 751,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 622,
-    "releaseReadinessPercent": 17.0
+    "notCoveredByAutomatedTest": 624,
+    "releaseReadinessPercent": 16.9
   },
   "items": [
     {
@@ -1211,7 +1211,7 @@
       "module": "gimle-agent",
       "category": "Worker Supervision",
       "feature": "Tier 1 density — shared-worker reuse for multiple module instances",
-      "step": "Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap When findReusableTier1Worker is consulted for a new TIER_1 assignment Then it returns that worker's representative instance for reuse Given the worker is at the density cap, already hosts the same moduleId, hosts a non-TIER_1 instance, or has no established connection yet Then it is never reused",
+      "step": "Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap and shared-worker budget When findReusableTier1Worker is consulted for a new TIER_1 assignment Then it returns that worker's owning instance for reuse, whether or not that worker has finished connecting yet Given the worker is at the density cap, over its shared-worker budget, already hosts the same moduleId, hosts a non-TIER_1 instance, or its owning instance is no longer present Then it is never reused Given twelve Tier-1 instances of distinct modules are all assigned in the same reconcile tick, with a density cap of four When each is placed via findReusableTier1Worker in turn Then they land on three shared workers, not twelve separate ones",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -8241,6 +8241,28 @@
       "category": "Internal/Infra",
       "feature": "Proxied query parameters are URL-encoded rather than relayed decoded",
       "step": "Given a proxied request whose query value contains a space When the control plane forwards it upstream Then the value arrives intact rather than producing an invalid URI",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-750",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "step": "Given an agent with a declared Tier-1 shared-worker heap budget When a TIER_1 instance spawns a worker Then that worker is sized from the budget, not from the instance's own declared limit Given a shared worker whose residents' declared memory limits already fill its heap When another TIER_1 instance of the same tenant is assigned to that node Then it is not packed into that worker and gets a fresh one, sized to its own declared limit plus the reserve, instead",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-751",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie",
+      "step": "Given the agent's tick loop is running When reconcileAssignments (or any other step of a tick) throws a fatal Error such as OutOfMemoryError Then the agent logs the failure and halts the JVM with the same exit code a worker's own OOM exit uses And it does not merely let the main thread die while other agent threads keep the process alive",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

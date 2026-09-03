@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 749,
+  "requirementCount": 751,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -1984,14 +1984,14 @@
       "module": "gimle-agent",
       "feature": "Tier 1 density — shared-worker reuse for multiple module instances",
       "category": "Worker Supervision",
-      "status": "Active",
-      "statusNote": "",
+      "status": "Modified",
+      "statusNote": "Modified: fixed the connection-identity grouping bug that meant packing never actually occurred for the ordinary case of several new Tier-1 instances arriving in the same reconcile tick -- every instance in such a batch saw every sibling's WorkerConnection as still null and always spawned its own worker regardless of the density cap. Grouping is now by workerKey, set synchronously at construction time, so a same-tick sibling is visible immediately; installIntoExistingWorker now waits (bounded) for a not-yet-connected worker to finish connecting before sending the install sequence, rather than refusing to pack onto it at all.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through the behavior the baseline already describes: Given an existing worker hosts only TIER_1 instances, all the same tenant, none running the incoming moduleId, and under the density cap",
-      "otherTestCoverage": "`AgentMainTest#a_worker_already_hosting_the_same_module_is_never_reused_for_another_replica`, `#a_worker_at_the_density_cap_is_not_reused`, `#a_worker_with_no_established_connection_yet_is_never_reused`; `Tier1DensityIntegrationTest#two_modules_share_one_worker_process_and_survive_one_being_stopped`",
+      "gapNote": "No Holmgang scenario exercises this. To close: add a scenario (extending an existing .feature file in the same problem area, or a new one) whose Given/When/Then drives a real cluster through deploying many Tier-1 replicas in one batch and asserts they land on fewer worker processes than instances, up to the density cap.",
+      "otherTestCoverage": "`AgentMainTest#a_worker_already_hosting_the_same_module_is_never_reused_for_another_replica`, `#a_worker_at_the_density_cap_is_not_reused`, `#a_worker_with_no_established_connection_yet_is_still_reused`, `#an_owner_that_has_since_been_removed_leaves_nothing_to_reuse`, `#twelve_tier1_instances_arriving_in_one_batch_share_fewer_than_twelve_workers`; `Tier1DensityIntegrationTest#two_modules_share_one_worker_process_and_survive_one_being_stopped`",
       "sourceLocations": [
-        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`findReusableTier1Worker`, `installIntoExistingWorker`)"
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`findReusableTier1Worker`, `installIntoExistingWorker`, `joinSharedWorkerOnceConnected`, `completeSharedWorkerInstall`)"
       ]
     },
     {
@@ -12979,6 +12979,38 @@
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`forwardedQuery`)"
       ],
       "gapNote": "Covered indirectly by the log-filtering gap note; no .feature exercises the proxy hop's query encoding directly."
+    },
+    {
+      "id": "GIMLE-750",
+      "module": "gimle-agent",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "category": "Worker Supervision",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. A Tier-1 shared worker's -Xmx came from whichever instance happened to spawn it, and installIntoExistingWorker never re-derived one, so every instance packed in afterwards ran under an arbitrary ceiling -- a small module could allocate far past its declared limit, a large one was strangled by a ceiling it never asked for, and a Tier-1 resources.limit was closer to decorative than enforced. Tier1WorkerBudget now holds the node's shared-worker heap and cpu (gimle.agent.tier1WorkerHeap, default 1Gi; gimle.agent.tier1WorkerCpu, default 2000m) plus an overhead reserve held back for the worker JVM's own footprint (gimle.agent.tier1WorkerOverheadReserve, default 128Mi), each parsed and validated at agent startup so a malformed value fails there rather than the first time a Tier-1 instance is placed. prepareResourceLimit sizes a TIER_1 worker from that budget and a TIER_2 worker from the instance's own limit as before, never below the spawning instance's own declared limit plus the reserve so a module larger than a whole budget still gets the heap its manifest declares. findReusableTier1Worker gained a weight check alongside the existing count cap: a worker is reused only while the summed resources.limit.memory of its residents plus the candidate's still fits the heap that worker was actually spawned with, recorded on the worker's owning instance (SupervisedInstance.workerLimit) so the answer does not change when the spawning instance is stopped while the worker lives on. Limits are summed rather than requests, because a shared unpartitioned heap offers no per-instance ceiling to fall back on; cpu is deliberately not summed, being time-shared rather than exhaustible. Overflow spawns a fresh worker rather than refusing an already-scheduled assignment. Explicitly a reservation and not enforcement: one JVM has one heap, so a module overrunning its declared limit can still OOM its co-tenants, which is what TIER_2 remains for.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "New Tier1WorkerBudgetTest (8 tests) covers default fallback, a malformed quantity naming the property it came from, a reserve as large as the heap rejected, budget sizing winning over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, and cpu deliberately not summed. AgentMainTest gained coverage for: TIER_1 sized by the budget, TIER_2 still sized by the descriptor's limit, reuse refused once residents fill the heap, reuse granted while they still fit, and an oversized module getting a dedicated worker sized at its own limit plus the reserve.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/Tier1WorkerBudget.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`prepareResourceLimit`, `findReusableTier1Worker`, `workerSizeOf`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`workerLimit`)"
+      ],
+      "gapNote": "No .feature scenario declares Tier-1 modules whose summed limits overflow a shared worker's budget and asserts against a real cluster that they land in separate worker JVMs. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-751",
+      "module": "gimle-agent",
+      "feature": "The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie",
+      "category": "Worker Supervision",
+      "status": "New",
+      "statusNote": "New requirement: Fixed. The tick loop's own catch (RuntimeException | IOException e) did not catch Error, so an uncaught OutOfMemoryError killed only the main thread while every other non-daemon thread the agent started (gossip, the admin API, the relays) kept the process alive as a zombie that never ticks or heartbeats again -- indistinguishable from a healthy agent in ps aux. The agent's own JVM is launched without -XX:+ExitOnOutOfMemoryError by the surrounding tooling, unlike every worker JVM it spawns (which always carries that flag via stableWorkerFlags), and a launch flag is not something a running process can add to itself. The tick loop now also catches Error and calls the new handleFatalTickError, which halts the JVM with the same exit code (3) a worker's own OOM exit uses, so the agent's own supervisor (systemd/hilmir/docker) sees a real process exit and restarts it.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "AgentMainTest#a_fatal_error_during_a_tick_halts_the_process_with_the_workers_own_oom_exit_code exercises handleFatalTickError directly with a recording stub in place of Runtime.getRuntime()::halt, so the test process itself is not terminated by the assertion.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`main`'s tick loop, `handleFatalTickError`)"
+      ],
+      "gapNote": "No .feature scenario drives a real agent process to an actual OutOfMemoryError and asserts the process exits and is respawned by its supervisor -- doing so deterministically against a real cluster is impractical; unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule. Closing the companion cross-module half (the agent's own launch command line carrying -XX:+ExitOnOutOfMemoryError, in gimle-hilmir's LaunchPlanner and/or gimle-dist's topology.yaml) remains open."
     }
   ]
 }

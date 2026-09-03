@@ -52,12 +52,23 @@ relate above this diagram.
 The node agent packs multiple Tier-1 instances into one shared worker JVM when it's safe to do so:
 same node (implicit -- an agent only ever reuses its own already-running workers), same tenant (or
 both untenanted), never two instances of the same module (which would corrupt `WorkerRuntime`'s
-per-`ModuleId` keying), and under a density cap (`-Dgimle.agent.maxTier1Density`, default `4`;
+per-`ModuleId` keying), under a density cap (`-Dgimle.agent.maxTier1Density`, default `4`;
 `1` disables packing entirely, and a zero, negative, or non-numeric value fails the agent at
-startup rather than being ignored). See [Node sizing and worker
-density](../reference/node-sizing.md) for how to choose that value and what it costs. This is
-deliberately agent-local and
-invisible to the control plane: the scheduler still reasons about node-level capacity only, with no
-concept of which worker a Tier-1 instance lands in once it's placed on a node, and per-worker
-`-Xmx` subdivision is out of scope -- a shared worker's memory ceiling stays whatever it was sized
-for at spawn time, unchanged as new instances join it.
+startup rather than being ignored), and within the node's shared-worker heap budget
+(`-Dgimle.agent.tier1WorkerHeap`, default `1Gi`, less `-Dgimle.agent.tier1WorkerOverheadReserve`,
+default `128Mi`): an instance joins a shared worker only while the declared
+`resources.limit.memory` of everything already in it, plus its own, still fits. An instance that
+doesn't fit gets a fresh worker rather than being refused. This holds however many Tier-1 instances
+arrive in the same reconcile tick, not only one at a time -- packing is decided as soon as a worker
+exists, not once it has finished connecting. See [Node sizing and worker
+density](../reference/node-sizing.md) for how to choose these values and what they cost. This is
+deliberately agent-local and invisible to the control plane: the scheduler still reasons about
+node-level capacity only, with no concept of which worker a Tier-1 instance lands in once it's
+placed on a node.
+
+A shared worker is sized by that budget rather than by whichever instance happened to spawn it, so
+a Tier-1 `resources.limit` is a real admission input with a predictable worker behind it. It is
+still not a per-instance ceiling: a JVM has one heap, so a module allocating past its own declared
+limit draws on the whole worker and can still OOM its co-tenants. Genuine per-instance memory
+subdivision inside a shared JVM is not reachable with JVM flags at all, which is what Tier 2 is
+for.

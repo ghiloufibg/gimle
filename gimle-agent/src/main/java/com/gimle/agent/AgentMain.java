@@ -102,6 +102,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -162,13 +163,14 @@ public final class AgentMain {
   /**
    * The default Tier 1 density cap: the most Tier-1 instances this agent will pack into one shared
    * worker JVM before preferring a fresh one, unless {@link #MAX_TIER1_DENSITY_PROPERTY} says
-   * otherwise. Four is a deliberately conservative starting point rather than a measured optimum --
-   * every instance in a shared worker draws on that one JVM's single heap and CPU allocation, so
-   * the right value for a given node is a function of how much heap its workers are given and how
-   * much each hosted module actually uses. See {@link #findReusableTier1Worker} for the rest of the
-   * reuse decision (same node implicitly, since this only ever scans this agent's own {@code
-   * supervised} map; same tenant or both untenanted; never two instances of the same module, which
-   * would corrupt {@code WorkerRuntime}'s per-{@code ModuleId} keying).
+   * otherwise. A count, not a weight -- {@link Tier1WorkerBudget} is what stops a worker being
+   * oversubscribed by heap, and this bounds how many co-tenants share one JVM's scheduling,
+   * connection pool and crash domain regardless of how small each one's declared limit is. Four is
+   * a deliberately conservative starting point rather than a measured optimum. See {@link
+   * #findReusableTier1Worker} for the rest of the reuse decision (same node implicitly, since this
+   * only ever scans this agent's own {@code supervised} map; same tenant or both untenanted; never
+   * two instances of the same module, which would corrupt {@code WorkerRuntime}'s per-{@code
+   * ModuleId} keying; and the budget check above).
    */
   static final int DEFAULT_MAX_TIER1_DENSITY = 4;
 
@@ -275,6 +277,10 @@ public final class AgentMain {
     // here, before anything is supervised, so a bad value fails the agent at startup rather than
     // silently reverting to the default the first time a Tier-1 instance is placed.
     int maxTier1Density = parseMaxTier1Density(System.getProperty(MAX_TIER1_DENSITY_PROPERTY));
+    // How large each shared Tier 1 worker JVM is, and how much of it the instances packed into it
+    // may claim between them. Read here for the same reason the density cap is: a malformed value
+    // must fail the agent at startup, not the first time a Tier-1 instance is placed on it.
+    Tier1WorkerBudget tier1Budget = Tier1WorkerBudget.fromSystemProperties();
     // The NodePort analogue: wildcard-bind each Bifrost listener at its service's own port so
     // callers off this node can dial <nodeHost>:<servicePort>. Off by default -- loopback-only,
     // today's posture.
@@ -552,7 +558,8 @@ public final class AgentMain {
             gossipMember,
             catalog,
             logRoot,
-            maxTier1Density);
+            maxTier1Density,
+            tier1Budget);
         sendHeartbeat(
             httpClient,
             baseUrl,
@@ -573,11 +580,41 @@ public final class AgentMain {
       } catch (RuntimeException | IOException e) {
         tickFailed = true;
         log.error("agent tick failed: {}", e.getMessage(), e);
+      } catch (Error e) {
+        // An Error -- OutOfMemoryError foremost, reconciling a large enough set of pre-existing
+        // deployments against this JVM's own fixed heap is exactly the kind of allocation burst
+        // that can trip it -- is not caught by the clause above on purpose: JLS convention is that
+        // an Error signals a condition an application should not try to recover from, and this
+        // agent's own object graph (supervised instances, worker supervisors, open connections) may
+        // be in a state it can no longer reason about. See handleFatalTickError's own javadoc for
+        // why this agent must exit itself here rather than relying on a launch flag.
+        handleFatalTickError(e, Runtime.getRuntime()::halt);
       } finally {
         agentMetrics.recordTick(Duration.ofNanos(System.nanoTime() - tickStartNanos), tickFailed);
       }
       Thread.sleep(TICK_INTERVAL.toMillis());
     }
+  }
+
+  /**
+   * What the tick loop's own {@code catch (Error e)} does with a fatal error, extracted so a test
+   * can assert on it without actually terminating the JVM running the test -- {@code terminate} is
+   * {@link Runtime#halt(int)} in production, a recording stub in a test. {@code halt} (not {@code
+   * exit}) skips shutdown hooks and finalizers, which themselves risk allocating under the same
+   * low-memory condition that caused this. Unlike the worker JVMs this agent spawns (whose launch
+   * always carries {@code -XX:+ExitOnOutOfMemoryError}, see {@link #stableWorkerFlags}), this
+   * agent's own JVM was never launched with that flag -- a launch-time option, not something a
+   * running process can add to itself -- so without this, an uncaught {@link Error} on the main
+   * thread would kill only that thread while every other non-daemon thread this agent started
+   * (gossip, the admin API, the config/network-policy relays, Bifrost) keeps the process alive as a
+   * zombie that never ticks or heartbeats again, indistinguishable from a healthy agent in {@code
+   * ps aux}. The exit code matches HotSpot's own for {@code -XX:+ExitOnOutOfMemoryError} -- the
+   * same abrupt-but-honest exit a worker gives its supervisor, so this agent's own supervisor
+   * (systemd/hilmir/docker) sees a real process exit and restarts it the same way.
+   */
+  static void handleFatalTickError(Error e, IntConsumer terminate) {
+    log.error("agent tick suffered a fatal error; halting so the supervisor can restart it", e);
+    terminate.accept(WorkerProcessSupervisor.OOM_EXIT_CODE);
   }
 
   private static InetSocketAddress parseHostPort(String text) {
@@ -1444,7 +1481,8 @@ public final class AgentMain {
       GossipMember gossipMember,
       ServiceCatalog catalog,
       Path logRoot,
-      int maxTier1Density)
+      int maxTier1Density,
+      Tier1WorkerBudget tier1Budget)
       throws IOException, InterruptedException {
     List<AssignedInstance> assignments = fetchAssignments(httpClient, baseUrl, nodeId);
     Set<String> currentKeys = new LinkedHashSet<>();
@@ -1543,7 +1581,8 @@ public final class AgentMain {
                   assigned.moduleId(), descriptor.isolationTier());
             }
             Optional<SupervisedInstance> reusable =
-                findReusableTier1Worker(assigned, descriptor, supervised, maxTier1Density);
+                findReusableTier1Worker(
+                    assigned, descriptor, supervised, maxTier1Density, tier1Budget);
             if (reusable.isPresent()) {
               installIntoExistingWorker(
                   assigned,
@@ -1551,6 +1590,7 @@ public final class AgentMain {
                   descriptor,
                   reusable.get(),
                   supervised,
+                  nodeId,
                   capacityTracker,
                   httpClient,
                   baseUrl,
@@ -1569,6 +1609,7 @@ public final class AgentMain {
                   javaExecutable,
                   commandTail,
                   resourceLimiter,
+                  tier1Budget,
                   sleipnirCache,
                   capacityTracker,
                   gossipMember,
@@ -2184,30 +2225,47 @@ public final class AgentMain {
   /**
    * Tier 1 density: reuse an already-running worker for {@code assigned} instead of spawning a new
    * JVM, when doing so is safe -- deliberately narrow (agent-local, node-implicit) scope, see
-   * {@link #DEFAULT_MAX_TIER1_DENSITY}'s own javadoc. Groups {@code supervised} by connection
-   * identity (every instance sharing one worker shares one {@link WorkerConnection} reference)
-   * rather than scanning candidates independently, since the module-conflict and density checks are
-   * properties of the *worker as a whole*, not of any single instance already on it.
+   * {@link #DEFAULT_MAX_TIER1_DENSITY}'s own javadoc. Groups {@code supervised} by {@code
+   * workerKey} -- every instance sharing one worker carries the same owning key, either its own (a
+   * freshly spawned worker's own instance) or the key of whichever instance spawned it (a packed
+   * one) -- rather than by {@link WorkerConnection} identity. Connection identity looks equivalent
+   * at first glance (every instance sharing a worker does end up sharing one connection) but is
+   * filled in asynchronously once the spawned worker JVM actually connects, so a batch of brand-new
+   * Tier-1 instances arriving in the very same reconcile tick would each see every sibling's
+   * connection as still null and spawn its own worker -- exactly the "one worker per instance, zero
+   * sharing" failure this method exists to prevent. {@code workerKey} is set synchronously at
+   * construction time instead, so a same-tick sibling is visible immediately.
    */
   static Optional<SupervisedInstance> findReusableTier1Worker(
       AssignedInstance assigned,
       ModuleDescriptor descriptor,
       Map<String, SupervisedInstance> supervised,
-      int maxTier1Density) {
+      int maxTier1Density,
+      Tier1WorkerBudget tier1Budget) {
     if (descriptor.isolationTier() != IsolationTier.TIER_1) {
       return Optional.empty();
     }
-    Map<WorkerConnection, List<SupervisedInstance>> byConnection = new LinkedHashMap<>();
+    Map<String, List<SupervisedInstance>> byWorkerKey = new LinkedHashMap<>();
     for (SupervisedInstance existing : supervised.values()) {
-      if (existing.connection != null) {
-        byConnection.computeIfAbsent(existing.connection, c -> new ArrayList<>()).add(existing);
+      if (existing.workerKey != null) {
+        byWorkerKey.computeIfAbsent(existing.workerKey, k -> new ArrayList<>()).add(existing);
       }
     }
-    for (List<SupervisedInstance> group : byConnection.values()) {
-      SupervisedInstance representative = group.get(0);
+    for (Map.Entry<String, List<SupervisedInstance>> entry : byWorkerKey.entrySet()) {
+      // The owning instance -- the one whose own key equals this group's workerKey -- is always
+      // the source of truth for connection/workerLimit, whether or not it has connected yet; a
+      // packed instance's own copies of those fields may still be catching up (see
+      // installIntoExistingWorker). Absent only when that owner has since been stopped or renamed
+      // away while packed siblings remain, an edge case this treats as "nothing to reuse" rather
+      // than reasoning about a worker with no owner left to ask.
+      SupervisedInstance owner = supervised.get(entry.getKey());
+      if (owner == null) {
+        continue;
+      }
+      List<SupervisedInstance> group = entry.getValue();
       boolean allTier1 =
           group.stream().allMatch(i -> i.descriptor.isolationTier() == IsolationTier.TIER_1);
-      boolean sameTenant = representative.assigned.tenantId().equals(assigned.tenantId());
+      boolean sameTenant = owner.assigned.tenantId().equals(assigned.tenantId());
       // Installing the same ModuleId twice into one worker would corrupt WorkerRuntime's
       // per-ModuleId keying (registry, identityRegistry, per-module schedulers) -- this can happen
       // even with anti-affinity off, since two replicas of one module landing on the same node is
@@ -2215,21 +2273,70 @@ public final class AgentMain {
       boolean noModuleConflict =
           group.stream().noneMatch(i -> i.assigned.moduleId().equals(assigned.moduleId()));
       boolean underDensityLimit = group.size() < maxTier1Density;
-      if (allTier1 && sameTenant && noModuleConflict && underDensityLimit) {
-        return Optional.of(representative);
+      // The density cap counts instances; this weighs them. Four 8Mi modules and four 900Mi
+      // modules are the same to a count and nothing alike to a heap, so a worker is reused only
+      // while every resident's declared limit plus the candidate's still fits inside the heap that
+      // worker was actually spawned with. Overflow is not a rejection: the caller falls through to
+      // spawning a fresh worker, which is where a claim that fits nowhere already goes.
+      boolean fitsWorkerBudget =
+          tier1Budget.admits(
+              workerSizeOf(owner, tier1Budget),
+              group.stream().map(i -> i.descriptor).toList(),
+              descriptor);
+      if (allTier1 && sameTenant && noModuleConflict && underDensityLimit && fitsWorkerBudget) {
+        return Optional.of(owner);
       }
     }
     return Optional.empty();
   }
 
   /**
-   * Installs {@code assigned} into {@code existing}'s already-running worker over its already-open
-   * connection -- no new {@link WorkerProcessSupervisor}, {@link ControlChannelServer}, or {@link
-   * ResourceLimitHandle}: the shared worker's {@code -Xmx} stays whatever it was sized for at spawn
-   * time (per-worker resource-limit subdivision is out of scope for this reduced form of density).
-   * {@code fabricWorkerId}/{@code fabricUdsPath}/{@code fabricTcpAddress} are copied from {@code
-   * existing} rather than waiting on a second {@code Hello} that will never arrive -- the worker
-   * already sent its one {@code Hello} for this connection before {@code existing} was ever placed.
+   * The heap and CPU the worker behind {@code owner} was spawned with, recorded on the owning
+   * instance so the answer stays correct even once other instances have joined it. Falls back to
+   * the budget's nominal size only for an instance assembled without a real spawn behind it, which
+   * in practice means a unit test.
+   */
+  private static ResourceSpec workerSizeOf(
+      SupervisedInstance owner, Tier1WorkerBudget tier1Budget) {
+    if (owner.workerLimit != null) {
+      return owner.workerLimit;
+    }
+    return new ResourceSpec(
+        ResourceSpec.formatMemory(tier1Budget.heapBytes()),
+        ResourceSpec.formatCpu(tier1Budget.cpuMillicores()));
+  }
+
+  /**
+   * How long a Tier-1 instance packed onto an already-starting shared worker (one {@link
+   * #findReusableTier1Worker} found before the worker it belongs to had finished connecting) waits
+   * for that connection before giving up. Bounded, unlike {@link ControlChannelServer#accept()}
+   * itself: the *owning* instance's own {@link WorkerProcessSupervisor} already retries a worker
+   * that never connects, forever, on its own restart budget, but a joining instance has no such
+   * retry of its own to fall back on -- an unbounded wait here would leak this thread forever if
+   * the owner's worker never starts at all.
+   */
+  private static final Duration SHARED_WORKER_JOIN_TIMEOUT = Duration.ofSeconds(30);
+
+  private static final Duration SHARED_WORKER_JOIN_POLL_INTERVAL = Duration.ofMillis(50);
+
+  /**
+   * Installs {@code assigned} into {@code existing}'s worker -- no new {@link
+   * WorkerProcessSupervisor}, {@link ControlChannelServer}, or {@link ResourceLimitHandle}: the
+   * shared worker keeps the {@code -Xmx} it was spawned with, which under {@link Tier1WorkerBudget}
+   * is the node's declared shared-worker size rather than any one instance's own limit. What makes
+   * that sound is the caller: {@link #findReusableTier1Worker} only offers a worker whose remaining
+   * budget still covers this instance's declared limit, so arriving here means the claim already
+   * fits. It is a reservation, not a partition -- one JVM has one heap, and a module that overruns
+   * its declared limit can still exhaust the worker its co-tenants are running in.
+   *
+   * <p>{@code existing} (the worker's owning instance, per {@link #findReusableTier1Worker}) may
+   * not have connected yet -- packing now happens as soon as a worker exists, not once it has
+   * finished its handshake, so that instances arriving in the same reconcile tick as the worker
+   * they are joining still get packed instead of each spawning their own (see {@link
+   * #findReusableTier1Worker}'s own javadoc). When a connection is already open, this proceeds
+   * synchronously exactly as before; otherwise it waits for one on a dedicated thread rather than
+   * blocking this tick's own loop, the same "never block assignment-poll on a slow-starting JVM"
+   * posture {@link #driveInstanceUp} already takes for a freshly spawned worker's owning instance.
    */
   private static void installIntoExistingWorker(
       AssignedInstance assigned,
@@ -2237,6 +2344,7 @@ public final class AgentMain {
       ModuleDescriptor descriptor,
       SupervisedInstance existing,
       Map<String, SupervisedInstance> supervised,
+      String nodeId,
       CapacityTracker capacityTracker,
       HttpClient httpClient,
       URI baseUrl,
@@ -2247,17 +2355,150 @@ public final class AgentMain {
       VolumeManager volumeManager) {
     SupervisedInstance instance =
         new SupervisedInstance(
-            assigned, existing.supervisor, existing.server, descriptor, existing.workerKey);
-    instance.connection = existing.connection;
-    instance.fabricWorkerId = existing.fabricWorkerId;
-    instance.fabricUdsPath = existing.fabricUdsPath;
-    instance.fabricTcpAddress = existing.fabricTcpAddress;
+            assigned,
+            existing.supervisor,
+            existing.server,
+            descriptor,
+            existing.workerKey,
+            existing.workerLimit);
     supervised.put(key, instance);
     capacityTracker.tryAssign(key, descriptor.resourceRequest());
     startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
+    WorkerConnection connection = existing.connection;
+    if (connection != null) {
+      copyFabricIdentity(instance, existing, connection);
+      completeSharedWorkerInstall(
+          instance,
+          connection,
+          key,
+          supervised,
+          capacityTracker,
+          httpClient,
+          baseUrl,
+          fafnirBaseUrl,
+          volumeManager,
+          instanceShippers);
+      return;
+    }
+    Thread.ofVirtual()
+        .name("gimle-instance-joiner-" + key)
+        .start(
+            () ->
+                joinSharedWorkerOnceConnected(
+                    instance,
+                    existing,
+                    key,
+                    nodeId,
+                    supervised,
+                    capacityTracker,
+                    httpClient,
+                    baseUrl,
+                    fafnirBaseUrl,
+                    volumeManager,
+                    instanceShippers));
+  }
+
+  private static void copyFabricIdentity(
+      SupervisedInstance instance, SupervisedInstance owner, WorkerConnection connection) {
+    instance.connection = connection;
+    instance.fabricWorkerId = owner.fabricWorkerId;
+    instance.fabricUdsPath = owner.fabricUdsPath;
+    instance.fabricTcpAddress = owner.fabricTcpAddress;
+  }
+
+  /**
+   * Waits (bounded, see {@link #SHARED_WORKER_JOIN_TIMEOUT}) for {@code owner}'s worker to finish
+   * connecting, then finishes installing {@code instance} into it -- the deferred half of {@link
+   * #installIntoExistingWorker} for the case where the worker being joined hadn't connected yet at
+   * pack time. Bails out early, doing nothing, if {@code instance} is no longer the live occupant
+   * of {@code key} by the time the wait ends (stopped, replaced, or renamed away while this thread
+   * was waiting) -- exactly the same "supervised may have moved on" guard {@link
+   * #onWorkerRespawned} and friends already apply before touching a captured instance.
+   */
+  private static void joinSharedWorkerOnceConnected(
+      SupervisedInstance instance,
+      SupervisedInstance owner,
+      String key,
+      String nodeId,
+      Map<String, SupervisedInstance> supervised,
+      CapacityTracker capacityTracker,
+      HttpClient httpClient,
+      URI baseUrl,
+      URI fafnirBaseUrl,
+      VolumeManager volumeManager,
+      Map<String, List<MuninnShipper>> instanceShippers) {
+    Instant deadline = Instant.now().plus(SHARED_WORKER_JOIN_TIMEOUT);
+    WorkerConnection connection = owner.connection;
+    while (connection == null
+        && Instant.now().isBefore(deadline)
+        && supervised.get(key) == instance) {
+      try {
+        Thread.sleep(SHARED_WORKER_JOIN_POLL_INTERVAL.toMillis());
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+      connection = owner.connection;
+    }
+    if (supervised.get(key) != instance) {
+      return;
+    }
+    if (connection == null) {
+      log.error("instance {} timed out waiting for its shared worker to finish connecting", key);
+      supervised.remove(key);
+      capacityTracker.release(key);
+      stopShippingInstanceLogs(instanceShippers, key);
+      if ("INSTALLED".equals(instance.lifecycleState)) {
+        instance.lifecycleState = "FAILED";
+      }
+      postInstanceEvent(
+          httpClient,
+          baseUrl,
+          nodeId,
+          new InstanceEvent(
+              UUID.randomUUID().toString(),
+              instance.assigned.deploymentName(),
+              instance.assigned.instanceIndex(),
+              InstanceEventKind.TRANSITION_FAILED,
+              "timed out waiting for shared worker to connect",
+              Optional.empty(),
+              System.currentTimeMillis()));
+      return;
+    }
+    copyFabricIdentity(instance, owner, connection);
+    completeSharedWorkerInstall(
+        instance,
+        connection,
+        key,
+        supervised,
+        capacityTracker,
+        httpClient,
+        baseUrl,
+        fafnirBaseUrl,
+        volumeManager,
+        instanceShippers);
+  }
+
+  /**
+   * The tail shared by both the synchronous (already-connected) and deferred (joined-later) paths
+   * through {@link #installIntoExistingWorker}: send the install sequence, and on failure undo the
+   * bookkeeping registered for {@code key} above, the same cleanup {@link #startInstance}'s own
+   * failure path performs.
+   */
+  private static void completeSharedWorkerInstall(
+      SupervisedInstance instance,
+      WorkerConnection connection,
+      String key,
+      Map<String, SupervisedInstance> supervised,
+      CapacityTracker capacityTracker,
+      HttpClient httpClient,
+      URI baseUrl,
+      URI fafnirBaseUrl,
+      VolumeManager volumeManager,
+      Map<String, List<MuninnShipper>> instanceShippers) {
     try {
       sendInstallStartSequence(
-          instance, instance.connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
+          instance, connection, httpClient, baseUrl, fafnirBaseUrl, volumeManager);
     } catch (IOException e) {
       log.error("failed to install {} into shared worker: {}", key, e.getMessage());
       supervised.remove(key);
@@ -2275,6 +2516,7 @@ public final class AgentMain {
       String javaExecutable,
       List<String> commandTail,
       ResourceLimiter resourceLimiter,
+      Tier1WorkerBudget tier1Budget,
       SleipnirCache sleipnirCache,
       CapacityTracker capacityTracker,
       GossipMember gossipMember,
@@ -2290,7 +2532,8 @@ public final class AgentMain {
       throws IOException {
     Path socketPath = Files.createTempDirectory("gimle-worker-uds-").resolve("c.sock");
     ControlChannelServer server = new ControlChannelServer(socketPath);
-    ResourceLimitHandle handle = prepareResourceLimit(resourceLimiter, key, descriptor);
+    ResourceLimitHandle handle =
+        prepareResourceLimit(resourceLimiter, key, descriptor, tier1Budget);
     Path workerLogRoot = logRoot.resolve("workers").resolve(key);
     // Sleipnir: aotCacheKey is fixed for this instance's whole lifetime (computed once, purely a
     // function of commandTail), but aotCachePath is re-resolved by the supplier below on every
@@ -2347,7 +2590,7 @@ public final class AgentMain {
                     workerShippers));
 
     SupervisedInstance instance =
-        new SupervisedInstance(assigned, supervisor, server, descriptor, key);
+        new SupervisedInstance(assigned, supervisor, server, descriptor, key, handle.limit());
     instance.aotCacheKey = aotCacheKey;
     supervised.put(key, instance);
     try {
@@ -2542,17 +2785,26 @@ public final class AgentMain {
   }
 
   /**
-   * The manifest's *limit* is the hard ceiling a worker JVM must be spawned under (-Xmx, {@code
-   * ActiveProcessorCount}) -- {@code resourceRequest} is the deliberately different
-   * scheduling/capacity-accounting figure {@code capacityTracker.tryAssign} uses. A single-line
-   * choke point, extracted so a test can assert directly on which of the descriptor's two {@code
-   * ResourceSpec} fields reaches the limiter, rather than only being able to observe the limiter's
-   * own output (which is correct either way {@code PortableJvmFlagsResourceLimiterTest} already
-   * proves).
+   * The size a worker JVM is spawned under ({@code -Xmx}, {@code ActiveProcessorCount}) -- never
+   * {@code resourceRequest}, which is the deliberately different scheduling/capacity-accounting
+   * figure {@code capacityTracker.tryAssign} uses. The one choke point where that size is decided,
+   * extracted so a test can assert on it directly rather than only on the limiter's own output
+   * (which is correct either way {@code PortableJvmFlagsResourceLimiterTest} already proves).
    */
   static ResourceLimitHandle prepareResourceLimit(
-      ResourceLimiter resourceLimiter, String key, ModuleDescriptor descriptor) {
-    return resourceLimiter.prepare(key, descriptor.resourceLimit());
+      ResourceLimiter resourceLimiter,
+      String key,
+      ModuleDescriptor descriptor,
+      Tier1WorkerBudget tier1Budget) {
+    // A Tier 2 worker hosts exactly one instance, so its declared limit is the worker's limit. A
+    // Tier 1 worker hosts several behind one heap, so no single instance's limit can size it --
+    // it takes the node's declared shared-worker budget instead, and the instances packed into it
+    // are admitted against that size rather than silently reshaping it.
+    ResourceSpec limit =
+        descriptor.isolationTier() == IsolationTier.TIER_1
+            ? tier1Budget.sizeFor(descriptor)
+            : descriptor.resourceLimit();
+    return resourceLimiter.prepare(key, limit);
   }
 
   /**
