@@ -22,6 +22,14 @@ import java.util.stream.Collectors;
  * itself, so it's testable with synthetic candidates and doesn't need a real module artifact to
  * resolve a tier/resource request against.
  *
+ * <p>Node-level tenant isolation is a second, softer signal layered on top of that bin-packing, not
+ * another filter stage: when placing a {@code TIER_2} instance, a node already hosting a different
+ * tenant's {@code TIER_2} instance is ranked behind one that isn't, but never excluded -- see
+ * {@link #placementRanking} and {@link NodeCandidate#tier2Tenants()}. Unlike {@code
+ * antiAffinityAcrossNodes} below, which is opt-in per deployment and a hard constraint once
+ * requested, this preference is always in effect for {@code TIER_2} and always soft: it yields to
+ * real capacity pressure rather than blocking placement.
+ *
  * <p>Cordoning is deliberately just an exclusion filter, evaluated right after the tier filter and
  * before every other constraint: it never evicts an instance already running on a cordoned node,
  * only keeps new placements off it. Preemption is out of scope -- cordoning is a binary "don't
@@ -193,10 +201,7 @@ public final class Scheduler {
     long requiredCpu = resourceRequest.cpuMillicores();
 
     return labelEligible.stream()
-        .sorted(
-            Comparator.comparingLong(NodeCandidate::freeMemoryBytes)
-                .thenComparingLong(NodeCandidate::freeCpuMillicores)
-                .reversed())
+        .sorted(placementRanking(tier, tenantId))
         .filter(c -> c.freeMemoryBytes() >= requiredMemory && c.freeCpuMillicores() >= requiredCpu)
         .findFirst()
         .map(NodeCandidate::nodeId)
@@ -414,6 +419,35 @@ public final class Scheduler {
               + (shortCpu > 0 ? ", short by " + ResourceSpec.formatCpu(shortCpu) + " cpu" : ""));
     }
     return Optional.empty();
+  }
+
+  /**
+   * The final bin-packing sort: among nodes that already passed every hard filter, prefer (not
+   * require) one with no other tenant's {@code TIER_2} instance already on it, then the roomiest
+   * free capacity. This is node-level tenant isolation as a soft scoring factor, not a filter stage
+   * -- unlike anti-affinity above, a node that fails it is never excluded, only ranked behind nodes
+   * that pass, so it still yields a placement when cross-tenant colocation is the only room the
+   * cluster has left. {@code TIER_1} placement is untouched: several tenants already share a Tier 1
+   * worker JVM by design, so there is no isolation preference to express there.
+   */
+  private static Comparator<NodeCandidate> placementRanking(
+      IsolationTier tier, Optional<String> tenantId) {
+    Comparator<NodeCandidate> byFreeCapacity =
+        Comparator.comparingLong(NodeCandidate::freeMemoryBytes)
+            .thenComparingLong(NodeCandidate::freeCpuMillicores)
+            .reversed();
+    if (tier != IsolationTier.TIER_2) {
+      return byFreeCapacity;
+    }
+    return Comparator.<NodeCandidate>comparingInt(
+            c -> hostsTier2ForDifferentTenant(c, tenantId) ? 1 : 0)
+        .thenComparing(byFreeCapacity);
+  }
+
+  private static boolean hostsTier2ForDifferentTenant(
+      NodeCandidate candidate, Optional<String> tenantId) {
+    return tenantId.isPresent()
+        && candidate.tier2Tenants().stream().anyMatch(other -> !other.equals(tenantId.get()));
   }
 
   private static List<NodeCandidate> filterByTier(

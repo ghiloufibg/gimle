@@ -1,5 +1,7 @@
 package com.gimle.controlplane.schedule;
 
+import com.gimle.core.module.IsolationTier;
+import com.gimle.core.protocol.InstanceObservation;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.mimir.store.ObservedHeartbeat;
 import com.gimle.mimir.store.StoreReader;
@@ -10,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Derives the {@link NodeCandidate} list {@link Scheduler} places against from the current store
@@ -69,12 +72,29 @@ public final class NodeCandidateSource {
               heartbeat.get().heartbeat().capacity(),
               nodesAlreadyRunningThisWorkload.contains(registration.nodeId()),
               store.getNodeTaints(registration.nodeId()),
-              store.isNodeCordoned(registration.nodeId())));
+              store.isNodeCordoned(registration.nodeId()),
+              List.of(),
+              tier2TenantsOf(heartbeat.get())));
     }
     return candidates;
   }
 
   private boolean hasGoneDark(ObservedHeartbeat observed, Instant now) {
     return Duration.between(observed.receivedAt(), now).compareTo(nodeDarkTimeout) > 0;
+  }
+
+  /**
+   * The tenant IDs of every {@code TIER_2} instance this node's latest heartbeat reports running --
+   * the node-level tenant-isolation scoring signal {@link Scheduler#place} reads. Read straight off
+   * each {@link InstanceObservation}, so it costs nothing beyond the heartbeat the candidate list
+   * already reads for capacity -- no artifact resolve, unlike {@code ResidentInstances}.
+   */
+  private static Set<String> tier2TenantsOf(ObservedHeartbeat observed) {
+    return observed.heartbeat().instances().stream()
+        .filter(
+            instance -> instance.isolationTier().stream().anyMatch(IsolationTier.TIER_2::equals))
+        .map(InstanceObservation::tenantId)
+        .flatMap(Optional::stream)
+        .collect(Collectors.toUnmodifiableSet());
   }
 }

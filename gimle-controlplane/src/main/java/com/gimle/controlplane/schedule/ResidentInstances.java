@@ -69,7 +69,8 @@ public final class ResidentInstances {
               candidate.alreadyRunsThisDeployment(),
               candidate.taints(),
               candidate.cordoned(),
-              byNode.getOrDefault(candidate.nodeId(), List.of())));
+              byNode.getOrDefault(candidate.nodeId(), List.of()),
+              candidate.tier2Tenants()));
     }
     return enriched;
   }

@@ -674,6 +674,177 @@ class SchedulerTest {
                 candidates));
   }
 
+  // ---- node-level tenant isolation (TIER_2 only) -- a soft preference, not a filter stage: a
+  // node already hosting a different tenant's TIER_2 instance is ranked behind one that isn't,
+  // but never excluded from consideration the way a taint or a requested anti-affinity is.
+
+  private static NodeCandidate nodeWithTier2Tenants(
+      String id, long freeMemoryBytes, long freeCpuMillicores, Set<String> tier2Tenants) {
+    return new NodeCandidate(
+        id,
+        TIER_1_AND_2,
+        new ResourceUsageSnapshot(freeMemoryBytes, 0, freeCpuMillicores, 0),
+        false,
+        Set.of(),
+        false,
+        List.of(),
+        tier2Tenants);
+  }
+
+  @Test
+  void different_tenants_tier2_instances_prefer_distinct_nodes_given_ample_capacity() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTier2Tenants("node-a", 800L * 1024 * 1024, 1000, Set.of("tenant-a")),
+            nodeWithTier2Tenants("node-b", 800L * 1024 * 1024, 1000, Set.of()),
+            nodeWithTier2Tenants("node-c", 800L * 1024 * 1024, 1000, Set.of()));
+
+    String chosen =
+        scheduler.place(
+            "checkout",
+            0,
+            IsolationTier.TIER_2,
+            REQUEST,
+            false,
+            Optional.of("tenant-b"),
+            candidates);
+
+    // node-a already runs a different tenant's TIER_2 instance -- every equal-capacity
+    // alternative free of that conflict outranks it.
+    assertTrue(List.of("node-b", "node-c").contains(chosen), chosen);
+  }
+
+  @Test
+  void tier2_isolation_preference_still_yields_placement_when_only_one_node_has_room() {
+    List<NodeCandidate> candidates =
+        List.of(nodeWithTier2Tenants("node-only", 800L * 1024 * 1024, 1000, Set.of("tenant-a")));
+
+    // A soft preference, not a hard constraint: with nowhere else to go, the instance still
+    // lands here despite the cross-tenant TIER_2 colocation this would otherwise avoid.
+    String chosen =
+        scheduler.place(
+            "checkout",
+            0,
+            IsolationTier.TIER_2,
+            REQUEST,
+            false,
+            Optional.of("tenant-b"),
+            candidates);
+
+    assertEquals("node-only", chosen);
+  }
+
+  @Test
+  void tier2_isolation_preference_outranks_raw_free_capacity() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTier2Tenants(
+                "node-roomier-but-conflicting", 900L * 1024 * 1024, 1000, Set.of("tenant-a")),
+            nodeWithTier2Tenants("node-smaller-but-clean", 300L * 1024 * 1024, 1000, Set.of()));
+
+    String chosen =
+        scheduler.place(
+            "checkout",
+            0,
+            IsolationTier.TIER_2,
+            REQUEST,
+            false,
+            Optional.of("tenant-b"),
+            candidates);
+
+    assertEquals("node-smaller-but-clean", chosen);
+  }
+
+  @Test
+  void tier2_isolation_preference_does_not_penalize_the_same_tenant_s_own_colocation() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTier2Tenants("node-same-tenant", 900L * 1024 * 1024, 1000, Set.of("tenant-a")),
+            nodeWithTier2Tenants("node-empty", 300L * 1024 * 1024, 1000, Set.of()));
+
+    String chosen =
+        scheduler.place(
+            "checkout",
+            1,
+            IsolationTier.TIER_2,
+            REQUEST,
+            false,
+            Optional.of("tenant-a"),
+            candidates);
+
+    // Both nodes are equally fine for tenant-a's own second replica, so ordinary bin-packing
+    // (most free capacity) decides, exactly as if tier2Tenants carried no signal at all.
+    assertEquals("node-same-tenant", chosen);
+  }
+
+  @Test
+  void tier2_isolation_preference_does_not_apply_to_tier1_placement() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTier2Tenants(
+                "node-roomier-but-conflicting", 900L * 1024 * 1024, 1000, Set.of("tenant-a")),
+            nodeWithTier2Tenants("node-smaller-but-clean", 300L * 1024 * 1024, 1000, Set.of()));
+
+    // TIER_1 density packing already shares a worker JVM across tenants by design, so the
+    // TIER_2-only isolation signal must have no say here -- ordinary capacity ranking wins.
+    String chosen =
+        scheduler.place(
+            "checkout",
+            0,
+            IsolationTier.TIER_1,
+            REQUEST,
+            false,
+            Optional.of("tenant-b"),
+            candidates);
+
+    assertEquals("node-roomier-but-conflicting", chosen);
+  }
+
+  @Test
+  void tier2_isolation_preference_does_not_apply_to_an_untenanted_instance() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTier2Tenants(
+                "node-roomier-but-conflicting", 900L * 1024 * 1024, 1000, Set.of("tenant-a")),
+            nodeWithTier2Tenants("node-smaller-but-clean", 300L * 1024 * 1024, 1000, Set.of()));
+
+    // An untenanted TIER_2 instance has no tenant identity of its own to isolate, so the ranking
+    // falls back to ordinary capacity -- matching the taint filter's identical "an untenanted
+    // deployment carries no signal here" posture.
+    String chosen =
+        scheduler.place("checkout", 0, IsolationTier.TIER_2, REQUEST, false, candidates);
+
+    assertEquals("node-roomier-but-conflicting", chosen);
+  }
+
+  /**
+   * A level-triggered check, not an edge-triggered one: the scheduler is handed a snapshot where
+   * two tenants are already colocated on one node (however that came to be -- an earlier tick under
+   * capacity pressure, a manual placement, anything) and a third, clean node exists. It must still
+   * rank the clean node first on this tick, purely from the snapshot in front of it, with no memory
+   * of how the cluster got here.
+   */
+  @Test
+  void tier2_isolation_preference_converges_toward_spread_from_an_already_colocated_state() {
+    List<NodeCandidate> candidates =
+        List.of(
+            nodeWithTier2Tenants(
+                "node-already-colocated", 900L * 1024 * 1024, 1000, Set.of("tenant-a", "tenant-b")),
+            nodeWithTier2Tenants("node-clean", 300L * 1024 * 1024, 1000, Set.of()));
+
+    String chosen =
+        scheduler.place(
+            "checkout",
+            0,
+            IsolationTier.TIER_2,
+            REQUEST,
+            false,
+            Optional.of("tenant-c"),
+            candidates);
+
+    assertEquals("node-clean", chosen);
+  }
+
   @Test
   void absent_sticky_node_id_behaves_exactly_like_the_non_sticky_overload() {
     List<NodeCandidate> candidates =
