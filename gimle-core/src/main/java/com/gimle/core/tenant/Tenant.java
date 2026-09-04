@@ -44,6 +44,22 @@ public record Tenant(String id, ResourceQuota quota, TenantIsolationPosture isol
   public static final String HILMIR_BOOKKEEPING_TENANT_ID = "gimle-hilmir";
 
   /**
+   * True for a tenant the platform's own machinery seeds for itself, rather than one an operator
+   * created to run their own workloads in. All three are created without anyone asking for them:
+   * {@link #RESERVED_SYSTEM_TENANT_ID} and {@link #DEFAULT_TENANT_ID} on every replica's own
+   * startup, and {@link #HILMIR_BOOKKEEPING_TENANT_ID} by the first {@code hilmir deploy} against
+   * the cluster. Counting any of them as an operator's tenant makes a policy that caps how many
+   * tenants may exist fire against the platform's own bookkeeping instead of against the operator --
+   * see {@code ApiServer}'s plaintext single-tenant guard, whose whole subject is "how many tenants
+   * has the operator asked for".
+   */
+  public static boolean isPlatformSeeded(String tenantId) {
+    return RESERVED_SYSTEM_TENANT_ID.equals(tenantId)
+        || DEFAULT_TENANT_ID.equals(tenantId)
+        || HILMIR_BOOKKEEPING_TENANT_ID.equals(tenantId);
+  }
+
+  /**
    * True only for a tenant an operator actually created and can be held accountable to something as
    * a real tenant -- {@link #DEFAULT_TENANT_ID} counts the same as {@code Optional.empty()} here,
    * matching real Kubernetes: the {@code default} namespace carries no {@code ResourceQuota} object

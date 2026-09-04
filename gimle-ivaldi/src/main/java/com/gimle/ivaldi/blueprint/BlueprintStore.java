@@ -10,6 +10,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -72,20 +73,36 @@ public final class BlueprintStore {
     }
   }
 
-  /** Creates a new blueprint from {@code rawJson}, minting an id from its {@code name} field. */
+  /**
+   * Creates a new blueprint from {@code rawJson}, honouring the {@code id} the body already carries
+   * when that id is well-formed and free, and otherwise minting one from the {@code name} field.
+   *
+   * <p>Honouring the body's own id matters because the console mints one client-side before it ever
+   * POSTs, and addresses every later save by it. Ignoring it and minting a second, different id
+   * server-side meant the store answered with one id while the document it had just written claimed
+   * another: the console navigated to the id it was handed, saved to the id inside its own
+   * document, and ended up with two divergent records for one blueprint -- the URL it had just
+   * opened frozen at creation-time content, every subsequent edit landing invisibly under the other
+   * id. Whichever id wins, it is stamped into the stored body, so a blueprint's own {@code id}
+   * field and the id it is addressed by can never disagree again.
+   */
   public BlueprintSummary create(String rawJson) {
     Map<String, Object> json = parseObject(rawJson);
-    String id = mintId(String.valueOf(json.getOrDefault("name", "blueprint")));
-    write(id, rawJson);
-    return summaryOf(id, json);
+    String id =
+        requestedId(json)
+            .orElseGet(() -> mintId(String.valueOf(json.getOrDefault("name", "blueprint"))));
+    Map<String, Object> stamped = withId(json, id);
+    write(id, Json.write(stamped));
+    return summaryOf(id, stamped);
   }
 
-  /** Replaces (or creates) the blueprint at {@code id} with {@code rawJson} verbatim. */
+  /** Replaces (or creates) the blueprint at {@code id}, stamping {@code id} into the body. */
   public BlueprintSummary save(String id, String rawJson) {
     requireValidId(id);
     Map<String, Object> json = parseObject(rawJson);
-    write(id, rawJson);
-    return summaryOf(id, json);
+    Map<String, Object> stamped = withId(json, id);
+    write(id, Json.write(stamped));
+    return summaryOf(id, stamped);
   }
 
   public boolean delete(String id) {
@@ -157,6 +174,25 @@ public final class BlueprintStore {
   private static String fileNameOf(Path path) {
     return Objects.requireNonNull(path.getFileName(), () -> "path has no file name: " + path)
         .toString();
+  }
+
+  /**
+   * The body's own {@code id}, when it is well-formed and not already taken. A collision falls back
+   * to minting rather than overwriting: a POST is a create, and must never silently replace an
+   * existing blueprint just because a client reused an id.
+   */
+  private Optional<String> requestedId(Map<String, Object> json) {
+    Object raw = json.get("id");
+    if (!(raw instanceof String id) || !ID_PATTERN.matcher(id).matches()) {
+      return Optional.empty();
+    }
+    return Files.exists(fileFor(id)) ? Optional.empty() : Optional.of(id);
+  }
+
+  private static Map<String, Object> withId(Map<String, Object> json, String id) {
+    Map<String, Object> copy = new LinkedHashMap<>(json);
+    copy.put("id", id);
+    return copy;
   }
 
   private String mintId(String name) {

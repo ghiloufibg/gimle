@@ -181,6 +181,13 @@ public final class RunController {
       String machine = topology.machines().get(0).name();
       ResolvedRuntime runtime = resolveRuntime(topology);
 
+      // Resolved before the boot below, not after it: a cluster connection with no usable control
+      // plane URL can never finish a run, and finding that out only once four JVMs are already up
+      // leaves the user with a "failed" run and a live process tree to clean up by hand.
+      Map<String, Object> cluster =
+          Json.asObject(Json.parse(clusters.get(run.clusterId).orElseThrow()));
+      String serverAddress = serverAddressOf(cluster, run.clusterId);
+
       Optional<String> appliedTopology = clusters.appliedTopology(run.clusterId);
       boolean reboot =
           appliedTopology.isEmpty()
@@ -193,16 +200,20 @@ public final class RunController {
             appliedTopology.isEmpty()
                 ? "no topology previously applied to this cluster -- booting fresh"
                 : "topology changed since this cluster's last run -- rebooting");
-        List<String> conflicts = PortPreflight.conflictsOn(topology, machine);
-        if (!conflicts.isEmpty()) {
-          throw new RunFailedException("port(s) already in use: " + String.join(", ", conflicts));
-        }
+        // Stop this cluster's own previously-applied tree before the preflight, never after: the
+        // preflight exists to catch a *foreign* process holding a declared port, and these
+        // processes are precisely the ones this reboot replaces. Checking first made every
+        // topology change collide with itself and fail the reboot it had just announced.
         if (appliedTopology.isPresent()) {
           downQuietly(run, appliedTopology.get());
           // Cleared the instant nothing is known to be running any more, not after the up below
           // succeeds: if up throws, a stale "applied" text would otherwise make the *next* run
           // wrongly think a deploy-only apply is safe against a cluster that isn't actually up.
           clusters.clearAppliedTopology(run.clusterId);
+        }
+        List<String> conflicts = PortPreflight.conflictsOn(topology, machine);
+        if (!conflicts.isEmpty()) {
+          throw new RunFailedException("port(s) already in use: " + String.join(", ", conflicts));
         }
         if (topology.transport() == Transport.MTLS) {
           ensurePkiMaterial(topology, runtime, run);
@@ -220,21 +231,13 @@ public final class RunController {
           downQuietly(run, topologyFile.content());
           throw upFailed;
         }
-        run.processes =
-            records.stream()
-                .map(r -> new RunSnapshot.ProcessInfo(r.role(), r.readinessAddress(), true))
-                .toList();
+        run.processes = processInfos(records, topology);
         run.rebooted = true;
         run.log.append("booted " + records.size() + " process(es) on machine " + machine);
         clusters.recordAppliedTopology(run.clusterId, topologyFile.content());
       } else {
         run.log.append("topology unchanged -- deploying onto the running cluster without a reboot");
       }
-
-      Map<String, Object> cluster =
-          Json.asObject(Json.parse(clusters.get(run.clusterId).orElseThrow()));
-      String controlPlaneUrl = String.valueOf(cluster.get("controlPlaneUrl"));
-      String serverAddress = stripScheme(controlPlaneUrl);
 
       run.status = RunStatus.SEEDING;
       Path workspace = workspaceRoot.resolve(run.id);
@@ -498,6 +501,77 @@ public final class RunController {
   private static ResolvedRuntime resolveRuntime(Topology topology) {
     return ResolvedRuntime.resolve(
         topology.runtime(), "java", System.getProperty("java.class.path"), Path.of("gimle-data"));
+  }
+
+  /**
+   * The {@code host:port} a cluster connection's own {@code controlPlaneUrl} names, rejected up
+   * front when it cannot be one. {@link ControlPlaneApi} builds its base URI as {@code scheme +
+   * "://" + address}, so a blank or authority-less value surfaces as a raw {@code java.net.URI}
+   * parser message ("Expected authority at index 7") from deep inside the deploy step, long after
+   * the platform is up -- unreadable to anyone who did not write that parser, and far too late to
+   * be useful. Checked here instead, before a single process is spawned.
+   */
+  private static String serverAddressOf(Map<String, Object> cluster, String clusterId) {
+    Object raw = cluster.get("controlPlaneUrl");
+    String url = raw == null ? "" : String.valueOf(raw).trim();
+    String address = stripScheme(url);
+    if (address.isBlank()) {
+      throw new RunFailedException(
+          "cluster '"
+              + clusterId
+              + "' has no control plane URL -- set one on the cluster connection, e.g."
+              + " 127.0.0.1:8080");
+    }
+    try {
+      if (java.net.URI.create("http://" + address).getHost() == null) {
+        throw new IllegalArgumentException("no host");
+      }
+    } catch (RuntimeException notAnAddress) {
+      throw new RunFailedException(
+          "cluster '"
+              + clusterId
+              + "' has an unusable control plane URL ("
+              + url
+              + ") -- expected host:port, e.g. 127.0.0.1:8080");
+    }
+    return address;
+  }
+
+  /**
+   * A {@link RunRecord} carries a blank readiness address for a process kind with no port-based
+   * readiness signal, which today means the node agent alone: its gossip port is UDP, and the
+   * launcher's own readiness poller only ever does a TCP connect, so it deliberately declares none.
+   * Reporting that blank straight through left the console showing one role with no address beside
+   * three that had one, reading as a missing field rather than as "this kind has none" -- so fall
+   * back to the gossip address the topology itself declares for that agent.
+   */
+  private static List<RunSnapshot.ProcessInfo> processInfos(
+      List<RunRecord> records, Topology topology) {
+    List<RunSnapshot.ProcessInfo> infos = new ArrayList<>();
+    for (RunRecord record : records) {
+      String address = record.readinessAddress();
+      if (address.isBlank()) {
+        address = declaredAgentAddress(record.id(), topology).orElse("");
+      }
+      infos.add(new RunSnapshot.ProcessInfo(record.role(), address, true));
+    }
+    return List.copyOf(infos);
+  }
+
+  /** Matches on the {@code agent-<nodeId>} id the launch planner mints for every agent. */
+  private static Optional<String> declaredAgentAddress(String recordId, Topology topology) {
+    return topology.agents().stream()
+        .filter(agent -> recordId.equals("agent-" + agent.nodeId()))
+        .findFirst()
+        .map(
+            agent ->
+                topology.machines().stream()
+                        .filter(m -> m.name().equals(agent.machine()))
+                        .findFirst()
+                        .map(com.gimle.hilmir.topology.Machine::host)
+                        .orElse("127.0.0.1")
+                    + ":"
+                    + agent.gossipPort());
   }
 
   private static String stripScheme(String url) {

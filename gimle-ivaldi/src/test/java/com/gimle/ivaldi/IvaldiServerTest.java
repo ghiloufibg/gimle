@@ -104,7 +104,8 @@ class IvaldiServerTest {
 
     HttpResponse<String> fetched = get("/api/blueprints/" + id);
     assertEquals(200, fetched.statusCode());
-    assertEquals("{\"name\":\"orders-platform-local\"}", fetched.body());
+    assertEquals(
+        "{\"name\":\"orders-platform-local\",\"id\":\"orders-platform-local\"}", fetched.body());
 
     HttpResponse<String> deleted = delete("/api/blueprints/" + id);
     assertEquals(200, deleted.statusCode());
@@ -118,7 +119,8 @@ class IvaldiServerTest {
 
     assertEquals(200, response.statusCode());
     assertEquals("first cut", Json.asObject(Json.parse(response.body())).get("name"));
-    assertEquals("{\"name\":\"first cut\"}", get("/api/blueprints/my-cluster").body());
+    assertEquals(
+        "{\"name\":\"first cut\",\"id\":\"my-cluster\"}", get("/api/blueprints/my-cluster").body());
   }
 
   @Test
@@ -203,7 +205,8 @@ class IvaldiServerTest {
   @Test
   @Timeout(10)
   void cluster_topology_is_null_until_a_run_records_one() throws Exception {
-    HttpResponse<String> created = post("/api/clusters", "{\"name\":\"local\"}");
+    HttpResponse<String> created =
+        post("/api/clusters", "{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
     String id = String.valueOf(Json.asObject(Json.parse(created.body())).get("id"));
 
     HttpResponse<String> topology = get("/api/clusters/" + id + "/topology");

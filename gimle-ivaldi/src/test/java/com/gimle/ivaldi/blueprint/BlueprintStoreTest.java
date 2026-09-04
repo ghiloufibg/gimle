@@ -35,11 +35,61 @@ class BlueprintStoreTest {
   }
 
   @Test
-  void round_trips_the_exact_body_it_was_given() {
+  void round_trips_the_body_it_was_given_with_the_stored_id_stamped_into_it() {
     String body = "{\"name\":\"x\",\"nodes\":[{\"id\":\"n1\",\"kind\":\"machine\"}]}";
     BlueprintSummary summary = store.create(body);
 
-    assertEquals(Optional.of(body), store.get(summary.id()));
+    String stored = store.get(summary.id()).orElseThrow();
+    assertTrue(stored.contains("\"nodes\""), stored);
+    assertTrue(stored.contains("\"id\":\"" + summary.id() + "\""), stored);
+  }
+
+  /**
+   * The console mints an id client-side before it ever POSTs and addresses every later save by it.
+   * Minting a second, different id server-side left the two disagreeing: the console navigated to
+   * the id it was handed and saved to the id inside its own document, producing two divergent
+   * records for one blueprint, the opened one frozen at creation-time content.
+   */
+  @Test
+  void honours_the_id_the_body_already_carries() {
+    BlueprintSummary summary =
+        store.create("{\"id\":\"bp-m6i5kklhn\",\"name\":\"Orders Platform\"}");
+
+    assertEquals("bp-m6i5kklhn", summary.id());
+    assertTrue(store.get("bp-m6i5kklhn").isPresent());
+    assertTrue(store.get("orders-platform").isEmpty());
+  }
+
+  /** A POST is a create: reusing an id must never silently replace the blueprint already there. */
+  @Test
+  void mints_a_fresh_id_rather_than_overwriting_when_the_requested_one_is_taken() {
+    BlueprintSummary first = store.create("{\"id\":\"taken\",\"name\":\"first\"}");
+    BlueprintSummary second = store.create("{\"id\":\"taken\",\"name\":\"second\"}");
+
+    assertEquals("taken", first.id());
+    assertNotEquals("taken", second.id());
+    assertEquals(
+        "first",
+        store.list().stream().filter(b -> b.id().equals("taken")).findFirst().orElseThrow().name());
+  }
+
+  /** An unusable id in the body is ignored the same way a missing one is. */
+  @Test
+  void falls_back_to_minting_when_the_body_carries_an_unusable_id() {
+    assertEquals("x", store.create("{\"id\":\"../escape\",\"name\":\"x\"}").id());
+    assertEquals("y", store.create("{\"id\":42,\"name\":\"y\"}").id());
+  }
+
+  /** A body's own id can never disagree with the id it is addressed by, on either write path. */
+  @Test
+  void save_stamps_the_addressed_id_into_the_body() {
+    store.create("{\"id\":\"real-id\",\"name\":\"x\"}");
+
+    store.save("real-id", "{\"id\":\"stale-id\",\"name\":\"x\",\"version\":\"2\"}");
+
+    String stored = store.get("real-id").orElseThrow();
+    assertTrue(stored.contains("\"id\":\"real-id\""), stored);
+    assertFalse(stored.contains("stale-id"), stored);
   }
 
   @Test
@@ -60,7 +110,9 @@ class BlueprintStoreTest {
     store.save("orders-platform-local", "{\"name\":\"first\"}");
     store.save("orders-platform-local", "{\"name\":\"second\"}");
 
-    assertEquals(Optional.of("{\"name\":\"second\"}"), store.get("orders-platform-local"));
+    assertEquals(
+        Optional.of("{\"name\":\"second\",\"id\":\"orders-platform-local\"}"),
+        store.get("orders-platform-local"));
   }
 
   @Test

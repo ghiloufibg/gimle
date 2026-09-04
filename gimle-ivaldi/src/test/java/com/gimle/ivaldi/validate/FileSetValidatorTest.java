@@ -1,6 +1,7 @@
 package com.gimle.ivaldi.validate;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -378,5 +379,176 @@ class FileSetValidatorTest {
                 file("README.md", "irrelevant")));
 
     assertEquals(Set.of("SINGLE_STORE", "SINGLE_CONTROL_PLANE"), codes(findings));
+  }
+
+  // ---- cross-file pre-flight ----
+
+  private static final String PLAINTEXT_TOPOLOGY =
+      """
+      name: cross-file
+      machines:
+        - {name: local, host: 127.0.0.1}
+      runtime:
+        dataRoot: /tmp/ivaldi-run
+      store:
+        replicas:
+          - {machine: local}
+      controlPlane:
+        replicas:
+          - {machine: local}
+      fafnir:
+        keyFile: /tmp/ivaldi-run/fafnir.key
+        replicas:
+          - {machine: local}
+      agents:
+        - {machine: local, nodeId: node-1}
+      """;
+
+  private static String withAndvari(String topology) {
+    return topology
+        + """
+        andvari:
+          replicas:
+            - {machine: local}
+        """;
+  }
+
+  private static String bundleWithTenants(String... tenantIds) {
+    StringBuilder bundle =
+        new StringBuilder("kind: Bundle\nname: b\nversion: \"1\"\nworkloads: []\ntenants:\n");
+    for (String id : tenantIds) {
+      bundle
+          .append("  - id: ")
+          .append(id)
+          .append("\n    quota: {maxMemoryBytes: 1, maxCpuMillicores: 1, maxInstances: 1}\n");
+    }
+    return bundle.toString();
+  }
+
+  private static final String JAR_WORKLOAD =
+      """
+      kind: Deployment
+      name: hello
+      tenantId: examples
+      module: {name: com.gimle.examples.hello, version: 1.0.0}
+      replicas: 1
+      artifactPath: /tmp/hello-module.jar
+      """;
+
+  /**
+   * A jar-sourced workload is pushed to the cluster's own registry at run time, so a topology with
+   * no andvari replica cannot host one -- discoverable here, or as a 503 at the far end of a run
+   * that has already booted the whole platform.
+   */
+  @Test
+  void flags_a_jar_sourced_workload_when_the_topology_declares_no_andvari() {
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", PLAINTEXT_TOPOLOGY),
+                file("manifests/01-hello.yaml", JAR_WORKLOAD)));
+
+    Finding jarFinding =
+        findings.stream()
+            .filter(f -> f.code().equals("NO_ANDVARI_FOR_JAR"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no NO_ANDVARI_FOR_JAR in " + findings));
+    assertEquals(Finding.Severity.ERROR, jarFinding.severity());
+    assertEquals("manifests/01-hello.yaml", jarFinding.file());
+  }
+
+  @Test
+  void accepts_the_same_jar_sourced_workload_once_andvari_is_declared() {
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", withAndvari(PLAINTEXT_TOPOLOGY)),
+                file("manifests/01-hello.yaml", JAR_WORKLOAD)));
+
+    assertFalse(codes(findings).contains("NO_ANDVARI_FOR_JAR"), findings.toString());
+  }
+
+  @Test
+  void does_not_flag_a_registry_sourced_workload_without_andvari() {
+    String registryWorkload =
+        """
+        apiVersion: v1
+        kind: Deployment
+        name: hello
+        module: {name: com.gimle.examples.hello, version: 1.0.0}
+        replicas: 1
+        """;
+
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", PLAINTEXT_TOPOLOGY),
+                file("manifests/01-hello.yaml", registryWorkload)));
+
+    assertFalse(codes(findings).contains("NO_ANDVARI_FOR_JAR"), findings.toString());
+  }
+
+  /**
+   * Plaintext has no caller identity to tell tenants apart, so the control plane permits exactly
+   * one tenant of the operator's own -- a bundle declaring two can never apply, whoever applies it.
+   */
+  @Test
+  void flags_a_bundle_declaring_two_own_tenants_under_plaintext() {
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", PLAINTEXT_TOPOLOGY),
+                file("bundle.yaml", bundleWithTenants("examples", "other"))));
+
+    Finding finding =
+        findings.stream()
+            .filter(f -> f.code().equals("PLAINTEXT_MULTI_TENANT"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no PLAINTEXT_MULTI_TENANT in " + findings));
+    assertEquals(Finding.Severity.ERROR, finding.severity());
+    assertEquals("bundle.yaml", finding.file());
+  }
+
+  @Test
+  void allows_a_single_own_tenant_under_plaintext() {
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", PLAINTEXT_TOPOLOGY),
+                file("bundle.yaml", bundleWithTenants("examples"))));
+
+    assertFalse(codes(findings).contains("PLAINTEXT_MULTI_TENANT"), findings.toString());
+  }
+
+  /** The platform seeds these itself; they were never the operator asking for a tenant. */
+  @Test
+  void does_not_count_platform_seeded_tenants_toward_the_plaintext_limit() {
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", PLAINTEXT_TOPOLOGY),
+                file(
+                    "bundle.yaml",
+                    bundleWithTenants("gimle-hilmir", "default", "gimle-system", "examples"))));
+
+    assertFalse(codes(findings).contains("PLAINTEXT_MULTI_TENANT"), findings.toString());
+  }
+
+  @Test
+  void allows_two_tenants_once_the_topology_asks_for_mtls() {
+    String mtls =
+        PLAINTEXT_TOPOLOGY.replace("name: cross-file", "name: cross-file\ntransport: mtls")
+            + """
+            tls:
+              materialDir: /tmp/ivaldi-run/tls
+            """;
+
+    List<Finding> findings =
+        FileSetValidator.validate(
+            List.of(
+                file("topology.yaml", mtls),
+                file("bundle.yaml", bundleWithTenants("examples", "other"))));
+
+    assertFalse(codes(findings).contains("PLAINTEXT_MULTI_TENANT"), findings.toString());
   }
 }

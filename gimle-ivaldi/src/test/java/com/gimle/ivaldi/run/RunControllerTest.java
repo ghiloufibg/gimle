@@ -62,7 +62,8 @@ class RunControllerTest {
 
   @Test
   void starting_a_run_against_a_known_cluster_moves_off_idle() {
-    Map<String, Object> cluster = clusters.create("{\"name\":\"local\"}");
+    Map<String, Object> cluster =
+        clusters.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
     List<RenderedFile> files = List.of(new RenderedFile("topology.yaml", "name: t"));
 
     Map<String, Object> started =

@@ -10853,26 +10853,25 @@ public final class ApiServer implements AutoCloseable {
    * quietly allowing shared multi-tenant use with no way to tell callers apart, plaintext mode is
    * treated as explicitly single-tenant: creating a second real tenant is refused outright, the
    * same "reject, don't silently allow" posture every other hard policy in this class already
-   * takes. None of {@link Tenant#RESERVED_SYSTEM_TENANT_ID}, {@link Tenant#DEFAULT_TENANT_ID}, or
-   * {@link Tenant#HILMIR_BOOKKEEPING_TENANT_ID} counts toward the limit -- all three are
-   * platform-reserved bookkeeping tenants, not an operator's own, so neither creating one nor an
-   * already-created one being present should trip this guard for a genuine second tenant a caller
-   * actually asked for. A no-op for an update to an already-existing tenant (this id itself) and
-   * for every mTLS caller, where a real peer identity exists for RBAC to actually check.
+   * takes. No {@linkplain Tenant#isPlatformSeeded platform-seeded} tenant counts toward the limit,
+   * on either side of the check -- neither as the tenant being created nor as an already-existing
+   * one. All three are created without an operator asking: the system and default tenants on every
+   * replica's own startup, and the release-ledger tenant by the first {@code hilmir deploy}, whose
+   * whole content is Hilmir's own zero-quota bookkeeping rows. Counting the ledger tenant here made
+   * the operator's own first tenant read as their second, so every bundle that declares a tenant --
+   * through {@code hilmir deploy} or Ivaldi alike -- was refused outright under plaintext. A no-op
+   * for an update to an already-existing tenant (this id itself) and for every mTLS caller, where a
+   * real peer identity exists for RBAC to actually check.
    */
   private boolean rejectSecondTenantUnderPlaintext(HttpExchange exchange, String id) {
     if (exchange instanceof HttpsExchange
-        || storeClient.getTenant(id).isPresent()
-        || id.equals(Tenant.HILMIR_BOOKKEEPING_TENANT_ID)) {
+        || Tenant.isPlatformSeeded(id)
+        || storeClient.getTenant(id).isPresent()) {
       return false;
     }
     boolean anotherRealTenantExists =
         storeClient.listTenants().stream()
-            .anyMatch(
-                tenant ->
-                    !tenant.id().equals(Tenant.RESERVED_SYSTEM_TENANT_ID)
-                        && !tenant.id().equals(Tenant.DEFAULT_TENANT_ID)
-                        && !tenant.id().equals(Tenant.HILMIR_BOOKKEEPING_TENANT_ID));
+            .anyMatch(tenant -> !Tenant.isPlatformSeeded(tenant.id()));
     if (!anotherRealTenantExists) {
       return false;
     }

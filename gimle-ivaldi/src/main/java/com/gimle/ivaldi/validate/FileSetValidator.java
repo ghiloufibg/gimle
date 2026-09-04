@@ -1,8 +1,12 @@
 package com.gimle.ivaldi.validate;
 
+import com.gimle.core.tenant.Tenant;
+import com.gimle.hilmir.release.Bundle;
 import com.gimle.hilmir.release.BundleParser;
+import com.gimle.hilmir.release.BundleTenant;
 import com.gimle.hilmir.topology.Topology;
 import com.gimle.hilmir.topology.TopologyParser;
+import com.gimle.hilmir.topology.Transport;
 import com.gimle.hilmir.validate.TopologyValidator;
 import com.gimle.mimir.manifest.ManifestParser;
 import com.gimle.mimir.manifest.NetworkPolicySpec;
@@ -44,25 +48,107 @@ public final class FileSetValidator {
 
   public static List<Finding> validate(List<RenderedFile> files) {
     List<Finding> findings = new ArrayList<>();
+    Optional<Topology> topology = Optional.empty();
+    Optional<Bundle> bundle = Optional.empty();
     for (RenderedFile file : files) {
       if ("topology.yaml".equals(file.path())) {
-        validateTopology(file, findings);
+        topology = validateTopology(file, findings);
       } else if ("bundle.yaml".equals(file.path())) {
-        validateBundle(file, findings);
+        bundle = validateBundle(file, findings);
       } else if (file.path().startsWith("manifests/") && file.path().endsWith(".yaml")) {
         validateManifest(file, findings);
       }
     }
+    Optional<Bundle> parsedBundle = bundle;
+    topology.ifPresent(parsed -> validateAcrossFiles(parsed, parsedBundle, files, findings));
     return findings;
   }
 
-  private static void validateTopology(RenderedFile file, List<Finding> findings) {
+  /**
+   * The two checks no single file can make about itself, both of which otherwise only surface as a
+   * runtime failure at the far end of a run that has already booted an entire platform first.
+   */
+  private static void validateAcrossFiles(
+      Topology topology,
+      Optional<Bundle> bundle,
+      List<RenderedFile> files,
+      List<Finding> findings) {
+    requireRegistryForJarArtifacts(topology, files, findings);
+    bundle.ifPresent(parsed -> requireSingleTenantUnderPlaintext(topology, parsed, findings));
+  }
+
+  /**
+   * A jar-sourced workload is not applied from the path it names: the run pushes that jar to the
+   * cluster's own Andvari registry first, then applies a registry coordinate. A topology with no
+   * Andvari replica therefore cannot host one, and says so only through a 503 from the control
+   * plane at push time -- after the whole platform is up. Tier 1 already warns about the mirror
+   * case (a registry-sourced workload with no registry to resolve it from).
+   */
+  private static void requireRegistryForJarArtifacts(
+      Topology topology, List<RenderedFile> files, List<Finding> findings) {
+    if (!topology.andvari().replicas().isEmpty()) {
+      return;
+    }
+    for (RenderedFile file : files) {
+      if (!file.path().startsWith("manifests/") || !file.path().endsWith(".yaml")) {
+        continue;
+      }
+      Map<?, ?> root;
+      try {
+        root = readMapping(file.content());
+      } catch (RuntimeException alreadyReported) {
+        continue;
+      }
+      if (root.get("artifactPath") instanceof String path && !path.isBlank()) {
+        findings.add(
+            Finding.error(
+                "NO_ANDVARI_FOR_JAR",
+                "this workload is sourced from a local jar, which the run pushes to the cluster's"
+                    + " own artifact registry, but the topology declares no andvari replica to"
+                    + " push it to",
+                file.path()));
+      }
+    }
+  }
+
+  /**
+   * Plaintext transport gives the control plane no caller identity to tell tenants apart, so it
+   * permits exactly one tenant of the operator's own beyond the ones the platform seeds for itself
+   * -- a bundle declaring two can never apply, whoever applies it. Only the bundle's own count is
+   * knowable here: whether the target cluster already holds a different tenant is a question for
+   * the live cluster, not for these bytes.
+   */
+  private static void requireSingleTenantUnderPlaintext(
+      Topology topology, Bundle bundle, List<Finding> findings) {
+    if (topology.transport() != Transport.PLAINTEXT) {
+      return;
+    }
+    List<String> ownTenants =
+        bundle.tenants().stream()
+            .map(BundleTenant::id)
+            .filter(id -> !Tenant.isPlatformSeeded(id))
+            .distinct()
+            .toList();
+    if (ownTenants.size() > 1) {
+      findings.add(
+          Finding.error(
+              "PLAINTEXT_MULTI_TENANT",
+              "plaintext transport allows only one tenant of your own, but this bundle declares "
+                  + ownTenants.size()
+                  + " ("
+                  + String.join(", ", ownTenants)
+                  + ") -- switch the topology to mtls for real multi-tenancy",
+              "bundle.yaml"));
+    }
+  }
+
+  private static Optional<Topology> validateTopology(RenderedFile file, List<Finding> findings) {
     Topology topology;
     try {
       topology = TopologyParser.parse(streamOf(file));
     } catch (RuntimeException e) {
       findings.add(Finding.error("TOPOLOGY_PARSE_ERROR", messageOf(e), file.path()));
-      return;
+      return Optional.empty();
     }
     for (com.gimle.hilmir.validate.Finding rule : TopologyValidator.validate(topology)) {
       Finding.Severity severity =
@@ -71,13 +157,15 @@ public final class FileSetValidator {
               : Finding.Severity.WARNING;
       findings.add(new Finding(rule.code(), severity, rule.message(), file.path()));
     }
+    return Optional.of(topology);
   }
 
-  private static void validateBundle(RenderedFile file, List<Finding> findings) {
+  private static Optional<Bundle> validateBundle(RenderedFile file, List<Finding> findings) {
     try {
-      BundleParser.parse(streamOf(file));
+      return Optional.of(BundleParser.parse(streamOf(file)));
     } catch (RuntimeException e) {
       findings.add(Finding.error("BUNDLE_PARSE_ERROR", messageOf(e), file.path()));
+      return Optional.empty();
     }
   }
 

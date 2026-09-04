@@ -22,8 +22,9 @@ import java.util.stream.Stream;
  * Flat-file persistence for saved cluster connections, the exact {@link
  * com.gimle.ivaldi.blueprint.BlueprintStore} shape applied to a smaller document: one JSON file per
  * cluster under {@code root}, named {@code <id>.json}, id minted from the connection's {@code name}
- * field on create. The whole body is treated as opaque JSON the console owns -- this store only
- * reads {@code name}/{@code updatedAt} for the list's sort order.
+ * field on create. The body is otherwise treated as opaque JSON the console owns -- beyond {@code
+ * name}/{@code updatedAt} for the list's sort order, the only field this store looks at is {@code
+ * controlPlaneUrl}, which it refuses to write blank (see {@link #requireControlPlaneUrl}).
  *
  * <p>Alongside each connection this store keeps one more thing the console's own {@code
  * ClusterConnection} document has no field for: the {@code topology.yaml} text a run actually last
@@ -88,6 +89,7 @@ public final class ClusterStore {
   /** Creates a new cluster connection from {@code rawJson}, minting an id from its name field. */
   public Map<String, Object> create(String rawJson) {
     Map<String, Object> json = parseObject(rawJson);
+    requireControlPlaneUrl(json);
     String id = mintId(String.valueOf(json.getOrDefault("name", "cluster")));
     Map<String, Object> stamped = withId(json, id);
     write(fileFor(id), Json.write(stamped));
@@ -98,6 +100,7 @@ public final class ClusterStore {
   public Map<String, Object> save(String id, String rawJson) {
     requireValidId(id);
     Map<String, Object> json = parseObject(rawJson);
+    requireControlPlaneUrl(json);
     Map<String, Object> stamped = withId(json, id);
     write(fileFor(id), Json.write(stamped));
     return stamped;
@@ -168,6 +171,20 @@ public final class ClusterStore {
     } catch (IOException | RuntimeException e) {
       // A corrupt or unreadable file is skipped from listings rather than failing the whole list.
       return Optional.empty();
+    }
+  }
+
+  /**
+   * The one field of an otherwise-opaque body this store refuses to accept empty: a saved cluster
+   * connection whose whole purpose is to name a control plane, without one, is a record that can
+   * never run anything. Accepting it silently only moved the failure to the far end of a run that
+   * had already booted a platform first (see {@code RunController}'s own check of the same field).
+   */
+  private static void requireControlPlaneUrl(Map<String, Object> json) {
+    Object url = json.get("controlPlaneUrl");
+    if (url == null || String.valueOf(url).isBlank()) {
+      throw new IllegalArgumentException(
+          "a cluster connection needs a non-blank 'controlPlaneUrl', e.g. 127.0.0.1:8080");
     }
   }
 

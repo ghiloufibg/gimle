@@ -2241,6 +2241,50 @@ class ApiServerTest {
   }
 
   /**
+   * Hilmir's own {@code gimle-hilmir} release-ledger tenant is bookkeeping the platform seeds for
+   * itself on the first {@code hilmir deploy}, never a tenant an operator asked for, so it must not
+   * consume the one real tenant plaintext allows -- in either direction. Counting it did: every
+   * bundle declaring a tenant was refused outright under plaintext, because the ledger tenant that
+   * every deploy creates first had already taken the slot.
+   */
+  @Test
+  void the_release_ledger_tenant_does_not_consume_the_one_tenant_plaintext_allows()
+      throws Exception {
+    HttpResponse<String> ledger =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-hilmir"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(0L, 0, 0)))
+                .build());
+    assertEquals(200, ledger.statusCode());
+
+    HttpResponse<String> own =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(200, own.statusCode(), own.body());
+  }
+
+  /** The same exemption in the opposite order: an operator's tenant never blocks the ledger's. */
+  @Test
+  void the_release_ledger_tenant_is_creatable_after_an_operator_tenant_already_exists()
+      throws Exception {
+    HttpResponse<String> own =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/acme"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(1_000_000_000L, 4000, 10)))
+                .build());
+    assertEquals(200, own.statusCode());
+
+    HttpResponse<String> ledger =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/tenants/gimle-hilmir"))
+                .PUT(HttpRequest.BodyPublishers.ofString(tenantJson(0L, 0, 0)))
+                .build());
+    assertEquals(200, ledger.statusCode(), ledger.body());
+  }
+
+  /**
    * The plaintext single-tenant guard only fires for a genuinely new tenant id -- a second PUT
    * against the same, already-existing tenant is an update, not a second tenant, and stays
    * permitted (every other test in this class that adjusts a tenant's quota relies on exactly

@@ -37,8 +37,10 @@ class ClusterStoreTest {
 
   @Test
   void two_clusters_with_the_same_name_get_distinct_ids() {
-    Map<String, Object> first = store.create("{\"name\":\"dup\"}");
-    Map<String, Object> second = store.create("{\"name\":\"dup\"}");
+    Map<String, Object> first =
+        store.create("{\"name\":\"dup\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    Map<String, Object> second =
+        store.create("{\"name\":\"dup\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
 
     assertNotEquals(first.get("id"), second.get("id"));
   }
@@ -50,8 +52,9 @@ class ClusterStoreTest {
 
   @Test
   void save_upserts_at_an_explicit_id_and_stamps_the_id_field() {
-    store.save("local-dev", "{\"name\":\"first\"}");
-    Map<String, Object> second = store.save("local-dev", "{\"name\":\"second\"}");
+    store.save("local-dev", "{\"name\":\"first\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    Map<String, Object> second =
+        store.save("local-dev", "{\"name\":\"second\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
 
     assertEquals("local-dev", second.get("id"));
     assertTrue(store.get("local-dev").orElseThrow().contains("second"));
@@ -59,7 +62,8 @@ class ClusterStoreTest {
 
   @Test
   void delete_removes_a_cluster_and_reports_whether_one_existed() {
-    Map<String, Object> created = store.create("{\"name\":\"gone-soon\"}");
+    Map<String, Object> created =
+        store.create("{\"name\":\"gone-soon\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
     String id = String.valueOf(created.get("id"));
 
     assertTrue(store.delete(id));
@@ -69,13 +73,34 @@ class ClusterStoreTest {
 
   @Test
   void list_returns_every_stored_cluster_newest_first() {
-    store.create("{\"name\":\"a\",\"updatedAt\":\"2026-01-01T00:00:00Z\"}");
-    store.create("{\"name\":\"b\",\"updatedAt\":\"2026-01-02T00:00:00Z\"}");
+    store.create(
+        "{\"name\":\"a\",\"updatedAt\":\"2026-01-01T00:00:00Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
+    store.create(
+        "{\"name\":\"b\",\"updatedAt\":\"2026-01-02T00:00:00Z\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
 
     List<Map<String, Object>> all = store.list();
 
     assertEquals(2, all.size());
     assertEquals("b", all.get(0).get("name"));
+  }
+
+  /**
+   * A saved connection whose whole purpose is to name a control plane, without one, is a record
+   * that can never run anything -- accepting it silently only moved the failure to the far end of a
+   * run that had already booted a platform first.
+   */
+  @Test
+  void refuses_to_write_a_connection_with_no_control_plane_url() {
+    assertThrows(IllegalArgumentException.class, () -> store.create("{\"name\":\"blank\"}"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store.create("{\"name\":\"blank\",\"controlPlaneUrl\":\"\"}"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store.create("{\"name\":\"blank\",\"controlPlaneUrl\":\"   \"}"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store.save("local-dev", "{\"name\":\"blank\",\"controlPlaneUrl\":\"\"}"));
   }
 
   @Test
@@ -92,7 +117,8 @@ class ClusterStoreTest {
 
   @Test
   void applied_topology_starts_empty_and_round_trips_once_recorded() {
-    Map<String, Object> created = store.create("{\"name\":\"local\"}");
+    Map<String, Object> created =
+        store.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
     String id = String.valueOf(created.get("id"));
 
     assertEquals(Optional.empty(), store.appliedTopology(id));
@@ -104,7 +130,8 @@ class ClusterStoreTest {
 
   @Test
   void clear_applied_topology_forgets_it() {
-    Map<String, Object> created = store.create("{\"name\":\"local\"}");
+    Map<String, Object> created =
+        store.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
     String id = String.valueOf(created.get("id"));
     store.recordAppliedTopology(id, "name: local\n");
 
@@ -115,7 +142,8 @@ class ClusterStoreTest {
 
   @Test
   void delete_also_removes_the_applied_topology_sidecar_file() {
-    Map<String, Object> created = store.create("{\"name\":\"local\"}");
+    Map<String, Object> created =
+        store.create("{\"name\":\"local\",\"controlPlaneUrl\":\"127.0.0.1:8080\"}");
     String id = String.valueOf(created.get("id"));
     store.recordAppliedTopology(id, "name: local\n");
 
