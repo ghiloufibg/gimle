@@ -447,6 +447,10 @@ public final class WorkerMain {
       Set<ModuleId> activeModules,
       ControlChannelClient channel,
       InstanceIdentityRegistry identityRegistry) {
+    if (event instanceof LifecycleEvent.Uninstalled uninstalled) {
+      handleUninstalled(uninstalled, runtimeRef, activeModules, channel, identityRegistry);
+      return;
+    }
     // Reported before runtimeRef's own reaction below runs, not after: WorkerRuntime#onActive can
     // itself synchronously force a further transition (a probe class that fails to load drives the
     // module straight to FAILED before onLifecycleEvent returns), which recurses back into this
@@ -464,15 +468,50 @@ public final class WorkerMain {
                     new ControlMessage.InstanceEventOccurred(instanceEventFor(event, identity))));
     if (event instanceof LifecycleEvent.Active active) {
       activeModules.add(active.id());
-    } else if (event instanceof LifecycleEvent.Uninstalled uninstalled) {
-      activeModules.remove(uninstalled.id());
     } else if (event instanceof LifecycleEvent.Completed completed) {
       // A COMPLETED Job stops accumulating metricsReportLoop's per-tick CPU/memory report -- it's
       // done, not still running work worth reporting, the same reasoning Uninstalled already gets
-      // above.
+      // in handleUninstalled.
       activeModules.remove(completed.id());
     }
     runtimeRef.get().onLifecycleEvent(event);
+  }
+
+  /**
+   * {@link LifecycleEvent.Uninstalled} deliberately runs out of {@link #handleLifecycleEvent}'s
+   * general order above: the agent treats this event's own {@code
+   * ControlMessage.ModuleStateChanged(UNINSTALLED)} as its signal that this worker's process is now
+   * safe to tear down (its own graceful-stop wait resolves the moment that message arrives), but
+   * {@code WorkerRuntime#onUninstalled} -- reached through {@code
+   * runtimeRef.get().onLifecycleEvent} -- is what actually unregisters this module's fabric export
+   * and relays that removal to the agent as {@code ControlMessage.ServiceUnregistered}, over this
+   * exact same connection. Sending {@code ModuleStateChanged} first, the way every other transition
+   * above does, would let the agent kill this worker's process before {@code ServiceUnregistered}
+   * ever reached it -- leaving every other cluster member's fabric catalog believing the torn-down
+   * instance's endpoint was still live until its circuit breaker eventually noticed on its own.
+   * Running the unregister first and sending both messages over the same channel in that order
+   * guarantees the agent -- and everything it gossips onward -- learns of the removal no later than
+   * it learns it may kill the worker.
+   *
+   * <p>Identity is looked up before {@code onLifecycleEvent} runs because that same call is what
+   * clears it ({@code InstanceTaggingServiceRegistry#remove}, reached via {@code
+   * WorkerRuntime#onUninstalled}) -- read it first or it's gone, the same ordering {@code
+   * WorkerRuntime#onUninstalled} itself already documents for its own internal lookup.
+   */
+  private static void handleUninstalled(
+      LifecycleEvent.Uninstalled event,
+      AtomicReference<WorkerRuntime> runtimeRef,
+      Set<ModuleId> activeModules,
+      ControlChannelClient channel,
+      InstanceIdentityRegistry identityRegistry) {
+    Optional<InstanceIdentity> identity = identityRegistry.lookup(event.id());
+    activeModules.remove(event.id());
+    runtimeRef.get().onLifecycleEvent(event);
+    sendQuietly(channel, new ControlMessage.ModuleStateChanged(event.id(), stateName(event)));
+    identity.ifPresent(
+        i ->
+            sendQuietly(
+                channel, new ControlMessage.InstanceEventOccurred(instanceEventFor(event, i))));
   }
 
   private static final Duration METRICS_REPORT_INTERVAL = Duration.ofSeconds(5);

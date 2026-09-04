@@ -806,6 +806,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-794 | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | Worker Supervision | Complete | Yes |
 | GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | Multi-tenancy / Scheduling | Complete | Yes |
 | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | Observability | Complete | Yes |
+| GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | Service Fabric | Fixed | Yes |
 
 ## Detailed Requirements
 
@@ -5037,6 +5038,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then a WARN line names the interface and the nodeId/workerId endpoint
   And gimle.fabric.circuitbreaker.state reports 2 for that endpoint
   And the transition counter increments for the state entered
+  ```
+
+#### GIMLE-797 — A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice
+
+- **Category**: Service Fabric
+- **User story**: As a caller of a cross-worker fabric service, I want a redeployed or rolled-back provider's old instance to stop being a routing candidate the moment it is actually gone, so a rolling update or rollback of the same deployment doesn't produce real failed calls against a torn-down worker, over and over, on every redeploy.
+- **Status**: Fixed. `ServiceCatalog#localUnregister`/`evictWorker` already existed and correctly tombstone a disposed instance's endpoint the moment either runs -- verified directly: a register/unregister/register-again sequence, repeated across four successive redeploys, never leaves a stale candidate behind. The actual gap was in *when* that removal ran relative to when the owning worker's process was allowed to be killed. `WorkerMain#handleLifecycleEvent` sent this event's own `ControlMessage.ModuleStateChanged("UNINSTALLED")` -- the exact message `AgentMain#awaitGracefulUninstall` treats as its signal that a worker is now safe to force-kill -- *before* `WorkerRuntime#onUninstalled` ran (reached via `runtimeRef.get().onLifecycleEvent`), which is what actually calls `ServiceRegistry#remove`/`FabricServiceRegistry#remove` and sends the resulting `ControlMessage.ServiceUnregistered` the agent relays into its own `ServiceCatalog` and gossips onward. A rolling update or rollback of the same deployment could therefore have its old worker force-killed -- tearing down the very control channel `ServiceUnregistered` travels over -- before that notification was ever sent or read, leaving every cluster member's catalog believing the torn-down instance's endpoint was still live until its circuit breaker eventually noticed on its own, more of them each successive redeploy: exactly the compounding failure Forseti finding M2 reported. `WorkerMain#handleUninstalled` now runs the unregister and sends `ServiceUnregistered` strictly before `ModuleStateChanged("UNINSTALLED")`, over that same connection, so the agent -- and everything it gossips onward -- learns of the removal no later than it learns it may kill the worker. `AgentMain#stopInstance` also gained a fallback for the timeout case: `awaitGracefulUninstall` now reports whether the worker actually confirmed in time, and if it didn't, the agent calls `ServiceCatalog#evictWorker` itself before force-killing it -- the same backstop an unexpected worker crash already gets via `onWorkerCrash`.
+- **Confidence**: High
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`handleLifecycleEvent`, `handleUninstalled`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`stopInstance`, `awaitGracefulUninstall`), `gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java` (`localUnregister`, `evictWorker`)
+- **Test coverage**: `ServiceCatalogTest#a_redeploy_leaves_only_the_replacement_instances_endpoint`, `#repeated_redeploys_never_accumulate_stale_endpoints` (four successive redeploys, each generation leaving only its own endpoint as a candidate); `FabricServiceRegistryTest#redeploying_a_service_drops_the_disposed_instances_endpoint_from_every_later_lookup`, `#repeated_redeploys_of_the_same_deployment_never_accumulate_stale_candidates`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a service-exporting instance registered in the fabric catalog
+  When it is disposed (unregistered) and a replacement instance registers under a new worker/module identity
+  Then the registry's own candidate list for that service contains only the replacement's endpoint, never the disposed one
+  And repeating this redeploy four times in a row never leaves more than one live candidate behind
   ```
 
 ### gimle-controlplane

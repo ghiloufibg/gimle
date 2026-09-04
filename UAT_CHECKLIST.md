@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 796
+- **Total requirements**: 797
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 669
-- **Release-readiness (automated coverage)**: 16.0%
+- **Not covered by automated test**: 670
+- **Release-readiness (automated coverage)**: 15.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -20,7 +20,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-worker | 24 | 2 | 22 | 8.3% |
 | gimle-agent | 60 | 6 | 54 | 10.0% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
-| gimle-fabric | 41 | 1 | 40 | 2.4% |
+| gimle-fabric | 42 | 1 | 41 | 2.4% |
 | gimle-controlplane | 119 | 17 | 102 | 14.3% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
@@ -1003,6 +1003,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-195 | Distributed Trace Propagation Across Fabric Hops | Given a caller with an active span and baggage; When it invokes a remote service; Then the callee starts a child span parented on the caller's real span, observing the same baggage. | No |
 | [ ] | GIMLE-196 | Fabric Transport over Mutual TLS with Hot Cert Reload | Given fabric configured for mTLS; When a cross-machine invocation is made; Then it succeeds over TLS; a client trusting a different CA is rejected; reload lets a fresh connection succeed without restart. | No |
 | [ ] | GIMLE-719 | Fabric calls retry only where retrying is provably safe, with server-side correlationId deduplication | Given a service method not annotated @Idempotent When the call fails after the request was written Then the failure is surfaced to the caller rather than retried And when the connection was never established, the call fails over to a different endpoint And a duplicate correlationId replays the original response instead of executing twice | No |
+| [ ] | GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | Given a service-exporting instance registered in the fabric catalog When it is disposed (unregistered) and a replacement instance registers under a new worker/module identity Then the registry's own candidate list for that service contains only the replacement's endpoint, never the disposed one And repeating this redeploy four times in a row never leaves more than one live candidate behind | No |
 
 #### Service fabric
 

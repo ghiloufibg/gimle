@@ -177,6 +177,76 @@ class ServiceCatalogTest {
   }
 
   /**
+   * A redeploy of the same logical service (dispose the old instance, register its replacement)
+   * must leave the disposed instance's endpoint gone for good -- not merely present until some
+   * caller's circuit breaker happens to notice repeated failures against it.
+   */
+  @Test
+  void a_redeploy_leaves_only_the_replacement_instances_endpoint() {
+    ServiceCatalog catalog = new ServiceCatalog();
+    MemberId node = node("node-a");
+    ModuleId oldModule = new ModuleId("com.gimle.example.orders", Version.parse("1.0.0"));
+    ModuleId newModule = new ModuleId("com.gimle.example.orders", Version.parse("1.0.1"));
+
+    catalog.localRegister(
+        node,
+        "worker-old",
+        oldModule,
+        GREETER,
+        Optional.empty(),
+        new InetSocketAddress("127.0.0.1", 9000));
+    // The old instance is disposed before the replacement registers, the same order a real
+    // agent-driven rolling update produces.
+    catalog.localUnregister(node, "worker-old", oldModule, GREETER);
+    catalog.localRegister(
+        node,
+        "worker-new",
+        newModule,
+        GREETER,
+        Optional.empty(),
+        new InetSocketAddress("127.0.0.1", 9001));
+
+    List<ServiceEndpoint> endpoints = catalog.endpointsFor(GREETER);
+    assertEquals(1, endpoints.size());
+    assertEquals("worker-new", endpoints.get(0).workerId());
+  }
+
+  /**
+   * Four successive redeploys of the same logical service must never accumulate stale candidates --
+   * each generation's disposal must fully remove the previous one's endpoint, the exact "juggling
+   * four stale candidate endpoints for one logical service" shape a registry that never actively
+   * prunes would exhibit.
+   */
+  @Test
+  void repeated_redeploys_never_accumulate_stale_endpoints() {
+    ServiceCatalog catalog = new ServiceCatalog();
+    MemberId node = node("node-a");
+    String priorWorkerId = null;
+    for (int generation = 0; generation < 4; generation++) {
+      String workerId = "worker-gen" + generation;
+      ModuleId owner = new ModuleId("com.gimle.example.orders", Version.parse("1.0." + generation));
+      if (priorWorkerId != null) {
+        ModuleId priorOwner =
+            new ModuleId("com.gimle.example.orders", Version.parse("1.0." + (generation - 1)));
+        catalog.localUnregister(node, priorWorkerId, priorOwner, GREETER);
+      }
+      catalog.localRegister(
+          node,
+          workerId,
+          owner,
+          GREETER,
+          Optional.empty(),
+          new InetSocketAddress("127.0.0.1", 9100 + generation));
+      priorWorkerId = workerId;
+
+      List<ServiceEndpoint> endpoints = catalog.endpointsFor(GREETER);
+      assertEquals(
+          1, endpoints.size(), "generation " + generation + " left stale endpoints: " + endpoints);
+      assertEquals(workerId, endpoints.get(0).workerId());
+    }
+  }
+
+  /**
    * Registers one entry, then enough further entries that the first falls out of {@code
    * currentPayload()}'s bounded top-8 recent-delta window -- the exact scenario a partitioned or
    * slow-to-sync node hits under real gossip. The bounded piggyback payload alone can never recover

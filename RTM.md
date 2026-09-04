@@ -811,6 +811,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-794 | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | New | Not Covered | — |
 | GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | New | Not Covered | — |
 | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | New | Not Covered | — |
+| GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -3662,6 +3663,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No .feature reads fabric breaker meters or log lines. Covering this needs a two-replica provider topology where one replica is killed and the scenario asserts that endpoint's gimle.fabric.circuitbreaker.state reaches 2 through the control plane's /metrics-history/* proxy.
 - **Other test coverage (non-Holmgang, informational only)**: CircuitBreakerTest (four listener tests: full open/half-open/close cycle, no-op calls report nothing, cooldown expiry seen only by a candidacy check still reported, failed half-open trial reports the re-open); FabricServiceRegistryRetryTest asserts the gauge level, the transition counter and the logged line via a Logback ListAppender.
 - **Source location(s)**: `gimle-fabric/src/main/java/com/gimle/fabric/breaker/CircuitBreaker.java` (`TransitionListener`), `gimle-fabric/src/main/java/com/gimle/fabric/registry/FabricServiceRegistry.java` (`onBreakerTransition`), `gimle-observability/src/main/java/com/gimle/observability/WorkerMetrics.java`
+
+#### GIMLE-797 — A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice
+
+- **Category**: Service Fabric
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises a redeploy/rollback asserting zero failed calls against the disposed instance's endpoint (DEP-2/DEP-3 in FORSETI.md describe this objective, but the scenario itself is a Forseti fleet exercise, not a Cucumber .feature file). To close: add a scenario extending the rolling-update problem area that drives a real cluster through a cross-worker redeploy while a caller polls the target service, asserting the caller never observes a failed call once the new instance is ACTIVE.
+- **Other test coverage (non-Holmgang, informational only)**: `ServiceCatalogTest#a_redeploy_leaves_only_the_replacement_instances_endpoint`, `#repeated_redeploys_never_accumulate_stale_endpoints`; `FabricServiceRegistryTest#redeploying_a_service_drops_the_disposed_instances_endpoint_from_every_later_lookup`, `#repeated_redeploys_of_the_same_deployment_never_accumulate_stale_candidates`.
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`handleLifecycleEvent`, `handleUninstalled`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`stopInstance`, `awaitGracefulUninstall`), `gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java` (`localUnregister`, `evictWorker`)
 
 ### gimle-controlplane
 
@@ -8360,7 +8370,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**669 of 796 requirements are Not Covered.**
+**670 of 797 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8912,6 +8922,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-721 | gimle-skald | Cluster DNS answers NODATA, not NXDOMAIN, for a declared Service with no live endpoints | Service Fabric | SkaldServerTest (5 new: known-empty answers NOERROR for A and for SRV, unknown stays NXDOMAIN alongside a known-empty one, dashed endpoint name under an empty Service stays NXDOMAIN, severely stale empty is SERVFAIL); ControlPlaneServicePollerTest (a_service_with_no_endpoints_stays_in_the_cache_as_a_known_empty_name replaces the old test that asserted the defect); CachingServiceDirectoryTest (absent vs present-but-empty, and a refresh that empties a name keeps it known). |
 | GIMLE-728 | gimle-controlplane | Overlapping Services are announced with a response warning rather than silently allowed | Service Fabric | ServiceAdvisoriesTest (overlap reported; one warning per overlapping Service, name-ordered; a self re-submit does not overlap itself; the same deployment name under a different tenant is not an overlap; disjoint names earn nothing); ApiServerServicesTest (4 tests); GimleCliTest asserts the warning reaches stderr without failing the command. |
 | GIMLE-729 | gimle-controlplane | A Service's targetPort is authoritative when declared and genuinely absent when not | Service Fabric | ServiceReconcilerTest (declared targetPort selects out of a multi-port instance; an instance not reporting it is excluded; no targetPort with exactly one reported port resolves; no targetPort with several stays ambiguous; a targetPort appearing and disappearing converges both ways; repeated ticks over an unchanged store keep producing the same endpoints); ApiServerServicesTest (5); ServiceAdvisoriesTest; ServiceSpecTest; GimleCliTest; console services repository tests. |
+| GIMLE-797 | gimle-fabric | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | Service Fabric | `ServiceCatalogTest#a_redeploy_leaves_only_the_replacement_instances_endpoint`, `#repeated_redeploys_never_accumulate_stale_endpoints`; `FabricServiceRegistryTest#redeploying_a_service_drops_the_disposed_instances_endpoint_from_every_later_lookup`, `#repeated_redeploys_of_the_same_deployment_never_accumulate_stale_candidates`. |
 | GIMLE-618 | gimle-agent | Bifrost off-node service exposure (NodePort analogue) | Service Fabric / Networking | `BifrostProxyTest` (expose_mode_binds_the_wildcard_address_at_the_service_port) |
 | GIMLE-685 | gimle-fabric | Cross-worker service lookup applies the same version-aware cutover as the same-worker tier during a hot redeploy | Service fabric | `FabricServiceRegistryTest#only_the_highest_version_endpoints_are_selected_while_both_versions_are_available`, `#lookup_falls_back_to_the_next_highest_version_once_the_top_versions_sole_endpoint_is_breaker_excluded`, `#a_single_version_export_round_robins_normally_and_is_unaffected_by_version_narrowing`, `#locality_preference_still_applies_within_the_version_narrowed_pool_and_ignores_a_stale_older_version` (all in `gimle-fabric`). |
 | GIMLE-700 | gimle-fabric | CircuitBreaker closes on a success recorded while still OPEN, not only from HALF_OPEN | Service fabric | `CircuitBreakerTest#a_success_recorded_while_still_open_closes_the_breaker` and `#a_success_recorded_while_open_also_resets_the_backoff_to_the_base_cooldown`. Full gimle-fabric module suite re-verified. |

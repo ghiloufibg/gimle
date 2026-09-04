@@ -10,6 +10,7 @@ import com.gimle.core.module.ServiceExport;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.ControlMessage;
 import com.gimle.fabric.catalog.ServiceCatalog;
+import com.gimle.fabric.catalog.ServiceEndpoint;
 import com.gimle.fabric.cluster.MemberId;
 import com.gimle.fabric.transport.FabricServer;
 import com.gimle.module.lifecycle.ServiceRegistry;
@@ -795,5 +796,80 @@ class FabricServiceRegistryTest {
 
     assertEquals(2, sent.size());
     assertEquals(new ControlMessage.ServiceUnregistered(OWNER, GREETER_EXPORT), sent.get(1));
+  }
+
+  // ---- redeploy: a disposed instance's endpoint must be actively pruned, not merely left for a
+  // circuit breaker to eventually notice ----
+
+  @Test
+  @Timeout(10)
+  void redeploying_a_service_drops_the_disposed_instances_endpoint_from_every_later_lookup()
+      throws IOException {
+    InetSocketAddress oldAddress = startBackend(name -> "old:" + name);
+    InetSocketAddress newAddress = startBackend(name -> "new:" + name);
+
+    ModuleId oldOwner = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.0"));
+    ModuleId newOwner = new ModuleId("com.gimle.example.greeter", Version.parse("1.0.1"));
+    MemberId nodeB = new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947));
+    ServiceCatalog catalog = new ServiceCatalog();
+    catalog.localRegister(
+        nodeB, "worker-old", oldOwner, GREETER_EXPORT, Optional.empty(), oldAddress);
+    FabricServiceRegistry registry = newRegistry(new SimpleServiceRegistry(), catalog);
+
+    assertEquals("old:x", registry.lookup(Greeter.class).orElseThrow().greet("x"));
+
+    // Redeploy: the old instance is disposed -- exactly the sequence a real rolling update
+    // produces (the old worker's own ServiceUnregistered reaching this catalog before the
+    // replacement worker's registration) -- before the new instance ever registers.
+    catalog.localUnregister(nodeB, "worker-old", oldOwner, GREETER_EXPORT);
+    catalog.localRegister(
+        nodeB, "worker-new", newOwner, GREETER_EXPORT, Optional.empty(), newAddress);
+
+    // The registry's own candidate list for this service must no longer include the disposed
+    // instance's endpoint at all -- not merely route around it once its circuit breaker happens to
+    // notice repeated failures and open.
+    List<ServiceEndpoint> candidates = catalog.endpointsForInterface(Greeter.class.getName());
+    assertEquals(1, candidates.size());
+    assertEquals("worker-new", candidates.get(0).workerId());
+
+    // Every subsequent lookup must land on the replacement instance, never the disposed one.
+    for (int i = 0; i < 10; i++) {
+      assertEquals("new:x", registry.lookup(Greeter.class).orElseThrow().greet("x"));
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void repeated_redeploys_of_the_same_deployment_never_accumulate_stale_candidates()
+      throws IOException {
+    ServiceCatalog catalog = new ServiceCatalog();
+    MemberId nodeB = new MemberId("node-b", new InetSocketAddress("127.0.0.1", 7947));
+    String priorWorkerId = null;
+    // Four successive redeploys of the same logical service, each disposing the previous
+    // instance's endpoint before registering the next -- reproduces the "juggling four stale
+    // candidate endpoints for one logical service" shape a registry that never actively prunes
+    // would exhibit.
+    for (int generation = 0; generation < 4; generation++) {
+      String workerId = "worker-gen" + generation;
+      ModuleId owner =
+          new ModuleId("com.gimle.example.greeter", Version.parse("1.0." + generation));
+      if (priorWorkerId != null) {
+        catalog.localUnregister(
+            nodeB,
+            priorWorkerId,
+            new ModuleId("com.gimle.example.greeter", Version.parse("1.0." + (generation - 1))),
+            GREETER_EXPORT);
+      }
+      catalog.localRegister(
+          nodeB, workerId, owner, GREETER_EXPORT, Optional.empty(), new InetSocketAddress(0));
+      priorWorkerId = workerId;
+
+      List<ServiceEndpoint> candidates = catalog.endpointsForInterface(Greeter.class.getName());
+      assertEquals(
+          1,
+          candidates.size(),
+          "generation " + generation + " left stale candidates behind: " + candidates);
+      assertEquals(workerId, candidates.get(0).workerId());
+    }
   }
 }
