@@ -13876,6 +13876,22 @@
         "`gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java`",
         "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
       ]
+    },
+    {
+      "id": "GIMLE-800",
+      "module": "gimle-examples",
+      "feature": "A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve",
+      "category": "Networking/Service Discovery",
+      "status": "New",
+      "statusNote": "New requirement: none of Midgard's three bundled example modules ever called ctx.reportPort, so a Service created against a real Midgard-seeded cluster resolved zero endpoints for any workload the platform actually ships, regardless of replica count or targetPort. GreeterProviderHooks.onStart now opens a real ephemeral-port HTTP status listener and reports it, giving Service endpoint resolution a genuine bundled workload to resolve.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario deploys the real greeter-provider example jar and asserts a Service resolves its endpoint -- service-fabric.feature's own port-reporting scenario (GIMLE-571) uses a synthetic ModuleFixtures-built module, not this bundled example. Real coverage exists in gimle-smoke-tests' ServiceNetworkIT, which does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ServiceNetworkIT#a_declared_service_starts_a_real_bifrost_proxy_and_skald_answers_it_correctly` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-examples/greeter-provider/src/main/java/com/gimle/examples/greeter/provider/GreeterProviderHooks.java`",
+        "`gimle-examples/greeter-provider/src/main/java/module-info.java`"
+      ]
     }
   ]
 }

@@ -814,6 +814,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | New | Not Covered | — |
 | GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | New | Not Covered | — |
 | GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | New | Not Covered | — |
+| GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -7684,6 +7685,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Verified by building the module (`mvn package`); no automated test suite exists for this tree, consistent with every other gimle-examples module.
 - **Source location(s)**: `gimle-examples/node-local-cache/flag-consumer/src/main/java/com/example/nodelocalcache/consumer/FlagConsumerHooks.java`, `gimle-examples/node-local-cache/README.md`
 
+#### GIMLE-800 — A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve
+
+- **Category**: Networking/Service Discovery
+- **Status**: New  _(New requirement: none of Midgard's three bundled example modules ever called ctx.reportPort, so a Service created against a real Midgard-seeded cluster resolved zero endpoints for any workload the platform actually ships, regardless of replica count or targetPort. GreeterProviderHooks.onStart now opens a real ephemeral-port HTTP status listener and reports it, giving Service endpoint resolution a genuine bundled workload to resolve.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang Cucumber scenario deploys the real greeter-provider example jar and asserts a Service resolves its endpoint -- service-fabric.feature's own port-reporting scenario (GIMLE-571) uses a synthetic ModuleFixtures-built module, not this bundled example. Real coverage exists in gimle-smoke-tests' ServiceNetworkIT, which does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `ServiceNetworkIT#a_declared_service_starts_a_real_bifrost_proxy_and_skald_answers_it_correctly` -- see requirements-matrix.json for detail
+- **Source location(s)**: `gimle-examples/greeter-provider/src/main/java/com/gimle/examples/greeter/provider/GreeterProviderHooks.java`, `gimle-examples/greeter-provider/src/main/java/module-info.java`
+
 ### gimle-smoke-tests
 
 #### GIMLE-507 — Real multi-process cluster fixture (store/control-plane/agent/Fafnir/Muninn)
@@ -8390,7 +8400,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**672 of 799 requirements are Not Covered.**
+**673 of 800 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8747,6 +8757,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-668 | gimle-agent | A NetworkPolicy change closes an already-open Bifrost connection, not just future ones | Networking / policy enforcement | `BifrostLiveConnectionPolicyTest#removing_a_callers_tenant_from_the_allow_list_closes_its_already_open_connection`, `#a_brand_new_deny_policy_closes_an_already_open_connection_to_a_previously_unrestricted_service`, `#an_open_connection_is_never_closed_across_poll_ticks_that_leave_the_policy_unchanged` (a real TLS-terminating listener against a backend streaming continuously, so bytes stopping mid-stream is directly observable). Full gimle-agent module suite re-verified. |
 | GIMLE-574 | gimle-fabric | Per-deployment-scoped NetworkPolicySpec enforcement | Networking/Security | `NetworkPolicyRuleTest`, `HttpNetworkPolicySourceTest`, `FabricServerTest` (3 new deployment-scoping cases), `ControlMessageCodecTest` -- see requirements-matrix.json for detail |
 | GIMLE-575 | gimle-agent | Bifrost fails closed for a NetworkPolicySpec-restricted Service | Networking/Security | `BifrostProxyTest` (3 new fail-closed scenarios), `HttpServiceSourceTest` -- see requirements-matrix.json for detail |
+| GIMLE-800 | gimle-examples | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Networking/Service Discovery | `ServiceNetworkIT#a_declared_service_starts_a_real_bifrost_proxy_and_skald_answers_it_correctly` -- see requirements-matrix.json for detail |
 | GIMLE-032 | gimle-core | Instance lifecycle event log model | Observability | NONE recorded in the baseline |
 | GIMLE-084 | gimle-worker | Durable InstanceEvent emission per lifecycle transition | Observability | NONE recorded in the baseline |
 | GIMLE-087 | gimle-worker | OpenTelemetry context propagation across virtual-thread dispatch | Observability | `BoundedModuleSchedulerTest#the_callers_ambient_context_is_restored_inside_the_submitted_task`, `#a_submission_made_outside_any_context_scope_sees_no_value_for_that_key` |

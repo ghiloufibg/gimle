@@ -809,6 +809,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | Service Fabric | Fixed | Yes |
 | GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | Complete | Yes |
 | GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | Complete | Yes |
+| GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Networking/Service Discovery | Fixed | Yes |
 
 ## Detailed Requirements
 
@@ -11148,6 +11149,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given local-flag-cache-daemonset is already fully ACTIVE, When flag-consumer-deployment is deployed and its first FeatureFlagCache call races ahead of this node's own membership-propagation catch-up, Then the failure is logged at INFO with an explanation, not WARN.
   Given flag-consumer has already logged one successful FeatureFlagCache call, When a later call fails, Then that failure is logged at WARN, since a failure after a previous success is a genuine regression.
+  ```
+
+#### GIMLE-800 — A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve
+
+- **Category**: Networking/Service Discovery
+- **User story**: As a QA fleet or operator exercising the Service abstraction against a real cluster, I want at least one of the platform's bundled example modules to open a genuine listening port and call ctx.reportPort, so `gimle service endpoints` resolves a real live endpoint instead of staying empty for every workload Midgard ships.
+- **Status**: Fixed. GIMLE-571 shipped the reportPort mechanism itself, but none of Midgard's three bundled example modules (`hello-module`, `greeter-provider`, `greeter-consumer` -- see midgard.xml's own dependencySet) ever called it: `hello-module` is deliberately inert, and `greeter-provider`/`greeter-consumer` only ever communicated over the fabric, never opening a real TCP/HTTP listener of their own. A control-plane-declared Service fronts a plain TCP/HTTP endpoint, not a fabric interface call, so every Service created against a real Midgard-seeded cluster resolved zero endpoints regardless of replica count or whether targetPort was declared -- confirmed identically against two independently created Services (one with an explicit targetPort, one without) plus a third created by a different caller, and independently corroborated by gimle-bifrost's own real poll, which sees the same live replicas but the same total absence of any reported port. `GreeterProviderHooks.onStart` now also opens a real `com.sun.net.httpserver.HttpServer` on an ephemeral port (`GET /` answers this instance's own readiness state) and reports it via `ctx.reportPort("http", port)` -- an ephemeral port, not a fixed one, since more than one TIER_2 replica's dedicated worker JVM can still land on the same node, and a fixed port would make the second replica's bind fail outright. This is a real usage fix, not a mechanism change: ServiceEndpointResolver/InstanceObservation/MetricsReport are untouched.
+- **Confidence**: High
+- **Source location(s)**: `gimle-examples/greeter-provider/src/main/java/com/gimle/examples/greeter/provider/GreeterProviderHooks.java`, `gimle-examples/greeter-provider/src/main/java/module-info.java` (`requires jdk.httpserver`)
+- **Test coverage**: `gimle-smoke-tests`' `ServiceNetworkIT#a_declared_service_starts_a_real_bifrost_proxy_and_skald_answers_it_correctly` deploys the real, bundled `greeter-provider-deployment` (no test-only fixture), creates a real Service fronting it with no targetPort, and asserts `GET /services/{name}/endpoints` resolves exactly one live endpoint at greeter-provider's own real ephemeral port -- proving the fix through the finding's own reproduction path (`gimle service endpoints ...`) against a genuinely deployed bundled example, plus a real `SkaldMain` UDP query against that same Service now answers NOERROR with a live record instead of the NXDOMAIN a Service with no reported port could only ever produce before this fix.
+- **Gherkin scenario**:
+  ```gherkin
+  Given greeter-provider-deployment is deployed from its own bundled jar and reaches ACTIVE, When a Service is created fronting it with no targetPort declared, Then GET /services/{name}/endpoints resolves exactly one live endpoint at the real port GreeterProviderHooks opened and reported.
+  Given that same Service now has a live endpoint, When a real SkaldMain instance is queried for the Service's DNS name, Then it answers NOERROR with a real address instead of NXDOMAIN.
   ```
 
 ### gimle-smoke-tests

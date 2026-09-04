@@ -42,7 +42,12 @@ shortcut.
   (`name -> "Hello, " + name + "! (from provider)"`) on the fabric via `ctx.registerService(...)`, sets
   a shared `ready` flag, and reads back a config value (`ctx.config("some-secret-key")`), logging what
   it got — exercising the real config/secrets delivery path (agent fetches the tenant's secret from
-  Fafnir and hands it down as config) end to end, not just at unit-test level.
+  Fafnir and hands it down as config) end to end, not just at unit-test level. It also opens a real
+  `com.sun.net.httpserver.HttpServer` on an ephemeral port (`GET /` answers this instance's own
+  readiness state as plain text) and reports it via `ctx.reportPort("http", port)` — a plain hosted
+  module has no agent-allocated port the way a Vessel workload does, so this is the module's own real
+  listening port, giving a control-plane-declared `Service` fronting `greeter-provider-deployment`
+  something genuine to resolve a live endpoint against.
 - **`GreeterReadinessProbe`** reports ready only once that `ready` flag is set — the instance isn't
   ready for traffic until the service is actually registered.
 - **`GreeterLivenessProbe`** always reports alive; this module has no failure mode of its own.

@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 799,
+    "totalRequirements": 800,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 672,
+    "notCoveredByAutomatedTest": 673,
     "releaseReadinessPercent": 15.9
   },
   "items": [
@@ -8791,6 +8791,17 @@
       "category": "Transport Security",
       "feature": "Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart",
       "step": "Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged. Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-800",
+      "module": "gimle-examples",
+      "category": "Networking/Service Discovery",
+      "feature": "A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve",
+      "step": "Given greeter-provider-deployment is deployed from its own bundled jar and reaches ACTIVE, When a Service is created fronting it with no targetPort declared, Then GET /services/{name}/endpoints resolves exactly one live endpoint at the real port GreeterProviderHooks opened and reported. Given that same Service now has a live endpoint, When a real SkaldMain instance is queried for the Service's DNS name, Then it answers NOERROR with a real address instead of NXDOMAIN.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

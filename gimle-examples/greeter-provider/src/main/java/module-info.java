@@ -11,6 +11,9 @@
 module com.gimle.examples.greeter.provider {
   requires static com.gimle.module;
   requires static org.slf4j;
+  // com.sun.net.httpserver.HttpServer serves this module's own status endpoint -- the real,
+  // genuinely-listening port GreeterProviderHooks reports via ctx.reportPort.
+  requires jdk.httpserver;
 
   exports com.gimle.examples.greeter.provider;
   // FabricServer (gimle-fabric) reflectively invokes Greeter methods on the registered instance
