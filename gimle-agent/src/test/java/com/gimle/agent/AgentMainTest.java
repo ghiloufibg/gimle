@@ -2092,4 +2092,130 @@ class AgentMainTest {
     exchange.getResponseBody().write(body);
     exchange.close();
   }
+
+  // ---- updateVesselHealth / evaluateProbe: regression coverage for a vessel declaring more
+  // than one {port: ...} env entry -- the probe must dial the specific port its own manifest
+  // config names, not whichever one happens to iterate first. ----
+
+  private static HttpServer respondingHttpServer(int status, String path) throws IOException {
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        path,
+        exchange -> {
+          exchange.sendResponseHeaders(status, -1);
+          exchange.close();
+        });
+    server.start();
+    return server;
+  }
+
+  /** A genuinely live, long-running process for {@code updateVesselHealth}'s own alive check. */
+  private static VesselProcessSupervisor runningVesselProcessSupervisor(Path applicationLogFile)
+      throws IOException {
+    RestartTracker tracker =
+        new RestartTracker(
+            Duration.ofMillis(200), 2.0, Duration.ofSeconds(5), 10, Duration.ofMinutes(10));
+    VesselProcessSupervisor supervisor =
+        new VesselProcessSupervisor(
+            "probe-port-test",
+            List.of("sleep", "30"),
+            Map.of(),
+            Optional.empty(),
+            tracker,
+            id -> {},
+            applicationLogFile,
+            id -> {});
+    supervisor.start();
+    return supervisor;
+  }
+
+  @Test
+  void a_readiness_probe_dials_the_port_it_names_not_whichever_declared_port_iterates_first(
+      @TempDir Path tempDir) throws IOException {
+    HttpServer healthy = respondingHttpServer(200, "/health");
+    HttpServer unhealthy = respondingHttpServer(500, "/health");
+    try (VesselProcessSupervisor supervisor =
+        runningVesselProcessSupervisor(tempDir.resolve("vessel.log"))) {
+      Map<String, VesselEnvValue> env =
+          Map.of(
+              "FIXED_PORT", new VesselEnvValue.PortAllocation(OptionalInt.of(9000)),
+              "HTTP_PORT", new VesselEnvValue.PortAllocation(OptionalInt.empty()));
+      VesselProbeSpec readiness = new VesselProbeSpec.Http("/health", Optional.of("HTTP_PORT"), 0);
+      VesselSpec vessel =
+          new VesselSpec(
+              List.of(),
+              List.of(),
+              env,
+              List.of(),
+              new VesselProbes(Optional.empty(), Optional.of(readiness)),
+              REQUEST,
+              LIMIT);
+      Map<String, Integer> allocatedPorts =
+          Map.of(
+              "FIXED_PORT", unhealthy.getAddress().getPort(),
+              "HTTP_PORT", healthy.getAddress().getPort());
+      SupervisedVessel instance =
+          new SupervisedVessel(
+              null,
+              vessel,
+              supervisor,
+              null,
+              allocatedPorts,
+              List.of(),
+              Instant.now().minusSeconds(60));
+
+      AgentMain.updateVesselHealth(instance, HttpClient.newHttpClient());
+
+      assertEquals("ACTIVE", instance.lifecycleState);
+    } finally {
+      healthy.stop(0);
+      unhealthy.stop(0);
+    }
+  }
+
+  @Test
+  void a_readiness_probe_naming_the_failing_port_stays_unready_even_though_the_other_port_is_up(
+      @TempDir Path tempDir) throws IOException {
+    HttpServer healthy = respondingHttpServer(200, "/health");
+    HttpServer unhealthy = respondingHttpServer(500, "/health");
+    try (VesselProcessSupervisor supervisor =
+        runningVesselProcessSupervisor(tempDir.resolve("vessel.log"))) {
+      Map<String, VesselEnvValue> env =
+          Map.of(
+              "FIXED_PORT", new VesselEnvValue.PortAllocation(OptionalInt.of(9000)),
+              "HTTP_PORT", new VesselEnvValue.PortAllocation(OptionalInt.empty()));
+      // Names the port whose server returns 500 -- proving resolution honors the declared name
+      // in both directions, not just whichever port happens to be healthy.
+      VesselProbeSpec readiness = new VesselProbeSpec.Http("/health", Optional.of("FIXED_PORT"), 0);
+      VesselSpec vessel =
+          new VesselSpec(
+              List.of(),
+              List.of(),
+              env,
+              List.of(),
+              new VesselProbes(Optional.empty(), Optional.of(readiness)),
+              REQUEST,
+              LIMIT);
+      Map<String, Integer> allocatedPorts =
+          Map.of(
+              "FIXED_PORT", unhealthy.getAddress().getPort(),
+              "HTTP_PORT", healthy.getAddress().getPort());
+      SupervisedVessel instance =
+          new SupervisedVessel(
+              null,
+              vessel,
+              supervisor,
+              null,
+              allocatedPorts,
+              List.of(),
+              Instant.now().minusSeconds(60));
+
+      AgentMain.updateVesselHealth(instance, HttpClient.newHttpClient());
+
+      assertEquals("STARTING", instance.lifecycleState);
+    } finally {
+      healthy.stop(0);
+      unhealthy.stop(0);
+    }
+  }
 }

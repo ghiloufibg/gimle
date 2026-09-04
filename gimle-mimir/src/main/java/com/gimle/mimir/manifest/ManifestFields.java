@@ -457,9 +457,10 @@ final class ManifestFields {
     }
     int initialDelaySeconds =
         optionalIntField(rung, "initialDelaySeconds", "vessel.probes." + which + ".").orElse(0);
+    Optional<String> portName = optionalPortNameField(rung, which);
     if (Boolean.TRUE.equals(rung.get("tcp"))) {
       try {
-        return Optional.of(new VesselProbeSpec.Tcp(initialDelaySeconds));
+        return Optional.of(new VesselProbeSpec.Tcp(portName, initialDelaySeconds));
       } catch (IllegalArgumentException e) {
         throw new GimleManifestException(
             "invalid vessel.probes." + which + ": " + e.getMessage(), e);
@@ -467,7 +468,7 @@ final class ManifestFields {
     }
     if (rung.get("http") instanceof String path) {
       try {
-        return Optional.of(new VesselProbeSpec.Http(path, initialDelaySeconds));
+        return Optional.of(new VesselProbeSpec.Http(path, portName, initialDelaySeconds));
       } catch (IllegalArgumentException e) {
         throw new GimleManifestException(
             "invalid vessel.probes." + which + ": " + e.getMessage(), e);
@@ -475,6 +476,26 @@ final class ManifestFields {
     }
     throw new GimleManifestException(
         "'vessel.probes." + which + "' must be either {tcp: true} or {http: <path>}");
+  }
+
+  /**
+   * Which {@code vessel.env} {@code {port: ...}} entry this probe rung dials, by env-var name --
+   * required once a vessel declares more than one such entry (see {@code VesselSpec}'s own compact
+   * constructor), optional otherwise.
+   */
+  private static Optional<String> optionalPortNameField(Map<?, ?> rung, String which) {
+    Object port = rung.get("port");
+    if (port == null) {
+      return Optional.empty();
+    }
+    if (!(port instanceof String s) || s.isBlank()) {
+      throw new GimleManifestException(
+          "'vessel.probes."
+              + which
+              + ".port' must be a non-blank string naming a vessel.env"
+              + " {port: ...} entry");
+    }
+    return Optional.of(s);
   }
 
   private static ResourceSpec parseResourceSpec(Map<?, ?> map, String sectionPrefix) {

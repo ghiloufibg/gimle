@@ -13837,6 +13837,25 @@
         "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`stopInstance`, `awaitGracefulUninstall`)",
         "`gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java` (`localUnregister`, `evictWorker`)"
       ]
+    },
+    {
+      "id": "GIMLE-798",
+      "module": "gimle-agent",
+      "feature": "A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state",
+      "category": "Health / Self-Healing",
+      "status": "New",
+      "statusNote": "New requirement: closes M19 -- a declared readiness probe genuinely ran but its result never reached anything outside the worker; AgentMain#observationJson derived `ready` purely from `lifecycleState == \"ACTIVE\"`. See requirements-matrix.json for the full description.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`.",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`)",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)"
+      ]
     }
   ]
 }

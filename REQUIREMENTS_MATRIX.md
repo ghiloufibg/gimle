@@ -807,6 +807,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | Multi-tenancy / Scheduling | Complete | Yes |
 | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | Observability | Complete | Yes |
 | GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | Service Fabric | Fixed | Yes |
+| GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -3548,6 +3549,23 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given tenant A and tenant B each deploy a StatefulSet named "session-store" and both land instance index 0 on the same node; When this agent reconciles both assignments; Then each gets its own real worker, keyed separately by tenant, rather than the second one reading as already-supervised.
   Given tenant A's own "session-store" is later deleted entirely; When the agent next reconciles; Then tenant B's own "session-store" instance -- previously starved of a worker -- is now correctly started, its own key having never been occupied by tenant A's own instance in the first place.
+  ```
+
+#### GIMLE-798 — A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state
+
+- **Category**: Health / Self-Healing
+- **User story**: As the platform, I want a hosted module instance's `ready` field (read by an operator, the console, and HealthReconciler) to reflect its own declared readiness probe's real, current answer, so a readiness probe that never passes is never reported ready:true forever just because the module reached ACTIVE.
+- **Status**: Fixed (M19). WorkerRuntime#onActive genuinely wires up and ticks a declared readiness probe (ProbeLoop, see GIMLE-088) and reacts to its result via onReadinessResult -- but that result only ever updated this worker's own in-JVM ServiceRegistry (which entries are eligible for a same-worker service lookup), never anything the agent could see. AgentMain#observationJson derived the externally-reported `ready` field purely from `lifecycleState == "ACTIVE"`, so once a module reached ACTIVE it read ready:true forever regardless of what its readiness probe actually answered on every subsequent tick. The wire message this needed, ControlMessage.HealthReport(id, alive, ready), already existed with full codec support but was never constructed by any production code and never handled by AgentMain#readLoop. WorkerRuntime#onReadinessResult now reports through a new HealthReportSink on every tick; WorkerMain wires it to relay a real HealthReport up the worker's own control channel; AgentMain#readLoop applies it to a new SupervisedInstance#readinessReported field (reset to empty on every ModuleStateChanged, so a stale reading from a previous ACTIVE window never survives a restart); observationJson now reports that reading when present, falling back to the original ACTIVE-derived default only when no readiness probe has reported yet (none declared, or none has ticked since the last transition) -- the same fallback this field always used before HealthReport existed.
+- **Confidence**: High
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`), `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)
+- **Test coverage**: `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink` (a real readiness probe's pass/fail/pass cycle is observed through the sink, and alive is always reported true from this path); `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it` (both drive a real `ControlChannelServer`/`WorkerConnection` pair with hand-sent wire messages, no worker subprocess needed since the fix is entirely in message handling).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a hosted module declares a readiness probe that never passes
+  When the module reaches ACTIVE and its probe loop ticks
+  Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE
+  Given a module restarts
+  Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one
   ```
 
 ### gimle-mimir

@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 797,
+  "requirementCount": 798,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16245,6 +16245,32 @@
         "And repeating this redeploy four times in a row never leaves more than one live candidate behind"
       ],
       "statusSummary": "Fixed",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-798",
+      "module": "gimle-agent",
+      "feature": "A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state",
+      "category": "Health / Self-Healing",
+      "userStory": "As the platform, I want a hosted module instance's `ready` field (read by an operator, the console, and HealthReconciler) to reflect its own declared readiness probe's real, current answer, so a readiness probe that never passes is never reported ready:true forever just because the module reached ACTIVE.",
+      "statusDetail": "Fixed (M19). WorkerRuntime#onActive genuinely wires up and ticks a declared readiness probe (ProbeLoop, see GIMLE-088) and reacts to its result via onReadinessResult -- but that result only ever updated this worker's own in-JVM ServiceRegistry (which entries are eligible for a same-worker service lookup), never anything the agent could see. AgentMain#observationJson derived the externally-reported `ready` field purely from `lifecycleState == \"ACTIVE\"`, so once a module reached ACTIVE it read ready:true forever regardless of what its readiness probe actually answered on every subsequent tick. The wire message this needed, ControlMessage.HealthReport(id, alive, ready), already existed with full codec support but was never constructed by any production code and never handled by AgentMain#readLoop. WorkerRuntime#onReadinessResult now reports through a new HealthReportSink on every tick; WorkerMain wires it to relay a real HealthReport up the worker's own control channel; AgentMain#readLoop applies it to a new SupervisedInstance#readinessReported field (reset to empty on every ModuleStateChanged, so a stale reading from a previous ACTIVE window never survives a restart); observationJson now reports that reading when present, falling back to the original ACTIVE-derived default only when no readiness probe has reported yet (none declared, or none has ticked since the last transition) -- the same fallback this field always used before HealthReport existed.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`)",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)"
+      ],
+      "testCoverageDetail": "`WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink` (a real readiness probe's pass/fail/pass cycle is observed through the sink, and alive is always reported true from this path); `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it` (both drive a real `ControlChannelServer`/`WorkerConnection` pair with hand-sent wire messages, no worker subprocess needed since the fix is entirely in message handling).",
+      "gherkinSteps": [
+        "Given a hosted module declares a readiness probe that never passes",
+        "When the module reaches ACTIVE and its probe loop ticks",
+        "Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE",
+        "Given a module restarts",
+        "Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one"
+      ],
+      "statusSummary": "Complete",
       "testCoverageLevel": "Yes"
     }
   ]

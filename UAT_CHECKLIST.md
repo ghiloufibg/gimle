@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 797
+- **Total requirements**: 798
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 670
+- **Not covered by automated test**: 671
 - **Release-readiness (automated coverage)**: 15.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -18,7 +18,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 60 | 6 | 54 | 10.0% |
+| gimle-agent | 61 | 6 | 55 | 9.8% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
 | gimle-fabric | 42 | 1 | 41 | 2.4% |
 | gimle-controlplane | 119 | 17 | 102 | 14.3% |
@@ -554,6 +554,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-121 | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Given a vessel process is alive and declares an HTTP readiness probe When updateVesselHealth runs (polled once per agent tick) Then lifecycleState becomes FAILED if the process is dead or liveness fails, STARTING if alive-but-not-ready, ACTIVE if both pass Given the probe's initialDelaySeconds hasn't elapsed since startedAt Then it reports the appropriate before-delay default (true for liveness, false for readiness) rather than actually dialing | No |
+| [ ] | GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Given a hosted module declares a readiness probe that never passes When the module reaches ACTIVE and its probe loop ticks Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE Given a module restarts Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one | No |
 
 #### Internal-Infra
 

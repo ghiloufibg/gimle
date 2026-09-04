@@ -320,6 +320,38 @@ class WorkerRuntimeTest {
   }
 
   /**
+   * Regression test for M19: a declared readiness probe genuinely running (the two tests above
+   * already prove that against {@code serviceRegistry}) is not the same as its result ever reaching
+   * anything outside this worker -- {@link WorkerRuntime#onReadinessResult} must also report
+   * through its own {@link WorkerRuntime.HealthReportSink}, the seam {@code WorkerMain} uses in
+   * production to relay a {@code HealthReport} up to the agent. Before that call existed, an
+   * instance's externally-reported {@code ready} state came entirely from its lifecycle state
+   * reaching ACTIVE, never from this probe's real answer.
+   */
+  @Test
+  void a_readiness_result_is_reported_through_the_health_report_sink() {
+    WiredWorkerRuntime.Result f = startFixture("com.gimle.fixture.readiness.reported", 99);
+
+    Await.until(
+        () -> f.healthUpdates().stream().anyMatch(update -> update.ready()), Duration.ofSeconds(2));
+
+    ControllableReadinessProbe.READY.set(false);
+    Await.until(
+        () -> !f.healthUpdates().isEmpty() && !f.healthUpdates().getLast().ready(),
+        Duration.ofSeconds(2));
+
+    ControllableReadinessProbe.READY.set(true);
+    Await.until(
+        () -> !f.healthUpdates().isEmpty() && f.healthUpdates().getLast().ready(),
+        Duration.ofSeconds(2));
+
+    assertTrue(
+        f.healthUpdates().stream().allMatch(WiredWorkerRuntime.HealthUpdate::alive),
+        "a readiness tick never reports alive=false -- a genuine liveness failure escalates"
+            + " through the existing restart/forceFailed path instead");
+  }
+
+  /**
    * Regression test for FUNC-28/GIMLE-666: {@code health.liveness} naming a class that doesn't
    * exist (a manifest typo, in production) used to leave the instance stuck ACTIVE forever --
    * {@link WorkerRuntime#onActive}'s probe {@code instantiate} call threw straight out of the

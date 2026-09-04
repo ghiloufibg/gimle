@@ -256,6 +256,60 @@ class StatefulSetManifestParserTest {
   }
 
   @Test
+  void a_probe_names_which_declared_port_it_dials_when_more_than_one_is_declared() {
+    StatefulSetSpec spec =
+        StatefulSetManifestParser.parse(
+            yaml(
+                """
+                name: dual-port-service
+                module:
+                  name: com.acme.dual-port
+                  version: 1.0.0
+                artifactPath: /var/gimle/artifacts/dual-port-1.0.0.jar
+                replicas: 1
+                vessel:
+                  env:
+                    HTTP_PORT: {port: dynamic}
+                    FIXED_PORT: {port: 9000}
+                  probes:
+                    readiness: {http: /health, port: HTTP_PORT}
+                  resources:
+                    request: {memory: 256Mi, cpu: 100m}
+                    limit: {memory: 512Mi, cpu: 500m}
+                """));
+
+    VesselSpec vessel = spec.vessel().orElseThrow();
+    assertEquals(
+        Optional.of("HTTP_PORT"), vessel.declaredPortNameFor(vessel.probes().readiness().get()));
+  }
+
+  @Test
+  void an_unnamed_probe_port_is_rejected_once_more_than_one_port_is_declared() {
+    assertThrows(
+        GimleManifestException.class,
+        () ->
+            StatefulSetManifestParser.parse(
+                yaml(
+                    """
+                    name: dual-port-service
+                    module:
+                      name: com.acme.dual-port
+                      version: 1.0.0
+                    artifactPath: /var/gimle/artifacts/dual-port-1.0.0.jar
+                    replicas: 1
+                    vessel:
+                      env:
+                        HTTP_PORT: {port: dynamic}
+                        FIXED_PORT: {port: 9000}
+                      probes:
+                        readiness: {http: /health}
+                      resources:
+                        request: {memory: 256Mi, cpu: 100m}
+                        limit: {memory: 512Mi, cpu: 500m}
+                    """)));
+  }
+
+  @Test
   void absent_vessel_block_parses_as_module_hosted() {
     StatefulSetSpec spec =
         StatefulSetManifestParser.parse(

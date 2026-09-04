@@ -812,6 +812,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | New | Not Covered | — |
 | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | New | Not Covered | — |
 | GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | New | Not Covered | — |
+| GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -2583,6 +2584,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Gap note**: No Holmgang scenario exercises two tenants' identically-named workload landing on the same node at the same index. To close: a scenario deploying that exact collision across two tenants and asserting both get a real, independently-supervised worker.
 - **Other test coverage (non-Holmgang, informational only)**: `AgentMainTest#instance_key_is_scoped_by_tenant_not_just_deployment_name_and_index`
 - **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`instanceKey`, `workloadTokenFor`)
+
+#### GIMLE-798 — A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state
+
+- **Category**: Health / Self-Healing
+- **Status**: New  _(New requirement: closes M19 -- a declared readiness probe genuinely ran but its result never reached anything outside the worker; AgentMain#observationJson derived `ready` purely from `lifecycleState == "ACTIVE"`. See requirements-matrix.json for the full description.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`.
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`), `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)
 
 ### gimle-mimir
 
@@ -8370,7 +8380,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**670 of 797 requirements are Not Covered.**
+**671 of 798 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8564,6 +8574,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-090 | gimle-worker | Readiness-driven service registry availability (without restart) | Health / Fabric | `WorkerRuntimeTest#a_readiness_failure_marks_the_service_unready_without_stopping_the_module`, `#a_module_becomes_lookupable_again_when_its_readiness_probe_recovers` |
 | GIMLE-088 | gimle-worker | Liveness/readiness probe loop with timeout and initial-delay | Health / Self-Healing | `ProbeLoopTest#a_passing_check_reports_true_repeatedly`, `#a_failing_check_reports_false`, `#a_check_that_throws_is_reported_as_a_failure_not_propagated`, `#a_check_that_hangs_past_its_timeout_is_reported_as_a_failure`, `#no_tick_fires_before_the_initial_delay_elapses`, `#after_the_initial_delay_ticks_settle_onto_the_ordinary_interval`, `#stop_halts_further_invocations_of_that_key`, `#two_keys_are_scheduled_independently`, `#the_production_constructor_still_schedules_on_a_real_ticker` |
 | GIMLE-121 | gimle-agent | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Health / Self-Healing | NONE recorded in the baseline |
+| GIMLE-798 | gimle-agent | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`. |
 | GIMLE-080 | gimle-worker | Newline-delimited control-channel wire protocol (worker side) | Internal-Infra | `ControlChannelClientTest#a_sent_message_is_received_intact_on_the_other_end`, `#receive_returns_empty_once_the_peer_closes_the_connection` |
 | GIMLE-099 | gimle-worker | `module-info.java` platform-layer/observability/fabric wiring for the worker module | Internal-Infra | NONE recorded in the baseline |
 | GIMLE-124 | gimle-agent | Periodic certificate rotation check and hot-swap of outbound HttpClient | Internal-Infra | NONE recorded in the baseline |

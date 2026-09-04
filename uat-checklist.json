@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 797,
+    "totalRequirements": 798,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 670,
+    "notCoveredByAutomatedTest": 671,
     "releaseReadinessPercent": 15.9
   },
   "items": [
@@ -8769,6 +8769,17 @@
       "category": "Service Fabric",
       "feature": "A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice",
       "step": "Given a service-exporting instance registered in the fabric catalog When it is disposed (unregistered) and a replacement instance registers under a new worker/module identity Then the registry's own candidate list for that service contains only the replacement's endpoint, never the disposed one And repeating this redeploy four times in a row never leaves more than one live candidate behind",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-798",
+      "module": "gimle-agent",
+      "category": "Health / Self-Healing",
+      "feature": "A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state",
+      "step": "Given a hosted module declares a readiness probe that never passes When the module reaches ACTIVE and its probe loop ticks Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE Given a module restarts Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
