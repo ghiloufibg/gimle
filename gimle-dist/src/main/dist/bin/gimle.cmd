@@ -55,8 +55,17 @@ if defined JAVA_HOME (
   rem JAVA_TOOL_OPTIONS/_JAVA_OPTIONS set in the environment makes the JVM print a "Picked up ..."
   rem diagnostic line ahead of the real one, e.g. openjdk version "25" 2025-09-16 -- swapping the
   rem quotes for spaces then turns the quoted version number into its own whitespace-delimited token.
+  rem The extra pair of quotes immediately inside the backticks (right after the opening backtick
+  rem and right before the closing one) is not redundant: FOR /F runs a backquoted command via its
+  rem own "cmd /c" child, and cmd's own /c argument handling strips exactly the command line's
+  rem first character and its last quote character whenever the line has more than two quote
+  rem characters total -- true here, since the quoted java_bin path and findstr's own quoted search
+  rem term already add up to four. Without the sacrificial outer pair, that strips the real leading
+  rem quote off the java_bin path (corrupting it every time this branch runs at all, not only when
+  rem JAVA_HOME itself contains a space) instead of the sacrificial one, so java -version never
+  rem actually runs as intended and version_line silently ends up empty.
   set "version_line="
-  for /f "usebackq delims=" %%v in (`"!java_bin!" -version 2^>^&1 ^| findstr /i "version"`) do if not defined version_line set "version_line=%%v"
+  for /f "usebackq delims=" %%v in (`""!java_bin!" -version 2^>^&1 ^| findstr /i "version""`) do if not defined version_line set "version_line=%%v"
   set "version_line=!version_line:"= !"
   set "java_version="
   for /f "tokens=3" %%v in ("!version_line!") do set "java_version=%%v"
