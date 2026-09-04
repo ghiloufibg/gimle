@@ -154,10 +154,22 @@ between runs by design — stopping and restarting this goal resumes the same cl
 starting from scratch. `-Dgimle.bootstrap.clean=true` wipes it first for a guaranteed-fresh
 cluster instead.
 
+Before spawning anything, this goal probes every port it's about to bind and fails loudly if one
+is already listening, rather than silently attaching to whatever unrelated cluster is already
+there (a shared Midgard container, a manually-started cluster). Each of the six ports it binds is
+independently overridable for exactly that situation — point this goal at ports nothing else on
+the machine already owns.
+
 | Property | Default | Meaning |
 |---|---|---|
 | `gimle.bootstrap.protocol` | `plaintext` | `plaintext` or `tls`. |
 | `gimle.bootstrap.baseDir` | `${project.basedir}/gimle-bootstrap` | Where all spawned processes' state, logs, and (in TLS mode) certificates persist to disk. |
+| `gimle.bootstrap.storeRaftPort` | `9080` | Store's own Raft peer port. |
+| `gimle.bootstrap.storeClientPort` | `9091` | Store's own client port — matches `mvn gimle:store`'s own default. |
+| `gimle.bootstrap.fafnirPort` | `9092` | Fafnir's own port — matches `mvn gimle:fafnir`'s own default. |
+| `gimle.bootstrap.muninnPort` | `9093` | Muninn's own port — matches `mvn gimle:muninn`'s own default. |
+| `gimle.bootstrap.andvariPort` | `9094` | Andvari's own port — matches `mvn gimle:andvari`'s own default. |
+| `gimle.bootstrap.controlPlanePort` | `8080` | Control plane's own API port — matches `mvn gimle:controlplane`'s own default. |
 | `gimle.bootstrap.deployExamples` | `true` | Deploy every `gimle-examples` module once the cluster is ready. |
 | `gimle.bootstrap.clean` | `false` | Wipe `gimle.bootstrap.baseDir` before spawning anything. |
 | `gimle.bootstrap.readyTimeoutSeconds` | `120` | How long to wait for each process/condition (port open, node registered, deployment `ACTIVE`) before giving up. |
@@ -166,6 +178,10 @@ cluster instead.
 mvn gimle:bootstrap
 mvn gimle:bootstrap -Dgimle.bootstrap.protocol=tls
 mvn gimle:bootstrap -Dgimle.bootstrap.clean -Dgimle.bootstrap.deployExamples=false
+# Point at ports that don't collide with something already running on this machine
+mvn gimle:bootstrap -Dgimle.bootstrap.controlPlanePort=18080 -Dgimle.bootstrap.storeRaftPort=19080 \
+    -Dgimle.bootstrap.storeClientPort=19091 -Dgimle.bootstrap.fafnirPort=19092 \
+    -Dgimle.bootstrap.muninnPort=19093 -Dgimle.bootstrap.andvariPort=19094
 ```
 
 ## `mvn gimle:deploy`

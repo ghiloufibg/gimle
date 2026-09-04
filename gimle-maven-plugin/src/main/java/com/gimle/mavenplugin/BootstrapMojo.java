@@ -9,9 +9,12 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.BooleanSupplier;
+import java.util.function.IntPredicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.maven.plugin.AbstractMojo;
@@ -54,10 +57,16 @@ import org.eclipse.aether.repository.RemoteRepository;
  * AbstractGimleMojo}.
  *
  * <p>Reuses the exact port/host defaults {@link StoreMojo}/{@link FafnirMojo}/{@link
- * MuninnMojo}/{@link ControlPlaneMojo}/{@link AgentMojo} already use, deliberately: this goal and
- * "those goals run by hand in separate terminals" are meant to be the same cluster, not two
- * topologies to keep in sync -- which also means this goal isn't meant to run alongside an
- * already-running manual session of any of them.
+ * MuninnMojo}/{@link ControlPlaneMojo}/{@link AgentMojo} already use by default, deliberately: this
+ * goal and "those goals run by hand in separate terminals" are meant to be the same cluster, not
+ * two topologies to keep in sync. Each of those six ports is independently overridable ({@code
+ * -Dgimle.bootstrap.storeRaftPort}, {@code storeClientPort}, {@code fafnirPort}, {@code
+ * muninnPort}, {@code andvariPort}, {@code controlPlanePort}) for whenever it isn't meant to be the
+ * same cluster -- e.g. something else (a shared Midgard container, a manually-started cluster)
+ * already owns the defaults on this machine. Either way, before spawning anything this goal probes
+ * every port it's about to bind and fails loudly if one is already listening, rather than silently
+ * treating an unrelated already-running process as its own freshly-spawned one -- see {@link
+ * #checkPortsAvailable()}.
  *
  * <p>TLS-mode caveat, worth recording rather than hiding: {@code gimle-pki}'s {@code
  * PkiBootstrapMain} mints {@code controlplane}, {@code fafnir}, and {@code operator} leaf
@@ -77,15 +86,6 @@ import org.eclipse.aether.repository.RemoteRepository;
 @Mojo(name = "bootstrap", threadSafe = true)
 public final class BootstrapMojo extends AbstractMojo {
 
-  private static final int STORE_RAFT_PORT = 9080;
-  private static final int STORE_CLIENT_PORT = 9091;
-  // Matches FafnirMojo's own gimle.fafnir.port default.
-  private static final int FAFNIR_PORT = 9092;
-  // Matches MuninnMojo's own gimle.muninn.port default.
-  private static final int MUNINN_PORT = 9093;
-  // Matches AndvariMojo's own gimle.andvari.port default -- next free after muninn's 9093.
-  private static final int ANDVARI_PORT = 9094;
-  private static final int CONTROLPLANE_PORT = 8080;
   private static final String AGENT_NODE_ID = "node-1";
   private static final String GOSSIP_BIND_ADDRESS = "127.0.0.1:9090";
   private static final String CA_COMMON_NAME = "gimle-cluster-ca";
@@ -132,6 +132,35 @@ public final class BootstrapMojo extends AbstractMojo {
       defaultValue = "${project.basedir}/gimle-bootstrap")
   private String baseDir;
 
+  // Port overrides -- each defaults to exactly the port every sibling gimle:* goal already
+  // defaults to (see each field's own comment), so a bootstrapped cluster and one brought up by
+  // hand in separate terminals normally land on the same ports. An operator whose machine already
+  // has something else bound to one of those ports (a shared Midgard container, a
+  // manually-started cluster) overrides the affected propert(y/ies) instead of this goal silently
+  // attaching to whatever it finds already listening there -- see checkPortsAvailable().
+  @Parameter(property = "gimle.bootstrap.storeRaftPort", defaultValue = "9080")
+  private int storeRaftPort;
+
+  // Matches StoreMojo's own gimle.store.clientPort default (9091).
+  @Parameter(property = "gimle.bootstrap.storeClientPort", defaultValue = "9091")
+  private int storeClientPort;
+
+  // Matches FafnirMojo's own gimle.fafnir.port default.
+  @Parameter(property = "gimle.bootstrap.fafnirPort", defaultValue = "9092")
+  private int fafnirPort;
+
+  // Matches MuninnMojo's own gimle.muninn.port default.
+  @Parameter(property = "gimle.bootstrap.muninnPort", defaultValue = "9093")
+  private int muninnPort;
+
+  // Matches AndvariMojo's own gimle.andvari.port default -- next free after muninn's 9093.
+  @Parameter(property = "gimle.bootstrap.andvariPort", defaultValue = "9094")
+  private int andvariPort;
+
+  // Matches ControlPlaneMojo's own gimle.controlplane.port default.
+  @Parameter(property = "gimle.bootstrap.controlPlanePort", defaultValue = "8080")
+  private int controlPlanePort;
+
   /**
    * Comma-separated console addon ids the bootstrapped control plane advertises ({@code none} for
    * no addon at all) -- unset by default, which advertises every addon the bundled console carries,
@@ -169,6 +198,7 @@ public final class BootstrapMojo extends AbstractMojo {
       getLog().debug("skipping bootstrap: not the root aggregator project");
       return;
     }
+    checkPortsAvailable();
     boolean tls = parseProtocol();
     Path base = Path.of(baseDir).toAbsolutePath();
     Path logsDir = base.resolve("logs");
@@ -195,9 +225,9 @@ public final class BootstrapMojo extends AbstractMojo {
     try {
       spawned.add(spawnStore(base, tls, tlsDir, logsDir));
       awaitTrue(
-          () -> isPortOpen(STORE_CLIENT_PORT),
+          () -> isPortOpen(storeClientPort),
           readyTimeout,
-          "store client port " + STORE_CLIENT_PORT + " should start listening");
+          "store client port " + storeClientPort + " should start listening");
 
       // Before fafnir/control-plane, not after: Muninn only needs the store (its own read-only
       // Authorizer check), so bringing it up this early means it's already reachable to receive
@@ -205,30 +235,30 @@ public final class BootstrapMojo extends AbstractMojo {
       // as possible.
       spawned.add(spawnMuninn(base, tls, tlsDir, logsDir));
       awaitTrue(
-          () -> isPortOpen(MUNINN_PORT),
+          () -> isPortOpen(muninnPort),
           readyTimeout,
-          "muninn port " + MUNINN_PORT + " should start listening");
+          "muninn port " + muninnPort + " should start listening");
 
       // Alongside Muninn, and for the same reason: Andvari only needs the store, and every later
       // stage that might resolve a registry coordinate (the control plane's own admission check,
       // the agent's pull cache) needs it already listening.
       spawned.add(spawnAndvari(base, tls, tlsDir, logsDir));
       awaitTrue(
-          () -> isPortOpen(ANDVARI_PORT),
+          () -> isPortOpen(andvariPort),
           readyTimeout,
-          "andvari port " + ANDVARI_PORT + " should start listening");
+          "andvari port " + andvariPort + " should start listening");
 
       spawned.add(spawnFafnir(base, tls, tlsDir, logsDir));
       awaitTrue(
-          () -> isPortOpen(FAFNIR_PORT),
+          () -> isPortOpen(fafnirPort),
           readyTimeout,
-          "fafnir port " + FAFNIR_PORT + " should start listening");
+          "fafnir port " + fafnirPort + " should start listening");
 
       spawned.add(spawnControlPlane(base, tls, tlsDir, logsDir));
       awaitTrue(
-          () -> isPortOpen(CONTROLPLANE_PORT),
+          () -> isPortOpen(controlPlanePort),
           readyTimeout,
-          "control-plane port " + CONTROLPLANE_PORT + " should start listening");
+          "control-plane port " + controlPlanePort + " should start listening");
 
       String cliClasspath = resolveClasspath("gimle-cli");
       String bootstrapToken =
@@ -262,6 +292,49 @@ public final class BootstrapMojo extends AbstractMojo {
       }
       shutdownAll(spawned);
     }
+  }
+
+  /**
+   * Fails loudly, before spawning anything, if a port this goal is about to bind is already
+   * listening -- the collision that let a previous run silently attach to a shared Midgard
+   * container's already-running cluster instead of bootstrapping its own. A bind-then-close probe
+   * (the same {@link #isPortOpen} readiness polling already uses below) rather than a fixed
+   * blocklist, since "already listening" is the only thing that actually matters here.
+   */
+  private void checkPortsAvailable() throws MojoExecutionException {
+    Map<String, Integer> ports = new LinkedHashMap<>();
+    ports.put("store raft (gimle.bootstrap.storeRaftPort)", storeRaftPort);
+    ports.put("store client (gimle.bootstrap.storeClientPort)", storeClientPort);
+    ports.put("fafnir (gimle.bootstrap.fafnirPort)", fafnirPort);
+    ports.put("muninn (gimle.bootstrap.muninnPort)", muninnPort);
+    ports.put("andvari (gimle.bootstrap.andvariPort)", andvariPort);
+    ports.put("control plane (gimle.bootstrap.controlPlanePort)", controlPlanePort);
+    List<String> inUse = portsAlreadyInUse(ports, BootstrapMojo::isPortOpen);
+    if (!inUse.isEmpty()) {
+      throw new MojoExecutionException(
+          "port already in use: "
+              + String.join(", ", inUse)
+              + " -- did you mean to point at an existing cluster instead of bootstrapping a new"
+              + " one? stop whatever is already listening there, or override the affected"
+              + " gimle.bootstrap.*Port propert(y/ies) to pick ports that are actually free.");
+    }
+  }
+
+  /**
+   * Pure port-collision detection split out from {@link #checkPortsAvailable()} so it's
+   * unit-testable without actually binding a socket -- {@code isPortOpen} is passed in as a
+   * predicate rather than called directly, the same seam {@link #buildAgentCommand} establishes for
+   * command-line construction.
+   */
+  static List<String> portsAlreadyInUse(
+      Map<String, Integer> portsByLabel, IntPredicate isPortOpen) {
+    List<String> inUse = new ArrayList<>();
+    for (Map.Entry<String, Integer> entry : portsByLabel.entrySet()) {
+      if (isPortOpen.test(entry.getValue())) {
+        inUse.add(entry.getKey() + " = " + entry.getValue());
+      }
+    }
+    return inUse;
   }
 
   private boolean parseProtocol() throws MojoExecutionException {
@@ -354,14 +427,14 @@ public final class BootstrapMojo extends AbstractMojo {
         "controlplane",
         // Optional -- see AgentMain's own javadoc on gimle.agent.muninnEndpoint for why this is a
         // system property rather than a new CLI flag.
-        List.of("-Dgimle.store.muninnEndpoint=127.0.0.1:" + MUNINN_PORT),
+        List.of("-Dgimle.store.muninnEndpoint=127.0.0.1:" + muninnPort),
         "gimle-mimir",
         "com.gimle.mimir.StoreMain",
         List.of(
             base.resolve("store-state").toString(),
-            String.valueOf(STORE_RAFT_PORT),
-            String.valueOf(STORE_CLIENT_PORT)),
-        "starting store on client port " + STORE_CLIENT_PORT,
+            String.valueOf(storeRaftPort),
+            String.valueOf(storeClientPort)),
+        "starting store on client port " + storeClientPort,
         logsDir.resolve("store.log"));
   }
 
@@ -374,15 +447,15 @@ public final class BootstrapMojo extends AbstractMojo {
         // cluster-bootstrap time -- see the class javadoc for why sharing the control plane's
         // borrowed identity, the store's own stand-in, isn't an option here.
         "fafnir",
-        List.of("-Dgimle.fafnir.muninnEndpoint=127.0.0.1:" + MUNINN_PORT),
+        List.of("-Dgimle.fafnir.muninnEndpoint=127.0.0.1:" + muninnPort),
         "gimle-fafnir",
         "com.gimle.fafnir.FafnirMain",
         List.of(
-            String.valueOf(FAFNIR_PORT),
+            String.valueOf(fafnirPort),
             base.resolve("fafnir-secret.key").toString(),
             "--store-endpoints",
-            "127.0.0.1:" + STORE_CLIENT_PORT),
-        "starting fafnir on port " + FAFNIR_PORT,
+            "127.0.0.1:" + storeClientPort),
+        "starting fafnir on port " + fafnirPort,
         logsDir.resolve("fafnir.log"));
   }
 
@@ -399,12 +472,12 @@ public final class BootstrapMojo extends AbstractMojo {
         "gimle-muninn",
         "com.gimle.muninn.MuninnMain",
         List.of(
-            String.valueOf(MUNINN_PORT),
+            String.valueOf(muninnPort),
             "--store-endpoints",
-            "127.0.0.1:" + STORE_CLIENT_PORT,
+            "127.0.0.1:" + storeClientPort,
             "--data-root",
             base.resolve("muninn-data").toString()),
-        "starting muninn on port " + MUNINN_PORT,
+        "starting muninn on port " + muninnPort,
         logsDir.resolve("muninn.log"));
   }
 
@@ -421,12 +494,12 @@ public final class BootstrapMojo extends AbstractMojo {
         "gimle-andvari",
         "com.gimle.andvari.AndvariMain",
         List.of(
-            String.valueOf(ANDVARI_PORT),
+            String.valueOf(andvariPort),
             "--store-endpoints",
-            "127.0.0.1:" + STORE_CLIENT_PORT,
+            "127.0.0.1:" + storeClientPort,
             "--data-root",
             base.resolve("andvari-data").toString()),
-        "starting andvari on port " + ANDVARI_PORT,
+        "starting andvari on port " + andvariPort,
         logsDir.resolve("andvari.log"));
   }
 
@@ -457,22 +530,22 @@ public final class BootstrapMojo extends AbstractMojo {
         "gimle-controlplane",
         "com.gimle.controlplane.ControlPlaneMain",
         List.of(
-            String.valueOf(CONTROLPLANE_PORT),
+            String.valueOf(controlPlanePort),
             base.resolve("controlplane-secret.key").toString(),
             "--store-endpoints",
-            "127.0.0.1:" + STORE_CLIENT_PORT,
+            "127.0.0.1:" + storeClientPort,
             "--fafnir-endpoint",
-            "127.0.0.1:" + FAFNIR_PORT,
+            "127.0.0.1:" + fafnirPort,
             // Optional -- lets this replica's /logs/* proxy fall back to Muninn's own shipped
             // history for a gone node/instance instead of a bare 404/502.
             "--muninn-endpoint",
-            "127.0.0.1:" + MUNINN_PORT,
+            "127.0.0.1:" + muninnPort,
             // Optional too -- without it a deployment manifest that names only a registry
             // coordinate (no artifactPath) has nothing to resolve against, and admission can't
             // check that the coordinate exists before scheduling it.
             "--andvari-endpoint",
-            "127.0.0.1:" + ANDVARI_PORT),
-        "starting control plane on port " + CONTROLPLANE_PORT,
+            "127.0.0.1:" + andvariPort),
+        "starting control plane on port " + controlPlanePort,
         logsDir.resolve("controlplane.log"));
   }
 
@@ -532,7 +605,11 @@ public final class BootstrapMojo extends AbstractMojo {
             bootstrapToken,
             resolveClasspath("gimle-agent"),
             resolveClasspath("gimle-worker"),
-            GimleProcesses.javaExecutable());
+            GimleProcesses.javaExecutable(),
+            controlPlanePort,
+            fafnirPort,
+            muninnPort,
+            andvariPort);
     getLog()
         .info(
             "starting agent "
@@ -540,7 +617,7 @@ public final class BootstrapMojo extends AbstractMojo {
                 + " against http(s)://"
                 + controlPlaneHost
                 + ":"
-                + CONTROLPLANE_PORT);
+                + controlPlanePort);
     return spawnLongRunning(command, logsDir.resolve("agent.log"));
   }
 
@@ -557,9 +634,13 @@ public final class BootstrapMojo extends AbstractMojo {
       String bootstrapToken,
       String agentClasspath,
       String workerClasspath,
-      String javaExecutable) {
+      String javaExecutable,
+      int controlPlanePort,
+      int fafnirPort,
+      int muninnPort,
+      int andvariPort) {
     String controlPlaneUrl =
-        (tls ? "https" : "http") + "://" + controlPlaneHost + ":" + CONTROLPLANE_PORT;
+        (tls ? "https" : "http") + "://" + controlPlaneHost + ":" + controlPlanePort;
 
     List<String> command = new ArrayList<>();
     command.add(javaExecutable);
@@ -575,13 +656,13 @@ public final class BootstrapMojo extends AbstractMojo {
     // plane to have already decrypted them -- see AgentMain's own javadoc on
     // gimle.agent.fafnirEndpoint for why this is a system property rather than a new positional
     // arg.
-    command.add("-Dgimle.agent.fafnirEndpoint=127.0.0.1:" + FAFNIR_PORT);
+    command.add("-Dgimle.agent.fafnirEndpoint=127.0.0.1:" + fafnirPort);
     // Same reasoning, for shipping this agent's own + every supervised worker's logs to Muninn --
     // see AgentMain's own javadoc on gimle.agent.muninnEndpoint.
-    command.add("-Dgimle.agent.muninnEndpoint=127.0.0.1:" + MUNINN_PORT);
+    command.add("-Dgimle.agent.muninnEndpoint=127.0.0.1:" + muninnPort);
     // Same reasoning again, for pulling a coordinate-only assignment's jar into this agent's own
     // ArtifactPullCache instead of requiring the jar to pre-exist on this machine's filesystem.
-    command.add("-Dgimle.agent.andvariEndpoint=127.0.0.1:" + ANDVARI_PORT);
+    command.add("-Dgimle.agent.andvariEndpoint=127.0.0.1:" + andvariPort);
     // Same one-directory-under-base convention every sibling spawnX method already uses for its
     // own --data-root/positional state-dir arg (store-state, muninn-data, andvari-data): without
     // this, AgentMain falls back to its own "gimle-data" default relative to whatever directory
@@ -641,7 +722,7 @@ public final class BootstrapMojo extends AbstractMojo {
     command.add("com.gimle.cli.GimleCli");
     command.addAll(List.of(args));
     command.add("--server");
-    command.add(endpoint.controlPlaneHost() + ":" + CONTROLPLANE_PORT);
+    command.add(endpoint.controlPlaneHost() + ":" + controlPlanePort);
     return command;
   }
 
@@ -811,7 +892,7 @@ public final class BootstrapMojo extends AbstractMojo {
 
   private void printSummary(boolean tls, String controlPlaneHost, Path base) {
     String scheme = tls ? "https" : "http";
-    String controlPlaneUrl = scheme + "://" + controlPlaneHost + ":" + CONTROLPLANE_PORT;
+    String controlPlaneUrl = scheme + "://" + controlPlaneHost + ":" + controlPlanePort;
     getLog().info("");
     getLog().info("gimle cluster is up:");
     getLog().info("  control plane : " + controlPlaneUrl);
