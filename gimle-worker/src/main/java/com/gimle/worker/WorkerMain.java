@@ -400,10 +400,17 @@ public final class WorkerMain {
             defaultProbeTimeout,
             defaultLivenessFailureThreshold,
             id -> log.error("module {} exhausted its restart budget; awaiting worker restart", id),
+            WorkerRuntime.DEFAULT_STABLE_UPTIME_THRESHOLD,
             identityRegistry,
             identity ->
                 instanceLogCloser.closeInstance(
-                    identity.deploymentName(), identity.instanceIndex()));
+                    identity.deploymentName(), identity.instanceIndex()),
+            // The agent otherwise has no way to learn a hosted module's actual readiness once it
+            // reaches ACTIVE -- it only ever sees the coarse lifecycle state -- so without this,
+            // an instance's declared readiness probe runs for real but its result never leaves
+            // this worker.
+            (id, alive, ready) ->
+                sendQuietly(channel, new ControlMessage.HealthReport(id, alive, ready)));
     runtimeRef.set(runtime);
     return new ControllerAndRuntime(controller, runtime);
   }

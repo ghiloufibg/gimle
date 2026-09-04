@@ -32,13 +32,17 @@ public final class WiredWorkerRuntime {
 
   private WiredWorkerRuntime() {}
 
+  /** One {@link WorkerRuntime.HealthReportSink#report} call, captured for a test to assert on. */
+  public record HealthUpdate(ModuleId id, boolean alive, boolean ready) {}
+
   public record Result(
       ModuleRegistry registry,
       ModuleController controller,
       WorkerRuntime runtime,
       ServiceRegistry serviceRegistry,
       ModuleId id,
-      List<LifecycleEvent> events) {}
+      List<LifecycleEvent> events,
+      List<HealthUpdate> healthUpdates) {}
 
   /** A fast probe cadence, so a test that isn't about probe timing itself never waits on one. */
   private static final Duration DEFAULT_PROBE_INTERVAL = Duration.ofMillis(20);
@@ -87,6 +91,7 @@ public final class WiredWorkerRuntime {
     ModuleLayer platform = PlatformLayer.bootOnly().layer();
     ServiceRegistry serviceRegistry = new SimpleServiceRegistry();
     List<LifecycleEvent> events = new CopyOnWriteArrayList<>();
+    List<HealthUpdate> healthUpdates = new CopyOnWriteArrayList<>();
 
     AtomicReference<WorkerRuntime> runtimeRef = new AtomicReference<>();
     Consumer<LifecycleEvent> sink =
@@ -108,40 +113,27 @@ public final class WiredWorkerRuntime {
             sink,
             serviceRegistry);
 
+    WorkerRuntime.HealthReportSink healthReportSink =
+        (moduleId, alive, ready) -> healthUpdates.add(new HealthUpdate(moduleId, alive, ready));
     WorkerRuntime runtime =
-        stableUptimeThreshold
-            .map(
-                threshold ->
-                    new WorkerRuntime(
-                        controller,
-                        registry,
-                        serviceRegistry,
-                        4,
-                        defaultProbeInterval,
-                        defaultProbeTimeout,
-                        livenessFailureThreshold,
-                        onRestartBudgetExhausted,
-                        threshold,
-                        identityRegistry,
-                        onInstanceUninstalled))
-            .orElseGet(
-                () ->
-                    new WorkerRuntime(
-                        controller,
-                        registry,
-                        serviceRegistry,
-                        4,
-                        defaultProbeInterval,
-                        defaultProbeTimeout,
-                        livenessFailureThreshold,
-                        onRestartBudgetExhausted,
-                        identityRegistry,
-                        onInstanceUninstalled));
+        new WorkerRuntime(
+            controller,
+            registry,
+            serviceRegistry,
+            4,
+            defaultProbeInterval,
+            defaultProbeTimeout,
+            livenessFailureThreshold,
+            onRestartBudgetExhausted,
+            stableUptimeThreshold.orElse(WorkerRuntime.DEFAULT_STABLE_UPTIME_THRESHOLD),
+            identityRegistry,
+            onInstanceUninstalled,
+            healthReportSink);
     runtimeRef.set(runtime);
 
     controller.resolve(id);
     controller.start(id);
 
-    return new Result(registry, controller, runtime, serviceRegistry, id, events);
+    return new Result(registry, controller, runtime, serviceRegistry, id, events, healthUpdates);
   }
 }

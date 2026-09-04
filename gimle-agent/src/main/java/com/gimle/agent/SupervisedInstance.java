@@ -129,6 +129,17 @@ final class SupervisedInstance {
   volatile Optional<String> aotCacheKey = Optional.empty();
 
   /**
+   * The most recent readiness result the worker's own {@code WorkerRuntime} probe loop actually
+   * computed for this instance, from its {@code HealthReport} messages -- {@code empty} until the
+   * first one arrives (no readiness probe declared, or the worker hasn't ticked one yet since this
+   * instance last went ACTIVE), in which case {@code AgentMain#observationJson} falls back to
+   * treating ACTIVE itself as ready, its long-standing behavior for a module with nothing else to
+   * go on. Once populated, this is the actual answer instead of that fallback -- reaching ACTIVE
+   * only means the module started, not that whatever its readiness probe checks for is true yet.
+   */
+  volatile Optional<Boolean> readinessReported = Optional.empty();
+
+  /**
    * {@code workerKey} and {@code workerLimit} both default to {@code null} -- see those fields' own
    * javadoc.
    */

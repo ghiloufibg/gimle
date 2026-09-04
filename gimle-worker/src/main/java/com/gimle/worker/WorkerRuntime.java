@@ -50,7 +50,7 @@ public final class WorkerRuntime {
    * WorkerProcessSupervisor#DEFAULT_STABLE_UPTIME_THRESHOLD} one tier up, same reasoning: a restart
    * attempt not throwing proves nothing about whether the module is actually healthy.
    */
-  static final Duration DEFAULT_STABLE_UPTIME_THRESHOLD = Duration.ofSeconds(10);
+  public static final Duration DEFAULT_STABLE_UPTIME_THRESHOLD = Duration.ofSeconds(10);
 
   private final ModuleController controller;
   private final ModuleRegistry registry;
@@ -63,6 +63,7 @@ public final class WorkerRuntime {
   private final Duration stableUptimeThreshold;
   private final InstanceIdentityRegistry identityRegistry;
   private final Consumer<InstanceIdentity> onInstanceUninstalled;
+  private final HealthReportSink healthReportSink;
 
   private final Map<ModuleId, BoundedModuleScheduler> schedulers = new ConcurrentHashMap<>();
   private final Map<ModuleId, RestartTracker> restartTrackers = new ConcurrentHashMap<>();
@@ -97,7 +98,8 @@ public final class WorkerRuntime {
         onModuleRestartBudgetExhausted,
         DEFAULT_STABLE_UPTIME_THRESHOLD,
         new InstanceIdentityRegistry(),
-        identity -> {});
+        identity -> {},
+        (id, alive, ready) -> {});
   }
 
   /**
@@ -128,13 +130,16 @@ public final class WorkerRuntime {
         onModuleRestartBudgetExhausted,
         DEFAULT_STABLE_UPTIME_THRESHOLD,
         identityRegistry,
-        onInstanceUninstalled);
+        onInstanceUninstalled,
+        (id, alive, ready) -> {});
   }
 
   /**
    * Same as the eight/ten-arg constructors, with an explicit {@code stableUptimeThreshold} (see
    * {@link #DEFAULT_STABLE_UPTIME_THRESHOLD}) rather than the default -- for tests that need a
-   * shorter window than the production default to stay fast.
+   * shorter window than the production default to stay fast -- and no {@link HealthReportSink}: a
+   * caller that doesn't care to relay readiness anywhere still gets a fully working probe loop, it
+   * simply has nowhere further to report to.
    */
   public WorkerRuntime(
       ModuleController controller,
@@ -148,6 +153,41 @@ public final class WorkerRuntime {
       Duration stableUptimeThreshold,
       InstanceIdentityRegistry identityRegistry,
       Consumer<InstanceIdentity> onInstanceUninstalled) {
+    this(
+        controller,
+        registry,
+        serviceRegistry,
+        defaultMaxConcurrency,
+        defaultProbeInterval,
+        defaultProbeTimeout,
+        defaultLivenessFailureThreshold,
+        onModuleRestartBudgetExhausted,
+        stableUptimeThreshold,
+        identityRegistry,
+        onInstanceUninstalled,
+        (id, alive, ready) -> {});
+  }
+
+  /**
+   * The fullest constructor: every tuning knob explicit, plus a {@link HealthReportSink} -- {@code
+   * WorkerMain} is the one real caller that supplies a sink that actually goes anywhere (relaying a
+   * {@code HealthReport} up this worker's own control channel to the agent), since the agent
+   * otherwise has no way to learn a hosted module's real readiness once it reaches ACTIVE; see
+   * {@link #onReadinessResult}.
+   */
+  public WorkerRuntime(
+      ModuleController controller,
+      ModuleRegistry registry,
+      ServiceRegistry serviceRegistry,
+      int defaultMaxConcurrency,
+      Duration defaultProbeInterval,
+      Duration defaultProbeTimeout,
+      int defaultLivenessFailureThreshold,
+      Consumer<ModuleId> onModuleRestartBudgetExhausted,
+      Duration stableUptimeThreshold,
+      InstanceIdentityRegistry identityRegistry,
+      Consumer<InstanceIdentity> onInstanceUninstalled,
+      HealthReportSink healthReportSink) {
     this.controller = controller;
     this.registry = registry;
     this.serviceRegistry = serviceRegistry;
@@ -159,6 +199,18 @@ public final class WorkerRuntime {
     this.stableUptimeThreshold = stableUptimeThreshold;
     this.identityRegistry = identityRegistry;
     this.onInstanceUninstalled = onInstanceUninstalled;
+    this.healthReportSink = healthReportSink;
+  }
+
+  /**
+   * Notified with {@code id}'s current alive/ready state every time a probe tick changes what it
+   * would report -- the seam a caller (only {@code WorkerMain} in production) uses to relay it
+   * onward, e.g. as a wire {@code HealthReport}, without {@code gimle-worker} itself depending on
+   * any wire-protocol type.
+   */
+  @FunctionalInterface
+  public interface HealthReportSink {
+    void report(ModuleId id, boolean alive, boolean ready);
   }
 
   /**
@@ -234,10 +286,10 @@ public final class WorkerRuntime {
     Optional<String> livenessClassName = probes.livenessClass();
     if (livenessClassName.isPresent()) {
       Optional<LivenessProbe> probe =
-          instantiateProbeOrFail(
-              id, "liveness", livenessClassName.get(), handle, LivenessProbe.class);
+          instantiateOrFail(
+              id, "liveness probe", livenessClassName.get(), handle, LivenessProbe.class);
       if (probe.isEmpty()) {
-        // Already forced to FAILED inside instantiateProbeOrFail -- an instance that never gets a
+        // Already forced to FAILED inside instantiateOrFail -- an instance that never gets a
         // liveness probe registered has nothing further worth wiring up.
         return;
       }
@@ -254,8 +306,8 @@ public final class WorkerRuntime {
     Optional<String> readinessClassName = probes.readinessClass();
     if (readinessClassName.isPresent()) {
       Optional<ReadinessProbe> probe =
-          instantiateProbeOrFail(
-              id, "readiness", readinessClassName.get(), handle, ReadinessProbe.class);
+          instantiateOrFail(
+              id, "readiness probe", readinessClassName.get(), handle, ReadinessProbe.class);
       if (probe.isEmpty()) {
         return;
       }
@@ -269,48 +321,51 @@ public final class WorkerRuntime {
           ready -> onReadinessResult(id, ready));
     }
 
-    descriptor.jobHooksClass().ifPresent(className -> runJobHooks(id, className, handle, mdcTags));
+    descriptor
+        .jobHooksClass()
+        .ifPresent(
+            className -> {
+              Optional<JobHooks> hooks =
+                  instantiateOrFail(id, "job hooks", className, handle, JobHooks.class);
+              // Already forced to FAILED inside instantiateOrFail -- matches every other
+              // instantiate-on-ACTIVE failure here (a probe class that fails to load gets the
+              // identical treatment above); nothing left to run.
+              hooks.ifPresent(h -> runJobHooks(id, h, mdcTags));
+            });
   }
 
   /**
-   * A probe class that fails to load or construct is discovered only after {@code
+   * A probe or job-hooks class that fails to load or construct is discovered only after {@code
    * ModuleController#start} has already called {@code registry.markActive} and begun emitting the
    * {@code Active} event this method (called from {@link #onActive}) is reacting to -- without
    * this, {@link #instantiate}'s exception would propagate out of {@link #onActive} straight into
    * {@code ModuleController#emit}'s generic event-sink catch, which only logs it and drops it on
-   * the floor. The instance would then sit ACTIVE forever with no probe loop ever registered and no
+   * the floor. The instance would then sit ACTIVE forever with nothing further ever wired up and no
    * operator-visible signal that anything went wrong -- a manifest typo in {@code
-   * health.liveness}/{@code health.readiness} silently stranding the instance. Forcing it to FAILED
-   * here instead mirrors {@link #restartModule}'s own budget-exhaustion escalation: the same {@code
+   * health.liveness}/{@code health.readiness}/{@code lifecycle.jobHooks} silently stranding the
+   * instance (a Job stuck this way never reaches {@code COMPLETED}, so nothing but its own {@code
+   * activeDeadlineSeconds}, if it declares one, ever ends it). Forcing it to FAILED here instead
+   * mirrors {@link #restartModule}'s own budget-exhaustion escalation: the same {@code
    * controller.forceFailed} call, the same durable {@code TransitionFailed} event on the far end.
    */
-  private <T> Optional<T> instantiateProbeOrFail(
-      ModuleId id,
-      String probeKind,
-      String className,
-      ModuleLayerHandle handle,
-      Class<T> expectedType) {
+  private <T> Optional<T> instantiateOrFail(
+      ModuleId id, String kind, String className, ModuleLayerHandle handle, Class<T> expectedType) {
     try {
       return Optional.of(instantiate(id, className, handle, expectedType));
     } catch (RuntimeException e) {
       log.error(
-          "module {} failed to load its {} probe class {}: {}",
-          id,
-          probeKind,
-          className,
-          e.getMessage());
+          "module {} failed to load its {} class {}: {}", id, kind, className, e.getMessage());
       try {
         controller.forceFailed(
-            id,
-            "failed to load " + probeKind + " probe class " + className + ": " + e.getMessage());
+            id, "failed to load " + kind + " class " + className + ": " + e.getMessage());
       } catch (RuntimeException forceFailedFailure) {
         // Best-effort, matching restartModule's own forceFailed guard: a concurrent transition
         // (e.g. a racing uninstall) can move this module off ACTIVE before this call lands, and
         // losing that race must not crash the worker tick.
         log.warn(
-            "could not force module {} to FAILED after {} probe load failure: {}",
+            "could not force module {} to FAILED after {} load failure: {}",
             id,
-            probeKind,
+            kind,
             forceFailedFailure.getMessage());
       }
       return Optional.empty();
@@ -325,7 +380,9 @@ public final class WorkerRuntime {
    * same as an explicit {@link CompletionStatus#FAILED} -- feeds {@link ModuleController#complete},
    * which drives the {@code ACTIVE -&gt; COMPLETED}/{@code ACTIVE -&gt; FAILED} transition and its
    * {@link LifecycleEvent} the same {@link #onLifecycleEvent} sink every other transition already
-   * flows through.
+   * flows through. {@code hooks} is already a live instance -- see {@link #instantiateOrFail},
+   * whose failure this method never has to handle since {@link #onActive} only calls this once that
+   * already succeeded.
    *
    * <p>{@code mdcTags} is wrapped around the whole virtual thread body via {@link
    * InstanceMdcContext#runTagged} -- unlike {@code WorkerMain#runCommand}'s synchronous hooks
@@ -336,9 +393,7 @@ public final class WorkerRuntime {
    * APPLICATION log -- indistinguishable from the run never having happened at all when read back
    * through this instance's own per-instance log file.
    */
-  private void runJobHooks(
-      ModuleId id, String className, ModuleLayerHandle handle, Map<String, String> mdcTags) {
-    JobHooks hooks = instantiate(id, className, handle, JobHooks.class);
+  private void runJobHooks(ModuleId id, JobHooks hooks, Map<String, String> mdcTags) {
     ModuleContext ctx =
         controller
             .context(id)
@@ -405,6 +460,11 @@ public final class WorkerRuntime {
     } else {
       serviceRegistry.markUnready(id);
     }
+    // "alive" here is always true: this tick only ran because the module is still ACTIVE with a
+    // live probe loop -- a genuine liveness failure is reported through the existing
+    // ModuleStateChanged("FAILED") path once restartModule's own budget is exhausted, not through
+    // this sink, so it isn't duplicated or raced against here.
+    healthReportSink.report(id, true, ready);
   }
 
   private void onLivenessResult(ModuleId id, boolean alive) {

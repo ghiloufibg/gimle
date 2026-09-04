@@ -1122,7 +1122,11 @@ public final class AgentMain {
     // "ACTIVE".equals(state) || "COMPLETED".equals(state)) would silently break for the next
     // terminal state this file doesn't yet know about -- keep it an exclusion check.
     boolean alive = !"FAILED".equals(state);
-    boolean ready = "ACTIVE".equals(state);
+    // A genuinely reported readiness result (this instance's own WorkerRuntime probe loop, via
+    // HealthReport) always wins; absent one -- no readiness probe declared, or none has ticked yet
+    // since the last transition -- ACTIVE itself is the only signal there ever was, the same
+    // fallback this always used before HealthReport existed.
+    boolean ready = instance.readinessReported.orElse("ACTIVE".equals(state));
 
     Map<String, Object> moduleId = new LinkedHashMap<>();
     moduleId.put("name", instance.assigned.moduleId().name());
@@ -3289,7 +3293,18 @@ public final class AgentMain {
         ControlMessage message = received.get();
         if (message instanceof ControlMessage.ModuleStateChanged changed) {
           findByModuleId(supervised, connection, changed.id())
-              .ifPresent(target -> target.lifecycleState = changed.state());
+              .ifPresent(
+                  target -> {
+                    target.lifecycleState = changed.state();
+                    // A readiness reading from before this transition (e.g. the previous ACTIVE
+                    // window, before a restart) must not leak into the new one -- observationJson
+                    // falls back to its own ACTIVE-derived default until this instance's probe
+                    // loop reports fresh, exactly as if it had never reported at all.
+                    target.readinessReported = Optional.empty();
+                  });
+        } else if (message instanceof ControlMessage.HealthReport health) {
+          findByModuleId(supervised, connection, health.id())
+              .ifPresent(target -> target.readinessReported = Optional.of(health.ready()));
         } else if (message instanceof ControlMessage.Nack nack) {
           log.warn("instance {} nacked {}: {}", key, nack.correlationId(), nack.reason());
           // An install-phase nack (the module never left its initial INSTALLED state -- e.g. the

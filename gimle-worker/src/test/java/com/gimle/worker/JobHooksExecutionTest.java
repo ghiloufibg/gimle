@@ -1,6 +1,7 @@
 package com.gimle.worker;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.logging.InstanceMdcKeys;
@@ -147,6 +148,59 @@ class JobHooksExecutionTest {
     assertEquals("3", mdc.get(InstanceMdcKeys.INSTANCE_INDEX));
     assertEquals("mdc-test-tenant", mdc.get(InstanceMdcKeys.TENANT_ID));
     assertTrue(InstanceMdcKeys.isApplicationCategory(mdc));
+  }
+
+  /**
+   * Regression test for M34: {@code lifecycle.jobHooks} naming a class that fails to load or
+   * construct (a manifest typo, in production) used to leave the instance stuck ACTIVE forever --
+   * {@link WorkerRuntime#onActive}'s job-hooks {@code instantiate} call threw straight out of the
+   * {@code Active} event's own dispatch, and {@code ModuleController#emit}'s generic event-sink
+   * catch swallowed it after only a log line, so the module never ran its hooks, never reached
+   * {@code COMPLETED}/{@code FAILED}, and no {@code TransitionFailed} event was ever produced --
+   * the exact gap {@code instantiateOrFail} already closed for a bad {@code health.liveness}/{@code
+   * .readiness} class, just never extended to job hooks.
+   */
+  @Test
+  void a_job_hooks_class_that_fails_to_load_forces_the_module_to_failed_with_an_event() {
+    Path jar =
+        TestModuleBuilder.module(
+                """
+                module com.gimle.fixture.job.badhooks {
+                }
+                """)
+            .withDescriptor(
+                """
+                name: com.gimle.fixture.job.badhooks
+                version: 1.0.0
+                isolation:
+                  tier: TIER_1
+                resources:
+                  request:
+                    memory: 16Mi
+                    cpu: 10m
+                  limit:
+                    memory: 32Mi
+                    cpu: 50m
+                lifecycle:
+                  jobHooks: com.gimle.worker.testsupport.NoSuchJobHooksClass
+                """)
+            .build(tempDir, "badhooks.jar");
+
+    WiredWorkerRuntime.Result f =
+        WiredWorkerRuntime.start(
+            jar,
+            99,
+            Optional.empty(),
+            exhaustedId -> {},
+            new InstanceIdentityRegistry(),
+            identity -> {});
+
+    Await.until(
+        () -> f.events().stream().anyMatch(e -> e instanceof LifecycleEvent.TransitionFailed),
+        Duration.ofSeconds(2));
+
+    assertEquals(ModuleState.FAILED, f.registry().state(f.id()));
+    assertFalse(RecordingJobHooks.RAN.get(), "the bad class never loaded, so nothing ever ran");
   }
 
   @Test
