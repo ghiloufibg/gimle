@@ -254,7 +254,15 @@ final class StatusBar {
     return keyBar(
         painter,
         viewport,
-        List.of("esc back", ": kind", "⏎ describe", "/ filter", "p pause", "? help", "q quit"));
+        List.of(
+            "esc back",
+            ": kind",
+            "⏎ describe",
+            "v history",
+            "/ filter",
+            "p pause",
+            "? help",
+            "q quit"));
   }
 
   static String pulseKeys(final Painter painter, final UiState ui, final Viewport viewport) {
@@ -276,6 +284,16 @@ final class StatusBar {
         painter,
         viewport,
         List.of("esc back", "↑↓ scroll", "/ filter", "p pause", "? help", "q quit"));
+  }
+
+  static String versionKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
+    return keyBar(
+        painter,
+        viewport,
+        List.of("esc back", "↑↓ scroll", "/ filter", "r refresh", "? help", "q quit"));
   }
 
   static String scanKeys(final Painter painter, final UiState ui, final Viewport viewport) {

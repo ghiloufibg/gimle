@@ -38,6 +38,7 @@ public final class HelpOverlay {
           new String[] {"w / t", "wrap long log lines / show the clock column"},
           new String[] {"T", "this instance's shipped traces (instance view)"},
           new String[] {"⏎ (kind)", "describe the selected resource as YAML"},
+          new String[] {"v", "the selected resource's revision history (resource browser)"},
           new String[] {"g / G", "jump to the top / bottom"},
           new String[] {"?", "this help"},
           new String[] {"q / ctrl-c", "quit, restoring the terminal"});

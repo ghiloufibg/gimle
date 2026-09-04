@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 812
+- **Total requirements**: 814
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 682
+- **Not covered by automated test**: 684
 - **Release-readiness (automated coverage)**: 16.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -42,7 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
-| gimle-hugin | 20 | 3 | 17 | 15.0% |
+| gimle-hugin | 22 | 3 | 19 | 13.6% |
 
 ## Checklist
 
@@ -2356,6 +2356,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-810 | The terminal view narrows every screen to one tenant | Given a cluster running two tenants' workloads When an operator types `:tenant acme` Then every screen shows only that tenant's rows, and the bar names the tenant | No |
 | [ ] | GIMLE-811 | The terminal view scans the cluster for what is wrong | Given a cluster with an unplaced replica, an unready instance and a cordoned node When an operator presses `S` Then the three findings are listed worst first, each saying what is wrong on its own line | No |
 | [ ] | GIMLE-812 | The terminal view shows what the calling certificate may do | Given an operator connected with a certificate holding a subset of the cluster's permissions When they press `R` Then each resource kind is listed against each verb with the control plane's own yes or no | No |
+| [ ] | GIMLE-813 | The terminal view browses a tenant's own config and secret holdings | Given a tenant holding config keys and secrets When an operator runs `:tenant acme` and then `:secrets` Then that tenant's secret names and versions are listed, and no secret value is shown | No |
+| [ ] | GIMLE-814 | The terminal view reads a config key's, ConfigMap's or secret's revision history | Given a config key written more than once When an operator selects it in the browser and presses `v` Then every revision is listed newest first, with the one currently in effect named | No |
 
 #### Distribution
 

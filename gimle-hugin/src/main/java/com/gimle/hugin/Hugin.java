@@ -24,6 +24,8 @@ import com.gimle.hugin.model.SnapshotPoller;
 import com.gimle.hugin.model.SnapshotReader;
 import com.gimle.hugin.model.TraceReader;
 import com.gimle.hugin.model.TraceSnapshot;
+import com.gimle.hugin.model.VersionReader;
+import com.gimle.hugin.model.VersionSnapshot;
 import com.gimle.hugin.render.ActivityScreen;
 import com.gimle.hugin.render.ClusterScreen;
 import com.gimle.hugin.render.DescribeScreen;
@@ -38,6 +40,7 @@ import com.gimle.hugin.render.ResourceScreen;
 import com.gimle.hugin.render.ScanScreen;
 import com.gimle.hugin.render.ServiceScreen;
 import com.gimle.hugin.render.TraceScreen;
+import com.gimle.hugin.render.VersionScreen;
 import com.gimle.hugin.render.Viewport;
 import com.gimle.hugin.render.XrayScreen;
 import com.gimle.hugin.term.Key;
@@ -89,6 +92,8 @@ public final class Hugin {
   private SnapshotPoller<PermissionSnapshot> permissionPoller;
   private final PulseScreen pulseScreen;
   private final TraceScreen traceScreen;
+  private final VersionScreen versionScreen;
+  private SnapshotPoller<VersionSnapshot> versionPoller;
   private SnapshotPoller<TraceSnapshot> tracePoller;
   private SnapshotPoller<PulseSnapshot> pulsePoller;
   private ResourceCatalog catalog;
@@ -117,6 +122,7 @@ public final class Hugin {
     this.permissionScreen = new PermissionScreen(painter);
     this.pulseScreen = new PulseScreen(painter);
     this.traceScreen = new TraceScreen(painter);
+    this.versionScreen = new VersionScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
   }
 
@@ -138,6 +144,7 @@ public final class Hugin {
       closeResourcePoller();
       closePulsePoller();
       closePermissionPoller();
+      closeVersionPoller();
       closeTracePoller();
       closeClusterPoller();
     }
@@ -180,6 +187,7 @@ public final class Hugin {
     closeResourcePoller();
     closePulsePoller();
     closePermissionPoller();
+    closeVersionPoller();
     ui.leaveEveryView();
     catalog = null;
     reader = reader.forContext(target);
@@ -733,11 +741,34 @@ public final class Hugin {
     } else {
       ui.scopeToTenant(tenantId);
     }
+    reopenTenantScopedKind();
     // The grid was asked under the old scope and the control plane answers a different one per
     // tenant, so it is re-asked rather than left showing answers to a question no longer being put.
     if (ui.viewingPermissions()) {
       openPermissions();
     }
+  }
+
+  /**
+   * A tenant-scoped kind is a reading of one tenant, so changing which tenant is in scope makes the
+   * open table a reading of the wrong one. It is re-read under the new scope, or closed outright
+   * when the scope is dropped, rather than left showing rows the bar now labels as another
+   * tenant's.
+   */
+  private void reopenTenantScopedKind() {
+    if (resourcePoller == null || !ui.viewingResources()) {
+      return;
+    }
+    ResourceKind kind = resourcePoller.current().kind();
+    if (!kind.tenantScoped()) {
+      return;
+    }
+    if (ui.tenantScope().isEmpty()) {
+      closeResources();
+      return;
+    }
+    ui.showResources();
+    startResourcePoller(kind);
   }
 
   private void handleKindsKey(final Key key) {
@@ -753,6 +784,10 @@ public final class Hugin {
   }
 
   private void handleResourceKey(final Key key) {
+    if (ui.viewingVersions()) {
+      handleVersionKey(key);
+      return;
+    }
     if (ui.describing().isPresent()) {
       handleDescribeKey(key);
       return;
@@ -770,6 +805,8 @@ public final class Hugin {
       ui.selectLastResource(rows);
     } else if (key.is(Key.Kind.ENTER)) {
       ui.describeSelected(rows);
+    } else if (key.isChar('v')) {
+      openVersions(rows);
     } else if (key.isChar(':')) {
       ui.beginCommand();
     } else if (key.isChar('/')) {
@@ -782,6 +819,71 @@ public final class Hugin {
       ui.toggleHelp();
     } else if (key.isChar('q')) {
       running = false;
+    }
+  }
+
+  private void handleVersionKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      closeVersions();
+    } else if (key.is(Key.Kind.UP) || key.isChar('k')) {
+      ui.scrollVersions(-1);
+    } else if (key.is(Key.Kind.DOWN) || key.isChar('j')) {
+      ui.scrollVersions(1);
+    } else if (key.isChar('g')) {
+      ui.scrollVersionsToTop();
+    } else if (key.isChar('G')) {
+      ui.scrollVersionsToBottom();
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
+    } else if (key.isChar('r') && versionPoller != null) {
+      versionPoller.refreshNow();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  /**
+   * The revision ledger of whatever the browser has selected. Only the four tenant-scoped kinds
+   * keep one, so anything else is answered with that rather than with an empty pane -- "no history"
+   * and "no history kept" are different answers and only one of them is about this resource.
+   */
+  private void openVersions(final List<ResourceRow> rows) {
+    if (resourcePoller == null) {
+      return;
+    }
+    ResourceKind kind = resourcePoller.current().kind();
+    int index = ui.resourceSelectionIndex(rows);
+    if (index < 0) {
+      return;
+    }
+    if (!VersionReader.supports(kind)) {
+      ui.failCommand("nothing keeps a revision history of a " + kind.label());
+      return;
+    }
+    String tenantId = ui.tenantScope().orElse("");
+    String name = rows.get(index).name();
+    ui.showVersions();
+    closeVersionPoller();
+    versionPoller =
+        new SnapshotPoller<>(
+            new VersionReader(reader, kind, tenantId, name)::read,
+            VersionSnapshot.connecting(reader.serverAddress(), tenantId + "/" + name),
+            intervals.services(),
+            "hugin-versions");
+    versionPoller.start();
+  }
+
+  private void closeVersions() {
+    ui.closeVersions();
+    closeVersionPoller();
+  }
+
+  private void closeVersionPoller() {
+    if (versionPoller != null) {
+      versionPoller.close();
+      versionPoller = null;
     }
   }
 
@@ -811,6 +913,10 @@ public final class Hugin {
    */
   private List<String> resourceFrame(
       final ResourceSnapshot snapshot, final Viewport viewport, final Instant now) {
+    if (ui.viewingVersions() && versionPoller != null) {
+      return versionScreen.render(
+          versionPoller.current(), ui, viewport, versionPoller.paused(), now);
+    }
     Optional<ResourceRow> described = ui.describing().flatMap(snapshot::find);
     if (described.isPresent()) {
       return describeScreen.render(snapshot.kind(), described.get(), ui, viewport);
@@ -847,6 +953,13 @@ public final class Hugin {
               + typed.trim()
               + "'; try "
               + String.join(", ", catalog.suggestionsFor(typed)));
+      return;
+    }
+    // A tenant's own holdings have no cluster-wide route, so without a tenant there is no request
+    // to make. Said outright rather than opened onto an empty table, which would read as this
+    // tenant holding none of them.
+    if (kind.get().tenantScoped() && ui.tenantScope().isEmpty()) {
+      ui.failCommand("a " + kind.get().label() + " listing is per tenant; run :tenant <id> first");
       return;
     }
     leaveOpenScreen();
@@ -889,7 +1002,7 @@ public final class Hugin {
     closeResourcePoller();
     resourcePoller =
         new SnapshotPoller<>(
-            new ResourceReader(reader, kind)::read,
+            new ResourceReader(reader, kind, ui.tenantScope())::read,
             ResourceSnapshot.connecting(reader.serverAddress(), kind),
             intervals.services(),
             "hugin-resources");
@@ -899,6 +1012,7 @@ public final class Hugin {
   private void closeResources() {
     ui.closeResources();
     closeResourcePoller();
+    closeVersionPoller();
   }
 
   private void closeResourcePoller() {

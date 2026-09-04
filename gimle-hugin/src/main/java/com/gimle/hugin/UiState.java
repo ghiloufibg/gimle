@@ -56,6 +56,8 @@ public final class UiState {
   private int scanScroll;
   private boolean viewingPermissions;
   private int permissionScroll;
+  private boolean viewingVersions;
+  private int versionScroll;
   private boolean logWrap;
   private boolean logTimestamps = true;
   private Optional<String> selectedResource = Optional.empty();
@@ -213,6 +215,38 @@ public final class UiState {
     traceScroll = Integer.MAX_VALUE - 1;
   }
 
+  // ---- one resource's revision history ----
+
+  /** Whether the revision ledger of whatever the browser had selected is showing. */
+  public boolean viewingVersions() {
+    return viewingVersions;
+  }
+
+  public void showVersions() {
+    viewingVersions = true;
+    versionScroll = 0;
+  }
+
+  public void closeVersions() {
+    viewingVersions = false;
+  }
+
+  public int versionOffset() {
+    return versionScroll;
+  }
+
+  public void scrollVersions(final int delta) {
+    versionScroll = Math.max(0, versionScroll + delta);
+  }
+
+  public void scrollVersionsToTop() {
+    versionScroll = 0;
+  }
+
+  public void scrollVersionsToBottom() {
+    versionScroll = Integer.MAX_VALUE - 1;
+  }
+
   // ---- the sanity scan ----
 
   /** Whether the findings list is showing. */
@@ -338,6 +372,8 @@ public final class UiState {
     xrayScroll = 0;
     viewingScan = false;
     scanScroll = 0;
+    viewingVersions = false;
+    versionScroll = 0;
     viewingPermissions = false;
     permissionScroll = 0;
     viewingResources = false;
@@ -380,6 +416,7 @@ public final class UiState {
   public void showResources() {
     viewingResources = true;
     viewingKinds = false;
+    viewingVersions = false;
     selectedResource = Optional.empty();
     describing = Optional.empty();
     describeScroll = 0;
@@ -391,6 +428,7 @@ public final class UiState {
     viewingResources = false;
     selectedResource = Optional.empty();
     describing = Optional.empty();
+    viewingVersions = false;
   }
 
   /**

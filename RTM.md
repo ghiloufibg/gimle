@@ -827,6 +827,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-810 | The terminal view narrows every screen to one tenant | New | Not Covered | — |
 | GIMLE-811 | The terminal view scans the cluster for what is wrong | New | Not Covered | — |
 | GIMLE-812 | The terminal view shows what the calling certificate may do | New | Not Covered | — |
+| GIMLE-813 | The terminal view browses a tenant's own config and secret holdings | New | Not Covered | — |
+| GIMLE-814 | The terminal view reads a config key's, ConfigMap's or secret's revision history | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -8526,11 +8528,29 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's PermissionReaderTest (the vocabulary-driven grid, silence never read as denial, the answering identity, escaping and the tenant scope) and PermissionScreenTest (the words in each cell, the unidentified-caller warning, and the unreadable-grid wording).
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/PermissionReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/PermissionScreen.java`
 
+#### GIMLE-813 — The terminal view browses a tenant's own config and secret holdings
+
+- **Category**: CLI UX
+- **Status**: New  _(New requirement: `:config`, `:configmaps`, `:secrets` and `:secretmaps` browse the per-tenant list routes, opening only under a tenant scope, with an encrypted config entry's decrypted value redacted before any row is built and the secret listings carrying names and versions only.)_
+- **Coverage**: Not Covered
+- **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's ResourceReaderTest (the tenant-scoped route, the redaction in both the cells and the raw object, bare-name responses, and a secret listing's columns).
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceKind.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceReader.java`
+
+#### GIMLE-814 — The terminal view reads a config key's, ConfigMap's or secret's revision history
+
+- **Category**: CLI UX
+- **Status**: New  _(New requirement: `v` on a resource-browser row lists that resource's revisions newest first across four differently-shaped ledgers, naming the revision in effect and reading no value the ledger does not already hold in plaintext.)_
+- **Coverage**: Not Covered
+- **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's VersionReaderTest (all four ledger shapes, ordering, no-ledger against empty, escaping) and VersionScreenTest (the in-effect label, blank rather than invented author and time, and the deleted marker).
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/VersionReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/VersionScreen.java`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**682 of 812 requirements are Not Covered.**
+**684 of 814 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8653,6 +8673,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-810 | gimle-hugin | The terminal view narrows every screen to one tenant | CLI UX | gimle-hugin's TenantScopeTest (each snapshot's narrowing and what it deliberately leaves alone) and UiStateTest (the scope's lifecycle). |
 | GIMLE-811 | gimle-hugin | The terminal view scans the cluster for what is wrong | CLI UX | gimle-hugin's ScanTest (each finding, its severity, and the cases deliberately not reported) and ScanScreenTest (ordering, counts, the clean-cluster wording and the filtered-to-nothing wording). |
 | GIMLE-812 | gimle-hugin | The terminal view shows what the calling certificate may do | CLI UX | gimle-hugin's PermissionReaderTest (the vocabulary-driven grid, silence never read as denial, the answering identity, escaping and the tenant scope) and PermissionScreenTest (the words in each cell, the unidentified-caller warning, and the unreadable-grid wording). |
+| GIMLE-813 | gimle-hugin | The terminal view browses a tenant's own config and secret holdings | CLI UX | gimle-hugin's ResourceReaderTest (the tenant-scoped route, the redaction in both the cells and the raw object, bare-name responses, and a secret listing's columns). |
+| GIMLE-814 | gimle-hugin | The terminal view reads a config key's, ConfigMap's or secret's revision history | CLI UX | gimle-hugin's VersionReaderTest (all four ledger shapes, ordering, no-ledger against empty, escaping) and VersionScreenTest (the in-effect label, blank rather than invented author and time, and the deleted marker). |
 | GIMLE-107 | gimle-agent | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Cgroup Management | `ResourceLimitEnforcementTest#a_spawned_jvm_honors_the_computed_memory_and_processor_ceiling` (gimle-agent, real subprocess); `PortableJvmFlagsResourceLimiterTest` (gimle-os) |
 | GIMLE-108 | gimle-agent | Tier 3 isolation rejection | Cgroup Management / Config | NONE recorded in the baseline |
 | GIMLE-639 | gimle-ragnarok | Chaos-plan and target YAML configuration for Fenrir/Surtr | Chaos Engineering | `ChaosPlanParserTest`, `TargetSpecParserTest` |

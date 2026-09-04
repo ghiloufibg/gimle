@@ -251,6 +251,8 @@ after the view was written appear here at all.
 | `roles` `rolebindings` `accounts` | the RBAC record: who holds what, and under which role |
 | `volumes` | every allocated volume, its owning StatefulSet instance, node, and whether in use |
 | `kinddefinitions` | the custom kinds this cluster has registered |
+| `config` `configmaps` | the tenant in scope's own flat config keys and named ConfigMaps |
+| `secrets` `secretmaps` | the tenant in scope's own secret keys and named SecretMaps — names and versions, never a value |
 | *a registered kind* | reached by its plural, its kind name, or any short name it declared |
 
 A registered kind's columns are the print columns its own definition declares, after the name and
@@ -264,13 +266,43 @@ an empty table — an empty table reads as "this cluster has no tenants", which 
 much more alarming claim. A mistyped kind is answered on the spot with the keys that share what was
 typed, not by the screen silently not changing.
 
-Two collections are absent, and both because of the API rather than a choice made here: ConfigMaps
-and secrets are addressable only one name at a time, with no route to list them; and the artifact
+The last four list one tenant's own holdings rather than the cluster's — there is no cluster-wide
+route for them — so they open only while a tenant is in scope, and `:config` without one says so
+rather than opening onto an empty table that would read as this tenant holding none. Changing
+`:tenant` while one is open re-reads it under the new tenant; `:tenant all` closes it, since a
+per-tenant reading with no tenant is not a reading of anything.
+
+A flat config listing hands back every value already decrypted, encrypted entries included — the
+one read this view makes that could put a secret on a screen. An entry marked encrypted keeps its
+row and loses its value, before any row is built, so the describe pane cannot show what the table
+withheld. The secret and SecretMap listings carry no value at all: names, versions, and nothing
+else.
+
+One collection is absent, and because of the API rather than a choice made here: the artifact
 catalog answers with bare module-id strings rather than objects, so it has no columns to draw.
 
 Pressing `:` and then `enter` with nothing typed lists every kind instead of failing to name one —
 including the kinds this particular cluster registered, which is the part no documentation can
 carry, since they differ per cluster.
+
+**History** — `v` on a row in the resource browser:
+
+Every revision that row has had, newest first, with the one currently in effect named on the label.
+The table above says what a thing is now; this says what it has been, which is the question actually
+being asked when something started failing at a time nothing was deployed.
+
+- Only the four tenant-scoped kinds keep a ledger. Anything else is answered with that rather than
+  with an empty pane — "no history kept" and "no history yet" are different answers, and only one of
+  them is about the resource you selected.
+- Config keys record each revision's value; ConfigMaps and SecretMaps record how many keys a
+  revision held; secrets record who wrote each revision, when, and its type.
+- No revision's secret is shown, because none is read. The plaintext config ledger is safe to show
+  in full — an encrypted write never enters it, so there is nothing in it to withhold — and the
+  secret ledgers record no value in the first place.
+- A revision recorded as deleted says so. Deleting a key does not erase what came before it, which
+  is most of the point of looking here.
+- The revision in effect is read against the whole ledger, not against whatever survived a filter,
+  so narrowing to older revisions cannot make one of them read as the one in force.
 
 **Describe** — `⏎` on a row in the resource browser, or `d` on an instance row in the cluster view:
 
@@ -290,6 +322,7 @@ carry, since they differ per cluster.
 | --- | --- |
 | `↑` `↓` / `j` `k` | move the selection |
 | `⏎` | inspect whatever the cursor is on; describe it in the resource browser |
+| `v` | the selected resource's revision history (resource browser) |
 | `tab` | move the cursor between the node and instance tables |
 | `o` | cycle the sort: name, state, then each metric worst-first |
 | `1` … `9` | sort by that column outright, on whichever table has the cursor |

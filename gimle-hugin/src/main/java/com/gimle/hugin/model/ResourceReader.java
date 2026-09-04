@@ -6,6 +6,7 @@ import com.gimle.cli.spi.ClusterReader;
 import com.gimle.core.protocol.Json;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -26,10 +27,13 @@ public final class ResourceReader {
 
   private final ClusterReader reader;
   private final ResourceKind kind;
+  private final Optional<String> tenantId;
 
-  public ResourceReader(final ClusterReader reader, final ResourceKind kind) {
+  public ResourceReader(
+      final ClusterReader reader, final ResourceKind kind, final Optional<String> tenantId) {
     this.reader = reader;
     this.kind = kind;
+    this.tenantId = tenantId;
   }
 
   public ResourceSnapshot read() {
@@ -56,11 +60,47 @@ public final class ResourceReader {
    * sniffed from the response, so an unexpected shape reads as empty instead of being guessed at.
    */
   private List<Map<String, Object>> list() {
+    String route = kind.routeFor(tenantId.orElse(""));
     if (kind.envelope().isEmpty()) {
-      return reader.getList(kind.route());
+      return objects(reader.getList(route));
     }
-    Object wrapped = reader.getObject(kind.route()).get(kind.envelope().get());
-    return wrapped instanceof List<?> list ? Json.asObjectList(list) : List.of();
+    Object wrapped = reader.getObject(route).get(kind.envelope().get());
+    return wrapped instanceof List<?> list ? objects(list) : List.of();
+  }
+
+  /**
+   * Two routes answer with an array of bare names rather than of objects. Each name becomes a
+   * one-field object so it browses through the same path everything else does -- the alternative is
+   * a second row type that exists only to carry a string.
+   */
+  private static List<Map<String, Object>> objects(final List<?> items) {
+    List<Map<String, Object>> objects = new ArrayList<>();
+    for (Object item : items) {
+      if (item instanceof String name) {
+        objects.add(Map.of("name", name));
+      } else if (item instanceof Map<?, ?>) {
+        objects.add(withoutDecryptedSecrets(Json.asObject(item)));
+      }
+    }
+    return objects;
+  }
+
+  /**
+   * A flat config listing carries every entry's value already decrypted, the encrypted ones
+   * included -- the one place a read this view makes hands back a secret. The entry keeps its row
+   * and loses its value: what a tenant holds is worth seeing, what is in it is not something a
+   * dashboard left open on a desk should be painting.
+   *
+   * <p>Done to the object before any row is built, so the describe pane cannot show what the table
+   * withheld.
+   */
+  private static Map<String, Object> withoutDecryptedSecrets(final Map<String, Object> object) {
+    if (!Boolean.TRUE.equals(object.get("encrypted"))) {
+      return object;
+    }
+    Map<String, Object> redacted = new LinkedHashMap<>(object);
+    redacted.put("value", "(encrypted)");
+    return redacted;
   }
 
   private ResourceRow row(final Map<String, Object> object) {

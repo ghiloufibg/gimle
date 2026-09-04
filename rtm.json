@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 812,
+  "requirementCount": 814,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -14101,6 +14101,38 @@
       "sourceLocations": [
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/PermissionReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/PermissionScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-813",
+      "module": "gimle-hugin",
+      "feature": "The terminal view browses a tenant's own config and secret holdings",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `:config`, `:configmaps`, `:secrets` and `:secretmaps` browse the per-tenant list routes, opening only under a tenant scope, with an encrypted config entry's decrypted value redacted before any row is built and the secret listings carrying names and versions only.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's ResourceReaderTest (the tenant-scoped route, the redaction in both the cells and the raw object, bare-name responses, and a secret listing's columns).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceKind.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceReader.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-814",
+      "module": "gimle-hugin",
+      "feature": "The terminal view reads a config key's, ConfigMap's or secret's revision history",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `v` on a resource-browser row lists that resource's revisions newest first across four differently-shaped ledgers, naming the revision in effect and reading no value the ledger does not already hold in plaintext.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's VersionReaderTest (all four ledger shapes, ordering, no-ledger against empty, escaping) and VersionScreenTest (the in-effect label, blank rather than invented author and time, and the deleted marker).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/VersionReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/VersionScreen.java`"
       ],
       "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
     }

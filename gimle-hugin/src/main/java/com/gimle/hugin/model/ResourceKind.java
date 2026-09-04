@@ -19,9 +19,12 @@ import java.util.Optional;
  * are not readable from a table of its instances, and are what someone typing {@code :deployments}
  * is asking for.
  *
- * <p>Two absences are deliberate rather than oversights, and both are properties of the API rather
- * than choices made here: ConfigMaps and secrets are addressable only one name at a time ({@code
- * /configmaps/{name}}, {@code /secrets/{tenant}/{key}}) with no collection route to list, and the
+ * <p>A route carrying {@code {tenant}} lists one tenant's own holdings rather than the cluster's --
+ * config keys, ConfigMaps, secrets and SecretMaps are all addressed per tenant, with no
+ * cluster-wide route to list them. Those kinds open only while a tenant is in scope, since there is
+ * no request to make without one.
+ *
+ * <p>One absence is deliberate and is a property of the API rather than a choice made here: the
  * artifact catalog answers with bare module-id strings rather than objects, so it has no columns to
  * draw and its versions cost a request per module.
  */
@@ -35,6 +38,9 @@ public record ResourceKind(
     List<ResourceColumn> columns,
     boolean custom) {
 
+  /** What a route carries where the tenant whose holdings are being listed belongs. */
+  private static final String TENANT_PLACEHOLDER = "{tenant}";
+
   public ResourceKind {
     if (key == null || key.isBlank()) {
       throw new IllegalArgumentException("key must not be blank");
@@ -43,6 +49,20 @@ public record ResourceKind(
       throw new IllegalArgumentException("a kind must declare at least one column");
     }
     columns = List.copyOf(columns);
+  }
+
+  /**
+   * Whether this kind lists one tenant's own holdings rather than the cluster's. There is no
+   * request to make for such a kind without a tenant, which is why it opens only under a scope
+   * rather than opening onto an empty table that would read as "this tenant has none".
+   */
+  public boolean tenantScoped() {
+    return route.contains(TENANT_PLACEHOLDER);
+  }
+
+  /** This kind's route for one tenant, or unchanged for a kind that does not name one. */
+  public String routeFor(final String tenantId) {
+    return route.replace(TENANT_PLACEHOLDER, tenantId);
   }
 
   private static ResourceKind builtIn(
@@ -224,6 +244,46 @@ public record ResourceKind(
             ResourceColumn.of("SCOPE", "scope"),
             ResourceColumn.of("PLURAL", "names.plural"),
             ResourceColumn.wide("DESCRIPTION", "description")),
+        new ResourceKind(
+            "config",
+            "config keys",
+            "/config/{tenant}",
+            Optional.empty(),
+            "key",
+            Optional.empty(),
+            List.of(
+                ResourceColumn.wide("KEY", "key"),
+                ResourceColumn.of("ENCRYPTED", "encrypted"),
+                ResourceColumn.wide("VALUE", "value")),
+            false),
+        new ResourceKind(
+            "configmaps",
+            "config maps",
+            "/configmaps/{tenant}",
+            Optional.empty(),
+            "name",
+            Optional.empty(),
+            List.of(ResourceColumn.wide("NAME", "name")),
+            false),
+        new ResourceKind(
+            "secrets",
+            "secrets",
+            "/secrets/{tenant}",
+            Optional.of("secrets"),
+            "key",
+            Optional.empty(),
+            List.of(
+                ResourceColumn.wide("KEY", "key"), ResourceColumn.of("VERSION", "latestVersion")),
+            false),
+        new ResourceKind(
+            "secretmaps",
+            "secret maps",
+            "/secretmaps/{tenant}",
+            Optional.of("names"),
+            "name",
+            Optional.empty(),
+            List.of(ResourceColumn.wide("NAME", "name")),
+            false),
         new ResourceKind(
             "volumes",
             "volumes",

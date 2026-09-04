@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 812,
+    "totalRequirements": 814,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 682,
+    "notCoveredByAutomatedTest": 684,
     "releaseReadinessPercent": 16.0
   },
   "items": [
@@ -8934,6 +8934,28 @@
       "category": "CLI UX",
       "feature": "The terminal view shows what the calling certificate may do",
       "step": "Given an operator connected with a certificate holding a subset of the cluster's permissions When they press `R` Then each resource kind is listed against each verb with the control plane's own yes or no",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-813",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view browses a tenant's own config and secret holdings",
+      "step": "Given a tenant holding config keys and secrets When an operator runs `:tenant acme` and then `:secrets` Then that tenant's secret names and versions are listed, and no secret value is shown",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-814",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view reads a config key's, ConfigMap's or secret's revision history",
+      "step": "Given a config key written more than once When an operator selects it in the browser and presses `v` Then every revision is listed newest first, with the one currently in effect named",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

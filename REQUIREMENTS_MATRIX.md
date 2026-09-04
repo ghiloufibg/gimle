@@ -822,6 +822,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-810 | The terminal view narrows every screen to one tenant | CLI UX | Complete | Unit only |
 | GIMLE-811 | The terminal view scans the cluster for what is wrong | CLI UX | Complete | Unit only |
 | GIMLE-812 | The terminal view shows what the calling certificate may do | CLI UX | Complete | Unit only |
+| GIMLE-813 | The terminal view browses a tenant's own config and secret holdings | CLI UX | Complete | Unit only |
+| GIMLE-814 | The terminal view reads a config key's, ConfigMap's or secret's revision history | CLI UX | Complete | Unit only |
 
 ## Detailed Requirements
 
@@ -12313,4 +12315,34 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given an operator connected with a certificate holding a subset of the cluster's permissions
   When they press `R`
   Then each resource kind is listed against each verb with the control plane's own yes or no
+  ```
+
+#### GIMLE-813 — The terminal view browses a tenant's own config and secret holdings
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to list the config keys, ConfigMaps, secrets and SecretMaps a tenant holds, so that I can see what a workload is configured from without leaving the view for the CLI.
+- **Status**: Complete. `:config`, `:configmaps`, `:secrets` and `:secretmaps` browse `GET /config|configmaps|secrets|secretmaps/{tenantId}` through the same resource browser every other kind uses. A kind whose route carries a tenant lists that tenant's own holdings rather than the cluster's, and there is no cluster-wide route for any of the four, so each opens only while a tenant is in scope: typing one without a scope is answered outright rather than opening onto an empty table that would read as this tenant holding none. Changing the scope re-reads an open one under the new tenant; clearing it closes the browser, since a per-tenant reading with no tenant is not a reading of anything. The flat config listing hands back every value already decrypted, encrypted entries included -- the one read this view makes that could put a secret on screen -- so an entry marked encrypted keeps its row and loses its value, redacted on the object before any row is built so the describe pane cannot show what the table withheld. The secret and SecretMap listings carry names and versions only. Two of the four routes answer with an array of bare names rather than objects; each name becomes a one-field object so it browses through the same path as everything else instead of needing a row type that exists only to carry a string.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceKind.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`
+- **Test coverage**: ResourceReaderTest covers a tenant-scoped kind asking the route for the tenant in scope, an encrypted config entry keeping its row and losing its value in both the cells and the raw object the describe pane reads, a bare-name route browsing as rows carrying that name, and a secret listing carrying versions and never a value.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a tenant holding config keys and secrets
+  When an operator runs `:tenant acme` and then `:secrets`
+  Then that tenant's secret names and versions are listed, and no secret value is shown
+  ```
+
+#### GIMLE-814 — The terminal view reads a config key's, ConfigMap's or secret's revision history
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want the revision history of a config key, ConfigMap, secret or SecretMap, so that I can see what changed and when after something started failing at a time nothing was deployed.
+- **Status**: Complete. `v` on a resource-browser row opens the ledger behind it, newest first, with the revision in effect named on the label. Four routes answer in four shapes (`versions` against `groupVersions`, `version` against `groupVersion`, and a different field carrying what a revision was), so what differs per kind is written down once as a ledger description rather than branched through the reading. Only the four tenant-scoped kinds keep a ledger; anything else is answered with that rather than with an empty pane, since 'no history kept' and 'no history yet' are different answers and only one is about the selected resource. No revision's secret is shown because none is read: the plaintext config ledger records values and is safe to show in full, an encrypted write never entering it, while the secret ledgers record only who wrote a revision, when, and its type. Author and time are left blank wherever the ledger does not record them rather than invented. The revision in effect is read against the whole ledger rather than against whatever survived a filter, so narrowing to older revisions cannot make one of them read as the one in force.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/VersionReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/VersionSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/VersionScreen.java`
+- **Test coverage**: VersionReaderTest covers each of the four ledger shapes, a deleted revision, newest-first ordering however the route ordered them, a kind that keeps no ledger being told apart from an empty one, path escaping, and the filter. VersionScreenTest covers the revision in effect named on the label, a ledger recording no author or time leaving those columns blank rather than inventing them, a deleted revision saying so in words, no-ledger against empty-ledger wording, the in-effect marker surviving a filter that hides it, the frame fitting the viewport, and no escape sequences with colour off.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a config key written more than once
+  When an operator selects it in the browser and presses `v`
+  Then every revision is listed newest first, with the one currently in effect named
   ```
