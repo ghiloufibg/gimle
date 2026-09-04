@@ -810,6 +810,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | Complete | Yes |
 | GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | Complete | Yes |
 | GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Networking/Service Discovery | Fixed | Yes |
+| GIMLE-801 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Web Console / Frontend | Fixed | Yes |
 
 ## Detailed Requirements
 
@@ -10697,6 +10698,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard.
+  ```
+
+#### GIMLE-801 — Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one
+
+- **Category**: Web Console / Frontend
+- **User story**: As a registry operator pushing a module jar through Andvari's console, I want the dialog to read the coordinate the jar itself declares and store it under that coordinate, so a typo or a copy-paste mistake in the moduleId/version fields can never land the jar under a coordinate that doesn't match what's actually inside it.
+- **Status**: Fixed (M22). PushArtifactDialog let an operator type any moduleId/version and pushed the selected jar under exactly that typed coordinate with zero cross-check against the jar's own descriptor -- upload succeeded silently, no warning, no diff shown, and the mismatched artifact lingered in the catalog until manually deleted; the control plane's own deploy-time check (ModuleArtifactReader, worker-side) only ever caught the mismatch later, at deploy time, with a generic error far removed from the console step that actually caused it. Andvari itself stays a deliberately dumb, unparsing store (see gimle-andvari's own design), so the fix belongs client-side, mirroring the guarantee `gimle artifact push` already gives via `ModuleArtifactReader`: a new client-side ZIP reader (`src/lib/zip.ts`, a purpose-built central-directory walk supporting the `stored`/`deflate` methods any JDK-produced jar uses -- no zip library dependency for one entry) reads the picked jar's own `META-INF/gimle/gimle-module.yaml` (`src/lib/moduleDescriptor.ts`, reading just the `name`/`version` scalars, not a full descriptor parse) the moment a jar is selected or dropped. When a descriptor is found, moduleId/version are auto-filled from it and the fields are locked (`disabled`/`readOnly`) so the operator can no longer type a conflicting value; a vessel-style jar with no bundled descriptor leaves the fields exactly as freely editable as before, with a note explaining why.
+- **Confidence**: High
+- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`
+- **Test coverage**: `zip.test.ts` (reads a deflate-compressed entry, a stored/uncompressed entry, the right entry among several, null for a missing entry and for a non-ZIP file); `moduleDescriptor.test.ts` (derives moduleId/version from a real descriptor -- including the exact art2:2.0.0-vs-wrongname:9.9.9 finding scenario, quoted scalars, a trailing comment, null for a vessel jar and for a descriptor missing a field).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed.
+  Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before.
   ```
 
 ### gimle-saga-console

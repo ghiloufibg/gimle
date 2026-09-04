@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 800
+- **Total requirements**: 801
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 673
+- **Not covered by automated test**: 674
 - **Release-readiness (automated coverage)**: 15.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -32,7 +32,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 54 | 0 | 54 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
-| gimle-andvari-console | 8 | 0 | 8 | 0.0% |
+| gimle-andvari-console | 9 | 0 | 9 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
 | gimle-saga | 14 | 0 | 14 | 0.0% |
 | gimle-testkit | 7 | 0 | 7 | 0.0% |
@@ -2097,6 +2097,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-472 | Push artifact dialog (drag-and-drop upload) | Given I push an existing module@version unmodified, When upload completes, Then it's treated as an idempotent no-op; a differing re-push surfaces a 409 conflict. | No |
 | [ ] | GIMLE-473 | Maven-2 repository interop view | Given the console is served at a known origin, When I open `/repository`, Then the repository base URL and a copyable Maven config snippet render. | No |
 | [ ] | GIMLE-474 | Andvari copy-to-clipboard utility | Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard. | No |
+| [ ] | GIMLE-801 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed. Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before. | No |
 
 ### gimle-saga-console
 

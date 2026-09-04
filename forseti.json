@@ -1991,8 +1991,8 @@
       "environments": [
         "midgard"
       ],
-      "objective": "`artifact push` a module jar, `list`/`get` it, open it in the main console's Artifacts screen and in Andvari's own console (catalog search, version detail, checksum, download with client-side verification, drag-and-drop push, copy-to-clipboard); read Andvari's status.",
-      "oracle": "The coordinate comes from the jar's own bundled descriptor, not a flag; every surface shows the same SHA-256 and size; the download verifies; status reports transport and recent pushes.",
+      "objective": "`artifact push` a module jar, `list`/`get` it, open it in the main console's Artifacts screen and in Andvari's own console (catalog search, version detail, checksum, download with client-side verification, drag-and-drop push, copy-to-clipboard); also try typing a coordinate in Andvari console's Push dialog that doesn't match the jar's own bundled descriptor; read Andvari's status.",
+      "oracle": "The coordinate comes from the jar's own bundled descriptor, never from a typed flag or field -- the CLI derives it and never exposed one to override, and Andvari console's Push dialog auto-fills and locks moduleId/version from the same descriptor the instant a jar with one is picked, leaving no way to push it under a mismatched coordinate; every surface shows the same SHA-256 and size; the download verifies; status reports transport and recent pushes.",
       "requirements": [
         "GIMLE-381",
         "GIMLE-305",
@@ -2003,6 +2003,7 @@
         "GIMLE-470",
         "GIMLE-471",
         "GIMLE-472",
+        "GIMLE-801",
         "GIMLE-474",
         "GIMLE-265"
       ]

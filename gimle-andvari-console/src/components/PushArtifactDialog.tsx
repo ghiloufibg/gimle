@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatBytes } from "@/lib/format";
+import { readModuleCoordinate } from "@/lib/moduleDescriptor";
 import { cn } from "@/lib/utils";
 import { useArtifactsStore } from "@/stores/artifactsStore";
 
@@ -24,6 +25,12 @@ export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?:
   const [version, setVersion] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
+  // Set once the picked jar's own bundled gimle-module.yaml has been read: while it holds a
+  // coordinate, moduleId/version are locked to that coordinate rather than left open to a typed
+  // mismatch -- see readModuleCoordinate's own doc for why. Stays null for a vessel jar (no
+  // bundled descriptor), which leaves the fields exactly as editable as they've always been.
+  const [derivedFrom, setDerivedFrom] = useState<string | null>(null);
+  const [derivingCoordinate, setDerivingCoordinate] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const push = useArtifactsStore((s) => s.push);
@@ -38,8 +45,23 @@ export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?:
       resetPushState();
       setVersion("");
       setFile(null);
+      setDerivedFrom(null);
+      setDerivingCoordinate(false);
       setModuleId(defaultModuleId);
     }
+  };
+
+  const pickFile = (picked: File) => {
+    setFile(picked);
+    setDerivedFrom(null);
+    setDerivingCoordinate(true);
+    void readModuleCoordinate(picked).then((coordinate) => {
+      setDerivingCoordinate(false);
+      if (!coordinate) return;
+      setModuleId(coordinate.moduleId);
+      setVersion(coordinate.version);
+      setDerivedFrom(picked.name);
+    });
   };
 
   const submit = async () => {
@@ -95,7 +117,9 @@ export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?:
               value={moduleId}
               placeholder="com.example.greeter-provider"
               onChange={(e) => setModuleId(e.target.value)}
-              className="rounded-sm font-mono text-xs"
+              readOnly={!!derivedFrom}
+              disabled={!!derivedFrom}
+              className="rounded-sm font-mono text-xs disabled:opacity-100"
             />
           </div>
           <div className="space-y-1.5">
@@ -107,9 +131,23 @@ export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?:
               value={version}
               placeholder="1.0.0"
               onChange={(e) => setVersion(e.target.value)}
-              className="rounded-sm font-mono text-xs"
+              readOnly={!!derivedFrom}
+              disabled={!!derivedFrom}
+              className="rounded-sm font-mono text-xs disabled:opacity-100"
             />
           </div>
+          {derivedFrom ? (
+            <p className="text-xs text-muted-foreground">
+              derived from {derivedFrom}&apos;s own gimle-module.yaml -- the coordinate a jar is
+              stored under always matches what it declares for itself
+            </p>
+          ) : derivingCoordinate ? (
+            <p className="text-xs text-muted-foreground">reading gimle-module.yaml…</p>
+          ) : file ? (
+            <p className="text-xs text-muted-foreground">
+              no gimle-module.yaml found in this jar -- enter the coordinate to push it under
+            </p>
+          ) : null}
 
           <div className="space-y-1.5">
             <p className="hud-label">jar file</p>
@@ -125,7 +163,7 @@ export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?:
                 e.preventDefault();
                 setDragging(false);
                 const dropped = e.dataTransfer.files[0];
-                if (dropped) setFile(dropped);
+                if (dropped) pickFile(dropped);
               }}
               className={cn(
                 "flex w-full flex-col items-center gap-1.5 rounded-sm border border-dashed px-4 py-6 text-center transition-colors",
@@ -144,7 +182,10 @@ export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?:
               type="file"
               accept=".jar,application/java-archive"
               className="hidden"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => {
+                const picked = e.target.files?.[0];
+                if (picked) pickFile(picked);
+              }}
             />
           </div>
         </div>
