@@ -55,6 +55,31 @@ public record ClusterSnapshot(
         serverAddress, fetchedAt, nodes, instances, workloads, Optional.of(reason));
   }
 
+  /**
+   * This reading narrowed to one tenant's own instances and workloads, or unchanged when no tenant
+   * is chosen.
+   *
+   * <p>Nodes are never narrowed: a node belongs to the cluster, not to a tenant, and hiding the
+   * machine a tenant's instances are placed on would answer "where is this running" with silence.
+   * The unplaced and unsettled counts follow the workloads, so a scoped view reports that tenant's
+   * own trouble rather than the cluster's.
+   *
+   * <p>A view narrowing, never an authorization scope -- what the control plane sent is what it
+   * decided this certificate may see, and this only hides some of it.
+   */
+  public ClusterSnapshot scopedTo(final Optional<String> tenantId) {
+    if (tenantId.isEmpty()) {
+      return this;
+    }
+    return new ClusterSnapshot(
+        serverAddress,
+        fetchedAt,
+        nodes,
+        instances.stream().filter(row -> tenantId.equals(row.tenantId())).toList(),
+        workloads.stream().filter(row -> tenantId.equals(row.tenantId())).toList(),
+        staleReason);
+  }
+
   public boolean connected() {
     return fetchedAt.isPresent() && staleReason.isEmpty();
   }

@@ -35,7 +35,7 @@ public final class ClusterScreen {
       final boolean paused,
       final Instant now) {
     List<String> lines = new ArrayList<>();
-    lines.add(StatusBar.cluster(painter, snapshot, viewport, paused, now));
+    lines.add(StatusBar.cluster(painter, snapshot, ui, viewport, paused, now));
     lines.add("");
 
     // Drawn above the tables, and only when there is something to draw: a shortfall has no

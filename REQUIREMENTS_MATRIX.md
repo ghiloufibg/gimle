@@ -818,6 +818,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-806 | The terminal view lists what it can open, and can be pointed at another control plane | CLI UX | Complete | Unit only |
 | GIMLE-807 | The terminal view joins Services to the instances behind them and names the gaps | CLI UX | Complete | Unit only |
 | GIMLE-808 | The terminal view reads the control plane's own health alongside what it is running | CLI UX | Complete | Unit only |
+| GIMLE-809 | The terminal view reads a worker's shipped traces for the instance it is inspecting | CLI UX | Complete | Unit only |
+| GIMLE-810 | The terminal view narrows every screen to one tenant | CLI UX | Complete | Unit only |
 
 ## Detailed Requirements
 
@@ -12249,4 +12251,34 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a control plane that has lost its store
   When an operator presses `P` in the terminal view
   Then the control plane is reported as unhealthy rather than the cluster reading as serene
+  ```
+
+#### GIMLE-809 — The terminal view reads a worker's shipped traces for the instance it is inspecting
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see the spans an instance's worker shipped, so that the call that failed is visible from the same place its logs and metrics are.
+- **Status**: Complete. `T` in the instance drill-down reads `GET /traces-history/WORKER/{nodeId}:{workerId}` -- the same addressing the meter history already uses, since a worker has no listening address of its own -- and groups the spans into the traces they belong to, newest trace first, each trace's spans indented under it oldest first. Grouped rather than listed flat because a span alone says almost nothing: what is being looked for is the call that failed and what it was part of. A trace carrying a failed span reads FAILED and they are counted on the label. No elapsed time is shown anywhere, and that is not a gap to fill later: the shipper records only each span's end instant, so any duration would be invented rather than read. A parent span id of all zeroes -- how the OpenTelemetry SDK spells 'no parent' -- reads as a root rather than as a child of something that does not exist. A trace whose root was never shipped, because it began in another process or was trimmed from this worker's history, is still listed under its own id rather than dropped for want of a heading. Shipping to Muninn is optional, so every failure resolves to 'this worker ships no traces' rather than an error, which is a different reading from one that has served nothing; and an instance whose worker the agent has not reported yet does not open the pane at all rather than opening it on a guess.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/TraceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/TraceSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/TraceScreen.java`
+- **Test coverage**: TraceReaderTest covers a span read with its trace and status, an all-zeroes parent reading as a root, a worker that ships nowhere reporting no history rather than an error, a line with no span identity being dropped, an unparseable timestamp costing only its own ordering, grouping with the newest trace first and a failed span making a failed trace, a trace whose root was never shipped, and the filter. TraceScreenTest covers the heading-and-indented-spans shape, a failed trace reading as failed and being counted, telling 'ships nowhere' apart from 'served nothing', no elapsed time appearing anywhere, the filter, the frame fitting, and no escape sequences without colour.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an instance whose worker ships traces
+  When an operator presses `T` in its drill-down
+  Then that worker's recent spans are shown grouped into their traces
+  ```
+
+#### GIMLE-810 — The terminal view narrows every screen to one tenant
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to scope the view to one tenant the way a namespace scopes a cluster, so that everything I look at is that tenant's own and nothing else's.
+- **Status**: Complete. `:tenant ID` narrows every screen to that tenant's rows and `:tenant all` restores the cluster. The status bar names the tenant on every screen it is narrowing -- without that, a cluster showing one tenant's three instances is indistinguishable from a cluster that has only three, which is the one way this could mislead rather than help. It is a view narrowing and never an authorization scope: the control plane already decided what this certificate may see, and choosing a tenant only hides some of what it sent. Nodes are never narrowed, because a node belongs to the cluster rather than to a tenant and hiding the machine a tenant's instances run on would answer 'where is this running' with silence. A kind whose rows carry no tenant at all -- roles, accounts, kind definitions -- is cluster-wide and is left whole rather than emptied. The untenanted namespace is a scope of its own rather than a wildcard. The two paged feeds send ?tenant= rather than filtering what came back, since narrowing a page after it arrives would report a quiet tenant whenever a busier one filled the page ahead of it; everything else arrives whole and its rows are narrowed exactly. The scope is applied once per reading rather than at each screen, so no view can quietly forget it, and it is dropped along with everything else when the view is pointed at another control plane.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`
+- **Test coverage**: TenantScopeTest covers a scoped cluster keeping only that tenant's instances and workloads, nodes never being narrowed, no scope leaving the reading identical, a tenant with nothing in it reading as empty rather than falling back to everything, the untenanted namespace being its own scope, scoped Services, and a kind with no tenant surviving while a kind with one is narrowed. UiStateTest covers the scope's default and its clearing, its surviving movement between screens, and its being dropped on a context switch.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster running two tenants' workloads
+  When an operator types `:tenant acme`
+  Then every screen shows only that tenant's rows, and the bar names the tenant
   ```

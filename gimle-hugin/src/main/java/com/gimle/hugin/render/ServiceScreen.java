@@ -34,7 +34,7 @@ public final class ServiceScreen {
       final boolean paused,
       final Instant now) {
     List<String> lines = new ArrayList<>();
-    lines.add(StatusBar.services(painter, snapshot, viewport, paused, now));
+    lines.add(StatusBar.services(painter, snapshot, ui, viewport, paused, now));
     lines.add("");
     lines.add(sectionLabel(snapshot));
     lines.add(header(viewport));

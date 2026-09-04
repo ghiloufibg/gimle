@@ -823,6 +823,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-806 | The terminal view lists what it can open, and can be pointed at another control plane | New | Not Covered | — |
 | GIMLE-807 | The terminal view joins Services to the instances behind them and names the gaps | New | Not Covered | — |
 | GIMLE-808 | The terminal view reads the control plane's own health alongside what it is running | New | Not Covered | — |
+| GIMLE-809 | The terminal view reads a worker's shipped traces for the instance it is inspecting | New | Not Covered | — |
+| GIMLE-810 | The terminal view narrows every screen to one tenant | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -8486,11 +8488,29 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's PulseReaderTest (health, unreachable, the rollup and its permission, orderings) and PulseScreenTest (the wording, both failure directions, width, colour).
 - **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/PulseReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/PulseSnapshot.java`
 
+#### GIMLE-809 — The terminal view reads a worker's shipped traces for the instance it is inspecting
+
+- **Category**: CLI UX
+- **Status**: New  _(New requirement: `T` in the instance drill-down reads /traces-history/WORKER/{nodeId}:{workerId} and groups the spans into traces, newest first. No duration is shown -- only an end instant is shipped. A worker that ships nowhere says so rather than reading as one that served nothing.)_
+- **Coverage**: Not Covered
+- **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's TraceReaderTest (parsing, grouping, the degraded shapes) and TraceScreenTest (the tree shape, the findings, width, colour).
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/TraceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/TraceSnapshot.java`
+
+#### GIMLE-810 — The terminal view narrows every screen to one tenant
+
+- **Category**: CLI UX
+- **Status**: New  _(New requirement: `:tenant ID` narrows every screen to one tenant and `:tenant all` restores the cluster, with the bar naming the scope wherever it is narrowing. A view narrowing rather than an authorization scope; nodes and untenanted kinds are never narrowed; the paged feeds scope server-side via ?tenant=.)_
+- **Coverage**: Not Covered
+- **Gap note**: Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame.
+- **Other test coverage (non-Holmgang, informational only)**: gimle-hugin's TenantScopeTest (each snapshot's narrowing and what it deliberately leaves alone) and UiStateTest (the scope's lifecycle).
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**678 of 808 requirements are Not Covered.**
+**680 of 810 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8609,6 +8629,8 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-806 | gimle-hugin | The terminal view lists what it can open, and can be pointed at another control plane | CLI UX | gimle-cli's ClusterReaderContextTest (context resolution, bare addresses, precedence, refusal) and gimle-hugin's KindsScreenTest and UiStateTest. |
 | GIMLE-807 | gimle-hugin | The terminal view joins Services to the instances behind them and names the gaps | CLI UX | gimle-hugin's XrayTest (the join, both findings, tenant scoping, ancestor-preserving filter) and XrayScreenTest (indentation, wording, counts, width, colour). |
 | GIMLE-808 | gimle-hugin | The terminal view reads the control plane's own health alongside what it is running | CLI UX | gimle-hugin's PulseReaderTest (health, unreachable, the rollup and its permission, orderings) and PulseScreenTest (the wording, both failure directions, width, colour). |
+| GIMLE-809 | gimle-hugin | The terminal view reads a worker's shipped traces for the instance it is inspecting | CLI UX | gimle-hugin's TraceReaderTest (parsing, grouping, the degraded shapes) and TraceScreenTest (the tree shape, the findings, width, colour). |
+| GIMLE-810 | gimle-hugin | The terminal view narrows every screen to one tenant | CLI UX | gimle-hugin's TenantScopeTest (each snapshot's narrowing and what it deliberately leaves alone) and UiStateTest (the scope's lifecycle). |
 | GIMLE-107 | gimle-agent | Portable JVM-flags resource limiting (Tier 1/2), cgroup enforcement deliberately deferred | Cgroup Management | `ResourceLimitEnforcementTest#a_spawned_jvm_honors_the_computed_memory_and_processor_ceiling` (gimle-agent, real subprocess); `PortableJvmFlagsResourceLimiterTest` (gimle-os) |
 | GIMLE-108 | gimle-agent | Tier 3 isolation rejection | Cgroup Management / Config | NONE recorded in the baseline |
 | GIMLE-639 | gimle-ragnarok | Chaos-plan and target YAML configuration for Fenrir/Surtr | Chaos Engineering | `ChaosPlanParserTest`, `TargetSpecParserTest` |

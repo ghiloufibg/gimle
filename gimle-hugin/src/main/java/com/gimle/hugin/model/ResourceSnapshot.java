@@ -53,6 +53,24 @@ public record ResourceSnapshot(
         serverAddress, fetchedAt, kind, rows, permitted, Optional.of(reason));
   }
 
+  /**
+   * This reading narrowed to one tenant's own rows, or unchanged when none is chosen. A kind whose
+   * rows carry no tenant at all -- roles, accounts, kind definitions -- is cluster-wide and is left
+   * alone rather than emptied: narrowing it to a tenant would report that none of it exists.
+   */
+  public ResourceSnapshot scopedTo(final Optional<String> tenantId) {
+    if (tenantId.isEmpty() || kind.tenantPath().isEmpty()) {
+      return this;
+    }
+    return new ResourceSnapshot(
+        serverAddress,
+        fetchedAt,
+        kind,
+        rows.stream().filter(row -> tenantId.equals(row.tenantId())).toList(),
+        permitted,
+        staleReason);
+  }
+
   public boolean connected() {
     return fetchedAt.isPresent() && staleReason.isEmpty();
   }

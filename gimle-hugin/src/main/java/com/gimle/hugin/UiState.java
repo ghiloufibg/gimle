@@ -46,6 +46,9 @@ public final class UiState {
   private Optional<String> commandError = Optional.empty();
   private boolean viewingResources;
   private boolean viewingKinds;
+  private Optional<String> tenantScope = Optional.empty();
+  private boolean viewingTraces;
+  private int traceScroll;
   private boolean viewingXray;
   private boolean viewingPulse;
   private int xrayScroll;
@@ -149,6 +152,63 @@ public final class UiState {
     logTimestamps = !logTimestamps;
   }
 
+  // ---- the tenant scope, this view's equivalent of a namespace ----
+
+  /**
+   * The tenant every screen is currently narrowed to, if any.
+   *
+   * <p>A view narrowing, never an authorization scope: the control plane already decides what this
+   * certificate may see, and choosing a tenant here only hides rows that were sent anyway. It is
+   * not a way to see more, and it is not a way to prove you saw less.
+   */
+  public Optional<String> tenantScope() {
+    return tenantScope;
+  }
+
+  public void scopeToTenant(final String tenantId) {
+    tenantScope = Optional.of(tenantId);
+  }
+
+  public void clearTenantScope() {
+    tenantScope = Optional.empty();
+  }
+
+  /** Whether {@code tenantId} is in scope. Everything is, while no tenant is chosen. */
+  public boolean inScope(final Optional<String> tenantId) {
+    return tenantScope.isEmpty() || tenantScope.equals(tenantId);
+  }
+
+  // ---- one instance's shipped traces ----
+
+  public boolean viewingTraces() {
+    return viewingTraces;
+  }
+
+  public void showTraces() {
+    viewingTraces = true;
+    traceScroll = 0;
+  }
+
+  public void closeTraces() {
+    viewingTraces = false;
+  }
+
+  public int traceOffset() {
+    return traceScroll;
+  }
+
+  public void scrollTraces(final int delta) {
+    traceScroll = Math.max(0, traceScroll + delta);
+  }
+
+  public void scrollTracesToTop() {
+    traceScroll = 0;
+  }
+
+  public void scrollTracesToBottom() {
+    traceScroll = Integer.MAX_VALUE - 1;
+  }
+
   /** Whether the one-screen health reading is showing. */
   public boolean viewingPulse() {
     return viewingPulse;
@@ -199,7 +259,12 @@ public final class UiState {
    * with them -- it was narrowing rows that no longer exist.
    */
   public void leaveEveryView() {
+    // The tenant scope goes too: an id means nothing on a cluster that has never heard of it, and
+    // carrying one across would empty every screen for no reason the bar could explain.
+    tenantScope = Optional.empty();
     viewingKinds = false;
+    viewingTraces = false;
+    traceScroll = 0;
     viewingXray = false;
     viewingPulse = false;
     xrayScroll = 0;

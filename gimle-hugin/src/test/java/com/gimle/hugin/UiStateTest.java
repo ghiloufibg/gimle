@@ -113,6 +113,45 @@ class UiStateTest {
     return List.of(keys).stream().map(UiStateTest::row).toList();
   }
 
+  // ---- the tenant scope ----
+
+  @Test
+  void nothing_is_scoped_until_a_tenant_is_chosen_and_all_undoes_it() {
+    assertTrue(ui.tenantScope().isEmpty());
+    assertTrue(ui.inScope(Optional.of("acme")), "everything is in scope while none is chosen");
+    assertTrue(ui.inScope(Optional.empty()));
+
+    ui.scopeToTenant("acme");
+    assertTrue(ui.inScope(Optional.of("acme")));
+    assertFalse(ui.inScope(Optional.of("beta")));
+    assertFalse(ui.inScope(Optional.empty()), "untenanted is its own scope, not a wildcard");
+
+    ui.clearTenantScope();
+    assertTrue(ui.inScope(Optional.of("beta")));
+  }
+
+  @Test
+  void the_scope_outlives_moving_between_screens_because_it_describes_what_is_being_looked_at() {
+    ui.scopeToTenant("acme");
+
+    ui.showServices();
+    ui.showActivity();
+    ui.showResources();
+
+    assertEquals(Optional.of("acme"), ui.tenantScope());
+  }
+
+  @Test
+  void pointing_at_another_control_plane_drops_the_scope_with_everything_else() {
+    // A tenant id means nothing on a cluster that has never heard of it, and silently carrying one
+    // across would empty every screen for no visible reason.
+    ui.scopeToTenant("acme");
+
+    ui.leaveEveryView();
+
+    assertTrue(ui.tenantScope().isEmpty());
+  }
+
   // ---- pointing at another control plane ----
 
   @Test

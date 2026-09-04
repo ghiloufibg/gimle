@@ -4,6 +4,8 @@ import com.gimle.cli.CliException;
 import com.gimle.cli.CliExitCode;
 import com.gimle.cli.spi.ClusterReader;
 import com.gimle.core.protocol.Json;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,6 +32,14 @@ public final class ActivityReader {
   private final FeedMode mode;
 
   /**
+   * The tenant this feed is narrowed to, sent as {@code ?tenant=} rather than applied to the rows
+   * that came back. These two feeds page, and filtering a page after it arrives would report a
+   * quiet tenant whenever a busier one filled the page ahead of it -- the one case where narrowing
+   * on the client is not merely wasteful but wrong.
+   */
+  private final Optional<String> tenantScope;
+
+  /**
    * How many pages deep the operator has asked to go. Held on the reader rather than in the
    * snapshot so a refresh re-reads everything already on screen instead of silently shrinking it
    * back to one page under someone who had scrolled. Atomic because the render loop increments it
@@ -38,8 +48,14 @@ public final class ActivityReader {
   private final AtomicInteger pages = new AtomicInteger(1);
 
   public ActivityReader(final ClusterReader reader, final FeedMode mode) {
+    this(reader, mode, Optional.empty());
+  }
+
+  public ActivityReader(
+      final ClusterReader reader, final FeedMode mode, final Optional<String> tenantScope) {
     this.reader = reader;
     this.mode = mode;
+    this.tenantScope = tenantScope;
   }
 
   /** Asks for one more page on the next read. A no-op once the feed has no more to give. */
@@ -81,7 +97,13 @@ public final class ActivityReader {
     try {
       body =
           reader.getObject(
-              mode.route() + "?limit=" + PAGE_SIZE + cursor.map(c -> "&cursor=" + c).orElse(""));
+              mode.route()
+                  + "?limit="
+                  + PAGE_SIZE
+                  + cursor.map(c -> "&cursor=" + c).orElse("")
+                  + tenantScope
+                      .map(id -> "&tenant=" + URLEncoder.encode(id, StandardCharsets.UTF_8))
+                      .orElse(""));
     } catch (CliException e) {
       if (e.exitCode() == CliExitCode.FORBIDDEN) {
         return null;
@@ -149,7 +171,9 @@ public final class ActivityReader {
     List<FeedRow> rows = new ArrayList<>();
     for (Map<String, Object> rule : rules) {
       String name = string(rule.get("name"));
-      if (name.isBlank()) {
+      // Unlike the two paged feeds this one arrives whole, so narrowing the rows it returned is
+      // exact rather than a guess about what a page happened to hold.
+      if (name.isBlank() || !inScope(rule.get("tenantId"))) {
         continue;
       }
       rows.add(
@@ -190,6 +214,10 @@ public final class ActivityReader {
       return "UNKNOWN";
     }
     return Boolean.TRUE.equals(state.get("firing")) ? "FIRING" : "OK";
+  }
+
+  private boolean inScope(final Object tenantId) {
+    return tenantScope.isEmpty() || tenantScope.equals(optionalString(tenantId));
   }
 
   private ActivitySnapshot settled(final List<FeedRow> rows, final Optional<String> cursor) {

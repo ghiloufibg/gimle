@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 808,
+    "totalRequirements": 810,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 678,
-    "releaseReadinessPercent": 16.1
+    "notCoveredByAutomatedTest": 680,
+    "releaseReadinessPercent": 16.0
   },
   "items": [
     {
@@ -8890,6 +8890,28 @@
       "category": "CLI UX",
       "feature": "The terminal view reads the control plane's own health alongside what it is running",
       "step": "Given a control plane that has lost its store When an operator presses `P` in the terminal view Then the control plane is reported as unhealthy rather than the cluster reading as serene",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-809",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view reads a worker's shipped traces for the instance it is inspecting",
+      "step": "Given an instance whose worker ships traces When an operator presses `T` in its drill-down Then that worker's recent spans are shown grouped into their traces",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-810",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view narrows every screen to one tenant",
+      "step": "Given a cluster running two tenants' workloads When an operator types `:tenant acme` Then every screen shows only that tenant's rows, and the bar names the tenant",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

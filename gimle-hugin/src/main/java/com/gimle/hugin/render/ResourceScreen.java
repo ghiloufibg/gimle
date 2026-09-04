@@ -40,7 +40,7 @@ public final class ResourceScreen {
       final boolean paused,
       final Instant now) {
     List<String> lines = new ArrayList<>();
-    lines.add(StatusBar.resources(painter, snapshot, viewport, paused, now));
+    lines.add(StatusBar.resources(painter, snapshot, ui, viewport, paused, now));
     lines.add("");
 
     if (!snapshot.permitted()) {

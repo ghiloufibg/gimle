@@ -25,6 +25,7 @@ final class StatusBar {
   static String cluster(
       final Painter painter,
       final ClusterSnapshot snapshot,
+      final UiState ui,
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
@@ -37,6 +38,7 @@ final class StatusBar {
             .add("   ", bar)
             .add(snapshot.serverAddress(), bar);
     appendConnection(line, snapshot, bar, now);
+    appendTenantScope(line, ui, bar);
     line.add("   nodes ", bar)
         .add(String.valueOf(snapshot.nodes().size()), bar.asBold())
         .add("  instances ", bar)
@@ -59,6 +61,7 @@ final class StatusBar {
   static String services(
       final Painter painter,
       final ServiceSnapshot snapshot,
+      final UiState ui,
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
@@ -72,6 +75,7 @@ final class StatusBar {
             .add("   ", bar)
             .add(snapshot.serverAddress(), bar);
     appendConnection(line, snapshot.connected(), snapshot.staleReason(), snapshot.age(now), bar);
+    appendTenantScope(line, ui, bar);
     line.add("   services ", bar)
         .add(String.valueOf(snapshot.services().size()), bar.asBold())
         .add("  endpoints ", bar)
@@ -90,6 +94,7 @@ final class StatusBar {
   static String resources(
       final Painter painter,
       final ResourceSnapshot snapshot,
+      final UiState ui,
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
@@ -103,6 +108,7 @@ final class StatusBar {
             .add("   ", bar)
             .add(snapshot.serverAddress(), bar);
     appendConnection(line, snapshot.connected(), snapshot.staleReason(), snapshot.age(now), bar);
+    appendTenantScope(line, ui, bar);
     if (snapshot.permitted()) {
       line.add("   " + snapshot.kind().label() + " ", bar)
           .add(String.valueOf(snapshot.rows().size()), bar.asBold());
@@ -113,6 +119,19 @@ final class StatusBar {
       line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
     }
     return line.fillTo(viewport.columns(), bar).build();
+  }
+
+  /**
+   * The tenant in scope, said on the bar of every screen it narrows. Without it a cluster showing
+   * one tenant's three instances is indistinguishable from a cluster that has only three, which is
+   * the one way this feature could mislead rather than help.
+   */
+  private static void appendTenantScope(final Line line, final UiState ui, final Style bar) {
+    ui.tenantScope()
+        .ifPresent(
+            tenant ->
+                line.add("   tenant ", bar)
+                    .add(tenant, Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold()));
   }
 
   private static Style brand() {
@@ -247,6 +266,19 @@ final class StatusBar {
   }
 
   static String xrayKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
+    return keyBar(
+        painter,
+        viewport,
+        List.of("esc back", "↑↓ scroll", "/ filter", "p pause", "? help", "q quit"));
+  }
+
+  static String traceKeys(final Painter painter, final UiState ui, final Viewport viewport) {
     if (ui.commandEditing()) {
       return commandPrompt(painter, ui, viewport);
     }

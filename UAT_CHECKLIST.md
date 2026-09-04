@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 808
+- **Total requirements**: 810
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 678
-- **Release-readiness (automated coverage)**: 16.1%
+- **Not covered by automated test**: 680
+- **Release-readiness (automated coverage)**: 16.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -42,7 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
-| gimle-hugin | 16 | 3 | 13 | 18.8% |
+| gimle-hugin | 18 | 3 | 15 | 16.7% |
 
 ## Checklist
 
@@ -2352,6 +2352,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-806 | The terminal view lists what it can open, and can be pointed at another control plane | Given an operator in the terminal view When they press `:` and then enter with nothing typed Then every kind this cluster can show is listed, registered kinds included | No |
 | [ ] | GIMLE-807 | The terminal view joins Services to the instances behind them and names the gaps | Given a Service naming a deployment that is not running When an operator presses `x` in the terminal view Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts | No |
 | [ ] | GIMLE-808 | The terminal view reads the control plane's own health alongside what it is running | Given a control plane that has lost its store When an operator presses `P` in the terminal view Then the control plane is reported as unhealthy rather than the cluster reading as serene | No |
+| [ ] | GIMLE-809 | The terminal view reads a worker's shipped traces for the instance it is inspecting | Given an instance whose worker ships traces When an operator presses `T` in its drill-down Then that worker's recent spans are shown grouped into their traces | No |
+| [ ] | GIMLE-810 | The terminal view narrows every screen to one tenant | Given a cluster running two tenants' workloads When an operator types `:tenant acme` Then every screen shows only that tenant's rows, and the bar names the tenant | No |
 
 #### Distribution
 

@@ -20,6 +20,8 @@ import com.gimle.hugin.model.ServiceReader;
 import com.gimle.hugin.model.ServiceSnapshot;
 import com.gimle.hugin.model.SnapshotPoller;
 import com.gimle.hugin.model.SnapshotReader;
+import com.gimle.hugin.model.TraceReader;
+import com.gimle.hugin.model.TraceSnapshot;
 import com.gimle.hugin.render.ActivityScreen;
 import com.gimle.hugin.render.ClusterScreen;
 import com.gimle.hugin.render.DescribeScreen;
@@ -31,6 +33,7 @@ import com.gimle.hugin.render.Painter;
 import com.gimle.hugin.render.PulseScreen;
 import com.gimle.hugin.render.ResourceScreen;
 import com.gimle.hugin.render.ServiceScreen;
+import com.gimle.hugin.render.TraceScreen;
 import com.gimle.hugin.render.Viewport;
 import com.gimle.hugin.render.XrayScreen;
 import com.gimle.hugin.term.Key;
@@ -78,6 +81,8 @@ public final class Hugin {
   private final KindsScreen kindsScreen;
   private final XrayScreen xrayScreen;
   private final PulseScreen pulseScreen;
+  private final TraceScreen traceScreen;
+  private SnapshotPoller<TraceSnapshot> tracePoller;
   private SnapshotPoller<PulseSnapshot> pulsePoller;
   private ResourceCatalog catalog;
   private SnapshotPoller<ResourceSnapshot> resourcePoller;
@@ -102,6 +107,7 @@ public final class Hugin {
     this.kindsScreen = new KindsScreen(painter);
     this.xrayScreen = new XrayScreen(painter);
     this.pulseScreen = new PulseScreen(painter);
+    this.traceScreen = new TraceScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
   }
 
@@ -122,6 +128,7 @@ public final class Hugin {
       closeActivityPoller();
       closeResourcePoller();
       closePulsePoller();
+      closeTracePoller();
       closeClusterPoller();
     }
   }
@@ -168,19 +175,28 @@ public final class Hugin {
     startClusterPoller();
   }
 
-  private List<String> frame(final ClusterSnapshot snapshot, final boolean paused) {
+  private List<String> frame(final ClusterSnapshot full, final boolean paused) {
     Viewport viewport = terminal.viewport();
     Instant now = Instant.now();
     if (ui.helpVisible()) {
       return helpOverlay.render(viewport);
     }
+    // Narrowed once here rather than at every screen: the scope is a property of what is being
+    // looked at, not of any one view, and threading it through each render call would let one
+    // screen quietly forget it.
+    ClusterSnapshot snapshot = full.scopedTo(ui.tenantScope());
     if (ui.viewingPulse() && pulsePoller != null) {
       return pulseScreen.render(
           pulsePoller.current(), snapshot, ui, viewport, pulsePoller.paused(), now);
     }
     if (ui.viewingXray() && servicePoller != null) {
       return xrayScreen.render(
-          servicePoller.current(), snapshot, ui, viewport, servicePoller.paused(), now);
+          servicePoller.current().scopedTo(ui.tenantScope()),
+          snapshot,
+          ui,
+          viewport,
+          servicePoller.paused(),
+          now);
     }
     if (ui.viewingKinds()) {
       return kindsScreen.render(catalog(), reader.serverAddress(), viewport);
@@ -194,7 +210,11 @@ public final class Hugin {
     }
     if (ui.viewingServices() && servicePoller != null) {
       return serviceScreen.render(
-          servicePoller.current(), ui, viewport, servicePoller.paused(), now);
+          servicePoller.current().scopedTo(ui.tenantScope()),
+          ui,
+          viewport,
+          servicePoller.paused(),
+          now);
     }
     Optional<NodeRow> inspectedNode =
         ui.inspectingNode()
@@ -209,6 +229,10 @@ public final class Hugin {
       ui.closeNodeInspection();
     }
     Optional<InstanceRow> inspected = ui.inspecting().flatMap(snapshot::find);
+    if (inspected.isPresent() && ui.viewingTraces() && tracePoller != null) {
+      return traceScreen.render(
+          inspected.get(), tracePoller.current(), ui, viewport, tracePoller.paused(), now);
+    }
     if (inspected.isPresent() && watcher != null) {
       return instanceScreen.render(inspected.get(), watcher, ui, viewport, paused, now);
     }
@@ -368,6 +392,10 @@ public final class Hugin {
   }
 
   private void handleInstanceKey(final Key key, final SnapshotPoller<ClusterSnapshot> poller) {
+    if (ui.viewingTraces()) {
+      handleTraceKey(key);
+      return;
+    }
     if (key.is(Key.Kind.ESCAPE)) {
       // A filter narrowing the tail is what esc undoes first; only an unfiltered pane closes on
       // it, so nobody loses the instance they were reading to clear a search.
@@ -384,6 +412,8 @@ public final class Hugin {
       ui.toggleLogWrap();
     } else if (key.isChar('t')) {
       ui.toggleLogTimestamps();
+    } else if (key.isChar('T')) {
+      openTraces();
     } else if (key.isChar('p')) {
       poller.togglePaused();
     } else if (key.isChar('?')) {
@@ -424,6 +454,10 @@ public final class Hugin {
     String command = typed.trim();
     if (command.equals("ctx") || command.startsWith("ctx ")) {
       switchServer(command.substring("ctx".length()));
+      return;
+    }
+    if (command.equals("tenant") || command.startsWith("tenant ")) {
+      scopeToTenant(command.substring("tenant".length()).trim());
       return;
     }
     openResources(command);
@@ -508,6 +542,24 @@ public final class Hugin {
     }
   }
 
+  /**
+   * Narrows every screen to one tenant, or back to the whole cluster with {@code all}. The scope is
+   * not checked against the tenants that exist: a name matching nothing shows nothing, which is the
+   * honest answer for a tenant this certificate cannot see and one that was mistyped alike -- and
+   * the bar says which tenant is in scope, so an empty screen is never a mystery.
+   */
+  private void scopeToTenant(final String tenantId) {
+    if (tenantId.isBlank()) {
+      ui.failCommand("usage: :tenant <id>, or :tenant all for the whole cluster");
+      return;
+    }
+    if (tenantId.equals("all")) {
+      ui.clearTenantScope();
+    } else {
+      ui.scopeToTenant(tenantId);
+    }
+  }
+
   private void handleKindsKey(final Key key) {
     if (key.is(Key.Kind.ESCAPE)) {
       ui.closeKinds();
@@ -589,7 +641,8 @@ public final class Hugin {
     if (ui.describing().isPresent() && snapshot.fetchedAt().isPresent()) {
       ui.closeDescribe();
     }
-    return resourceScreen.render(snapshot, ui, viewport, resourcePoller.paused(), now);
+    return resourceScreen.render(
+        snapshot.scopedTo(ui.tenantScope()), ui, viewport, resourcePoller.paused(), now);
   }
 
   private List<ResourceRow> resourceRows() {
@@ -670,6 +723,64 @@ public final class Hugin {
     if (resourcePoller != null) {
       resourcePoller.close();
       resourcePoller = null;
+    }
+  }
+
+  private void handleTraceKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      closeTraces();
+    } else if (key.is(Key.Kind.UP) || key.isChar('k')) {
+      ui.scrollTraces(-1);
+    } else if (key.is(Key.Kind.DOWN) || key.isChar('j')) {
+      ui.scrollTraces(1);
+    } else if (key.isChar('g')) {
+      ui.scrollTracesToTop();
+    } else if (key.isChar('G')) {
+      ui.scrollTracesToBottom();
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
+    } else if (key.isChar('p') && tracePoller != null) {
+      tracePoller.togglePaused();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  /**
+   * A worker's shipped spans, addressed by the node and worker the inspected instance names. An
+   * instance the agent has not reported a worker for has no history to address at all, so the pane
+   * does not open rather than opening on a guess.
+   */
+  private void openTraces() {
+    Optional<InstanceRow> inspected =
+        ui.inspecting().flatMap(key -> clusterPoller.current().find(key));
+    Optional<String> workerId = inspected.flatMap(InstanceRow::workerId);
+    if (inspected.isEmpty() || workerId.isEmpty()) {
+      ui.failCommand("this instance reports no worker yet, so it has no traces to read");
+      return;
+    }
+    ui.showTraces();
+    closeTracePoller();
+    tracePoller =
+        new SnapshotPoller<>(
+            new TraceReader(reader, inspected.get().nodeId(), workerId.get())::read,
+            TraceSnapshot.connecting(reader.serverAddress()),
+            intervals.services(),
+            "hugin-traces");
+    tracePoller.start();
+  }
+
+  private void closeTraces() {
+    ui.closeTraces();
+    closeTracePoller();
+  }
+
+  private void closeTracePoller() {
+    if (tracePoller != null) {
+      tracePoller.close();
+      tracePoller = null;
     }
   }
 

@@ -41,7 +41,7 @@ public final class XrayScreen {
       final Instant now) {
     List<XrayRow> rows = Xray.rows(services, cluster, ui.filter());
     List<String> lines = new ArrayList<>();
-    lines.add(StatusBar.services(painter, services, viewport, paused, now));
+    lines.add(StatusBar.services(painter, services, ui, viewport, paused, now));
     lines.add("");
     lines.add(label(rows, ui.filter()));
     lines.add(header(viewport));

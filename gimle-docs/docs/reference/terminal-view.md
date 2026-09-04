@@ -95,12 +95,48 @@ whose certificate lacks one is told exactly that, because an empty feed would re
 cluster. Like the services view this polls only while open — the alert feed additionally costs one
 request per declared rule, since the rule list carries no firing state of its own.
 
+**One tenant** — `:tenant ID` from any screen, `:tenant all` to undo it:
+
+Gimlé's equivalent of a namespace. Every screen narrows to that tenant's own rows, and the status
+bar names the tenant on every screen it is narrowing — without that, a cluster showing one tenant's
+three instances is indistinguishable from a cluster that has only three.
+
+- **A view narrowing, never an authorization scope.** The control plane already decided what your
+  certificate may see; choosing a tenant here only hides some of what it sent. It is not a way to
+  see more, and it is not proof you saw less.
+- **Nodes are never narrowed.** A node belongs to the cluster, not to a tenant, and hiding the
+  machine a tenant's instances run on would answer "where is this running" with silence.
+- **A kind whose rows carry no tenant is left whole** — roles, accounts, kind definitions are
+  cluster-wide, and narrowing them would report that none of them exist.
+- **The untenanted namespace is a scope of its own**, not a wildcard: `:tenant all` is how you get
+  everything back.
+- The two paged feeds (audit and lifecycle) send `?tenant=` rather than filtering what came back —
+  narrowing a page after it arrives would report a quiet tenant whenever a busier one filled the
+  page ahead of it. Everything else arrives whole, so its rows are narrowed exactly.
+- A name matching nothing shows nothing. That is the honest answer for a tenant your certificate
+  cannot see and for one that was mistyped alike — and since the bar names the scope, an empty
+  screen is never a mystery.
+
+**Traces** — `T` in the instance view:
+
+- The spans that instance's worker shipped, grouped into the traces they belong to, newest trace
+  first, each trace's spans indented under it oldest first so the chain reads in the order it
+  happened. A trace carrying a failed span reads `FAILED`, and they are counted on the label.
+- **No elapsed time is shown anywhere.** The shipper records only each span's end instant, so any
+  duration here would be invented rather than read.
+- A trace whose root span was never shipped — it began in another process, or was trimmed from this
+  worker's history — is still listed, named by its own id rather than dropped for want of a heading.
+- Shipping to Muninn is optional, so a worker that ships nowhere says exactly that rather than
+  reading as one that served nothing. An instance whose worker the agent has not reported yet has
+  no history to address, and the pane does not open rather than opening on a guess.
+
 **Another cluster** — `:ctx NAME` from any screen:
 
 - Points the whole view at another control plane, named either by a context `gimle context set`
   stored or by a bare `host:port`. A name matching neither is refused on the spot rather than
   dialled — a typo dialled as a hostname fails later, further away, and far less clearly.
-- Everything open is closed first. Every screen here is about one cluster, and a drill-down, a
+- Everything open is closed first, the tenant scope included — an id means nothing on a cluster
+  that has never heard of it. Every screen here is about one cluster, and a drill-down, a
   service table or a browsed kind carried across would be describing the previous cluster under the
   new one's name. The kind catalog goes with them: which kinds exist is that cluster's own answer.
 - A stored context holds an endpoint and never a credential, so the client certificate and CA stay
@@ -218,6 +254,8 @@ carry, since they differ per cluster.
 | `:` | open a kind: `tenants`, `roles`, `volumes`, a registered kind… |
 | `:` then `enter` | list every kind this cluster can show |
 | `:ctx NAME` | point at another control plane, by context name or `host:port` |
+| `:tenant ID` | narrow every screen to one tenant; `:tenant all` undoes it |
+| `T` | this instance's shipped traces (instance view) |
 | `w` / `t` | wrap long log lines / show the clock column (instance view) |
 | `m` | load older entries (activity view, audit and lifecycle feeds) |
 | `esc` | back to the cluster view |

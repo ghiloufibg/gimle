@@ -44,6 +44,18 @@ public record ServiceSnapshot(
     return new ServiceSnapshot(serverAddress, fetchedAt, services, Optional.of(reason));
   }
 
+  /** This reading narrowed to one tenant's own Services, or unchanged when none is chosen. */
+  public ServiceSnapshot scopedTo(final Optional<String> tenantId) {
+    if (tenantId.isEmpty()) {
+      return this;
+    }
+    return new ServiceSnapshot(
+        serverAddress,
+        fetchedAt,
+        services.stream().filter(row -> tenantId.equals(row.tenantId())).toList(),
+        staleReason);
+  }
+
   public boolean connected() {
     return fetchedAt.isPresent() && staleReason.isEmpty();
   }
