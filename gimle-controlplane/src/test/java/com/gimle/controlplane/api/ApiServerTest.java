@@ -1614,6 +1614,54 @@ class ApiServerTest {
     assertFalse(body.get(0).containsKey("causeSummary"));
   }
 
+  /**
+   * QA finding: {@code gimle events <deployment> <idx>} with no {@code --tenant} at all silently
+   * returned nothing even for a genuinely default-tenant deployment -- every other verb this class
+   * exposes resolves a bare, untenanted name against whichever tenant actually owns it, but this
+   * route defaulted straight to the untenanted namespace instead, a bucket a real (parsed, always
+   * tenant-normalized) manifest never actually lands in.
+   */
+  @Test
+  void a_default_tenant_deployments_events_are_visible_with_no_tenant_flag_at_all()
+      throws Exception {
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/tmp/orders.jar",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+    String eventBody =
+        """
+        {"id":"evt-default","deploymentName":"orders-service","instanceIndex":0,\
+        "kind":"ACTIVE","message":"module active","occurredAtEpochMilli":1000}
+        """;
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/events"))
+                .POST(HttpRequest.BodyPublishers.ofString(eventBody))
+                .build())
+            .statusCode());
+
+    HttpResponse<String> noTenantFlag =
+        send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/events?deployment=orders-service&instance=0"))
+                .GET()
+                .build());
+
+    assertEquals(200, noTenantFlag.statusCode());
+    assertEquals(1, Json.asObjectList(Json.parse(noTenantFlag.body())).size());
+  }
+
   @Test
   void a_posted_transition_failed_event_carries_its_cause_summary() throws Exception {
     send(
@@ -1668,6 +1716,72 @@ class ApiServerTest {
 
     assertEquals(200, response.statusCode());
     assertTrue(((List<?>) Json.parse(response.body())).isEmpty());
+  }
+
+  /**
+   * QA finding: a StatefulSet/DaemonSet instance's own relayed event used to be filed under the
+   * untenanted namespace regardless of its real tenant -- {@code handleAppendInstanceEvent} only
+   * ever joined against {@code storeClient.listAssignments()}, Deployment-kind bookkeeping alone --
+   * so a bare {@code GET /events} (no {@code ?tenant=}) against a non-default-tenant StatefulSet
+   * instance found it (both landed in the untenanted bucket), while an explicit {@code
+   * ?tenant=acme} for the very same instance came back empty, the exact opposite of every other
+   * verb's own convention.
+   */
+  @Test
+  void a_statefulset_instances_relayed_event_is_filed_under_its_real_tenant() throws Exception {
+    store.putStatefulSetAssignment(
+        new com.gimle.mimir.store.StatefulSetAssignment(
+            "sessions",
+            0,
+            "node-a",
+            new ModuleId("com.example.sessions", Version.parse("1.0.0")),
+            "/tmp/sessions.jar",
+            Optional.of("acme")));
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/register"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    "{\"capabilities\":{\"supportedTiers\":[\"TIER_1\"]}}"))
+            .build());
+    String eventBody =
+        """
+        {"id":"evt-sts","deploymentName":"sessions","instanceIndex":0,\
+        "kind":"ACTIVE","message":"module active","occurredAtEpochMilli":1000}
+        """;
+    assertEquals(
+        200,
+        send(HttpRequest.newBuilder(URI.create(baseUrl + "/nodes/node-a/events"))
+                .POST(HttpRequest.BodyPublishers.ofString(eventBody))
+                .build())
+            .statusCode());
+
+    HttpResponse<String> noTenantFlag =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/events?deployment=sessions&instance=0"))
+                .GET()
+                .build());
+    assertEquals(200, noTenantFlag.statusCode());
+    assertEquals(1, Json.asObjectList(Json.parse(noTenantFlag.body())).size(), "no --tenant flag");
+
+    HttpResponse<String> wrongTenantFlag =
+        send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/events?deployment=sessions&instance=0&tenant=default"))
+                .GET()
+                .build());
+    assertEquals(200, wrongTenantFlag.statusCode());
+    assertTrue(
+        Json.asObjectList(Json.parse(wrongTenantFlag.body())).isEmpty(),
+        "the wrong tenant must not see acme's own event");
+
+    HttpResponse<String> rightTenantFlag =
+        send(
+            HttpRequest.newBuilder(
+                    URI.create(baseUrl + "/events?deployment=sessions&instance=0&tenant=acme"))
+                .GET()
+                .build());
+    assertEquals(200, rightTenantFlag.statusCode());
+    assertEquals(1, Json.asObjectList(Json.parse(rightTenantFlag.body())).size(), "--tenant=acme");
   }
 
   @Test

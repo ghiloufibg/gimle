@@ -12,7 +12,10 @@ import com.gimle.core.protocol.Json;
 import com.gimle.core.protocol.NodeCapabilities;
 import com.gimle.core.protocol.NodeRegistration;
 import com.gimle.core.tenant.Tenant;
+import com.gimle.mimir.manifest.PlacementConstraints;
+import com.gimle.mimir.manifest.StatefulSetSpec;
 import com.gimle.mimir.store.DaemonSetAssignment;
+import com.gimle.mimir.store.InstanceAssignment;
 import com.gimle.mimir.store.JobRun;
 import com.gimle.mimir.store.StateStore;
 import com.gimle.mimir.store.StatefulSetAssignment;
@@ -31,12 +34,14 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.CleanupMode;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -242,6 +247,68 @@ class ApiServerLogsFallbackTest {
   }
 
   /**
+   * QA finding: {@code gimle logs ... --follow} against a node/instance whose supervising agent is
+   * genuinely down used to hang forever -- {@code proxyFollowToAgent} committed to a chunked 200
+   * response before ever attempting the connection, so a stopped agent's connection failure (caught
+   * only after the fact, and only logged at DEBUG) left the caller with an open, silent connection
+   * and no way to tell a hung follow from a healthy, quiet one. The registered node's own
+   * log-server address here is a real port nothing listens on (the same {@code 127.0.0.1:1} trick
+   * the plain unreachable-agent test above uses), and the instance itself carries a real placement
+   * so this request reaches the follow branch at all. {@link Timeout} makes "must not hang" an
+   * enforced fact of this test, not just a hope.
+   */
+  @Test
+  @Timeout(15)
+  void follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging()
+      throws Exception {
+    muninnStub = startStub("/logs", muninnReceivedPaths, 200);
+    startApiServer(new MuninnClient("127.0.0.1:" + muninnStub.getAddress().getPort()));
+    store.putNodeRegistration(
+        new NodeRegistration("node-a", new NodeCapabilities(Set.of()), Optional.of("127.0.0.1:1")));
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/tmp/orders.jar",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+
+    HttpResponse<String> response = send("/logs/instances/orders-service/0?follow=true");
+
+    assertEquals(200, response.statusCode());
+    assertEquals(1, muninnReceivedPaths.size());
+  }
+
+  /**
+   * The other half of the same fix: with no Muninn configured to fall back to, an unreachable agent
+   * must still fail fast with a clear reason rather than ever committing to a hanging 200.
+   */
+  @Test
+  @Timeout(15)
+  void follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured()
+      throws Exception {
+    startApiServer(null);
+    store.putNodeRegistration(
+        new NodeRegistration("node-a", new NodeCapabilities(Set.of()), Optional.of("127.0.0.1:1")));
+    store.putAssignment(
+        new InstanceAssignment(
+            "orders-service",
+            0,
+            "node-a",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/tmp/orders.jar",
+            OptionalInt.empty(),
+            Optional.of(Tenant.DEFAULT_TENANT_ID)));
+
+    HttpResponse<String> response = send("/logs/instances/orders-service/0?follow=true");
+
+    assertEquals(502, response.statusCode());
+    assertTrue(response.body().contains("unreachable"), response.body());
+  }
+
+  /**
    * QA end-user-QA finding: {@code /logs/instances/{name}/{index}} used to resolve placement
    * exclusively via {@code storeClient.listAssignmentsFor}, which only Deployment-kind bookkeeping
    * ever populates -- a StatefulSet/DaemonSet/Job-owned instance 404'd forever, even genuinely
@@ -272,6 +339,86 @@ class ApiServerLogsFallbackTest {
 
     assertEquals(200, response.statusCode());
     assertEquals(1, agentReceivedPaths.size());
+  }
+
+  /**
+   * QA finding: {@code /logs/instances/{name}/{index}} used to resolve its tenant via {@code
+   * workloadTenantHint}, which defaults a missing {@code ?tenant=} straight to the untenanted
+   * namespace rather than searching for the name the way {@code /endpoints/{name}} already does --
+   * a genuinely {@code ACTIVE} instance whose owning tenant wasn't literally the untenanted
+   * namespace 404'd on this live path forever, workable only through Muninn's own fallback store.
+   * With no {@code ?tenant=} at all, this must still resolve by searching for whichever tenant owns
+   * a workload named {@code orders-statefulset}.
+   */
+  @Test
+  void an_instance_in_a_non_default_tenant_resolves_with_no_tenant_flag_at_all() throws Exception {
+    List<String> agentReceivedPaths = new CopyOnWriteArrayList<>();
+    agentStub = startStub("/logs", agentReceivedPaths, 200);
+    startApiServer(null);
+    store.putNodeRegistration(
+        new NodeRegistration(
+            "node-a",
+            new NodeCapabilities(Set.of()),
+            Optional.of("127.0.0.1:" + agentStub.getAddress().getPort())));
+    store.putStatefulSetSpec(
+        new StatefulSetSpec(
+            "orders-statefulset",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/artifacts/orders.jar",
+            1,
+            PlacementConstraints.NONE,
+            Optional.of("acme"),
+            Optional.empty(),
+            Optional.empty()));
+    store.putStatefulSetAssignment(
+        new StatefulSetAssignment(
+            "orders-statefulset",
+            0,
+            "node-a",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/artifacts/orders.jar",
+            Optional.of("acme")));
+
+    HttpResponse<String> response = send("/logs/instances/orders-statefulset/0");
+
+    assertEquals(200, response.statusCode());
+    assertEquals(1, agentReceivedPaths.size());
+  }
+
+  /**
+   * The other half of the same fix: two tenants genuinely sharing {@code orders-statefulset} must
+   * never have one silently picked over the other for a bare, untenanted read -- an honest 400
+   * telling the caller to disambiguate, not a coin flip.
+   */
+  @Test
+  void an_ambiguous_instance_name_across_two_tenants_is_a_400_not_a_silent_pick() throws Exception {
+    startApiServer(null);
+    store.putStatefulSetSpec(
+        new StatefulSetSpec(
+            "orders-statefulset",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/artifacts/orders.jar",
+            1,
+            PlacementConstraints.NONE,
+            Optional.of("acme"),
+            Optional.empty(),
+            Optional.empty()));
+    store.putStatefulSetSpec(
+        new StatefulSetSpec(
+            "orders-statefulset",
+            new ModuleId("com.example.orders", Version.parse("1.0.0")),
+            "/artifacts/orders.jar",
+            1,
+            PlacementConstraints.NONE,
+            Optional.of("globex"),
+            Optional.empty(),
+            Optional.empty()));
+
+    HttpResponse<String> response = send("/logs/instances/orders-statefulset/0");
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("ambiguous"), response.body());
+    assertTrue(response.body().contains("?tenant="), response.body());
   }
 
   @Test

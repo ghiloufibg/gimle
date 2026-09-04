@@ -1130,8 +1130,17 @@ class ApiServerAuthzTest {
    * create or update that tenant's own "shared", regardless of what any other tenant's identically-
    * named "shared" holds, and never touches it.
    */
+  /**
+   * GIMLE-249, PUT-time re-tenanting double-authorization: writing a name that already lives under
+   * a <em>different</em> tenant needs a real write grant on that other tenant too, not just the one
+   * being written into -- even though the two tenants' own stored copies are keyed independently
+   * and the write itself could never corrupt beta's own content. Without this, an identity holding
+   * write access to exactly one tenant could conjure a name that already means something under a
+   * tenant it has no access to at all, silently new to anyone who reads or deletes that bare name
+   * later expecting the tenant they know about.
+   */
   @Test
-  void a_write_permission_scoped_to_one_tenant_creates_its_own_independent_same_named_deployment()
+  void a_write_permission_scoped_to_only_one_tenant_cannot_retenant_another_tenants_same_name()
       throws Exception {
     CertificateAuthority ca =
         CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
@@ -1161,10 +1170,10 @@ class ApiServerAuthzTest {
       String cookie = login(client, baseUrl, "acme-writer", "pw");
 
       Path jar = buildFixtureJar("com.gimle.fixture.authz.reclaim");
-      // acme-writer holds DEPLOYMENT:WRITE:acme but not :beta -- that alone is sufficient to
-      // create acme's own "shared", since it's a distinct store key from beta's.
+      // acme-writer holds DEPLOYMENT:WRITE:acme but not :beta, and "shared" already lives under
+      // beta -- refused, even though acme's own copy would be a distinct store key from beta's.
       assertEquals(
-          200,
+          403,
           putDeployment(
               client,
               baseUrl,
@@ -1176,6 +1185,62 @@ class ApiServerAuthzTest {
       assertEquals(
           Optional.of("beta"),
           store.getDeployment(Optional.of("beta"), "shared").flatMap(DeploymentSpec::tenantId));
+      assertTrue(
+          store.getDeployment(Optional.of("acme"), "shared").isEmpty(),
+          "the refused write must not have created acme's own copy either");
+    }
+  }
+
+  /**
+   * The positive side of the same GIMLE-249 guard: a caller who genuinely holds write access to
+   * <em>both</em> tenants is not blocked by its own double-authorization check -- re-tenanting a
+   * name is a legitimate operation once the caller can prove it for both sides, the same way moving
+   * a file between two directories you can both write to is unremarkable.
+   */
+  @Test
+  void a_write_permission_covering_both_tenants_can_retenant_a_shared_name() throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(new X500Name("CN=test-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+
+    InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"));
+    StateStore store = inProcessStore.store();
+    store.putTenant(new Tenant("acme", new ResourceQuota(1_000_000_000L, 4000, 10)));
+    store.putDeployment(deployment("shared", Optional.of("beta")));
+    store.putAccount(new Account("both-writer", PasswordHashes.hash("pw".toCharArray())));
+    store.putRole(
+        new Role(
+            "both-tenant-writer",
+            java.util.Set.of(Permission.unscoped(ResourceKind.DEPLOYMENT, Verb.WRITE))));
+    store.putRoleBinding(
+        new RoleBinding("b1", RoleBinding.userSubject("both-writer"), "both-tenant-writer"));
+
+    InProcessFafnir inProcessFafnir =
+        InProcessFafnir.start(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+    try (inProcessStore;
+        inProcessFafnir;
+        ApiServer server = new ApiServer(inProcessStore.client(), 0, inProcessFafnir.client())) {
+      server.start();
+      String baseUrl = "https://localhost:" + server.port();
+      HttpClient client =
+          HttpClient.newBuilder().sslContext(SslContexts.forServerTrustOnly(caFile)).build();
+      String cookie = login(client, baseUrl, "both-writer", "pw");
+
+      Path jar = buildFixtureJar("com.gimle.fixture.authz.reclaimboth");
+      assertEquals(
+          200,
+          putDeployment(
+              client,
+              baseUrl,
+              cookie,
+              "shared",
+              "com.gimle.fixture.authz.reclaimboth",
+              jar,
+              Optional.of("acme")));
+      assertEquals(
+          Optional.of("beta"),
+          store.getDeployment(Optional.of("beta"), "shared").flatMap(DeploymentSpec::tenantId),
+          "beta's own copy must survive untouched");
       assertEquals(
           Optional.of("acme"),
           store.getDeployment(Optional.of("acme"), "shared").flatMap(DeploymentSpec::tenantId));

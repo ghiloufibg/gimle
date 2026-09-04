@@ -54,6 +54,7 @@ public final class LogsCommand {
     String since = null;
     String level = null;
     String contains = null;
+    String tenant = null;
 
     for (String arg : args.subList(1, args.size())) {
       if (arg.equals("--follow") || arg.equals("-f")) {
@@ -66,6 +67,8 @@ public final class LogsCommand {
         level = arg.substring("--level=".length());
       } else if (arg.startsWith("--contains=")) {
         contains = arg.substring("--contains=".length());
+      } else if (arg.startsWith("--tenant=")) {
+        tenant = arg.substring("--tenant=".length());
       } else {
         throw new CliException("unknown flag: " + arg + "\n\n" + usage());
       }
@@ -82,13 +85,14 @@ public final class LogsCommand {
     }
 
     if (follow) {
-      runFollow(path, category, since, filter);
+      runFollow(path, category, since, tenant, filter);
     } else {
-      runOnce(path, category, since, filter);
+      runOnce(path, category, since, tenant, filter);
     }
   }
 
-  private void runOnce(String path, String category, String since, LogFilter filter) {
+  private void runOnce(
+      String path, String category, String since, String tenant, LogFilter filter) {
     // "since" here means "everything after this point" (LogFileReader.readAfter), a different
     // operation from the plain GET route's own "cursor" param ("page backward from here",
     // readOlder) -- passing --since as cursor would silently invert the result to "older than",
@@ -97,6 +101,7 @@ public final class LogsCommand {
     if (since != null) {
       query.append("&since=").append(since);
     }
+    appendTenant(query, tenant);
     appendFilter(query, filter);
     Map<String, Object> body = client.getObject(path + query);
     List<Map<String, Object>> lines = Json.asObjectList(body.get("lines"));
@@ -115,11 +120,13 @@ public final class LogsCommand {
     }
   }
 
-  private void runFollow(String path, String category, String since, LogFilter filter) {
+  private void runFollow(
+      String path, String category, String since, String tenant, LogFilter filter) {
     StringBuilder query = new StringBuilder("?category=").append(category).append("&follow=true");
     if (since != null) {
       query.append("&cursor=").append(since);
     }
+    appendTenant(query, tenant);
     appendFilter(query, filter);
     try (InputStream body = client.openStream(path + query);
         BufferedReader reader =
@@ -134,6 +141,21 @@ public final class LogsCommand {
       }
     } catch (IOException e) {
       throw new CliException("log stream ended: " + e.getMessage(), e);
+    }
+  }
+
+  /**
+   * {@code --tenant} disambiguates an {@code instance/<name>/<idx>} target the same way every other
+   * by-name workload command's {@code --tenant} flag does -- an omitted flag no longer means
+   * "search every tenant for this instance"; it lets the control plane fall back to its own
+   * same-name search across workload kinds (see {@code ApiServer#resolveInstanceLogsTenant}), which
+   * only ever resolves cleanly when exactly one tenant owns the name. A tenant id is never
+   * meaningful for {@code controlplane}/{@code node/<id>} targets, but forwarding it there anyway
+   * is harmless -- the server only consults it for an {@code instances/} tail.
+   */
+  private static void appendTenant(StringBuilder query, String tenant) {
+    if (tenant != null) {
+      query.append("&tenant=").append(URLEncoder.encode(tenant, StandardCharsets.UTF_8));
     }
   }
 
@@ -198,7 +220,7 @@ public final class LogsCommand {
   static String usage() {
     return """
         usage: gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
-                                   [--level=LEVEL] [--contains=TEXT]
+                                   [--level=LEVEL] [--contains=TEXT] [--tenant=<id>]
           target: controlplane | node/<nodeId> | instance/<deploymentName>/<instanceIndex>
           --category: APPLICATION|PLATFORM for instances, PLATFORM|SYSTEM for nodes/controlplane
                       (defaults to APPLICATION for instances, PLATFORM otherwise)
@@ -208,6 +230,9 @@ public final class LogsCommand {
                    ERROR; a line with no level (raw SYSTEM capture) is never kept by one
           --contains: keep only lines whose message, logger, stack trace or raw text contains
                       this text, case-insensitively (plain substring, not a regex)
+          --tenant: the tenant owning an instance target -- only meaningful for instance/<...>;
+                    omitted, the control plane resolves it by searching for the name itself, which
+                    fails if two tenants share it
           -o json: emit the structured log lines themselves -- one JSON array per request, or one
                    JSON object per line under --follow""";
   }
