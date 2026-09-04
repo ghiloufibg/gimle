@@ -219,7 +219,10 @@ compares the artifact's own bundled `gimle-module.yaml` identity against this ma
 `module: {name, version}` and rejects submission outright on a mismatch — a manifest bumped without
 rebuilding the jar (or a jar pushed to Andvari under the wrong coordinate) fails at `PUT` time with a
 400, not only later when a worker's install attempt nacks it. An artifact that can't be resolved yet
-is unaffected by this check. Its one field with enough shape to be worth a reference table here is
+is unaffected by this check. `tenantId` (optional on every workload kind, this one included) resolves
+to the reserved `default` tenant when omitted, exactly like an unset namespace on a Kubernetes pod —
+see [Multi-tenancy and quotas](../architecture/multi-tenancy.md) for the full contract. Its one field
+with enough shape to be worth a reference table here is
 `autoscale`, grounded directly in `DeploymentManifestParser.parseAutoscale`; omit the whole
 `autoscale:` block for a deployment with a fixed `replicas` count (the common case) and none of this
 applies.
@@ -395,7 +398,7 @@ module:
 artifactPath: /var/gimle/artifacts/cleanup-1.0.0.jar
 backoffLimit: 3               # optional -- defaults to 6, matching Kubernetes Job's own default
 activeDeadlineSeconds: 600     # optional -- omit for no wall-clock ceiling on total attempts
-tenantId: acme                 # optional -- omit for an untenanted job
+tenantId: acme                 # optional -- omit to resolve to the "default" tenant
 placement:                     # optional, same shape as a deployment manifest's own placement:
   antiAffinity: false
   requiredLabels: [gpu]
@@ -410,7 +413,7 @@ placement:                     # optional, same shape as a deployment manifest's
 | `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
 | `backoffLimit` | no | Maximum number of attempts before the job is marked permanently `FAILED`. Defaults to `6` (Kubernetes Job's own default) when omitted. |
 | `activeDeadlineSeconds` | no | Wall-clock ceiling across *every* attempt combined, not per-attempt — once exceeded the job is marked `FAILED` regardless of remaining `backoffLimit` headroom. Omit for no deadline. |
-| `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted job. |
+| `tenantId` | no | Same meaning as a deployment manifest's own field — omit it and this job resolves to the reserved `default` tenant, not a distinct untenanted state; see [Multi-tenancy and quotas](../architecture/multi-tenancy.md). |
 | `placement.antiAffinity` / `placement.requiredLabels` / `placement.priority` | no | Same `PlacementConstraints` shape a deployment manifest's own `placement:` block uses. `priority` is the PriorityClass analogue (integer, default `0`, higher wins) and is only consulted when the cluster is out of room — see [Priority and preemption](../architecture/control-plane.md#priority-and-preemption). |
 
 A job's `phase` (`RUNNING`/`SUCCEEDED`/`FAILED`) and its current attempt's own placement/health are
@@ -451,7 +454,8 @@ jobTemplate:
     requiredLabels: [gpu]
 startingDeadlineSeconds: 300    # optional -- omit for no missed-schedule cutoff
 concurrencyPolicy: Forbid       # optional -- Allow (default), Forbid, or Replace
-tenantId: acme                   # optional -- applied to every Job this CronJob generates
+tenantId: acme                   # optional -- applied to every Job this CronJob generates;
+                                  # omit to resolve to the "default" tenant
 successfulJobsHistoryLimit: 3   # optional -- defaults to 3, matching Kubernetes CronJob
 failedJobsHistoryLimit: 1       # optional -- defaults to 1, matching Kubernetes CronJob
 suspend: false                   # optional -- defaults to false; true pauses the schedule
@@ -470,7 +474,7 @@ suspend: false                   # optional -- defaults to false; true pauses th
 | `jobTemplate.placement.antiAffinity` / `.requiredLabels` | no | Same `PlacementConstraints` shape a Job/Deployment manifest's own `placement:` block uses. |
 | `startingDeadlineSeconds` | no | How late a firing may still be honored (after its own due instant) before it's logged as missed instead — matches Kubernetes CronJob's own missed-schedule handling. Omit for no cutoff. |
 | `concurrencyPolicy` | no | `Allow` (default), `Forbid` (skip this firing while the previous generated Job is still non-terminal), or `Replace` (remove the still-running Job first). Case-insensitive. |
-| `tenantId` | no | Applied to every Job this CronJob generates — omit for untenanted firings. |
+| `tenantId` | no | Applied to every Job this CronJob generates — omit it and each generated Job resolves to the reserved `default` tenant, not a distinct untenanted state; see [Multi-tenancy and quotas](../architecture/multi-tenancy.md). |
 | `successfulJobsHistoryLimit` | no | How many `SUCCEEDED` generated Jobs to keep, oldest-first pruned on every reconcile tick. Defaults to `3`, matching Kubernetes CronJob's own default. `0` keeps none. Independent of `concurrencyPolicy`, which only ever governs non-terminal jobs. |
 | `failedJobsHistoryLimit` | no | Same as `successfulJobsHistoryLimit`, for `FAILED` generated Jobs. Defaults to `1`, matching Kubernetes CronJob's own default. |
 | `suspend` | no | `true` pauses the schedule: no firing is materialized while it is set. Defaults to `false`. Matches Kubernetes CronJob's own field name and default. |
@@ -537,7 +541,7 @@ module:
 artifactPath: /var/gimle/artifacts/node-exporter-1.0.0.jar
 placement:                     # optional -- omit entirely to run on every eligible node
   requiredLabels: [gpu]
-tenantId: acme                 # optional -- omit for an untenanted daemonset
+tenantId: acme                 # optional -- omit to resolve to the "default" tenant
 tolerateAllTaints: false       # optional, defaults to false -- see below
 disruption:                    # optional -- see the Deployment manifest's own disruption section
   maxUnavailable: 2
@@ -553,7 +557,7 @@ disruption:                    # optional -- see the Deployment manifest's own d
 | `placement.requiredLabels` | no | Same label-matching semantics as a Deployment/Job manifest's own field — a node missing even one required label is excluded. Omit for "every eligible node." |
 | `placement.priority` | no | Same PriorityClass-analogue meaning as a Deployment's own field. A DaemonSet instance is never itself a preemption victim — it exists precisely because its node does. |
 | `placement.antiAffinity` | rejected if present | Not a valid field on this manifest kind — `DaemonSetManifestParser` throws if the YAML sets it, rather than silently ignoring it. |
-| `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted daemonset. |
+| `tenantId` | no | Same meaning as a deployment manifest's own field — omit it and this daemonset resolves to the reserved `default` tenant, not a distinct untenanted state; see [Multi-tenancy and quotas](../architecture/multi-tenancy.md). |
 | `tolerateAllTaints` | no | Defaults to `false`. Set `true` to skip the node-taint filter entirely for this DaemonSet, reaching every eligible node regardless of tenant reservation — see above. |
 | `disruption.maxUnavailable` | no | Same meaning as the [Deployment manifest's own field](#deployment-manifest-disruption) — how many nodes may be mid-rollout at once. Defaults to `1`. |
 | `disruption.maxSurge` | rejected if nonzero | Permanently meaningless here, even though it's now implemented for Deployment — one instance per node is already the strongest guarantee a surge could offer. `DaemonSetManifestParser` rejects a nonzero value outright, the same posture it takes for `placement.antiAffinity`. |
@@ -593,7 +597,7 @@ replicas: 3
 placement:                     # optional, same shape as a Deployment manifest's own placement:
   antiAffinity: true
   requiredLabels: [ssd]
-tenantId: acme                 # optional -- omit for an untenanted statefulset
+tenantId: acme                 # optional -- omit to resolve to the "default" tenant
 ```
 
 | Field | Required | Meaning |
@@ -605,7 +609,7 @@ tenantId: acme                 # optional -- omit for an untenanted statefulset
 | `artifactPath` | no | Path to the module's jar, same convention as a deployment manifest's own field -- omit it entirely to resolve `module: {name, version}` from the Andvari artifact registry instead. Deprecated: rejected outright under `apiVersion: v1`, and a warning under the default `v1alpha1` -- see [Manifest versioning](#manifest-versioning-apiversion). |
 | `replicas` | yes | The index space is `0..replicas-1`. Unlike Deployment, never autoscaler-managed. |
 | `placement.antiAffinity` / `placement.requiredLabels` / `placement.priority` | no | Same `PlacementConstraints` shape a Deployment/Job manifest's own `placement:` block uses. |
-| `tenantId` | no | Same meaning as a deployment manifest's own field — omit for an untenanted statefulset. |
+| `tenantId` | no | Same meaning as a deployment manifest's own field — omit it and this statefulset resolves to the reserved `default` tenant, not a distinct untenanted state; see [Multi-tenancy and quotas](../architecture/multi-tenancy.md). |
 
 Deliberately does **not** carry its own `volume:` field — persistent storage is declared once, on
 the module's own `gimle-module.yaml` (see the [`volume.sizeBytes`/`.reclaimPolicy` fields
