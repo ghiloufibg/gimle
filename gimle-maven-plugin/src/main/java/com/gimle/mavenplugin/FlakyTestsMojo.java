@@ -63,9 +63,7 @@ public final class FlakyTestsMojo extends AbstractGimleRootMojo {
                     + String.join(" ", command));
         int exitCode =
             GimleProcesses.startAndAwaitExit(
-                command,
-                project.getBasedir().toPath(),
-                "flaky-tests-" + module + "-repeat" + attempt);
+                command, reactorRoot(), "flaky-tests-" + module + "-repeat" + attempt);
         if (exitCode != 0) {
           throw new MojoFailureException(
               "flaky tests in "

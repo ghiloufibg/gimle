@@ -15,7 +15,11 @@ import org.junit.jupiter.api.Test;
  * own inputs, split out into {@link FlakyTestsMojo#parseModules}, {@link
  * FlakyTestsMojo#buildCommand}, and {@link FlakyTestsMojo#requirePositiveRepeat} specifically so
  * they can be asserted here without any of that machinery -- the same seam {@code DoctorMojoTest}
- * exercises for {@link DoctorMojo}.
+ * exercises for {@link DoctorMojo}. The working directory each built command actually spawns in (a
+ * real bug: it used to be the orchestration project's own basedir, not the reactor root a spawned
+ * child's own {@code -pl <module>} needs to resolve against) is {@link
+ * AbstractGimleRootMojo#reactorRoot()}, exercised directly in {@code AbstractGimleRootMojoTest}
+ * rather than here.
  */
 class FlakyTestsMojoTest {
 
