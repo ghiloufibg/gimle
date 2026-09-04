@@ -919,6 +919,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Cluster designer backend / Internal-Infra | Complete | Yes |
 | GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | Complete | Yes |
 | GIMLE-909 | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Complete | Manual |
+| GIMLE-910 | Ivaldi web console: blueprint designer canvas | Developer tooling / Internal-Infra | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -13902,4 +13903,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report.
+  ```
+
+### gimle-ivaldi-console
+
+#### GIMLE-910 — Ivaldi web console: blueprint designer canvas
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a developer or operator, I want a drag-and-drop canvas to design a local Gimlé cluster topology and its application, see tier-1 and tier-2 validation problems live, and save/list/duplicate/import/export the design as a Blueprint, served at /console the same way every other Gimlé process bundles its own console.
+- **Status**: Blueprint list, Designer canvas, Inspector, Problems/Files drawers, tier-1 (client-side rules.ts) and tier-2 (POST /api/validate) validation, zip export/import, and cluster-connection targeting for mTLS (client cert/key, never a password) are implemented and wired to the real gimle-ivaldi backend for everything it serves today (blueprint CRUD, tier-2 validate). Running a Blueprint against a cluster and persisting cluster connections server-side remain client-side stand-ins (MockRunnerClient, LocalStorageClustersRepository) pending the /api/runs and /api/clusters backend surfaces, which do not exist yet.
+- **Confidence**: High
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`, `gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`, `gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`, `gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`
+- **Test coverage**: `rules.test.ts`, `render.test.ts` (structural assertions against the bundled samples), `units.test.ts`, `ports.test.ts` -- pure module coverage; `httpBlueprints.test.ts` -- the real backend repository against a fake fetch; `useBlueprintsListStore.test.ts` -- error surfacing on a failed list() call
+- **Gherkin scenario**:
+  ```gherkin
+  Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors.
+  Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh.
   ```

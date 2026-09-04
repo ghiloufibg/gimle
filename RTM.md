@@ -924,6 +924,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | New | Not Covered | — |
 | GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | New | Not Covered | — |
 | GIMLE-909 | Ivaldi ships as a distribution archive (standalone and platform-bundled) | New | Not Covered | — |
+| GIMLE-910 | Ivaldi web console: blueprint designer canvas | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -9498,11 +9499,22 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: `FileSetValidatorTest.java` -- 18 cases spanning topology/manifest/service/networkpolicy/bundle validation, including the apiVersion v1 artifactPath rejection and the v1alpha1 local-path deprecation warning; `IvaldiServerTest.java#validate_runs_the_real_topology_validator_against_rendered_yaml`
 - **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/validate/FileSetValidator.java`, `IvaldiServer#handleValidate`
 
+### gimle-ivaldi-console
+
+#### GIMLE-910 — Ivaldi web console: blueprint designer canvas
+
+- **Category**: Developer tooling / Internal-Infra
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario drives the console's browser UI; covered instead by this module's own Vitest suite (pure-module and repository tests).
+- **Other test coverage (non-Holmgang, informational only)**: `rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts` in gimle-ivaldi-console's own Vitest suite
+- **Source location(s)**: `gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`, `gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`, `gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`, `gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`
+
 ## Coverage Gaps — Release-Readiness Checklist
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**779 of 909 requirements are Not Covered.**
+**780 of 910 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -9707,6 +9719,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-663 | gimle-cli | CLI custom-kind surface: gimle kinds, declared-name noun resolution, apply fallthrough with bounded 409 retry, printColumns tables | Custom Kinds (Galdr) | `CustomResourceCommandTest` (gimle-cli), `GimleCliTest` (qualifier round-trip) |
 | GIMLE-664 | gimle-console | Console Custom Resources screen: kind picker, printColumns instance table, spec/status detail pane with the generation/observedGeneration signal | Custom Kinds (Galdr) | gimle-console Vitest suites (Mock/Http repository, store, path-resolver tests) |
 | GIMLE-908 | gimle-maven-plugin | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | `IvaldiServerTest.java` (gimle-maven-plugin) -- reuse-vs-spawn decision against a stub HTTP server, spawn timeout, spawned-process-dies-early; `IvaldiClientTest.java` -- health check and shutdown against a stub server |
+| GIMLE-910 | gimle-ivaldi-console | Ivaldi web console: blueprint designer canvas | Developer tooling / Internal-Infra | `rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts` in gimle-ivaldi-console's own Vitest suite |
 | GIMLE-642 | gimle-dist | Standalone Ragnarok distribution archive | Distribution | Manual smoke test of the extracted archive |
 | GIMLE-812 | gimle-hugin | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test. |
 | GIMLE-909 | gimle-dist | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Manual verification this change: built both archive variants, extracted, ran bin/ivaldi with no JAVA_HOME against the bundled JRE, exercised /api/health, blueprint CRUD, and /api/validate against a real topology. |

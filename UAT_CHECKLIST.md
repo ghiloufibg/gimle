@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 908
+- **Total requirements**: 909
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 778
+- **Not covered by automated test**: 779
 - **Release-readiness (automated coverage)**: 14.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -44,6 +44,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
 | gimle-ivaldi | 2 | 0 | 2 | 0.0% |
+| gimle-ivaldi-console | 1 | 0 | 1 | 0.0% |
 
 ## Checklist
 
@@ -2546,3 +2547,11 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-906 | Blueprint document storage API | Given a blueprint document named "orders-platform-local", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent. | No |
 | [ ] | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report. | No |
+
+### gimle-ivaldi-console
+
+#### Developer tooling / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-910 | Ivaldi web console: blueprint designer canvas | Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors. Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh. | No |

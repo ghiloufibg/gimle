@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 908,
+    "totalRequirements": 909,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 778,
+    "notCoveredByAutomatedTest": 779,
     "releaseReadinessPercent": 14.3
   },
   "items": [
@@ -9990,6 +9990,17 @@
       "category": "Distribution / Internal-Infra",
       "feature": "Ivaldi ships as a distribution archive (standalone and platform-bundled)",
       "step": "Given a freshly unpacked gimle-ivaldi-<version>.tar.gz built with -P dist-with-jre and no JAVA_HOME set, When I run ./bin/ivaldi, Then it launches against its own bundled jre/ivaldi/bin/java and answers GET /api/health.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-910",
+      "module": "gimle-ivaldi-console",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Ivaldi web console: blueprint designer canvas",
+      "step": "Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors. Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

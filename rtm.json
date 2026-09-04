@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 909,
+  "requirementCount": 910,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15709,6 +15709,24 @@
         "`ivaldi-with-jre.xml`",
         "`gimle-dist/src/main/dist/bin/ivaldi`",
         "`ivaldi.cmd`"
+      ]
+    },
+    {
+      "id": "GIMLE-910",
+      "module": "gimle-ivaldi-console",
+      "feature": "Ivaldi web console: blueprint designer canvas",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario drives the console's browser UI; covered instead by this module's own Vitest suite (pure-module and repository tests).",
+      "otherTestCoverage": "`rules.test.ts`, `render.test.ts`, `units.test.ts`, `ports.test.ts`, `httpBlueprints.test.ts`, `useBlueprintsListStore.test.ts` in gimle-ivaldi-console's own Vitest suite",
+      "sourceLocations": [
+        "`gimle-ivaldi-console/src/lib/{blueprint,rules,render,units,ports}.ts`",
+        "`gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`",
+        "`gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`",
+        "`gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`"
       ]
     }
   ]
