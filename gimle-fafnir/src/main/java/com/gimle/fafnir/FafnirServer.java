@@ -342,6 +342,8 @@ public final class FafnirServer implements AutoCloseable {
    * that upstream check alone. This route is an ordinary {@code HttpExchange} context reachable by
    * anyone who can open a connection to this port directly (a node agent, or a compromised one), so
    * "authorized upstream by the proxy" was never actually enforced here before this check existed.
+   * The audit entry is recorded here, not inside {@link #authorizeGlobalSecretsAdmin} -- it names
+   * the new active key id, which doesn't exist until {@link FafnirCrypto#rotate} has actually run.
    */
   private void handleRotateKey(HttpExchange exchange) {
     try {
@@ -349,10 +351,19 @@ public final class FafnirServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      if (!authorizeGlobalSecretsAdmin(exchange, Verb.WRITE)) {
+      if (!authorizeGlobalSecretsAdmin(exchange, Verb.WRITE, true)) {
         return;
       }
       byte newKeyId = crypto.rotate();
+      recordAudit(
+          ResourceKind.SECRETS_KEY,
+          auditPrincipal(exchange),
+          Verb.WRITE,
+          Optional.empty(),
+          Optional.of(Integer.toString(Byte.toUnsignedInt(newKeyId))),
+          true,
+          AuditOutcome.APPLIED,
+          OptionalInt.empty());
       respondJson(exchange, 200, Map.of("activeKeyId", Byte.toUnsignedInt(newKeyId)));
     } catch (IOException | RuntimeException e) {
       log.warn("secrets key rotation failed: {}", e.getMessage());
@@ -363,15 +374,23 @@ public final class FafnirServer implements AutoCloseable {
   }
 
   /**
-   * Sibling of {@link #handleRotateKey}, same {@link #authorizeGlobalSecretsAdmin} gate: {@code
-   * keyId} is a caller-named id to actually stop trusting, not a value Fafnir chooses itself, so a
-   * bad id or a request naming the still-active key surfaces as 400, distinct from a genuine
-   * internal error -- but only for a caller who has already cleared the same cluster-wide {@code
-   * SECRET}/{@code WRITE} check {@link #handleRotateKey} requires. {@link FafnirCrypto#retire} is
-   * explicitly destructive (any ciphertext still encrypted under the retired id becomes permanently
+   * Sibling of {@link #handleRotateKey}: same {@link #authorizeGlobalSecretsAdmin} gate, checked
+   * against {@link Verb#DELETE} rather than {@link Verb#WRITE} -- retiring a key is the destructive
+   * counterpart to minting one, not a write, matching {@link Verb}'s own read/write/delete split.
+   * {@code keyId} is a caller-named id to actually stop trusting, not a value Fafnir chooses
+   * itself, so a bad id or a request naming the still-active key surfaces as 400, distinct from a
+   * genuine internal error -- but only for a caller who has already cleared the cluster-wide {@code
+   * SECRET}/{@code DELETE} check this route requires. {@link FafnirCrypto#retire} is explicitly
+   * destructive (any ciphertext still encrypted under the retired id becomes permanently
    * unrecoverable), which is exactly why leaving this route reachable by anyone who could open a
    * connection here -- no authentication, let alone authorization -- was a real
-   * denial-of-service/data-loss primitive, not a theoretical one.
+   * denial-of-service/data-loss primitive, not a theoretical one. The audit entry, like {@link
+   * #handleRotateKey}'s own, is recorded here rather than inside {@link
+   * #authorizeGlobalSecretsAdmin}: a successful retirement names the id actually retired, and a
+   * retirement {@link FafnirCrypto#retire} itself rejects (an unknown or still-active id) is
+   * recorded as {@link AuditOutcome#REJECTED} rather than silently vanishing from the trail, the
+   * same "an authorized request can still fail" posture {@link #handlePutSecret} already
+   * establishes.
    */
   private void handleRetireSecretsKey(HttpExchange exchange) {
     try {
@@ -379,11 +398,34 @@ public final class FafnirServer implements AutoCloseable {
         respond(exchange, 405, "method not allowed");
         return;
       }
-      if (!authorizeGlobalSecretsAdmin(exchange, Verb.WRITE)) {
+      if (!authorizeGlobalSecretsAdmin(exchange, Verb.DELETE, true)) {
         return;
       }
       byte keyId = parseKeyIdBody(exchange);
-      byte retired = crypto.retire(keyId);
+      byte retired;
+      try {
+        retired = crypto.retire(keyId);
+      } catch (RuntimeException e) {
+        recordAudit(
+            ResourceKind.SECRETS_KEY,
+            auditPrincipal(exchange),
+            Verb.DELETE,
+            Optional.empty(),
+            Optional.of(Integer.toString(Byte.toUnsignedInt(keyId))),
+            true,
+            AuditOutcome.REJECTED,
+            OptionalInt.empty());
+        throw e;
+      }
+      recordAudit(
+          ResourceKind.SECRETS_KEY,
+          auditPrincipal(exchange),
+          Verb.DELETE,
+          Optional.empty(),
+          Optional.of(Integer.toString(Byte.toUnsignedInt(retired))),
+          true,
+          AuditOutcome.APPLIED,
+          OptionalInt.empty());
       respondJson(exchange, 200, Map.of("retiredKeyId", Byte.toUnsignedInt(retired)));
     } catch (GimleSecretsException | IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
@@ -580,8 +622,11 @@ public final class FafnirServer implements AutoCloseable {
             respond(exchange, 400, "key is reserved for a SecretMap; use /secretmaps/* instead");
             return;
           }
+          // Audits deferred to the handler: a soft delete and a hard destroy (?destroy=true) both
+          // authorize under the same Verb.DELETE, but only the handler knows which one this
+          // request actually was -- and the trail must tell them apart (see #handleDeleteSecret).
           if (authorizeSecrets(
-              exchange, ResourceKind.SECRET, Verb.DELETE, tenantId, Optional.of(key))) {
+              exchange, ResourceKind.SECRET, Verb.DELETE, tenantId, Optional.of(key), true)) {
             handleDeleteSecret(exchange, tenantId, key);
           }
         }
@@ -721,6 +766,16 @@ public final class FafnirServer implements AutoCloseable {
     return map;
   }
 
+  /**
+   * The one delete-shaped handler that records its own audit entry rather than leaving it to {@link
+   * #authorizeSecrets} (see the {@code DELETE} case in {@link #handleSecrets} for why): a soft
+   * delete and a hard destroy ({@code ?destroy=true}) both authorize under the identical {@link
+   * Verb#DELETE}, but only this method knows which one actually happened, and the trail must not
+   * record an irreversible hard destroy as indistinguishable from a recoverable soft delete. A soft
+   * delete is recorded with {@link AuditOutcome#APPLIED}, the same outcome every other successful
+   * mutation here uses; a hard destroy is recorded with {@link AuditOutcome#DESTROYED} instead --
+   * the one operation this trail marks as genuinely irreversible.
+   */
   private void handleDeleteSecret(HttpExchange exchange, String tenantId, String key)
       throws IOException {
     // Idempotent, matching every other resource kind's own delete-of-a-never-existed-name
@@ -732,6 +787,15 @@ public final class FafnirServer implements AutoCloseable {
     } else {
       secretStore.softDelete(tenantId, key);
     }
+    recordAudit(
+        ResourceKind.SECRET,
+        auditPrincipal(exchange),
+        Verb.DELETE,
+        Optional.of(tenantId),
+        Optional.of(key),
+        true,
+        destroy ? AuditOutcome.DESTROYED : AuditOutcome.APPLIED,
+        OptionalInt.empty());
     respond(exchange, 200, "ok");
   }
 
@@ -1277,17 +1341,36 @@ public final class FafnirServer implements AutoCloseable {
    * gimle:nodes} principal has no legitimate self-service reason to rotate or retire the cluster's
    * secrets key the way it does to read its own tenant's secrets, so it is denied here exactly like
    * any other caller with no matching grant, rather than routed through the node self-service
-   * short-circuit {@link #decideAllowed} exists for.
+   * short-circuit {@link #decideAllowed} exists for. The permission actually required is still the
+   * unscoped {@code SECRET}/{@code verb} grant checked below -- rotating or retiring the key ring
+   * is not its own grantable permission today -- but every recorded {@link AuditEvent} names {@link
+   * ResourceKind#SECRETS_KEY}, not {@code SECRET}, so the trail can tell a key-ring admin action
+   * apart from an ordinary tenant secret write at a glance.
    */
   private boolean authorizeGlobalSecretsAdmin(HttpExchange exchange, Verb verb) {
+    return authorizeGlobalSecretsAdmin(exchange, verb, false);
+  }
+
+  /**
+   * As above, with {@code deferAllowAudit} for the one caller whose audit entry can't be written
+   * here: {@link #handleRotateKey} and {@link #handleRetireSecretsKey} both name the key id their
+   * operation actually touched (the newly-active id, the retired id), which isn't known until the
+   * operation itself has run. Only the allow path is deferred -- a denial has no key id to wait for
+   * and is always recorded here, mirroring {@link #authorizeSecrets}'s own {@code deferAllowAudit}
+   * contract exactly.
+   */
+  private boolean authorizeGlobalSecretsAdmin(
+      HttpExchange exchange, Verb verb, boolean deferAllowAudit) {
     if (!(exchange instanceof HttpsExchange)) {
-      recordAudit(
-          ResourceKind.SECRET,
-          new Principal("anonymous", Set.of()),
-          verb,
-          Optional.empty(),
-          Optional.empty(),
-          true);
+      if (!deferAllowAudit) {
+        recordAudit(
+            ResourceKind.SECRETS_KEY,
+            new Principal("anonymous", Set.of()),
+            verb,
+            Optional.empty(),
+            Optional.empty(),
+            true);
+      }
       return true;
     }
     Optional<Principal> resolved = resolvePrincipal(exchange);
@@ -1305,7 +1388,10 @@ public final class FafnirServer implements AutoCloseable {
     boolean allowed =
         authorizer.authorize(
             principal, ResourceKind.SECRET, verb, Optional.empty(), Optional.empty());
-    recordAudit(ResourceKind.SECRET, principal, verb, Optional.empty(), Optional.empty(), allowed);
+    if (!allowed || !deferAllowAudit) {
+      recordAudit(
+          ResourceKind.SECRETS_KEY, principal, verb, Optional.empty(), Optional.empty(), allowed);
+    }
     if (!allowed) {
       authzThrottle.recordFailure(throttleKey);
       metrics.recordAuthzFailure(verb.name());

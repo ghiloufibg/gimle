@@ -9,6 +9,10 @@ import com.gimle.core.authz.RoleBinding;
 import com.gimle.core.authz.Verb;
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
+import com.gimle.core.protocol.AuditEvent;
+import com.gimle.core.protocol.AuditOutcome;
+import com.gimle.core.tenant.ResourceQuota;
+import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.SslContexts;
 import com.gimle.fafnir.testsupport.InProcessStore;
 import com.gimle.fafnir.testsupport.TlsTestFixtures;
@@ -25,6 +29,8 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.cert.X509Certificate;
+import java.util.Base64;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -656,6 +662,123 @@ class FafnirSecretsAuthzTest {
     }
   }
 
+  // ---- soft-delete vs. hard destroy (?destroy=true) audit distinctness (GIMLE-693) ----
+  //
+  // A soft delete and a hard destroy both authorize under the identical Verb.DELETE, but only a
+  // hard destroy is irreversible -- the trail must be able to tell them apart, and a subsequent
+  // access attempt against a destroyed key must still show up as an ordinary audited access.
+
+  @Test
+  @Timeout(10)
+  void a_soft_delete_is_recorded_in_the_durable_audit_trail_as_applied() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      inProcessStore.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+        String secretUrl = "https://localhost:" + server.port() + "/secrets/acme/db-password";
+        putSecret(client, secretUrl, "hunter2");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(URI.create(secretUrl)).DELETE().build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(200, response.statusCode());
+
+        AuditEvent deleteEvent = onlyEventWithVerb(inProcessStore.store(), "SECRET", "DELETE");
+        assertEquals("caller", deleteEvent.principal());
+        assertEquals(Optional.of("db-password"), deleteEvent.targetId());
+        assertEquals(true, deleteEvent.allowed());
+        assertEquals(AuditOutcome.APPLIED, deleteEvent.outcome());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_hard_destroy_is_recorded_in_the_durable_audit_trail_as_destroyed() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      inProcessStore.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+        String secretUrl = "https://localhost:" + server.port() + "/secrets/acme/db-password";
+        putSecret(client, secretUrl, "hunter2");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(URI.create(secretUrl + "?destroy=true")).DELETE().build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(200, response.statusCode());
+
+        AuditEvent destroyEvent = onlyEventWithVerb(inProcessStore.store(), "SECRET", "DELETE");
+        assertEquals("caller", destroyEvent.principal());
+        assertEquals(Optional.of("db-password"), destroyEvent.targetId());
+        assertEquals(true, destroyEvent.allowed());
+        assertEquals(AuditOutcome.DESTROYED, destroyEvent.outcome());
+      }
+    }
+  }
+
+  /**
+   * The one follow-up check the QA report specifically called out: a request against a key that was
+   * just hard-destroyed must not silently vanish from the trail -- it is audited exactly like any
+   * other now-failing, not-found access, since the authorization decision (and its own audit entry)
+   * happens before {@link FafnirServer} ever looks at whether the key still has data.
+   */
+  @Test
+  @Timeout(10)
+  void a_read_after_a_hard_destroy_is_still_audited_as_a_not_found_access() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      inProcessStore.store().putTenant(new Tenant("acme", new ResourceQuota(1, 1, 1)));
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+        String secretUrl = "https://localhost:" + server.port() + "/secrets/acme/db-password";
+        putSecret(client, secretUrl, "hunter2");
+        client.send(
+            HttpRequest.newBuilder(URI.create(secretUrl + "?destroy=true")).DELETE().build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        HttpResponse<String> getResponse =
+            client.send(
+                HttpRequest.newBuilder(URI.create(secretUrl)).GET().build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(404, getResponse.statusCode());
+
+        HttpResponse<String> putResponse = putSecret(client, secretUrl, "hunter3");
+        assertEquals(200, putResponse.statusCode());
+
+        AuditEvent readEvent = onlyEventWithVerb(inProcessStore.store(), "SECRET", "READ");
+        assertEquals("caller", readEvent.principal());
+        assertEquals(Optional.of("db-password"), readEvent.targetId());
+        assertEquals(true, readEvent.allowed());
+        assertEquals(AuditOutcome.APPLIED, readEvent.outcome());
+
+        List<AuditEvent> writeEvents = eventsWithVerb(inProcessStore.store(), "SECRET", "WRITE");
+        assertEquals(2, writeEvents.size());
+      }
+    }
+  }
+
   // ---- /secrets/rotate-key, /secrets/retire-key (GIMLE-692) ----
   //
   // Both routes are cluster-wide, non-tenant-scoped admin operations -- FafnirServer's own
@@ -790,6 +913,112 @@ class FafnirSecretsAuthzTest {
   }
 
   /**
+   * The gap the QA report flagged directly: neither rotate nor retire ever showed up in the audit
+   * trail, because both were recorded under the generic, tenant-scoped {@code SECRET} kind
+   * indistinguishable from an ordinary secret write -- worse, both routes recorded {@code WRITE}
+   * even though retirement is the destructive counterpart to rotation, not a write. Both now land
+   * under {@link ResourceKind#SECRETS_KEY}, with distinct verbs, and each entry names the key id
+   * its own operation actually touched.
+   */
+  @Test
+  @Timeout(10)
+  void a_successful_rotate_key_request_is_recorded_in_the_durable_audit_trail() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/rotate-key"))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(200, response.statusCode());
+
+        List<AuditEvent> events =
+            inProcessStore
+                .store()
+                .listAuditEvents(
+                    Optional.empty(),
+                    Optional.of("SECRETS_KEY"),
+                    Optional.empty(),
+                    Optional.empty());
+        assertEquals(1, events.size());
+        assertEquals("caller", events.get(0).principal());
+        assertEquals("WRITE", events.get(0).verb());
+        assertEquals(Optional.empty(), events.get(0).tenantId());
+        assertEquals(Optional.of("1"), events.get(0).targetId());
+        assertEquals(true, events.get(0).allowed());
+        assertEquals(AuditOutcome.APPLIED, events.get(0).outcome());
+      }
+    }
+  }
+
+  @Test
+  @Timeout(10)
+  void a_successful_retire_key_request_is_recorded_in_the_durable_audit_trail() throws Exception {
+    CertificateAuthority ca = TlsTestFixtures.selfSignedCa();
+    tls.configureServerTls(ca);
+
+    try (InProcessStore inProcessStore = InProcessStore.start(tempDir.resolve("store"))) {
+      grantSecretReadAndWrite(inProcessStore.store(), "caller");
+      FafnirCrypto crypto =
+          new FafnirCrypto(inProcessStore.client(), tempDir.resolve("keys/secret.key"));
+      try (FafnirServer server = new FafnirServer(crypto, 0)) {
+        server.start();
+        HttpClient client = tls.clientWithLeaf(ca, "caller");
+        String rotateUrl = "https://localhost:" + server.port() + "/secrets/rotate-key";
+        client.send(
+            HttpRequest.newBuilder(URI.create(rotateUrl))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        client.send(
+            HttpRequest.newBuilder(URI.create(rotateUrl))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build(),
+            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        HttpResponse<String> response =
+            client.send(
+                HttpRequest.newBuilder(
+                        URI.create("https://localhost:" + server.port() + "/secrets/retire-key"))
+                    .POST(HttpRequest.BodyPublishers.ofString("{\"keyId\":1}"))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertEquals(200, response.statusCode());
+
+        List<AuditEvent> events =
+            inProcessStore
+                .store()
+                .listAuditEvents(
+                    Optional.empty(),
+                    Optional.of("SECRETS_KEY"),
+                    Optional.empty(),
+                    Optional.empty());
+        // Two WRITE entries from the two rotations above, plus this retirement's own DELETE --
+        // rotate and retire are now distinguishable by verb within the same resource kind.
+        assertEquals(3, events.size());
+        AuditEvent retireEvent =
+            events.stream().filter(e -> "DELETE".equals(e.verb())).findFirst().orElseThrow();
+        assertEquals("caller", retireEvent.principal());
+        assertEquals(Optional.empty(), retireEvent.tenantId());
+        assertEquals(Optional.of("1"), retireEvent.targetId());
+        assertEquals(true, retireEvent.allowed());
+        assertEquals(AuditOutcome.APPLIED, retireEvent.outcome());
+      }
+    }
+  }
+
+  /**
    * The scenario distinct from "authenticated but not permitted": a caller that never identifies
    * itself at all -- no client certificate presented (Fafnir's server socket only ever {@code
    * wantClientAuth}s, never {@code needClientAuth}s, so the handshake itself still completes), no
@@ -894,5 +1123,41 @@ class FafnirSecretsAuthzTest {
                 Permission.unscoped(ResourceKind.SECRET, Verb.DELETE))));
     store.putRoleBinding(
         new RoleBinding("b-" + username, RoleBinding.userSubject(username), "secret-rw"));
+  }
+
+  /** Writes {@code plaintext} to {@code secretUrl} as an opaque secret, over {@code client}. */
+  private static HttpResponse<String> putSecret(
+      HttpClient client, String secretUrl, String plaintext) throws Exception {
+    String body =
+        "{\"value\":\""
+            + Base64.getEncoder().encodeToString(plaintext.getBytes(StandardCharsets.UTF_8))
+            + "\"}";
+    return client.send(
+        HttpRequest.newBuilder(URI.create(secretUrl))
+            .PUT(HttpRequest.BodyPublishers.ofString(body))
+            .build(),
+        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+  }
+
+  /**
+   * Every durable audit entry under {@code resourceKind} whose own {@code verb} is {@code verb}.
+   */
+  private static List<AuditEvent> eventsWithVerb(
+      StateStore store, String resourceKind, String verb) {
+    return store
+        .listAuditEvents(
+            Optional.empty(), Optional.of(resourceKind), Optional.empty(), Optional.empty())
+        .stream()
+        .filter(e -> verb.equals(e.verb()))
+        .toList();
+  }
+
+  /**
+   * {@link #eventsWithVerb}, asserting exactly one match -- the common case in this file's tests.
+   */
+  private static AuditEvent onlyEventWithVerb(StateStore store, String resourceKind, String verb) {
+    List<AuditEvent> matches = eventsWithVerb(store, resourceKind, verb);
+    assertEquals(1, matches.size());
+    return matches.get(0);
   }
 }

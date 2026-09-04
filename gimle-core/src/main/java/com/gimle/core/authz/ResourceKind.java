@@ -101,5 +101,13 @@ public enum ResourceKind {
   // that, once crossed, posts to an operator-declared webhook. Tenant-scopable like DEPLOYMENT: a
   // tenant able to deploy a workload should also be able to alert on it without needing a
   // cluster-admin grant, the same reasoning CONFIG/LOGS already establish for tenant-scoped kinds.
-  ALERT_RULE
+  ALERT_RULE,
+  // Names Fafnir's own cluster-wide secrets master key ring rotate/retire operations in the audit
+  // trail -- distinct from SECRET (which guards an individual tenant's own secret values) since a
+  // key-ring lifecycle change is a cluster-wide administrative action with no tenant of its own,
+  // not one tenant's data. Not itself a grantable permission kind: Fafnir's own
+  // authorizeGlobalSecretsAdmin still authorizes rotate/retire against the unscoped SECRET grant;
+  // this value only ever appears as the resourceKind an AuditEvent for one of those two operations
+  // is recorded under, so the trail can tell a key-ring change apart from an ordinary secret write.
+  SECRETS_KEY
 }
