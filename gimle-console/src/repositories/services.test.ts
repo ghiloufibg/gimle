@@ -21,6 +21,16 @@ describe("MockServicesRepository", () => {
     expect(ep.port).toBe(9090);
   });
 
+  it("save resolves to null -- the mock does no overlap-advisory computation of its own", async () => {
+    const warning = await repo.save({
+      name: "another-tmp-svc",
+      deploymentNames: ["tmp-deployment"],
+      port: 4321,
+    });
+    expect(warning).toBeNull();
+    await repo.remove("another-tmp-svc");
+  });
+
   it("creates, replaces and deletes", async () => {
     await repo.save({
       name: "tmp-svc",

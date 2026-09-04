@@ -41,4 +41,15 @@ describe("MockInstancesRepository", () => {
     const found = await repo.fetchOne(target.deploymentName, target.instanceIndex);
     expect(found).toEqual(target);
   });
+
+  it("every row carries its isolationTier and resourceLimit, not just usage", async () => {
+    const everything = await repo.fetchPage({ cursor: null, pageSize: 10000 });
+    for (const row of everything.items) {
+      expect(row.isolationTier).toMatch(/^TIER_[123]$/);
+      expect(row.resourceLimit).toEqual({
+        memory: expect.stringMatching(/^\d+Mi$/),
+        cpu: expect.stringMatching(/^\d+m$/),
+      });
+    }
+  });
 });

@@ -38,6 +38,8 @@ function flatten(): ModuleInstance[] {
         cpuMillicoresUsed: inst.observation.cpuMillicoresUsed,
         memoryBytesUsed: inst.observation.memoryBytesUsed,
         workerId: inst.observation.workerId,
+        isolationTier: inst.observation.isolationTier,
+        resourceLimit: inst.observation.resourceLimit,
       });
     }
   }

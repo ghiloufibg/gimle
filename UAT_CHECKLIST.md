@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 800
+- **Total requirements**: 803
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 673
-- **Release-readiness (automated coverage)**: 15.9%
+- **Not covered by automated test**: 676
+- **Release-readiness (automated coverage)**: 15.8%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 41 | 0 | 41 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 54 | 0 | 54 | 0.0% |
+| gimle-console | 57 | 0 | 57 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -153,7 +153,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-032 | Instance lifecycle event log model | Given a TRANSITION_FAILED event, When constructed, Then it carries a non-empty causeSummary alongside a stable id. | No |
 | [ ] | GIMLE-737 | Logs can be filtered by level threshold and text at the reader, on every surface | Given a log containing lines at several levels When it is read with a level threshold of WARN and a text filter Then only matching WARN and ERROR lines are returned And the same query against a gone node's shipped history returns the same lines And a query matching nothing reports that rather than returning silence | No |
-| [ ] | GIMLE-779 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling | No |
+| [ ] | GIMLE-779 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling Given the console's deployment Instances table and instance detail page read that same observation, When either screen renders, Then it shows the usage figure as "used / limit" alongside the instance's isolation tier, not a bare usage number with no ceiling to judge it against. | No |
 
 #### Observability / Logging
 
@@ -2053,6 +2053,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it | No |
 | [ ] | GIMLE-778 | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no entry for it in the group its catalog entry names | No |
 | [ ] | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Given a Deployment whose replicas are all placed but one instance is FAILED When I open the Applications screen Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node Given a Deployment placing 1 of 2 desired replicas, that one healthy Then it reads Progressing on health and OutOfSync on sync Given a Job that has SUCCEEDED Then it reads Healthy, because a Job's desired state is having run Given a CronJob whose newest generated Job FAILED Then it reads Degraded, naming that Job Given a custom resource whose status reports an observedGeneration behind its generation Then it reads Progressing and OutOfSync, naming both generations Given a control plane whose consoleAddons property does not name this addon Then the sidebar carries no Applications entry and its route explains which property would enable it | No |
+| [ ] | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away. Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner. | No |
+| [ ] | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare "saved" message. Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears. | No |
+| [ ] | GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array. Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance. | No |
 
 #### Web Console / Testing
 

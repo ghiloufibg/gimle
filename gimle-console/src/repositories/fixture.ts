@@ -12,6 +12,7 @@ import type {
   LifecycleState,
   ModuleId,
   Node,
+  ResourceBound,
   SecretMap,
   SecretMapGroupVersion,
   SecretMapKeyResult,
@@ -21,6 +22,7 @@ import type {
   StatefulSet,
   StatefulSetInstance,
   Tenant,
+  Tier,
 } from "@/types";
 
 // Seeded PRNG so mock data is stable across renders/SSR hydration.
@@ -151,11 +153,21 @@ function fixtureWorkerId(alive: boolean): string | null {
   return alive ? `worker-${intBetween(1000, 9999)}` : null;
 }
 
+/** A limit comfortably above the given usage, so "used / limit" always reads sensibly. */
+function fixtureResourceLimit(cpuMillicoresUsed: number, memoryBytesUsed: number): ResourceBound {
+  const cpuLimitMillicores = cpuMillicoresUsed + intBetween(200, 2000);
+  const memoryLimitMebibytes = Math.ceil(memoryBytesUsed / (1024 * 1024)) + intBetween(64, 1024);
+  return { cpu: `${cpuLimitMillicores}m`, memory: `${memoryLimitMebibytes}Mi` };
+}
+
 function makeInstance(idx: number, nodeId: string): DeploymentInstance {
   const state = weightedLifecycle();
   const active = state === "ACTIVE";
   const ready = active && rand() > 0.08;
   const alive = state !== "UNINSTALLED" && state !== "INSTALLED";
+  const isolationTier: Tier = pick(TIERS);
+  const cpuMillicoresUsed = active ? intBetween(50, 1500) : intBetween(0, 30);
+  const memoryBytesUsed = intBetween(64, 1024) * 1024 * 1024;
   return {
     instanceIndex: idx,
     nodeId,
@@ -166,9 +178,11 @@ function makeInstance(idx: number, nodeId: string): DeploymentInstance {
       requestRatePerSecond: active ? +(rand() * 200).toFixed(1) : 0,
       errorRatePerSecond: active && rand() < 0.2 ? +(rand() * 5).toFixed(2) : 0,
       queueDepth: active ? intBetween(0, 25) : 0,
-      cpuMillicoresUsed: active ? intBetween(50, 1500) : intBetween(0, 30),
-      memoryBytesUsed: intBetween(64, 1024) * 1024 * 1024,
+      cpuMillicoresUsed,
+      memoryBytesUsed,
       workerId: fixtureWorkerId(alive),
+      isolationTier,
+      resourceLimit: fixtureResourceLimit(cpuMillicoresUsed, memoryBytesUsed),
     },
   };
 }

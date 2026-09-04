@@ -108,6 +108,42 @@ describe("HttpServicesRepository", () => {
     expect(service.targetPort).toBeUndefined();
   });
 
+  it("save returns the control plane's X-Gimle-Warning header, not just the bare 'ok' body", async () => {
+    stubFetchSequence([
+      () =>
+        new Response("ok", {
+          status: 200,
+          headers: {
+            "X-Gimle-Warning":
+              "service orders-web fronts deployment(s) [orders-service] already fronted by service orders-alias in the same tenant -- both names route to the same instances",
+          },
+        }),
+    ]);
+    const repo = new HttpServicesRepository();
+
+    const warning = await repo.save({
+      name: "orders-web",
+      tenantId: "acme",
+      deploymentNames: ["orders-service"],
+      port: 8080,
+    });
+
+    expect(warning).toContain("already fronted by service orders-alias");
+  });
+
+  it("save resolves to null when the control plane attaches no warning", async () => {
+    stubFetchSequence([() => okResponse()]);
+    const repo = new HttpServicesRepository();
+
+    const warning = await repo.save({
+      name: "orders-web",
+      deploymentNames: ["orders-service"],
+      port: 8080,
+    });
+
+    expect(warning).toBeNull();
+  });
+
   it("remove DELETEs /services/{name}", async () => {
     const fetchMock = stubFetchSequence([() => okResponse()]);
     const repo = new HttpServicesRepository();

@@ -11,7 +11,9 @@ interface State {
   load(): Promise<void>;
   refresh(): Promise<void>;
   poll(): Promise<void>;
-  save(spec: Service): Promise<void>;
+  /** Resolves to the control plane's own overlap/advisory warning for this save, or `null` --
+   * see ServicesRepository#save. */
+  save(spec: Service): Promise<string | null>;
   remove(name: string): Promise<void>;
   fetchEndpoints(name: string): Promise<ServiceEndpoints>;
 }
@@ -49,9 +51,10 @@ export const useServicesStore = create<State>((set, get) => ({
   async save(spec) {
     set({ loading: true, error: null });
     try {
-      await servicesRepo.save(spec);
+      const warning = await servicesRepo.save(spec);
       const items = await servicesRepo.fetchAll();
       set({ items, loading: false, loaded: true });
+      return warning;
     } catch (e) {
       set({ loading: false, error: (e as Error).message });
       throw e;

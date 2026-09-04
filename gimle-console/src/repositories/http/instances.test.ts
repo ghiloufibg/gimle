@@ -29,6 +29,8 @@ const RAW_DEPLOYMENTS = [
           queueDepth: 0,
           cpuMillicoresUsed: 50,
           memoryBytesUsed: 2048,
+          isolationTier: "TIER_1",
+          resourceLimit: { memory: "32Mi", cpu: "50m" },
         },
       },
     ],
@@ -57,6 +59,11 @@ describe("HttpInstancesRepository", () => {
       // observationToJson) but was previously dropped by this flatten step, so no screen ever
       // rendered it despite the control plane reporting it.
       errorRatePerSecond: 0.5,
+      // Regression: isolationTier/resourceLimit are shipped on the wire (ApiServer's own
+      // observationToJson) but were previously dropped by this flatten step, so no screen ever
+      // showed an operator whether a usage number was close to its ceiling.
+      isolationTier: "TIER_1",
+      resourceLimit: { memory: "32Mi", cpu: "50m" },
     });
   });
 

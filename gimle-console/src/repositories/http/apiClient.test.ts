@@ -5,6 +5,7 @@ import {
   SessionExpiredError,
   requestJson,
   requestOk,
+  requestOkWithWarning,
   setUnauthorizedHandler,
 } from "./apiClient";
 import { jsonResponse, okResponse, stubFetchSequence, textResponse } from "./testUtil";
@@ -68,6 +69,27 @@ describe("requestOk", () => {
   it("throws ApiError on a non-2xx response", async () => {
     stubFetchSequence([() => textResponse("forbidden", 403)]);
     await expect(requestOk("DELETE", "/tenants/acme")).rejects.toMatchObject(
+      new ApiError(403, "forbidden"),
+    );
+  });
+});
+
+describe("requestOkWithWarning", () => {
+  it("resolves to null when the response carries no X-Gimle-Warning header", async () => {
+    stubFetchSequence([() => okResponse()]);
+    await expect(requestOkWithWarning("POST", "/services", {})).resolves.toBeNull();
+  });
+
+  it("resolves to the header's value when the control plane attaches one to a 2xx response", async () => {
+    stubFetchSequence([
+      () => new Response("ok", { status: 200, headers: { "X-Gimle-Warning": "overlap" } }),
+    ]);
+    await expect(requestOkWithWarning("POST", "/services", {})).resolves.toBe("overlap");
+  });
+
+  it("still throws ApiError on a non-2xx response, warning header or not", async () => {
+    stubFetchSequence([() => textResponse("forbidden", 403)]);
+    await expect(requestOkWithWarning("POST", "/services", {})).rejects.toMatchObject(
       new ApiError(403, "forbidden"),
     );
   });

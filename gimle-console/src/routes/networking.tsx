@@ -268,8 +268,12 @@ function ServicesTab() {
       ...(targetPort === undefined ? {} : { targetPort }),
     };
     try {
-      await save(spec);
+      const warning = await save(spec);
       toast.success(`Service ${trimmed} saved`);
+      // The control plane's own overlap/unreported-target-port advisory (ServiceAdvisories) --
+      // the write still succeeded, so this is a warning alongside the success toast above, not a
+      // replacement for it.
+      if (warning) toast.warning(warning);
       reset();
     } catch (err) {
       notifyApiError(err);

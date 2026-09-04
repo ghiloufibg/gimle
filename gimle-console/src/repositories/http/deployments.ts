@@ -6,6 +6,7 @@ import type {
   DeploymentSpecInput,
   DisruptionBudget,
   Page,
+  Tier,
 } from "@/types";
 import type { DeploymentsRepository, DeploymentsSummary } from "@/repositories/deployments";
 import {
@@ -33,6 +34,8 @@ interface RawDeploymentInstance {
     cpuMillicoresUsed: number;
     memoryBytesUsed: number;
     workerId?: string;
+    isolationTier?: string;
+    resourceLimit?: { memory: string; cpu: string };
   };
 }
 interface RawDeployment {
@@ -74,6 +77,7 @@ function mapDeployment(raw: RawDeployment): Deployment {
         ? ({
             ...i.observation,
             workerId: i.observation.workerId ?? null,
+            isolationTier: i.observation.isolationTier as Tier | undefined,
           } as DeploymentInstance["observation"])
         : UNOBSERVED,
     })),

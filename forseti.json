@@ -1071,12 +1071,13 @@
         "midgard"
       ],
       "objective": "Create a deployment through the console's New-deployment form, browse its detail page with 60 instances, force a write failure.",
-      "oracle": "The form applies a valid manifest; instance tables are bounded and paginated; the failure surfaces as a toast; the screen keeps itself current without a manual reload.",
+      "oracle": "The form applies a valid manifest; instance tables are bounded and paginated; the failure surfaces as a toast and, because a toast auto-dismisses on its own timer, also as a persistent inline error banner naming the same rejection reason; the screen keeps itself current without a manual reload.",
       "requirements": [
         "GIMLE-439",
         "GIMLE-757",
         "GIMLE-632",
-        "GIMLE-759"
+        "GIMLE-759",
+        "GIMLE-801"
       ]
     },
     {
@@ -1419,7 +1420,8 @@
         "GIMLE-571",
         "GIMLE-728",
         "GIMLE-729",
-        "GIMLE-800"
+        "GIMLE-800",
+        "GIMLE-802"
       ]
     },
     {
@@ -2204,9 +2206,10 @@
         "fleet"
       ],
       "objective": "Load the Topology screen against multi-node, multi-tenant Fleet.",
-      "oracle": "Placement shown matches `get instances`/`get nodes` independently.",
+      "oracle": "Placement shown matches `get instances`/`get nodes` independently, including each placement badge's own replica index when the control plane returns instances out of ascending-index order.",
       "requirements": [
-        "GIMLE-447"
+        "GIMLE-447",
+        "GIMLE-803"
       ]
     },
     {
