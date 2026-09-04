@@ -1,5 +1,6 @@
 package com.gimle.cli;
 
+import com.gimle.cli.spi.CliExtension;
 import com.gimle.core.exception.GimleManifestException;
 import com.gimle.core.net.DnsCacheTtl;
 import java.io.FileDescriptor;
@@ -300,8 +301,17 @@ public final class GimleCli {
       case "deployment", "deployments" -> handleDeploymentVerb(rest, client, output, out);
       case "statefulset", "statefulsets" -> handleStatefulSetVerb(rest, client, output, out);
       case "daemonset", "daemonsets" -> handleDaemonSetVerb(rest, client, output, out);
-      default -> throw new CliException(usage());
+      // The extension seam: a verb this class doesn't implement may still be provided by another
+      // jar on the path. With no provider for it, the unknown-verb error below is reached exactly
+      // as it was before the seam existed.
+      default -> dispatchExtension(verb, rest, client, server, out);
     }
+  }
+
+  private static void dispatchExtension(
+      String verb, List<String> args, ControlPlaneClient client, String server, PrintStream out) {
+    CliExtension extension = CliExtensions.find(verb).orElseThrow(() -> new CliException(usage()));
+    extension.run(args, new ControlPlaneClusterReader(client, server), out);
   }
 
   /**
@@ -722,10 +732,11 @@ public final class GimleCli {
   /**
    * Resolves {@code -h}/{@code --help} to the narrowest usage text available for where it appeared:
    * a bare verb ({@code gimle get -h}) gets that verb's own resource listing; a verb plus a
-   * resource noun ({@code gimle get deployments -h}) gets just that one form. Falls back to the
-   * full top-level usage for a verb this table doesn't recognize, which only ever happens when a
-   * genuinely unknown verb was typed alongside {@code -h} -- the same case that verb's own dispatch
-   * would reject anyway.
+   * resource noun ({@code gimle get deployments -h}) gets just that one form. A verb this table
+   * doesn't recognize is checked against the discovered {@link CliExtension}s before falling back
+   * to the full top-level usage -- this table is built statically and has no way to know about a
+   * verb contributed by a provider on the path, the same reason {@link #usage()} itself folds
+   * extension lines in separately rather than listing them here.
    */
   private static String scopedUsage(String verb, List<String> rest) {
     String noun = firstNonHelpToken(rest);
@@ -762,8 +773,19 @@ public final class GimleCli {
       case "taint" -> "usage: gimle taint <nodeId> <tenantId>";
       case "untaint" -> "usage: gimle untaint <nodeId> <tenantId>";
       case "cert" -> CertCommand.usage();
-      default -> usage();
+      default -> CliExtensions.find(verb).map(GimleCli::extensionUsage).orElseGet(GimleCli::usage);
     };
+  }
+
+  /**
+   * A discovered extension's own {@link CliExtension#usageLine()} is written to read naturally
+   * inside {@code usage()}'s own verb listing (right-padded before its parenthetical description,
+   * matching that listing's column alignment) -- not as a standalone {@code -h} line, where that
+   * padding would show up as a run of literal spaces. Collapsed to single spaces here rather than
+   * asking every extension to format two different strings for two different contexts.
+   */
+  private static String extensionUsage(CliExtension extension) {
+    return "usage: gimle " + extension.usageLine().replaceAll("\\s{2,}", " ").trim();
   }
 
   /** Appended to the {@code get} form of every noun {@link #WATCHABLE_NOUNS} lists. */
@@ -1060,7 +1082,24 @@ public final class GimleCli {
     };
   }
 
+  /**
+   * The built-in verb list, plus one line per discovered {@link CliExtension} -- so a verb
+   * contributed by another jar on the path is documented in {@code gimle --help} the same way the
+   * built-in ones are, and vanishes from it again the moment that jar leaves the path.
+   */
   private static String usage() {
+    List<String> extensionLines = CliExtensions.usageLines();
+    if (extensionLines.isEmpty()) {
+      return builtinUsage();
+    }
+    StringBuilder text = new StringBuilder(builtinUsage());
+    for (String line : extensionLines) {
+      text.append("\n  ").append(line);
+    }
+    return text.toString();
+  }
+
+  private static String builtinUsage() {
     return """
         usage: gimle <verb> <resource> [args] [--server host:port] [-o table|json|manifest]
 

@@ -212,7 +212,13 @@ gimle cert renew [--force]
 gimle cert revoke <serialHex>
 gimle cert unrevoke <serialHex>
 gimle cert revocations
+gimle top
 ```
+
+`top` is not built into `gimle-cli` — it is contributed by `gimle-hugin` and discovered through
+`ServiceLoader`, so it appears in `gimle --help` only when that jar is on the classpath (every
+distribution archive puts it there). See the [terminal cluster view](./terminal-view.md) for what it
+shows and what it deliberately cannot do.
 
 The `cert` verbs are the operator-facing half of the node-bootstrap-CSR and certificate-rotation
 flows — see [Transport security](../architecture/transport-security.md) §4/§4a/§4b for the full
@@ -767,6 +773,10 @@ gimle deployment rollback orders-service-deployment --to-revision 2 --server 127
 
 # Tail a target's logs live -- the CLI-side equivalent of the console's own Logs screen
 gimle logs instance/greeter-consumer-deployment/0 --follow --server 127.0.0.1:8080
+
+# Watch the whole cluster settle instead of re-running `get` by hand -- a live, read-only view of
+# nodes and instances, with a per-instance drill-down and log tail behind Enter
+gimle top --server 127.0.0.1:8080
 
 # Narrow a high-volume log to what an incident is actually about: a level threshold
 # (WARN keeps WARN and ERROR) and a plain case-insensitive substring, both applied

@@ -77,6 +77,12 @@
       <groupId>com.gimle</groupId>
       <artifactId>gimle-cli</artifactId>
     </dependency>
+    <!-- The `gimle top` extension: never referenced from any code here, only selected out of the
+         resolved dependency graph by the cli descriptors, the same way every other jar is. -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-hugin</artifactId>
+    </dependency>
     <!-- The gateway hosted module: ships under modules/, never on any process's own classpath. -->
     <dependency>
       <groupId>com.gimle</groupId>
@@ -139,8 +145,9 @@
     <gimle.dist.jre.pki.jdkModules>java.base,java.net.http</gimle.dist.jre.pki.jdkModules>
     <!-- duplicated from gimle-hilmir/pom.xml's own gimle.runtimeImage.jdkModules -->
     <gimle.dist.jre.hilmir.jdkModules>java.base,java.net.http</gimle.dist.jre.hilmir.jdkModules>
-    <!-- duplicated from gimle-cli/pom.xml's own gimle.runtimeImage.jdkModules -->
-    <gimle.dist.jre.cli.jdkModules>java.base,java.net.http</gimle.dist.jre.cli.jdkModules>
+    <!-- duplicated from gimle-cli/pom.xml's own gimle.runtimeImage.jdkModules; java.logging is
+         there for JLine, which this archive ships alongside gimle-hugin for the `top` verb -->
+    <gimle.dist.jre.cli.jdkModules>java.base,java.net.http,java.logging</gimle.dist.jre.cli.jdkModules>
     <!-- duplicated from gimle-ragnarok/pom.xml's own gimle.runtimeImage.jdkModules -->
     <gimle.dist.jre.ragnarok.jdkModules>java.base,java.net.http</gimle.dist.jre.ragnarok.jdkModules>
   </properties>

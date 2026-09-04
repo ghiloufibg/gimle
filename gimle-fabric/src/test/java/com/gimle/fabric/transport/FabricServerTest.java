@@ -20,8 +20,10 @@ import com.gimle.testkit.Await;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.opentelemetry.api.baggage.Baggage;
 import java.io.DataOutputStream;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -810,6 +812,35 @@ class FabricServerTest {
     assertInstanceOf(FabricFrame.InvokeResponse.class, response);
   }
 
+  /**
+   * How long a client waits for the EOF the server owes it after a malformed frame. Well under the
+   * enclosing {@code @Timeout}, which cannot help here: that timeout runs on the test's own thread
+   * and only reports once the method returns, so it can never interrupt a blocking socket read.
+   */
+  private static final int EOF_TIMEOUT_MILLIS = 5_000;
+
+  /**
+   * Reads the byte that should already be EOF, turning "the server never closed" into a failed
+   * assertion rather than a wedged JVM.
+   *
+   * <p>Without a timeout behind it, a server that fails to close leaves this reader blocked
+   * forever: the run stops with no failure, no report, and nothing naming the test that stopped it,
+   * which costs far more to diagnose than the assertion it was meant to produce. Seen under this
+   * module's own concurrent class execution, where it is timing-dependent and does not reproduce
+   * with the test run on its own.
+   */
+  private static int readExpectingEof(final Socket socket) throws IOException {
+    try {
+      return socket.getInputStream().read();
+    } catch (SocketTimeoutException e) {
+      throw new AssertionError(
+          "server did not close the connection within "
+              + EOF_TIMEOUT_MILLIS
+              + "ms of a malformed frame",
+          e);
+    }
+  }
+
   private FabricServer serverWithMaxConnections(
       SimpleServiceRegistry registry, int maxConnections) {
     return new FabricServer(
@@ -902,12 +933,13 @@ class FabricServerTest {
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
     try (Socket malformed = new Socket(address.getAddress(), address.getPort())) {
+      malformed.setSoTimeout(EOF_TIMEOUT_MILLIS);
       DataOutputStream out = new DataOutputStream(malformed.getOutputStream());
       out.writeInt(-1); // corrupted length prefix -- see FabricCodecTest's own equivalent
       out.flush();
       // The server must close the connection outright rather than hang or crash the connection's
       // own thread -- a clean EOF is exactly what that looks like from the client's own side.
-      assertEquals(-1, malformed.getInputStream().read());
+      assertEquals(-1, readExpectingEof(malformed));
     }
 
     // The regression this guards: a malformed frame propagating uncaught off the connection's own
@@ -937,10 +969,11 @@ class FabricServerTest {
         (InetSocketAddress) server.listen(new InetSocketAddress("127.0.0.1", 0));
 
     try (Socket malformed = new Socket(address.getAddress(), address.getPort())) {
+      malformed.setSoTimeout(EOF_TIMEOUT_MILLIS);
       DataOutputStream out = new DataOutputStream(malformed.getOutputStream());
       out.writeInt(-1);
       out.flush();
-      assertEquals(-1, malformed.getInputStream().read());
+      assertEquals(-1, readExpectingEof(malformed));
     }
 
     // If the permit never came back, this call would sit blocked behind the malformed connection

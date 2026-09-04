@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 804
-- **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 677
-- **Release-readiness (automated coverage)**: 15.8%
+- **Total requirements**: 828
+- **Covered by automated (Holmgang Cucumber) test**: 130
+- **Not covered by automated test**: 698
+- **Release-readiness (automated coverage)**: 15.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -27,7 +27,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
 | gimle-gateway | 21 | 0 | 21 | 0.0% |
-| gimle-cli | 41 | 0 | 41 | 0.0% |
+| gimle-cli | 43 | 0 | 43 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
 | gimle-console | 57 | 0 | 57 | 0.0% |
@@ -42,6 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
+| gimle-hugin | 22 | 3 | 19 | 13.6% |
 
 ## Checklist
 
@@ -1821,6 +1822,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-765 | gimle context: pointing the CLI at more than one cluster | Given a configured current context When a command is run with an explicit --server Then the explicit flag wins And a malformed config file degrades to a warning rather than breaking the command | No |
 | [ ] | GIMLE-767 | gimle get --watch observes a resource converging | Given a deployment being scaled When gimle get deployments --watch is running Then only the changed row is printed on the next tick And a deleted row is reported as deleted rather than silently disappearing | No |
 | [ ] | GIMLE-770 | `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to | Given a volume owned by tenant `acme` at sessions[0] on node-a, and an identically-named volume owned by the `default` tenant When an operator runs `gimle volume destroy sessions 0 --node node-a --tenant acme` Then only the `acme` volume is reclaimed and the default tenant's volume is untouched And running the same command with no --tenant addresses the untenanted namespace, never either of them | No |
+| [ ] | GIMLE-805 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | Given a CliExtension provider for the verb "top" on the CLI's own classpath When an operator runs `gimle top` Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed And `gimle top -h` prints that verb's own usage rather than the full verb listing | No |
 
 #### CLI / Build Tooling
 
@@ -1844,6 +1846,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-385 | RBAC role binding management | Given "gimle set rolebinding b1 --subject user:alice --role cluster-admin", Then PUT /rolebindings/b1; "gimle get rolebindings" lists "user:alice". | No |
 | [ ] | GIMLE-386 | Operator account management | Given "gimle set account admin --password s3cret-password", Then PUT /accounts/admin sent; JSON output includes "username" but never "passwordHash" or the raw password. | No |
 | [ ] | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | Given "gimle cert request --purpose operator --out-cert op.crt --out-key op.key" against a trust-only connection, Then a keypair/CSR is generated locally, private key written immediately, and CSR POSTed unauthenticated to /bootstrap/csr; a due-for-renewal cred triggers a warning on any other command. | No |
+| [ ] | GIMLE-806 | An extension is handed a read-only view of the control-plane API, never the client | Given a CLI extension holding a ClusterReader When it tries to reach a write method Then no such method exists on the type it was handed | No |
 
 #### CLI / console parity
 
@@ -2361,3 +2364,37 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-569 | gimle-skald: cluster DNS server resolving Service names to live endpoints | Given the directory has never held an entry for a queried name inside the svc.gimle.local zone, When queried, Then the response is NXDOMAIN. Given the directory holds a declared Service whose endpoint list is currently empty, When queried, Then the response is NOERROR with zero answer records rather than NXDOMAIN. Given SkaldServer's directory cache holds "orders.acme.svc.gimle.local" -> [10.0.0.5], When a standard A query for that name arrives over UDP, Then the response carries exactly that one A record. Given a query for a name outside svc.gimle.local, or a non-A query type, or a non-QUERY opcode, When received, Then the response is NOTIMP/NXDOMAIN as appropriate rather than silence. | No |
 | [ ] | GIMLE-721 | Cluster DNS answers NODATA, not NXDOMAIN, for a declared Service with no live endpoints | Given a declared Service whose backing deployment is scaled to zero When a client resolves that Service name Then the responder answers NOERROR with zero answer records And a name that was never declared still answers NXDOMAIN | No |
+
+### gimle-hugin
+
+#### CLI UX
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-807 | `gimle top` renders a live, read-only cluster view of nodes and instances | Given a running cluster with nodes and placed instances When an operator runs `gimle top` Then both tables render live and refresh on a fixed interval without any further command | Yes |
+| [ ] | GIMLE-808 | A failed poll keeps the last good rows and ages them rather than clearing the screen | Given `gimle top` showing a healthy cluster When the control plane becomes unreachable Then the last good rows stay on screen, aged, with the failure's reason on the status line | No |
+| [ ] | GIMLE-809 | Instance drill-down with lifecycle timeline and a live log tail | Given `gimle top` with an instance selected When the operator presses Enter Then that instance's detail, recent lifecycle events and a live log tail are shown, and esc returns to the cluster view And its declared isolation tier and resource limit are shown, with a memory headroom gauge only where that limit is a per-instance ceiling | No |
+| [ ] | GIMLE-810 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | Given `gimle top` running against a cluster When the operator moves the selection, filters, pauses and quits Then each key does what the help overlay says, and quitting restores the terminal | No |
+| [ ] | GIMLE-811 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | Given a terminal that advertises a particular colour depth When `gimle top` renders a frame Then it emits the console's own token values at that depth, and nothing at all under NO_COLOR | No |
+| [ ] | GIMLE-813 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | Given a deployment asking for four replicas of which the scheduler placed two When an operator runs `gimle top` Then a NOT SETTLED line names that workload and its shortfall, and the status line counts the unplaced replicas | Yes |
+| [ ] | GIMLE-814 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | Given a cluster running a Deployment, a DaemonSet and a StatefulSet When an operator runs `gimle top` Then all three kinds' instances appear in one table, each labelled with its own kind | No |
+| [ ] | GIMLE-815 | A services screen showing each Service's live endpoint resolution | Given a Service naming deployments that currently have no running instances When an operator presses `s` in `gimle top` Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read | Yes |
+| [ ] | GIMLE-816 | An activity view of what has been done to the cluster, over the audit trail | Given a cluster where a deployment was created and a secret read was refused When an operator presses `a` in `gimle top` Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line | No |
+| [ ] | GIMLE-817 | The activity view reads three cluster records: authorization, lifecycle and alerts | Given a cluster with a refused request, a failed instance transition and a firing alert rule When an operator presses `a` and cycles the feed with `c` Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line | No |
+| [ ] | GIMLE-818 | The terminal view browses every collection the control plane lists, including registered custom kinds | Given a cluster with tenants, roles and a registered custom kind When an operator opens `gimle top` and types `:tenants` Then the tenants collection is shown with the columns that kind declares | No |
+| [ ] | GIMLE-819 | The terminal view describes a selected resource as YAML without re-reading it | Given the terminal view's resource browser open on a kind When an operator presses enter on a row Then that resource's whole object is shown as YAML, scrollable | No |
+| [ ] | GIMLE-820 | The terminal view lists what it can open, and can be pointed at another control plane | Given an operator in the terminal view When they press `:` and then enter with nothing typed Then every kind this cluster can show is listed, registered kinds included | No |
+| [ ] | GIMLE-821 | The terminal view joins Services to the instances behind them and names the gaps | Given a Service naming a deployment that is not running When an operator presses `x` in the terminal view Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts | No |
+| [ ] | GIMLE-822 | The terminal view reads the control plane's own health alongside what it is running | Given a control plane that has lost its store When an operator presses `P` in the terminal view Then the control plane is reported as unhealthy rather than the cluster reading as serene | No |
+| [ ] | GIMLE-823 | The terminal view reads a worker's shipped traces for the instance it is inspecting | Given an instance whose worker ships traces When an operator presses `T` in its drill-down Then that worker's recent spans are shown grouped into their traces | No |
+| [ ] | GIMLE-824 | The terminal view narrows every screen to one tenant | Given a cluster running two tenants' workloads When an operator types `:tenant acme` Then every screen shows only that tenant's rows, and the bar names the tenant | No |
+| [ ] | GIMLE-825 | The terminal view scans the cluster for what is wrong | Given a cluster with an unplaced replica, an unready instance and a cordoned node When an operator presses `S` Then the three findings are listed worst first, each saying what is wrong on its own line | No |
+| [ ] | GIMLE-826 | The terminal view shows what the calling certificate may do | Given an operator connected with a certificate holding a subset of the cluster's permissions When they press `R` Then each resource kind is listed against each verb with the control plane's own yes or no | No |
+| [ ] | GIMLE-827 | The terminal view browses a tenant's own config and secret holdings | Given a tenant holding config keys and secrets When an operator runs `:tenant acme` and then `:secrets` Then that tenant's secret names and versions are listed, and no secret value is shown | No |
+| [ ] | GIMLE-828 | The terminal view reads a config key's, ConfigMap's or secret's revision history | Given a config key written more than once When an operator selects it in the browser and presses `v` Then every revision is listed newest first, with the one currently in effect named | No |
+
+#### Distribution
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-812 | The terminal view ships in the CLI archives and is removable in one directory delete | Given the CLI distribution archive When gimle-hugin and its JLine jars are on its lib/ classpath Then `gimle top` resolves, and with them removed the verb is unknown again | No |

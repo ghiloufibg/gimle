@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>com.gimle</groupId>
+    <artifactId>gimle</artifactId>
+    <version>0.1.0-alpha.2</version>
+  </parent>
+
+  <artifactId>gimle-hugin</artifactId>
+  <packaging>jar</packaging>
+
+  <name>Gimle Hugin</name>
+  <description>
+    The terminal cluster view: `gimle top`, a read-only live dashboard of nodes and instances
+    with a per-instance drill-down. Contributed to the CLI as a CliExtension provider rather
+    than built into it, so the whole feature is one directory and one reactor entry.
+  </description>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-cli</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-core</artifactId>
+    </dependency>
+    <!--
+      Java has no built-in raw terminal mode, so something must provide one. These two artifacts
+      are that, and nothing else: jline-terminal for the Terminal abstraction, jline-terminal-ffm
+      for the provider that reaches termios through the Foreign Function and Memory API.
+      jline-native is excluded deliberately: it is the JNI provider, and it ships bundled native
+      libraries, which this platform does not use anywhere. JLineTerminalSession selects the "ffm"
+      provider by name, so the excluded one is never looked for.
+    -->
+    <dependency>
+      <groupId>org.jline</groupId>
+      <artifactId>jline-terminal</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>org.jline</groupId>
+          <artifactId>jline-native</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.jline</groupId>
+      <artifactId>jline-terminal-ffm</artifactId>
+    </dependency>
+  </dependencies>
+</project>

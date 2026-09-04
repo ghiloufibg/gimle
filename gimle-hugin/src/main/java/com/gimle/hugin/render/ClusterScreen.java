@@ -1,0 +1,381 @@
+package com.gimle.hugin.render;
+
+import com.gimle.hugin.UiState;
+import com.gimle.hugin.model.ClusterSnapshot;
+import com.gimle.hugin.model.InstanceRow;
+import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.NodeSortKey;
+import com.gimle.hugin.model.SortKey;
+import com.gimle.hugin.model.WorkloadRow;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * The cluster view: a status line, the node table, the instance table, and a key bar. Rendering is
+ * a pure function of the snapshot, the operator's own state and the viewport -- no terminal, no
+ * clock of its own, no I/O -- which is why almost all of this can be tested by asserting on
+ * strings.
+ */
+public final class ClusterScreen {
+
+  /** Rows the layout spends on everything that isn't an instance row. */
+  private static final int CHROME_ROWS = 8;
+
+  private final Painter painter;
+
+  public ClusterScreen(final Painter painter) {
+    this.painter = painter;
+  }
+
+  public List<String> render(
+      final ClusterSnapshot snapshot,
+      final UiState ui,
+      final Viewport viewport,
+      final boolean paused,
+      final Instant now) {
+    List<String> lines = new ArrayList<>();
+    lines.add(StatusBar.cluster(painter, snapshot, ui, viewport, paused, now));
+    lines.add("");
+
+    // Drawn above the tables, and only when there is something to draw: a shortfall has no
+    // instance row of its own to appear in, so on a healthy cluster this block is absent entirely
+    // and the view reads exactly as it did before.
+    List<WorkloadRow> unsettled = snapshot.unsettledWorkloads();
+    List<String> unsettledLines = unsettledBlock(unsettled, viewport);
+    lines.addAll(unsettledLines);
+
+    List<NodeRow> nodes = snapshot.nodesMatching(ui.filter(), ui.nodeSortKey(), now);
+    lines.add(nodesLabel(nodes.size(), snapshot.nodes().size(), ui.filter(), ui.nodeSortKey()));
+    lines.add(nodeHeader(viewport));
+    if (nodes.isEmpty()) {
+      lines.add(emptyNote(snapshot.nodes().isEmpty() ? "no nodes registered" : "no nodes match"));
+    }
+    int nodeSelection = ui.focus() == UiState.Focus.NODES ? ui.nodeSelectionIndex(nodes) : -1;
+    for (int index = 0; index < nodes.size(); index++) {
+      lines.add(nodeLine(nodes.get(index), index == nodeSelection, viewport, now));
+    }
+    lines.add("");
+
+    List<InstanceRow> instances = snapshot.instancesMatching(ui.filter(), ui.sortKey());
+    lines.add(
+        instancesLabel(instances.size(), snapshot.instances().size(), ui.filter(), ui.sortKey()));
+    lines.add(instanceHeader(viewport));
+
+    int available =
+        Math.max(
+            1,
+            viewport.rows()
+                - CHROME_ROWS
+                - nodes.size()
+                - (nodes.isEmpty() ? 1 : 0)
+                - unsettledLines.size());
+    if (instances.isEmpty()) {
+      lines.add(
+          emptyNote(snapshot.instances().isEmpty() ? "no instances placed" : "no instances match"));
+    }
+    // Only the focused table shows a cursor: two highlighted rows on one screen would leave an
+    // operator guessing which of them `enter` is about to act on.
+    int selection = ui.focus() == UiState.Focus.INSTANCES ? ui.selectionIndex(instances) : -1;
+    int firstVisible = scrollOffset(selection, instances.size(), available);
+    for (int index = firstVisible;
+        index < Math.min(instances.size(), firstVisible + available);
+        index++) {
+      lines.add(instanceLine(instances.get(index), index == selection, viewport));
+    }
+
+    return Frame.fitWithKeyBar(lines, StatusBar.clusterKeys(painter, ui, viewport), viewport);
+  }
+
+  private List<String> unsettledBlock(final List<WorkloadRow> unsettled, final Viewport viewport) {
+    if (unsettled.isEmpty()) {
+      return List.of();
+    }
+    int nameCells = Math.min(32, Math.max(12, viewport.columns() / 4));
+    List<String> lines = new ArrayList<>();
+    lines.add(
+        new Line(painter)
+            .add("NOT SETTLED", Style.fg(Palette.WARN).asBold())
+            .add("  " + unsettled.size(), Style.fg(Palette.MUTED_FOREGROUND))
+            .build());
+    for (WorkloadRow workload : unsettled) {
+      Line line =
+          new Line(painter)
+              .pad(2)
+              .cell(workload.name(), nameCells, Style.PLAIN)
+              .pad(2)
+              .cell(workload.kind().label(), 8, Style.fg(Palette.MUTED_FOREGROUND))
+              .pad(2);
+      workload
+          .tenantId()
+          .ifPresent(tenant -> line.cell(tenant, 12, Style.fg(Palette.MUTED_FOREGROUND)).pad(2));
+      int problemCells = Math.max(10, viewport.columns() - line.width());
+      lines.add(line.cell(workload.problem(), problemCells, Style.fg(Palette.WARN)).build());
+    }
+    lines.add("");
+    return lines;
+  }
+
+  /**
+   * Keeps the selected row on screen while scrolling as little as possible: the window only moves
+   * when the cursor would otherwise leave it, so a list that fits never scrolls at all.
+   */
+  static int scrollOffset(final int selection, final int total, final int available) {
+    if (total <= available || selection < 0) {
+      return 0;
+    }
+    int centred = selection - available / 2;
+    return Math.clamp(centred, 0, total - available);
+  }
+
+  private String sectionLabel(
+      final String label, final int shown, final int total, final String filter) {
+    Line line = new Line(painter).add(label, Style.fg(Palette.HUD).asBold());
+    if (!filter.isBlank()) {
+      line.padTo(label.length() + 4)
+          .add("filter ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(filter, Style.fg(Palette.PRIMARY))
+          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+    }
+    return line.build();
+  }
+
+  /** The instances label, plus the current ordering whenever it is not the default one. */
+  /** The nodes label, plus the current ordering whenever it is not the default one. */
+  private String nodesLabel(
+      final int shown, final int total, final String filter, final NodeSortKey sort) {
+    Line line = new Line(painter).add("NODES", Style.fg(Palette.HUD).asBold());
+    if (!filter.isBlank()) {
+      line.padTo("NODES".length() + 4)
+          .add("filter ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(filter, Style.fg(Palette.PRIMARY))
+          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+    }
+    if (sort != NodeSortKey.ID) {
+      line.add("  by ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(sort.label(), Style.fg(Palette.PRIMARY));
+    }
+    line.add("  1-" + NodeSortKey.count(), Style.fg(Palette.MUTED));
+    return line.build();
+  }
+
+  private String instancesLabel(
+      final int shown, final int total, final String filter, final SortKey sort) {
+    Line line = new Line(painter).add("INSTANCES", Style.fg(Palette.HUD).asBold());
+    if (!filter.isBlank()) {
+      line.padTo("INSTANCES".length() + 4)
+          .add("filter ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(filter, Style.fg(Palette.PRIMARY))
+          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+    }
+    if (sort != SortKey.NAME) {
+      line.add("  by ", Style.fg(Palette.MUTED_FOREGROUND))
+          .add(sort.label(), Style.fg(Palette.PRIMARY));
+    }
+    // The default ordering still names no ranking -- it is the absence of one -- but the digits
+    // that would impose one are shown regardless: a key nothing on screen mentions is never found.
+    line.add("  1-" + SortKey.count(), Style.fg(Palette.MUTED));
+    return line.build();
+  }
+
+  private String emptyNote(final String message) {
+    return new Line(painter).add("  " + message, Style.fg(Palette.MUTED)).build();
+  }
+
+  // ---- nodes ----
+
+  private String nodeHeader(final Viewport viewport) {
+    NodeLayout layout = NodeLayout.forWidth(viewport.columns());
+    Style style = Style.fg(Palette.MUTED_FOREGROUND);
+    return new Line(painter)
+        .cell("ID", layout.id(), style)
+        .pad(2)
+        .cell("STATE", layout.state(), style)
+        .pad(2)
+        .cell("CPU", layout.cpu(), style)
+        .pad(2)
+        .cell("MEMORY", layout.memory(), style)
+        .pad(2)
+        .rightCell("INST", layout.instances(), style)
+        .pad(2)
+        .cell("HEARTBEAT", layout.heartbeat(), style)
+        .build();
+  }
+
+  private String nodeLine(
+      final NodeRow node, final boolean selected, final Viewport viewport, final Instant now) {
+    NodeLayout layout = NodeLayout.forWidth(viewport.columns());
+    String state = node.state(now);
+    Style base = selected ? Style.fg(Palette.FOREGROUND).on(Palette.SELECTION) : Style.PLAIN;
+    Line line =
+        new Line(painter)
+            .cell(node.nodeId(), layout.id(), base)
+            .pad(2)
+            .cell(
+                state, layout.state(), selected ? base : Style.fg(StatusVariant.ofNodeState(state)))
+            .pad(2);
+    resourceGauge(
+        line,
+        node.hasCapacity()
+            ? Text.millicores(node.assignedCpuMillicores())
+                + "/"
+                + Text.millicores(node.totalCpuMillicores())
+            : Text.ABSENT,
+        Text.fraction(node.assignedCpuMillicores(), node.totalCpuMillicores()),
+        layout.cpu());
+    line.pad(2);
+    resourceGauge(
+        line,
+        node.hasCapacity()
+            ? Text.gibibytes(node.assignedMemoryBytes())
+                + "/"
+                + Text.gibibytes(node.totalMemoryBytes())
+                + "Gi"
+            : Text.ABSENT,
+        Text.fraction(node.assignedMemoryBytes(), node.totalMemoryBytes()),
+        layout.memory());
+    return line.pad(2)
+        .rightCell(String.valueOf(node.instanceCount()), layout.instances(), Style.PLAIN)
+        .pad(2)
+        .cell(
+            node.heartbeatAge(now).map(Text::age).orElse(Text.ABSENT),
+            layout.heartbeat(),
+            Style.fg(node.isStale(now) ? Palette.WARN : Palette.MUTED_FOREGROUND))
+        .build();
+  }
+
+  /**
+   * A selected row is one flat highlight, so the kind keeps the row's own style there; everywhere
+   * else it is muted, because it labels the row rather than saying anything about its health.
+   */
+  private static Style kindStyle(final Style base) {
+    return base == Style.PLAIN ? Style.fg(Palette.MUTED_FOREGROUND) : base;
+  }
+
+  /** A "used/total" reading, right-aligned against its own bar so the bars line up as a column. */
+  private void resourceGauge(
+      final Line line, final String reading, final double fraction, final int cells) {
+    int barCells = Math.min(8, Math.max(3, cells / 3));
+    int labelCells = cells - barCells - 1;
+    line.rightCell(reading, labelCells, Style.PLAIN).pad(1);
+    Gauge.draw(line, fraction, barCells);
+  }
+
+  // ---- instances ----
+
+  private String instanceHeader(final Viewport viewport) {
+    InstanceLayout layout = InstanceLayout.forWidth(viewport.columns());
+    Style style = Style.fg(Palette.MUTED_FOREGROUND);
+    Line line = new Line(painter).cell("WORKLOAD", layout.deployment(), style).pad(layout.gap());
+    if (layout.tenant() > 0) {
+      line.cell("TENANT", layout.tenant(), style).pad(layout.gap());
+    }
+    if (layout.kind() > 0) {
+      line.cell("KIND", layout.kind(), style).pad(layout.gap());
+    }
+    return line.rightCell("IDX", layout.index(), style)
+        .pad(layout.gap())
+        .cell("NODE", layout.node(), style)
+        .pad(layout.gap())
+        .cell("STATE", layout.state(), style)
+        .pad(layout.gap())
+        .cell("RDY", layout.ready(), style)
+        .pad(layout.gap())
+        .rightCell("REQ/S", layout.rate(), style)
+        .pad(layout.gap())
+        .rightCell("ERR/S", layout.errors(), style)
+        .pad(layout.gap())
+        .rightCell("QUEUE", layout.queue(), style)
+        .pad(layout.gap())
+        .rightCell("MEM", layout.memory(), style)
+        .pad(layout.gap())
+        .rightCell("CPU", layout.cpu(), style)
+        .build();
+  }
+
+  private String instanceLine(
+      final InstanceRow row, final boolean selected, final Viewport viewport) {
+    InstanceLayout layout = InstanceLayout.forWidth(viewport.columns());
+    // A selected row is drawn in one flat highlight rather than per-cell colour: two colour
+    // dimensions at once (state colour over a selection background) reads as noise at terminal
+    // contrast, and losing the state colour on exactly one row costs nothing -- the same row's
+    // state is spelled out in words right there.
+    if (selected) {
+      Style style = Style.fg(Palette.FOREGROUND).on(Palette.SELECTION);
+      return instanceCells(row, layout, style, style, style)
+          .fillTo(viewport.columns(), style)
+          .build();
+    }
+    return instanceCells(
+            row,
+            layout,
+            Style.PLAIN,
+            Style.fg(StatusVariant.ofLifecycleState(row.lifecycleState())),
+            Style.PLAIN)
+        .build();
+  }
+
+  private Line instanceCells(
+      final InstanceRow row,
+      final InstanceLayout layout,
+      final Style base,
+      final Style stateStyle,
+      final Style metricStyle) {
+    Line line =
+        new Line(painter).cell(row.deploymentName(), layout.deployment(), base).pad(layout.gap());
+    if (layout.tenant() > 0) {
+      line.cell(row.tenantId().orElse(Text.ABSENT), layout.tenant(), kindStyle(base))
+          .pad(layout.gap());
+    }
+    if (layout.kind() > 0) {
+      line.cell(row.kind().label(), layout.kind(), kindStyle(base)).pad(layout.gap());
+    }
+    line.rightCell(String.valueOf(row.instanceIndex()), layout.index(), base)
+        .pad(layout.gap())
+        .cell(row.nodeId(), layout.node(), base)
+        .pad(layout.gap())
+        .cell(row.lifecycleState(), layout.state(), stateStyle)
+        .pad(layout.gap())
+        .cell(readyGlyph(row), layout.ready(), stateStyle)
+        .pad(layout.gap());
+    if (!row.observed()) {
+      // Nothing has been measured yet, so no metric column shows a number: a zero here would read
+      // as "idle" about an instance nobody has heard from.
+      return line.rightCell(Text.ABSENT, layout.rate(), metricStyle)
+          .pad(layout.gap())
+          .rightCell(Text.ABSENT, layout.errors(), metricStyle)
+          .pad(layout.gap())
+          .rightCell(Text.ABSENT, layout.queue(), metricStyle)
+          .pad(layout.gap())
+          .rightCell(Text.ABSENT, layout.memory(), metricStyle)
+          .pad(layout.gap())
+          .rightCell(Text.ABSENT, layout.cpu(), metricStyle);
+    }
+    return line.rightCell(Text.rate(row.requestRatePerSecond()), layout.rate(), metricStyle)
+        .pad(layout.gap())
+        .rightCell(
+            Text.rate(row.errorRatePerSecond()),
+            layout.errors(),
+            row.errorRatePerSecond() > 0 ? errorStyle(metricStyle) : metricStyle)
+        .pad(layout.gap())
+        .rightCell(String.valueOf(row.queueDepth()), layout.queue(), metricStyle)
+        .pad(layout.gap())
+        .rightCell(Text.bytes(row.memoryBytesUsed()), layout.memory(), metricStyle)
+        .pad(layout.gap())
+        .rightCell(Text.millicores(row.cpuMillicoresUsed()), layout.cpu(), metricStyle);
+  }
+
+  private static Style errorStyle(final Style metricStyle) {
+    return metricStyle.background().isPresent() ? metricStyle : Style.fg(Palette.BAD);
+  }
+
+  private static String readyGlyph(final InstanceRow row) {
+    if (!row.observed()) {
+      return "·";
+    }
+    if (row.ready()) {
+      return "✓";
+    }
+    return row.alive() ? "·" : "✗";
+  }
+}

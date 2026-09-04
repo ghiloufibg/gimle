@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 803,
+  "requirementCount": 828,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13970,6 +13970,416 @@
         "`gimle-andvari-console/src/lib/moduleDescriptor.ts`",
         "`gimle-andvari-console/src/components/PushArtifactDialog.tsx`"
       ]
+    },
+    {
+      "id": "GIMLE-805",
+      "module": "gimle-cli",
+      "feature": "CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider",
+      "category": "CLI",
+      "status": "New",
+      "statusNote": "New requirement: gimle-cli gained a CliExtension SPI looked up in GimleCli's verb-switch default branch, immediately before the existing unknown-verb error, with a provider declared both in META-INF/services (the classpath, which is how the shipped CLI and every test load) and a module-info provides directive. Also scopes `-h`/`--help` on a discovered verb to that verb's own usage line, which the statically-built scopedUsage table could not do on its own.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-cli's CliExtensionSeamTest (classpath discovery via a test-only provider, dispatch, help folding, unknown-verb error preserved) and gimle-hugin's HuginExtensionTest. A further CliExtensionSeamTest case pins the scoped `-h` output.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/spi/CliExtension.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/CliExtensions.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`dispatchExtension`)",
+        "`gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`scopedUsage`, `extensionUsage`)"
+      ],
+      "gapNote": "No .feature exercises the CLI's verb dispatch: Holmgang drives the platform through its own harness, not through GimleCli's argument parsing."
+    },
+    {
+      "id": "GIMLE-806",
+      "module": "gimle-cli",
+      "feature": "An extension is handed a read-only view of the control-plane API, never the client",
+      "category": "CLI / Security",
+      "status": "New",
+      "statusNote": "New requirement: ClusterReader narrows ControlPlaneClient to getList/getObject/openStream plus the server address, so a contributed verb has no write path to reach for.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "CliExtensionSeamTest asserts structurally that no mutating method appears on ClusterReader.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/spi/ClusterReader.java`",
+        "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`"
+      ],
+      "gapNote": "A compile-time property of a Java interface; no running-cluster scenario can observe it, and no .feature exercises the CLI's extension surface at all."
+    },
+    {
+      "id": "GIMLE-807",
+      "module": "gimle-hugin",
+      "feature": "`gimle top` renders a live, read-only cluster view of nodes and instances",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: a k9s-shaped live cluster view contributed to the CLI by the new gimle-hugin module, fed by GET /nodes and GET /deployments with no new server-side surface. Also: per-table ordering cycled by one key, a filter shared across every screen, and wheel-only mouse scrolling.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/terminal-view.feature",
+          "scenario": "A running deployment appears in the rendered frame with its real state",
+          "whyThisCounts": "A really deployed module is rendered by the real ClusterScreen over a real SnapshotReader reading the running control plane's own /nodes and /deployments, and the frame carries that deployment's name, its ACTIVE state and the node it landed on."
+        }
+      ],
+      "otherTestCoverage": "gimle-hugin's ClusterScreenTest (both tables, alignment and no-overflow at 80/120/200 columns, truncation, the empty cluster, unobserved instances) and SnapshotReaderTest (parsing, including every degraded response shape).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-808",
+      "module": "gimle-hugin",
+      "feature": "A failed poll keeps the last good rows and ages them rather than clearing the screen",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: the poller publishes immutable snapshots from a virtual thread and re-marks the last good one stale on a failed poll, so an unreachable control plane costs freshness rather than the screen.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's ClusterPollerTest (failure keeps rows and age, recovery clears the marking, the pre-first-poll state, pause/resume) and ClusterScreenTest's stale status-line assertion.",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterPoller.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: Holmgang can cut the link to a control plane, but has no way to observe what a terminal frame then shows."
+    },
+    {
+      "id": "GIMLE-809",
+      "module": "gimle-hugin",
+      "feature": "Instance drill-down with lifecycle timeline and a live log tail",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: Enter on a selected instance opens its detail, its recent lifecycle transitions from GET /events, and a live tail over the existing follow-log stream, seeded with backlog and resumed from that backlog's own cursor. The pane also reads back the isolation tier and resource limit the control plane now serves on an instance observation, drawing measured memory against that limit only at TIER_2, where a dedicated worker JVM makes it a real per-instance ceiling. It also reads back the observation's reported ports and volume usage, each shown only when present.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's InstanceWatcherTest (backlog-then-follow ordering, the resume cursor, tenant scoping on every route, a failing route, a stream ending on its own) and InstanceScreenTest, plus SnapshotReaderTest's tier/limit parsing cases and InstanceScreenTest's per-tier rendering cases.",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/InstanceWatcher.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/InstanceScreen.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807. The underlying /events and follow-log routes are themselves reachable from a scenario, but the pane that renders them is not."
+    },
+    {
+      "id": "GIMLE-810",
+      "module": "gimle-hugin",
+      "feature": "Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal",
+      "category": "CLI UX",
+      "status": "Modified",
+      "statusNote": "New requirement: k9s/top-shaped bindings, with the selection held as a tenant-scoped instance key rather than a row index so a refresh cannot move the cursor onto a different instance. Modified: a digit now picks a table's ordering outright instead of only cycling with o, and the shared filter now narrows the instance drill-down's log tail as well as the tables. The log tail also gained wrap and timestamp toggles.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's UiStateTest. The JLine adapter itself (raw mode, key decoding, resize) is deliberately untested and kept minimal for that reason. Plus UiStateTest's positional-sort cases and InstanceScreenTest's log-filter cases.",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/term/JLineTerminalSession.java`"
+      ],
+      "gapNote": "Holmgang cannot send keystrokes to a raw-mode terminal; there is no headless path to drive this end to end."
+    },
+    {
+      "id": "GIMLE-811",
+      "module": "gimle-hugin",
+      "feature": "Terminal colour is the console's own tokens, degrading to 256-colour and to none",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: the console's dark-theme OKLCH tokens converted once to sRGB, the lifecycle-state colour mapping mirrored from the console's own LifecycleBadge, and two documented degradation steps down to no escape sequences at all.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's StatusVariantTest (pins every lifecycle state against the console's mapping and fails when the platform adds one the mapping misses) and PainterTest (exact truecolor output, the 256-colour approximation, and NO_COLOR emitting nothing).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/Palette.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/StatusVariant.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/Painter.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807; the console-parity half is pinned by a unit test against a transcribed copy of the console's own mapping rather than by a running cluster."
+    },
+    {
+      "id": "GIMLE-812",
+      "module": "gimle-hugin",
+      "feature": "The terminal view ships in the CLI archives and is removable in one directory delete",
+      "category": "Distribution",
+      "status": "New",
+      "statusNote": "New requirement: gimle-hugin plus the two JLine jars are selected into the CLI distribution archives, and bin/gimle passes --enable-native-access=ALL-UNNAMED, which JLine's FFM terminal provider needs. jline-native, the JNI provider with bundled native libraries, is excluded deliberately.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "HuginExtensionTest asserts classpath discovery of the shipped provider. The archive layout is verified by building the distribution, not by a test.",
+      "sourceLocations": [
+        "`gimle-hugin/pom.xml`",
+        "`gimle-dist/src/main/assembly/cli.xml`",
+        "`gimle-dist/src/main/dist/bin/gimle`"
+      ],
+      "gapNote": "Holmgang boots processes from the reactor's own classpath, never from a built distribution archive, so no scenario exercises the archive's contents."
+    },
+    {
+      "id": "GIMLE-813",
+      "module": "gimle-hugin",
+      "feature": "The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: the deployment status fields the control plane already served (unplacedCount, quotaViolating, limitRangeViolating and its reason) are read into a WorkloadRow and drawn as a NOT SETTLED block plus a status-line unplaced count, closing the gap where a shortfall was represented on screen by nothing at all.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/terminal-view.feature",
+          "scenario": "A workload the scheduler cannot place is reported rather than silently short",
+          "whyThisCounts": "A cordoned node leaves a two-replica submission unplaced against a really running cluster, and the rendered frame carries the NOT SETTLED block naming that workload and '0 of 2 placed'."
+        },
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/terminal-view.feature",
+          "scenario": "A healthy cluster reports nothing unsettled",
+          "whyThisCounts": "The converse on the same real cluster: with the deployment ACTIVE, no NOT SETTLED line is drawn at all, which is what makes the block a signal rather than permanent chrome."
+        }
+      ],
+      "otherTestCoverage": "gimle-hugin's SnapshotReaderTest (shortfall, both policy verdicts, a settled workload, a reasonless violation) and ClusterScreenTest (the block, its absence on a healthy cluster, and its row budget).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadRow.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-814",
+      "module": "gimle-hugin",
+      "feature": "DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: /daemonsets and /statefulsets are read alongside /deployments into one flat table with a KIND column, which a narrow terminal drops rather than paying for out of the workload name. A DaemonSet's desired count is read from the `desired` the control plane computes for it, since it declares no replicas of its own. Jobs and CronJobs stay out: they report a run and an attempt, not a live instance list.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's SnapshotReaderTest (all three kinds in one ordered table, an unserved kind costing only its own rows, a DaemonSet's shortfall read from its computed desired count, and a workload carrying neither figure) and ClusterScreenTest (the KIND column, and its removal on a narrow terminal).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadKind.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read the rendered table, though the underlying list routes are themselves reachable from one."
+    },
+    {
+      "id": "GIMLE-815",
+      "module": "gimle-hugin",
+      "feature": "A services screen showing each Service's live endpoint resolution",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: a third screen over /services and /services/{name}/endpoints, reporting a Service that resolves to no endpoints as a real finding and keeping an unreadable endpoint answer distinct from a genuine zero. Polls only while open, since resolution costs one request per Service.",
+      "coverage": "Covered",
+      "holmgangScenarios": [
+        {
+          "featureFile": "gimle-holmgang/src/test/resources/features/terminal-view.feature",
+          "scenario": "A Service resolving to no endpoints is reported as the finding it is",
+          "whyThisCounts": "A Service declared against a deployment that does not exist is read back through the real /services and /services/{name}/endpoints routes and rendered as NO ENDPOINTS."
+        }
+      ],
+      "otherTestCoverage": "gimle-hugin's ServiceReaderTest, ServicePollerTest and ServiceScreenTest.",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ServiceReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ServiceScreen.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-816",
+      "module": "gimle-hugin",
+      "feature": "An activity view of what has been done to the cluster, over the audit trail",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: a third screen over GET /audit, the only cluster-wide feed the control plane serves. Keeps DENIED distinct from REJECTED, reports a caller without audit permission as such rather than as an empty feed (off the typed CliExitCode.FORBIDDEN), and polls only while open. Also: cursor paging followed on demand with `m`, with the page depth held on the reader so a refresh keeps it.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's ActivityReaderTest and ActivityScreenTest.",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The /audit route itself is reachable from a scenario; the screen that renders it is not."
+    },
+    {
+      "id": "GIMLE-817",
+      "module": "gimle-hugin",
+      "feature": "The activity view reads three cluster records: authorization, lifecycle and alerts",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: the activity view gained a feed mode cycled with `c`, consuming the three cluster-wide reads the control plane now serves -- /audit, the cluster-wide branch of /events, and /alertrules with per-rule firing state. Keeps DENIED distinct from REJECTED and DISABLED/UNKNOWN distinct from OK, and polls only while open.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's ActivityReaderTest (all three feeds' parses and their degraded shapes) and ActivityScreenTest (per-feed labelling, headings, colour and width).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The three routes themselves are reachable from a scenario; the screen that renders them is not."
+    },
+    {
+      "id": "GIMLE-818",
+      "module": "gimle-hugin",
+      "feature": "The terminal view browses every collection the control plane lists, including registered custom kinds",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: a `:` prompt opens any kind the control plane lists as objects -- the six workload kinds (deployments, daemonsets, statefulsets, jobs, services, alertrules), tenants, cronjobs, limitranges, networkpolicies, ingresses, roles, rolebindings, accounts, volumes, kinddefinitions -- plus whatever custom kinds the cluster registered, whose columns come from their own printColumns. ConfigMaps, secrets and the artifact catalog are absent because the API lists none of them as objects.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's ResourceCatalogTest (resolution, custom-kind discovery, collision, degraded discovery, suggestions), ResourceReaderTest (column resolution, the wrapped collection, permission and failure paths), ResourceScreenTest (header, label, filter, permission message, width) and JsonPathTest (the dotted path walk).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceCatalog.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ResourceScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered table. The collection routes themselves are reachable from a scenario; the browser that draws them is not."
+    },
+    {
+      "id": "GIMLE-819",
+      "module": "gimle-hugin",
+      "feature": "The terminal view describes a selected resource as YAML without re-reading it",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: enter on a browser row, or d on an instance row in the cluster view, renders that resource's own object as scrollable YAML, from the object the row already carries rather than a fresh read, so the table and the detail can never disagree about which read is current.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's YamlTest (nesting, lists, empty containers, null, quoting, escaping) and DescribeScreenTest (the whole object, the title, scrolling and its clamps, width, colour).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/Yaml.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/DescribeScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-820",
+      "module": "gimle-hugin",
+      "feature": "The terminal view lists what it can open, and can be pointed at another control plane",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: an empty `:` lists every browsable kind including the cluster's own registered ones, and `:ctx NAME` repoints the view at another control plane by stored context name or host:port, closing every open screen and the kind catalog first. Rides a single read-only addition to ClusterReader; the identity presented never changes, since a context holds an endpoint and never a credential.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-cli's ClusterReaderContextTest (context resolution, bare addresses, precedence, refusal) and gimle-hugin's KindsScreenTest and UiStateTest.",
+      "sourceLocations": [
+        "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/KindsScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The context resolution itself is reachable from a scenario; the view that uses it is not."
+    },
+    {
+      "id": "GIMLE-821",
+      "module": "gimle-hugin",
+      "feature": "The terminal view joins Services to the instances behind them and names the gaps",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `x` draws the Service -> deployment -> instance tree, distinguishing a Service pointed at an unknown workload (NOT FOUND) from one pointed at a workload running nothing (NOT RUNNING), and grouping workloads no Service fronts under their own heading. Tenant-scoped on both sides; a pure join of two snapshots already polled.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's XrayTest (the join, both findings, tenant scoping, ancestor-preserving filter) and XrayScreenTest (indentation, wording, counts, width, colour).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/Xray.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/XrayRow.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The routes behind it are reachable from a scenario; the screen is not."
+    },
+    {
+      "id": "GIMLE-822",
+      "module": "gimle-hugin",
+      "feature": "The terminal view reads the control plane's own health alongside what it is running",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `P` reads /health and /metrics into one screen beside the cluster reading, so a sick control plane and sick workloads under a healthy one are both visible. UNREACHABLE is distinct from DOWN; the traffic rollup is best-effort on top of health and says when it cannot be read.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's PulseReaderTest (health, unreachable, the rollup and its permission, orderings) and PulseScreenTest (the wording, both failure directions, width, colour).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/PulseReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/PulseSnapshot.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The routes behind it are reachable from a scenario; the screen is not."
+    },
+    {
+      "id": "GIMLE-823",
+      "module": "gimle-hugin",
+      "feature": "The terminal view reads a worker's shipped traces for the instance it is inspecting",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `T` in the instance drill-down reads /traces-history/WORKER/{nodeId}:{workerId} and groups the spans into traces, newest first. No duration is shown -- only an end instant is shipped. A worker that ships nowhere says so rather than reading as one that served nothing.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's TraceReaderTest (parsing, grouping, the degraded shapes) and TraceScreenTest (the tree shape, the findings, width, colour).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/TraceReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/TraceSnapshot.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-824",
+      "module": "gimle-hugin",
+      "feature": "The terminal view narrows every screen to one tenant",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `:tenant ID` narrows every screen to one tenant and `:tenant all` restores the cluster, with the bar naming the scope wherever it is narrowing. A view narrowing rather than an authorization scope; nodes and untenanted kinds are never narrowed; the paged feeds scope server-side via ?tenant=.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's TenantScopeTest (each snapshot's narrowing and what it deliberately leaves alone) and UiStateTest (the scope's lifecycle).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-825",
+      "module": "gimle-hugin",
+      "feature": "The terminal view scans the cluster for what is wrong",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `S` (or `:scan`) lists every finding derived from readings the view already holds, ordered ERROR then WARNING then NOTE, with a missing input reported as a finding of its own rather than silently skipped.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's ScanTest (each finding, its severity, and the cases deliberately not reported) and ScanScreenTest (ordering, counts, the clean-cluster wording and the filtered-to-nothing wording).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/Scan.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/ScanScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-826",
+      "module": "gimle-hugin",
+      "feature": "The terminal view shows what the calling certificate may do",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `R` (or `:can`) draws every resource kind against every verb from `GET /authz/vocabulary` and `GET /authz/can-i`, with an unanswered cell reading `unknown` rather than `no` and an unidentified caller over plaintext said outright.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's PermissionReaderTest (the vocabulary-driven grid, silence never read as denial, the answering identity, escaping and the tenant scope) and PermissionScreenTest (the words in each cell, the unidentified-caller warning, and the unreadable-grid wording).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/PermissionReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/PermissionScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-827",
+      "module": "gimle-hugin",
+      "feature": "The terminal view browses a tenant's own config and secret holdings",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `:config`, `:configmaps`, `:secrets` and `:secretmaps` browse the per-tenant list routes, opening only under a tenant scope, with an encrypted config entry's decrypted value redacted before any row is built and the secret listings carrying names and versions only.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's ResourceReaderTest (the tenant-scoped route, the redaction in both the cells and the raw object, bare-name responses, and a secret listing's columns).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceKind.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceReader.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
+    },
+    {
+      "id": "GIMLE-828",
+      "module": "gimle-hugin",
+      "feature": "The terminal view reads a config key's, ConfigMap's or secret's revision history",
+      "category": "CLI UX",
+      "status": "New",
+      "statusNote": "New requirement: `v` on a resource-browser row lists that resource's revisions newest first across four differently-shaped ledgers, naming the revision in effect and reading no value the ledger does not already hold in plaintext.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "gimle-hugin's VersionReaderTest (all four ledger shapes, ordering, no-ledger against empty, escaping) and VersionScreenTest (the in-effect label, blank rather than invented author and time, and the deleted marker).",
+      "sourceLocations": [
+        "`gimle-hugin/src/main/java/com/gimle/hugin/model/VersionReader.java`",
+        "`gimle-hugin/src/main/java/com/gimle/hugin/render/VersionScreen.java`"
+      ],
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
     }
   ]
 }

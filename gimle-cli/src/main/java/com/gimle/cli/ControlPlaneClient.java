@@ -183,8 +183,7 @@ public final class ControlPlaneClient {
           response.headers().firstValue("X-Gimle-Artifact-Tenant"),
           response.headers().firstValue("X-Gimle-Artifact-Kind"));
     } catch (IOException e) {
-      throw CliException.unavailable(
-          "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
+      throw CliException.unavailable(unreachable(e), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new CliException("interrupted while contacting control plane at " + baseUri, e);
@@ -214,8 +213,7 @@ public final class ControlPlaneClient {
       }
       return response.headers().firstValue("X-Gimle-Artifact-Sha256");
     } catch (IOException e) {
-      throw CliException.unavailable(
-          "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
+      throw CliException.unavailable(unreachable(e), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new CliException("interrupted while contacting control plane at " + baseUri, e);
@@ -248,12 +246,25 @@ public final class ControlPlaneClient {
       }
       return response.body();
     } catch (IOException e) {
-      throw CliException.unavailable(
-          "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
+      throw CliException.unavailable(unreachable(e), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new CliException("interrupted while contacting control plane at " + baseUri, e);
     }
+  }
+
+  /**
+   * A connection failure's own message is often {@code null} -- {@code ConnectException} and {@code
+   * SocketException} routinely carry none -- which would otherwise reach an operator as "... at
+   * http://host:port: null". Falls back to the exception's type, which at least names what went
+   * wrong.
+   */
+  private String unreachable(final IOException cause) {
+    String detail = cause.getMessage();
+    return "could not reach control plane at "
+        + baseUri
+        + ": "
+        + (detail == null || detail.isBlank() ? cause.getClass().getSimpleName() : detail);
   }
 
   private static String readAll(InputStream in) throws IOException {
@@ -341,8 +352,7 @@ public final class ControlPlaneClient {
       return new ApiResponse(
           response.statusCode(), response.body(), response.headers().allValues("X-Gimle-Warning"));
     } catch (IOException e) {
-      throw CliException.unavailable(
-          "could not reach control plane at " + baseUri + ": " + e.getMessage(), e);
+      throw CliException.unavailable(unreachable(e), e);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new CliException("interrupted while contacting control plane at " + baseUri, e);

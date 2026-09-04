@@ -814,6 +814,30 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Web Console / Frontend | Fixed | Yes |
 | GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Web Console / Frontend | Fixed | Yes |
 | GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Web Console / Frontend | Fixed | Yes |
+| GIMLE-805 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | CLI | Complete | Yes |
+| GIMLE-806 | An extension is handed a read-only view of the control-plane API, never the client | CLI / Security | Complete | Yes |
+| GIMLE-807 | `gimle top` renders a live, read-only cluster view of nodes and instances | CLI UX | Complete (v1 scope) | Unit only |
+| GIMLE-808 | A failed poll keeps the last good rows and ages them rather than clearing the screen | CLI UX | Complete | Unit only |
+| GIMLE-809 | Instance drill-down with lifecycle timeline and a live log tail | CLI UX | Complete (v1 scope) | Unit only |
+| GIMLE-810 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | CLI UX | Complete | Partial |
+| GIMLE-811 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | CLI UX | Complete | Unit only |
+| GIMLE-812 | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | Complete | Partial |
+| GIMLE-813 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | CLI UX | Complete | Unit only |
+| GIMLE-814 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | CLI UX | Complete | Unit only |
+| GIMLE-815 | A services screen showing each Service's live endpoint resolution | CLI UX | Complete | Unit only |
+| GIMLE-816 | An activity view of what has been done to the cluster, over the audit trail | CLI UX | Complete | Unit only |
+| GIMLE-817 | The activity view reads three cluster records: authorization, lifecycle and alerts | CLI UX | Complete | Unit only |
+| GIMLE-818 | The terminal view browses every collection the control plane lists, including registered custom kinds | CLI UX | Complete | Unit only |
+| GIMLE-819 | The terminal view describes a selected resource as YAML without re-reading it | CLI UX | Complete | Unit only |
+| GIMLE-820 | The terminal view lists what it can open, and can be pointed at another control plane | CLI UX | Complete | Unit only |
+| GIMLE-821 | The terminal view joins Services to the instances behind them and names the gaps | CLI UX | Complete | Unit only |
+| GIMLE-822 | The terminal view reads the control plane's own health alongside what it is running | CLI UX | Complete | Unit only |
+| GIMLE-823 | The terminal view reads a worker's shipped traces for the instance it is inspecting | CLI UX | Complete | Unit only |
+| GIMLE-824 | The terminal view narrows every screen to one tenant | CLI UX | Complete | Unit only |
+| GIMLE-825 | The terminal view scans the cluster for what is wrong | CLI UX | Complete | Unit only |
+| GIMLE-826 | The terminal view shows what the calling certificate may do | CLI UX | Complete | Unit only |
+| GIMLE-827 | The terminal view browses a tenant's own config and secret holdings | CLI UX | Complete | Unit only |
+| GIMLE-828 | The terminal view reads a config key's, ConfigMap's or secret's revision history | CLI UX | Complete | Unit only |
 
 ## Detailed Requirements
 
@@ -9096,6 +9120,37 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And running the same command with no --tenant addresses the untenanted namespace, never either of them
   ```
 
+#### GIMLE-805 — CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider
+
+- **Category**: CLI
+- **User story**: As a platform developer, I want to add a CLI verb from a separate module without gimle-cli depending on it, so that the whole feature is one directory and one reactor entry that can be removed again.
+- **Status**: Complete. GimleCli's verb switch looks a CliExtension provider up in its `default` branch, immediately before the existing unknown-verb error, loading through GimleCli's own classloader rather than the thread context one. A provider is declared twice -- META-INF/services (what resolves it from the classpath, which is how the shipped bin/gimle launcher and every test load this code) and a module-info `provides` directive (the module path, which nothing uses today). gimle-cli itself gains the interface, a narrowing ClusterReader view of ControlPlaneClient, `uses` in its module-info, and roughly ten lines of dispatch -- and no dependency. A discovered provider's usageLine() is folded into `gimle --help`; a broken provider declaration costs the extension surface, never the CLI. A discovered verb is also consulted for scoped `-h`/`--help`: GimleCli's own scopedUsage table is built statically and cannot know about a verb a provider contributes at runtime, so before this it fell through to the entire multi-verb top-level listing -- the same default a genuinely unknown verb gets -- rather than that verb's own one-line usage.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/spi/CliExtension.java`, `gimle-cli/src/main/java/com/gimle/cli/spi/ClusterReader.java`, `gimle-cli/src/main/java/com/gimle/cli/CliExtensions.java`, `gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`, `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`dispatchExtension`, `usage`), `gimle-cli/src/main/java/com/gimle/cli/GimleCli.java` (`scopedUsage`, `extensionUsage`)
+- **Test coverage**: CliExtensionSeamTest exercises discovery from the classpath (a test-only provider declared in src/test/resources/META-INF/services, so a services file that only worked on the module path fails here rather than in an operator's terminal), dispatch, help folding, and the unknown-verb error surviving unchanged with no provider for a verb. HuginExtensionTest asserts the shipped provider is discoverable the same way. CliExtensionSeamTest additionally asserts that `-h` on a discovered verb prints that verb's own usage line and not the full top-level listing.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a CliExtension provider for the verb "top" on the CLI's own classpath
+  When an operator runs `gimle top`
+  Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed
+  And `gimle top -h` prints that verb's own usage rather than the full verb listing
+  ```
+
+#### GIMLE-806 — An extension is handed a read-only view of the control-plane API, never the client
+
+- **Category**: CLI / Security
+- **User story**: As an operator, I want a contributed CLI verb to be unable to change cluster state, so that a tool added for visibility can never be implicated in a state-changing bug.
+- **Status**: Complete. ClusterReader exposes exactly getList/getObject/openStream plus the server address; ControlPlaneClient's put/post/patch/delete/putFile are not on the type an extension can see. A narrowing interface over the existing client rather than a second HTTP path, so the restriction is a plain compile-time one that holds whichever classloader the extension arrives from. RBAC is unchanged: an extension sees exactly what the caller's own certificate already permits on a GET, with nothing added server-side.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/spi/ClusterReader.java`, `gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`
+- **Test coverage**: CliExtensionSeamTest asserts structurally that no mutating method appears on ClusterReader; HuginExtensionTest's own reader fixture fails the test if the extension reads anything before validating its arguments.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a CLI extension holding a ClusterReader
+  When it tries to reach a write method
+  Then no such method exists on the type it was handed
+  ```
+
 ### gimle-hilmir
 
 #### GIMLE-390 — Topology validation (`hilmir validate`)
@@ -12190,4 +12245,337 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   When an operator queries the Service's stable ClusterIP for a cluster name
   Then the answer comes from a Skald instance the platform scheduled and supervises
   And an instance whose directory has gone stale is taken out of the Service's endpoints rather than restarted
+  ```
+
+### gimle-hugin
+
+#### GIMLE-807 — `gimle top` renders a live, read-only cluster view of nodes and instances
+
+- **Category**: CLI UX
+- **User story**: As an operator watching a change settle, I want a live view of nodes and instances in my terminal, so that I stop re-running `gimle get nodes` and `gimle get deployments` by hand.
+- **Status**: Complete (v1 scope). A status line (control-plane address, connection state, node/instance counts, an ok/warn/bad instance split that sums to the instance count), a node table (state, CPU and memory against capacity with a gauge each, instance count, heartbeat age) and an instance table (deployment, index, node, lifecycle state, readiness, request rate, error rate, queue depth, memory, CPU), refreshed on a fixed two-second poll. Fed by GET /nodes and GET /deployments only -- no new server-side surface. An instance placed but not yet observed by its node reads PENDING with em-dashed metrics rather than zeroes that would look like an idle instance. Rendering is a pure function of (snapshot, ui state, viewport, clock) returning List<String>, which is what makes it testable without a terminal. The ordering of whichever table the cursor is on is cycled with one key, worst-first for every measure; node utilization is compared as a fraction of each node's own capacity, so a small node running hot outranks a large one merely busy. The filter is one piece of state shared by every screen with rows to narrow, rather than retyped per screen. A mouse wheel notch moves the cursor like an arrow key; there is deliberately no click-to-select, since the screens return a list of strings with no record of which row occupies which line.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/StatusBar.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`
+- **Test coverage**: ClusterScreenTest asserts the status line, both tables, em-dashed metrics for an unobserved instance, column alignment and no-overflow at 80/120/200 columns, long-name truncation, the empty-cluster case, and the frame never exceeding the viewport. SnapshotReaderTest covers parsing including missing observations, a node that has never heartbeated, an unparseable timestamp, tenant propagation and row ordering. ClusterScreenTest additionally covers `o` acting on the focused table only, node utilization ordering against each node's own capacity, and the default node ordering saying nothing about itself; ServiceScreenTest covers the shared filter narrowing that screen too.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running cluster with nodes and placed instances
+  When an operator runs `gimle top`
+  Then both tables render live and refresh on a fixed interval without any further command
+  ```
+
+#### GIMLE-808 — A failed poll keeps the last good rows and ages them rather than clearing the screen
+
+- **Category**: CLI UX
+- **User story**: As an operator watching a cluster during a restart, I want the view to keep showing what it last knew when a poll fails, so that a transient outage does not blank the one screen I am watching.
+- **Status**: Complete. The poller runs on a virtual thread and publishes an immutable ClusterSnapshot; the render loop reads whichever is current and never blocks on I/O, so a slow or unreachable control plane costs freshness, not responsiveness (`q` still quits immediately). A failed poll re-marks the last good snapshot stale with the failure's own message and the age of the data; a recovered poll clears the marking. Before the first successful poll the snapshot reads as connecting, with no age at all.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterPoller.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`
+- **Test coverage**: ClusterPollerTest covers a failed poll keeping the rows and the age, recovery clearing the stale marking, the pre-first-poll connecting state, and pause/resume. ClusterScreenTest asserts the stale status line shows the reason and the age while the rows stay on screen.
+- **Gherkin scenario**:
+  ```gherkin
+  Given `gimle top` showing a healthy cluster
+  When the control plane becomes unreachable
+  Then the last good rows stay on screen, aged, with the failure's reason on the status line
+  ```
+
+#### GIMLE-809 — Instance drill-down with lifecycle timeline and a live log tail
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to open one instance from the cluster view and see its state, its recent transitions and its live logs, so that I can find out why it did not settle without leaving the view.
+- **Status**: Complete (v1 scope). Enter on a selected row opens a detail pane (state, liveness, readiness, module coordinate, worker id and the measured metrics), the last few lifecycle transitions from GET /events polled on a slower five-second interval, and a live log tail over the existing follow stream. The tail is seeded with one ordinary page of backlog before the follow stream opens and resumes from that page's own last timestamp, so a quiet instance shows the lines that explain how it got here rather than an empty pane. `c` cycles the log category between APPLICATION and PLATFORM. Every route carries the owning tenant as ?tenant=<id>. The pane also shows the declared isolation tier and resource limit, which the control plane now serves on an instance observation, and reads them per tier rather than uniformly: at TIER_2 the instance has a dedicated worker JVM started with that memory figure as its own -Xmx, so measured memory is drawn against it as a real headroom gauge; at TIER_1 one heap serves every instance on the worker, so the same figure is labelled an admission bound and gets no gauge that would imply a ceiling this instance can individually hit. A tier or quantity this build cannot parse is dropped rather than shown raw. The pane also shows any ports the instance reported for itself and its volume usage, each given a line only when the instance actually reports it -- a module answering only over the fabric has neither, and a permanent em dash for both would be noise on every instance in the cluster.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/InstanceWatcher.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/InstanceScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java` (`isolationTier`, `resourceLimit`)
+- **Test coverage**: InstanceWatcherTest covers backlog-then-follow ordering, the follow cursor resuming from the newest backlog line, tenant scoping on every route, the events route's triple, a failing log route leaving a reason instead of ending the session, and a stream ending on its own not being an error. InstanceScreenTest covers the header, detail pane, the unobserved case, both panes' labels, width limits and the no-colour frame. SnapshotReaderTest additionally covers reading the tier and limit back, both absent, and an unparseable value being dropped; InstanceScreenTest covers the TIER_2 headroom gauge, the TIER_1 admission-bound wording with no gauge, both fields absent, and a terminal too short for the panes still ending in the key bar. InstanceScreenTest additionally covers reported ports rendering name-sorted alongside volume usage, and an instance reporting neither spending no line on either.
+- **Gherkin scenario**:
+  ```gherkin
+  Given `gimle top` with an instance selected
+  When the operator presses Enter
+  Then that instance's detail, recent lifecycle events and a live log tail are shown, and esc returns to the cluster view
+  And its declared isolation tier and resource limit are shown, with a memory headroom gauge only where that limit is a per-instance ceiling
+  ```
+
+#### GIMLE-810 — Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to move around the view with the keys I already use in k9s and top, so that nothing about the tool needs learning before it is useful.
+- **Status**: Complete. Arrow keys or j/k move the selection, g/G jump to the ends, Enter inspects, esc goes back or clears the filter, / filters across deployment name, index, node, lifecycle state, tenant and module coordinate, p pauses and resumes refresh, r refreshes now, ? opens the help overlay (which states in the view itself that nothing here can change cluster state), and q or ctrl-c quits. Selection is held as a tenant-scoped instance key rather than a row index, so a row appearing above the cursor between polls does not silently move it onto a different instance. Raw mode, the alternate screen and key decoding are confined to one thin JLine adapter which restores the terminal on the way out. A digit picks a table's ordering outright rather than cycling to it, on whichever of the two tables has the cursor, and each table's own label names the digits that do so -- a key nothing on screen mentions is never found. The filter reaches the instance drill-down's log tail as well as the tables, matched against each line's level and message but never its clock, so typing digits to find a message does not also match every line logged in that minute; a filter matching no line says so rather than reading as a quiet instance, and esc there clears the filter before it closes the pane. The instance drill-down's log tail additionally toggles wrapping (`w`) and the clock column (`t`): wrapping is off by default, because one row per line is what makes a tail scannable and a wrapped stack trace would push everything above it off the top; hiding the clock gives its width to the message.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`, `gimle-hugin/src/main/java/com/gimle/hugin/term/JLineTerminalSession.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/HelpOverlay.java`
+- **Test coverage**: UiStateTest covers the cursor following its instance across list changes, falling back when that instance leaves, stopping at both ends, the empty list, filter editing, and inspect/close. The JLine adapter itself is deliberately untested and kept as thin as possible for that reason. UiStateTest additionally covers a digit picking an ordering and a position no column occupies leaving the ordering alone; InstanceScreenTest covers the log tail narrowing to the filter and reporting how much of it shows, a filter matching nothing saying so, and the filter matching a line's level and message but not its clock; ClusterScreenTest covers the key bar still fitting eighty columns while naming the three keys that reach an otherwise unfindable screen. InstanceScreenTest additionally covers wrapping continuing a long line rather than cutting it, hiding the clock widening the message, and a wrapped tail still fitting its window; UiStateTest covers the two toggles' defaults.
+- **Gherkin scenario**:
+  ```gherkin
+  Given `gimle top` running against a cluster
+  When the operator moves the selection, filters, pauses and quits
+  Then each key does what the help overlay says, and quitting restores the terminal
+  ```
+
+#### GIMLE-811 — Terminal colour is the console's own tokens, degrading to 256-colour and to none
+
+- **Category**: CLI UX
+- **User story**: As an operator who uses both surfaces, I want a state to read the same colour in the terminal as in the web console, so that I am not learning two colour languages for one cluster.
+- **Status**: Complete. The console's dark-theme design tokens are converted once from OKLCH to sRGB and frozen as constants, and the lifecycle-state-to-colour mapping mirrors the console's own LifecycleBadge state for state. Colour degrades in two steps: 24-bit escape sequences by default, a nearest-entry approximation into the xterm 256-colour palette (cube or grey ramp, whichever is closer) otherwise, and no escape sequences at all when NO_COLOR is set, TERM is dumb, or no TTY is attached. Nothing is colour-only -- every state reads as words as well.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/render/Palette.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/StatusVariant.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/Painter.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ColorMode.java`
+- **Test coverage**: StatusVariantTest pins every lifecycle state against the console's own mapping and fails if the platform adds a state the mapping does not cover. PainterTest covers exact truecolor output, the 256-colour approximation including the grey ramp, and that no-colour mode emits not one escape byte. ClusterScreenTest and InstanceScreenTest each assert a whole no-colour frame carries no escape sequences.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a terminal that advertises a particular colour depth
+  When `gimle top` renders a frame
+  Then it emits the console's own token values at that depth, and nothing at all under NO_COLOR
+  ```
+
+#### GIMLE-812 — The terminal view ships in the CLI archives and is removable in one directory delete
+
+- **Category**: Distribution
+- **User story**: As a maintainer, I want the terminal view to be droppable without a migration, so that a tool built during stabilization never becomes something stabilization has to work around.
+- **Status**: Complete. gimle-hugin is a reactor module with its own pom, module-info and META-INF/services file; the CLI distribution archives select its jar plus the two JLine jars out of the resolved dependency graph, and bin/gimle passes --enable-native-access=ALL-UNNAMED, which JLine's Foreign Function & Memory terminal provider needs (without it JLine quietly degrades to a terminal that cannot be put into raw mode, so the view refuses a dumb terminal loudly instead). JLine is the only third-party dependency the feature adds and lives entirely inside the removable module; jline-native, its JNI provider with bundled native libraries, is excluded deliberately and the ffm provider selected by name. Removing the feature is: one reactor line, one gimle-dist dependency block plus three assembly includes, `rm -rf gimle-hugin/`, the requirement entries marked Removed, and one docs page -- no endpoint, no stored state, no file on disk, no flag another component reads.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/pom.xml`, `gimle-hugin/src/main/java/module-info.java`, `gimle-hugin/src/main/resources/META-INF/services/com.gimle.cli.spi.CliExtension`, `gimle-dist/src/main/assembly/cli.xml`, `gimle-dist/src/main/dist/bin/gimle`
+- **Test coverage**: HuginExtensionTest asserts classpath discovery of the shipped provider and that the tests themselves run unnamed, which is what makes that assertion meaningful. The archive layout itself is verified by building the distribution, not by a test.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the CLI distribution archive
+  When gimle-hugin and its JLine jars are on its lib/ classpath
+  Then `gimle top` resolves, and with them removed the verb is unknown again
+  ```
+
+#### GIMLE-813 — The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange
+
+- **Category**: CLI UX
+- **User story**: As an operator watching a rollout, I want the view to tell me a workload is not running what I asked for, so that a shortfall is not represented on screen by nothing at all.
+- **Status**: Complete. The control plane's own deployment status already carries `unplacedCount`, `quotaViolating`, `limitRangeViolating` and `limitRangeViolationReason`; the view reads all four into a `WorkloadRow` alongside the instance rows it was already parsing out of the same response. A `NOT SETTLED` block is drawn above the tables listing only the workloads that are not settled -- a healthy cluster renders exactly as it did before, with no block at all -- and the status line carries an `unplaced N` count, because an unplaced replica has no instance row to appear in and is absent from the ok/warn/bad split by construction. Each line states the shortfall first and then whichever policy verdict the control plane actually served a reason for, rather than inventing wording for the one it did not.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadRow.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java` (`readWorkloads`), `gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java` (`unsettledBlock`), `gimle-hugin/src/main/java/com/gimle/hugin/render/StatusBar.java`
+- **Test coverage**: SnapshotReaderTest covers the shortfall and both policy verdicts reading back, a settled workload reporting no problem at all, and a violation the control plane gives no reason for still being reported. ClusterScreenTest covers the block appearing with its shortfall and verdict wording, a healthy cluster drawing no block and no status-line marker, and the block costing instance rows rather than overflowing the frame.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a deployment asking for four replicas of which the scheduler placed two
+  When an operator runs `gimle top`
+  Then a NOT SETTLED line names that workload and its shortfall, and the status line counts the unplaced replicas
+  ```
+
+#### GIMLE-814 — DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want every long-running workload kind in one table, so that the live view is not silently blind to two thirds of what is running.
+- **Status**: Complete. `/daemonsets` and `/statefulsets` serve the identical `status.instances[].observation` shape `/deployments` does, and the platform keys an instance on the tenant-scoped `(name, index)` pair regardless of kind, so the existing instance identity, event route and log route all carry over unchanged. All three are read into one flat name-ordered table with a `KIND` column, which is dropped below 100 columns rather than paid for out of the workload name: the kind is the same word on most rows, the name is what identifies one, and the kind stays reachable through the filter and the drill-down. Jobs and CronJobs are deliberately excluded -- they report a run and an attempt rather than a live instance list, which is a different thing to draw. A DaemonSet reads its shortfall like any other kind: it declares no `replicas` of its own -- its desired count is one per eligible node -- so the control plane computes that number and publishes it as `desired` on the status, which is where the table reads it from. Neither field is a fallback for the other: whichever the kind actually carries is the honest figure, and a kind carrying neither reports nothing to be short of.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadKind.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/InstanceLayout.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ClusterScreen.java`
+- **Test coverage**: SnapshotReaderTest covers all three kinds landing in one name-ordered table with their kinds attached, a kind the control plane serves nothing for costing only its own rows, and a DaemonSet reading its shortfall from the computed desired count instead of the replicas it does not declare. ClusterScreenTest covers the KIND column and header, and a narrow terminal dropping that column rather than truncating every workload name.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster running a Deployment, a DaemonSet and a StatefulSet
+  When an operator runs `gimle top`
+  Then all three kinds' instances appear in one table, each labelled with its own kind
+  ```
+
+#### GIMLE-815 — A services screen showing each Service's live endpoint resolution
+
+- **Category**: CLI UX
+- **User story**: As an operator wiring two teams' services together, I want to see which Services currently resolve to nothing, so that a Service fronting deployments that do not exist is visible rather than silently dead.
+- **Status**: Complete. `s` opens a third screen over `GET /services` and, per Service, `GET /services/{name}/endpoints` -- the endpoint set the control plane recomputes from the current store snapshot each tick, which is what makes "this Service backs nothing" a reading rather than a guess. A Service resolving to zero endpoints reads `NO ENDPOINTS` in the same bad token a failed instance uses, and in words, so it survives colour being switched off. A Service whose endpoint call failed or returned nothing recognisable reads `UNKNOWN` instead and is never reported as zero: zero is the finding the screen exists for, so an unreadable answer must not be able to manufacture one. Resolving costs one request per Service, so this screen's poller runs only while it is open rather than on the cluster view's own two-second tick. Each Service's own tenant travels as `?tenant=<id>` the same way every other tenant-scoped route expects it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ServiceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ServicePoller.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ServiceScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`
+- **Test coverage**: ServiceReaderTest covers parsing, tenant scoping on the endpoints route, a Service with zero endpoints, and a failed endpoint read staying distinct from zero. ServicePollerTest covers the same stale-on-failure posture the cluster poller has. ServiceScreenTest covers the table, the zero-endpoint verdict reading as bad in words, width at 60/80/120/200 columns, and a no-colour frame carrying no escape sequences.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service naming deployments that currently have no running instances
+  When an operator presses `s` in `gimle top`
+  Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read
+  ```
+
+#### GIMLE-816 — An activity view of what has been done to the cluster, over the audit trail
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see what has just been done to this cluster, so that a change someone else made is not something I have to infer from its effects.
+- **Status**: Complete. `a` opens a third screen over `GET /audit` -- the only cluster-wide feed the control plane serves, since `/events` is keyed to one instance and cannot answer "what has been happening here". Newest first, filterable by principal or target, with refusals counted on the status line, because a refusal is what an operator opens this feed to find. Two distinctions are kept rather than flattened: a decision refused for want of permission reads DENIED and one refused on its merits reads REJECTED; and a caller whose own certificate does not carry `ResourceKind.AUDIT` is told exactly that rather than shown an empty feed, which would read as a quiet cluster. That case is detected from the typed `CliExitCode.FORBIDDEN` a 403 already carries, not by matching on a message. Like the services screen it polls only while open. The view is labelled as the authorization trail it is: lifecycle transitions are a different record, and one this feed would silently fail to contain. The trail is paged: a response's own `nextCursor` is followed on demand with `m`, and the page depth is held on the reader rather than in the snapshot so a refresh re-reads everything already on screen instead of shrinking back to one page under an operator who had scrolled.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ActivitySnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`
+- **Test coverage**: ActivityReaderTest covers newest-first ordering, an event with no principal being dropped alone, a response with no events key reading as an empty trail, and DENIED staying distinct from REJECTED. ActivityScreenTest covers the row content, the refusal count, the missing-permission case reading as such rather than as an empty feed, an empty trail, filtering by principal and by target, a stale poll keeping its rows, width at 80/200 columns, and a no-colour frame carrying no escape sequences. ActivityReaderTest additionally covers a multi-page trail reporting more to load, `loadMore` accumulating the next page, a refresh preserving the accumulated depth, and a single-page trail reporting nothing more.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster where a deployment was created and a secret read was refused
+  When an operator presses `a` in `gimle top`
+  Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line
+  ```
+
+#### GIMLE-817 — The activity view reads three cluster records: authorization, lifecycle and alerts
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want the three records of what is going on in this cluster in one place, so that finding out why something changed does not mean guessing which surface holds the answer.
+- **Status**: Complete. `a` opens the view and `c` cycles it through the three feeds the control plane now serves cluster-wide: the audit trail (`GET /audit`), instance lifecycle transitions (`GET /events` with neither a deployment nor an instance named), and declared alert rules with their firing state (`GET /alertrules` plus `/alertrules/{name}/firing` per rule). They share one table because they read the same shape -- when, who or what, the action, the state, the subject -- and the label always names which record is showing, since a feed mistaken for another would silently omit exactly what was being looked for. Distinctions kept rather than flattened: a decision refused for want of permission reads DENIED and one refused on its merits REJECTED; a disabled alert rule says so without being asked, and a rule the control plane has no reading for reads UNKNOWN rather than being reported as quiet. The lifecycle feed widens its own state column because TRANSITION_FAILED is both the longest kind and the one an operator opened the feed to find. Each feed is gated on its own permission and reports a refusal as such rather than as an empty feed; switching feed replaces the poller, since each reads a different route and pages independently, and the whole view polls only while open -- the alert feed additionally costing one request per rule, the rule list carrying no firing state of its own.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/FeedMode.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/FeedRow.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`
+- **Test coverage**: ActivityReaderTest covers each feed's parse: audit newest-first ordering with DENIED distinct from REJECTED and a principal-less event dropped alone; lifecycle rows built from the cluster-wide events read with their cause folded in, and an event naming no deployment dropped; alerts asking each enabled rule for its firing state with firing sorted first, a disabled rule never asked at all, an unknown reading never reported as quiet, and the feed never paging. ActivityScreenTest covers each feed naming itself, the per-feed column headings, an alert rule showing no time because it is a standing declaration, a firing rule and a failed transition both reading as bad in words, width at 80/200 columns and a no-colour frame carrying no escape sequences.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with a refused request, a failed instance transition and a firing alert rule
+  When an operator presses `a` and cycles the feed with `c`
+  Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line
+  ```
+
+#### GIMLE-818 — The terminal view browses every collection the control plane lists, including registered custom kinds
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to open any resource kind from the terminal view, so that reading a tenant, a role or a volume does not mean leaving the live view for a separate command.
+- **Status**: Complete. A `:` prompt opens a kind by key; the browser then reads that kind's own collection route and resolves the columns the kind declares. One screen and one reader serve every kind, because what differs between them is data -- a route and a list of columns -- not layout, which is also what lets a kind the cluster registered after this code was written render at all: `/kinddefinitions` is read once per session and each definition's own `printColumns` become that kind's columns, reachable by its plural, its kind name, or any short name it declared. A built-in key always wins a collision, so a registered kind cannot redirect a keystroke an operator already learned. The built-in set is every collection route that answers with objects: the six workload kinds (deployments, daemonsets, statefulsets, jobs, services, alertrules) plus tenants, cronjobs, limitranges, networkpolicies, ingresses, roles, rolebindings, accounts, volumes and kinddefinitions. The workload kinds are here even though the cluster view already shows them, because it shows the instances they are running rather than the workloads themselves -- a declared replica count and module coordinate are not readable from a table of instances. Two absences are properties of the API rather than choices: ConfigMaps and secrets are addressable only one name at a time with no collection route, and the artifact catalog answers with bare module-id strings rather than objects. Each kind is gated on its own permission and a caller lacking one is told that rather than shown an empty table, which would read as the collection being empty. A mistyped kind is answered with the keys sharing what was typed. Nothing in the table is coloured: these are fields whose meaning the view does not know, and painting one would be inventing a judgement. Like the services and activity screens the poll lives only as long as the screen.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceKind.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceCatalog.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ResourceScreen.java`
+- **Test coverage**: ResourceCatalogTest covers every built-in key resolving, a registered kind joining with its declared columns and short names, a registered kind failing to take over a built-in key, an unreadable /kinddefinitions still browsing every built-in, and a misspelling answered with near misses. ResourceReaderTest covers a kind's columns becoming cells in order, a row keeping the object it was built from, a missing field costing only its own cell, the wrapped /volumes collection, a refusal of permission reported as a state, and a custom kind's own print columns. ResourceScreenTest covers the header coming from the kind, the route being named, a registered kind saying so, the permission message, an empty collection, the filter, a blank cell reading as absent, and the frame fitting both an eighty-column terminal and a kind declaring five extra columns. JsonPathTest covers the dotted path walk and every value shape a cell can hold. The workload kinds are covered by ResourceCatalogTest (every one resolving, and every cluster-view WorkloadKind reaching a browsable kind by its own route) and ResourceReaderTest (the spec-wrapper shape those routes actually answer with).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with tenants, roles and a registered custom kind
+  When an operator opens `gimle top` and types `:tenants`
+  Then the tenants collection is shown with the columns that kind declares
+  ```
+
+#### GIMLE-819 — The terminal view describes a selected resource as YAML without re-reading it
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see a resource's whole object from the browser, so that the fields no column had room for are one keystroke away rather than a separate command.
+- **Status**: Complete. `enter` on a browser row, or `d` on an instance row in the cluster view, opens the object the collection route answered with, emitted as YAML and scrollable. It re-reads nothing: the row already carries the object it was drawn from, so the table and the detail can never disagree about which read is current, and a resource that leaves the collection drops back to the table the same way an inspected instance that leaves the cluster does. The emitter is written here rather than pulled from a YAML library -- the input is an already-parsed tree and the output is a few dozen lines a human reads once, which is not the kind of thing this module's one third-party dependency exists for. It is an emitter and never a parser, so quoting is conservative rather than minimal: a scalar is quoted whenever leaving it bare would let it read back as a number, a boolean, null, empty, or YAML punctuation. The pane is a rendering rather than a manifest -- it carries the status the control plane computes alongside the spec that was submitted -- and does not promise to be re-appliable. `d` reaches it through the same browser and the same pane rather than a single-object fetch of its own, resolving the kind by the route the cluster view's own WorkloadKind already names so the two cannot drift apart; because it names its resource before any read has happened, a describe is only closed by a read that actually landed, never by the empty collection that precedes one.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/render/Yaml.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/DescribeScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`
+- **Test coverage**: YamlTest covers flat and nested objects, a list of objects putting its first key on the dash, empty containers staying on the key line, null, the conservative quoting rules, and escaping inside a value. DescribeScreenTest covers the whole object being shown, the title naming kind/resource/tenant, a document taller than the pane reporting which lines are showing, scrolling clamped at both ends, a document that fits not being reported as a window, the frame fitting, and no escape sequences without colour. UiStateTest covers the describe offset clamped to what the document actually has. UiStateTest covers opening the pane on a resource named rather than pointed at, and ResourceCatalogTest covers every cluster-view workload kind reaching a browsable kind by its route.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the terminal view's resource browser open on a kind
+  When an operator presses enter on a row
+  Then that resource's whole object is shown as YAML, scrollable
+  ```
+
+#### GIMLE-820 — The terminal view lists what it can open, and can be pointed at another control plane
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see which kinds this cluster can show me and to follow my work between clusters, so that neither requires leaving the live view.
+- **Status**: Complete. Pressing `:` and then enter with nothing typed lists every kind the catalog holds -- key, route, and whether the cluster registered it -- rather than failing to name one: the prompt takes a name, which only helps someone who already knows the names, and a cluster's own registered kinds are the part no documentation could carry. `:ctx NAME` repoints the whole view at another control plane, named either by a context `gimle context set` stored or by a bare host:port; resolution lives in `gimle-cli` rather than in the view, because the config file and its format are the CLI's. A stored context wins over an address that happens to look like its name, and a name matching neither is refused on the spot rather than dialled, since a typo dialled as a hostname fails later and less clearly. Switching closes every open screen and drops the kind catalog first -- each is about one cluster, and carried across would describe the previous one under the new one's name. Transport material is not per-context (a stored context holds an endpoint and never a credential; the certificate and CA come from this process's own `gimle.tls.*`), so the identity presented does not change: right for another replica of the same cluster, and a cluster under a different PKI fails to connect rather than misleading anyone. The seam this rides on is a single read-only addition to `ClusterReader` -- what comes back is another reader, never the client behind it.
+- **Confidence**: High
+- **Source location(s)**: `gimle-cli/src/main/java/com/gimle/cli/spi/ClusterReader.java`, `gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/KindsScreen.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`
+- **Test coverage**: ClusterReaderContextTest covers a stored context resolving to its endpoint, a bare address dialled as given (IPv6 included), a context winning over a same-looking address, and a name that is neither being refused with the message it is refused by. KindsScreenTest covers every kind getting a row with its route, the count being stated so a list cut by a short terminal is not read as all of it, a registered kind being marked as one, the frame fitting, and no escape sequences without colour. UiStateTest covers leaving every view carrying nothing over, and the kinds list and the browser never being open together.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an operator in the terminal view
+  When they press `:` and then enter with nothing typed
+  Then every kind this cluster can show is listed, registered kinds included
+  ```
+
+#### GIMLE-821 — The terminal view joins Services to the instances behind them and names the gaps
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see which Service reaches which instances, so that a Service fronting nothing and a workload nothing fronts are both visible instead of each looking healthy in its own table.
+- **Status**: Complete. `x` draws Service -> the deployments it fronts -> their instances as one flat tree. The join is the point: both halves are already on screen elsewhere and neither answers this, because the two findings that matter live in the gap between them. A Service naming a workload the cluster has never heard of reads NOT FOUND; one naming a workload that exists but runs nothing reads NOT RUNNING -- a Service pointed at a typo and a workload scaled to zero are different mistakes, and telling them apart is most of the value. Workloads no Service fronts get their own heading rather than being left off, since nothing can reach them except whatever already knows their instances. The join is tenant-scoped on both sides, so two tenants running an identically-named deployment are never reported as one fronting the other's instances. Filtering keeps every matched row's ancestors, because a tree filtered to bare matches loses what it was drawn for. A pure function of the Services and cluster snapshots -- no read of its own, so it costs exactly the Services poll the services screen already costs.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/Xray.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/XrayRow.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/XrayScreen.java`
+- **Test coverage**: XrayTest covers the service/deployment/instance chain and its depths, a Service naming an unknown workload, a workload that exists but runs nothing being a distinct finding, unfronted workloads getting their own group without duplicating fronted ones, the tenant-scoped join, filtering keeping ancestors, and a cluster with no Services at all. XrayScreenTest covers the top-down indentation, the findings reading as words and being counted on the label, the empty case, the frame fitting, and no escape sequences without colour.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service naming a deployment that is not running
+  When an operator presses `x` in the terminal view
+  Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts
+  ```
+
+#### GIMLE-822 — The terminal view reads the control plane's own health alongside what it is running
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want one screen telling me whether this cluster is all right, so that neither a sick control plane nor sick workloads under a healthy one can go unnoticed.
+- **Status**: Complete. `P` reads `GET /health` and `GET /metrics` into one screen beside the cluster reading already polled. Both are needed and neither catches the other's failure: a control plane that has lost its store still answers every list route from nothing, so a cluster view alone would look serene, while a healthy control plane says nothing about instances crash-looping under it. A control plane that never answered reads UNREACHABLE, distinct from one reporting itself DOWN -- the second is a process reporting on itself, the first is no process reporting anything, and the health route answers 503 when it cannot reach its store, which the client surfaces as a failure rather than a body. The per-deployment traffic rollup is gated on its own permission and is read best-effort on top of health, so a caller who cannot read it still learns whether the control plane is up, and is told the rollup is unreadable rather than shown a cluster serving nothing. Deployments reporting errors are named before the merely busy ones. Every line reads as a judgement in words rather than a number to interpret.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/PulseReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/PulseSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/PulseScreen.java`
+- **Test coverage**: PulseReaderTest covers a healthy control plane's own fields, a control plane that does not answer being reported as a state rather than thrown, the per-deployment rollup and its tenant, a rollup the caller cannot read leaving health readable, a row naming no deployment being dropped, and the busiest/erroring orderings. PulseScreenTest covers a healthy cluster reading as healthy in words, unreachable reading differently from down, a healthy control plane over a broken cluster still reporting the cluster, an unreadable rollup saying so, a quiet readable rollup saying none, erroring deployments named first, the frame fitting, and no escape sequences without colour.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a control plane that has lost its store
+  When an operator presses `P` in the terminal view
+  Then the control plane is reported as unhealthy rather than the cluster reading as serene
+  ```
+
+#### GIMLE-823 — The terminal view reads a worker's shipped traces for the instance it is inspecting
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see the spans an instance's worker shipped, so that the call that failed is visible from the same place its logs and metrics are.
+- **Status**: Complete. `T` in the instance drill-down reads `GET /traces-history/WORKER/{nodeId}:{workerId}` -- the same addressing the meter history already uses, since a worker has no listening address of its own -- and groups the spans into the traces they belong to, newest trace first, each trace's spans indented under it oldest first. Grouped rather than listed flat because a span alone says almost nothing: what is being looked for is the call that failed and what it was part of. A trace carrying a failed span reads FAILED and they are counted on the label. No elapsed time is shown anywhere, and that is not a gap to fill later: the shipper records only each span's end instant, so any duration would be invented rather than read. A parent span id of all zeroes -- how the OpenTelemetry SDK spells 'no parent' -- reads as a root rather than as a child of something that does not exist. A trace whose root was never shipped, because it began in another process or was trimmed from this worker's history, is still listed under its own id rather than dropped for want of a heading. Shipping to Muninn is optional, so every failure resolves to 'this worker ships no traces' rather than an error, which is a different reading from one that has served nothing; and an instance whose worker the agent has not reported yet does not open the pane at all rather than opening it on a guess.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/TraceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/TraceSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/TraceScreen.java`
+- **Test coverage**: TraceReaderTest covers a span read with its trace and status, an all-zeroes parent reading as a root, a worker that ships nowhere reporting no history rather than an error, a line with no span identity being dropped, an unparseable timestamp costing only its own ordering, grouping with the newest trace first and a failed span making a failed trace, a trace whose root was never shipped, and the filter. TraceScreenTest covers the heading-and-indented-spans shape, a failed trace reading as failed and being counted, telling 'ships nowhere' apart from 'served nothing', no elapsed time appearing anywhere, the filter, the frame fitting, and no escape sequences without colour.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an instance whose worker ships traces
+  When an operator presses `T` in its drill-down
+  Then that worker's recent spans are shown grouped into their traces
+  ```
+
+#### GIMLE-824 — The terminal view narrows every screen to one tenant
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to scope the view to one tenant the way a namespace scopes a cluster, so that everything I look at is that tenant's own and nothing else's.
+- **Status**: Complete. `:tenant ID` narrows every screen to that tenant's rows and `:tenant all` restores the cluster. The status bar names the tenant on every screen it is narrowing, the node drill-down included -- that screen's instance list is the node's and the tenant's both, so a bar naming only the node would make a tenant's two instances read as everything the machine is running -- without that, a cluster showing one tenant's three instances is indistinguishable from a cluster that has only three, which is the one way this could mislead rather than help. It is a view narrowing and never an authorization scope: the control plane already decided what this certificate may see, and choosing a tenant only hides some of what it sent. Nodes are never narrowed, because a node belongs to the cluster rather than to a tenant and hiding the machine a tenant's instances run on would answer 'where is this running' with silence. A kind whose rows carry no tenant at all -- roles, accounts, kind definitions -- is cluster-wide and is left whole rather than emptied. The untenanted namespace is a scope of its own rather than a wildcard. The two paged feeds send ?tenant= rather than filtering what came back, since narrowing a page after it arrives would report a quiet tenant whenever a busier one filled the page ahead of it; everything else arrives whole and its rows are narrowed exactly. The scope is applied once per reading rather than at each screen, so no view can quietly forget it, and it is dropped along with everything else when the view is pointed at another control plane.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`
+- **Test coverage**: TenantScopeTest covers a scoped cluster keeping only that tenant's instances and workloads, nodes never being narrowed, no scope leaving the reading identical, a tenant with nothing in it reading as empty rather than falling back to everything, the untenanted namespace being its own scope, scoped Services, and a kind with no tenant surviving while a kind with one is narrowed. UiStateTest covers the scope's default and its clearing, its surviving movement between screens, and its being dropped on a context switch.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster running two tenants' workloads
+  When an operator types `:tenant acme`
+  Then every screen shows only that tenant's rows, and the bar names the tenant
+  ```
+
+#### GIMLE-825 — The terminal view scans the cluster for what is wrong
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want one screen listing everything currently wrong with the cluster, worst first, so that I do not have to already know which table a problem would appear in.
+- **Status**: Complete. `S` from the cluster view, or `:scan`, derives findings from readings the view already holds and orders them by severity. ERROR covers replicas the scheduler placed nowhere, an instance FAILED or failing its liveness probe, a node whose agent has stopped heartbeating, a Service resolving to no endpoint, and a Service fronting a workload the cluster does not have. WARNING covers an instance active but not ready, one placed on a node that has reported nothing about it yet, a workload over its tenant's quota or outside its limit range, and a node committed to almost all of its own cpu or memory -- said before placement actually fails, because by then the finding is a workload's unplaced replicas and no longer names the machine that ran out. NOTE covers the deliberate states that look like faults from a distance: a cordoned node, a workload scaled to zero. An instance still starting is never reported for being unready, since it is unready by design. A check whose input is missing is never silently skipped: a Services read that has not landed is reported as a finding of its own, because a clean result that came back clean because half the checks never ran is worse than no scan. A filter matching nothing says so rather than borrowing the clean-cluster wording. No request is made beyond the Services read the services screen already costs.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/Scan.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ScanFinding.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ScanScreen.java`
+- **Test coverage**: ScanTest covers each finding kind and its severity, a scaled-to-zero workload and a cordoned node reading as notes rather than faults, a starting instance never being reported unready, an unreadable endpoint count never being reported as resolving to nothing, a Services read that never landed being reported rather than skipped, a healthy cluster producing nothing at all, severity ordering, tenant-qualified subjects, and a Service and workload in different tenants never being matched to each other. ScanScreenTest covers a finding reading on its own without its heading, worst-first ordering on screen, the fix-now and to-watch counts on the label, a clean cluster stating what it checked, a filter matching nothing never being reported as clean, the frame fitting the viewport and ending in the key bar, and no escape sequences with colour off.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with an unplaced replica, an unready instance and a cordoned node
+  When an operator presses `S`
+  Then the three findings are listed worst first, each saying what is wrong on its own line
+  ```
+
+#### GIMLE-826 — The terminal view shows what the calling certificate may do
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see what my own certificate is permitted to do, kind by kind and verb by verb, so that I can answer 'may I delete this' without reading roles and bindings back into a verdict myself.
+- **Status**: Complete. `R` from the cluster view, or `:can`, draws a grid of every resource kind against every verb. The kinds and verbs come from `GET /authz/vocabulary` rather than a list hard-coded here, so a kind added to the platform later still appears; every cell is the control plane's own answer from `GET /authz/can-i`, never a verdict recomputed here from the RBAC objects, which would be a second implementation of the authorizer able to disagree with the real one. A cell the control plane did not answer reads `unknown` and never `no` -- denial and silence are indistinguishable once drawn and only one is a statement about anybody's grants -- and the label counts the unanswered cells so a partial read is visible. Over a plaintext transport there is no client certificate to identify anyone, so the control plane answers as an unidentified caller and allows everything; the screen says so in place of the grid's meaning, since an unbroken column of yes is what an over-privileged account would also produce. It is one request per cell, so it is read once when opened and again only on `r`, through the poller's on-demand mode; changing the tenant scope re-asks it, since the answer differs per tenant.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/PermissionReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/PermissionSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/PermissionScreen.java`
+- **Test coverage**: PermissionReaderTest covers the grid following the vocabulary the control plane names, an unanswered cell never reading as denied, the answering identity being carried, an unidentified caller being recognisable, an unreadable vocabulary being reported rather than shown as an empty grid, the tenant scope reaching every question, query escaping, and the filter narrowing by kind and by granted verb. PermissionScreenTest covers every cell being a word rather than a mark, an unanswered cell drawn as unknown, the identity named on screen, the unidentified-caller warning appearing only when it applies, an unreadable grid saying so instead of showing nothing permitted, the unanswered count on the label, the frame fitting the viewport, and no escape sequences with colour off.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an operator connected with a certificate holding a subset of the cluster's permissions
+  When they press `R`
+  Then each resource kind is listed against each verb with the control plane's own yes or no
+  ```
+
+#### GIMLE-827 — The terminal view browses a tenant's own config and secret holdings
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to list the config keys, ConfigMaps, secrets and SecretMaps a tenant holds, so that I can see what a workload is configured from without leaving the view for the CLI.
+- **Status**: Complete. `:config`, `:configmaps`, `:secrets` and `:secretmaps` browse `GET /config|configmaps|secrets|secretmaps/{tenantId}` through the same resource browser every other kind uses. A kind whose route carries a tenant lists that tenant's own holdings rather than the cluster's, and there is no cluster-wide route for any of the four, so each opens only while a tenant is in scope: typing one without a scope is answered outright rather than opening onto an empty table that would read as this tenant holding none. Changing the scope re-reads an open one under the new tenant; clearing it closes the browser, since a per-tenant reading with no tenant is not a reading of anything. The flat config listing hands back every value already decrypted, encrypted entries included -- the one read this view makes that could put a secret on screen -- so an entry marked encrypted keeps its row and loses its value, redacted on the object before any row is built so the describe pane cannot show what the table withheld. The secret and SecretMap listings carry names and versions only. Two of the four routes answer with an array of bare names rather than objects; each name becomes a one-field object so it browses through the same path as everything else instead of needing a row type that exists only to carry a string.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceKind.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/Hugin.java`
+- **Test coverage**: ResourceReaderTest covers a tenant-scoped kind asking the route for the tenant in scope, an encrypted config entry keeping its row and losing its value in both the cells and the raw object the describe pane reads, a bare-name route browsing as rows carrying that name, and a secret listing carrying versions and never a value.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a tenant holding config keys and secrets
+  When an operator runs `:tenant acme` and then `:secrets`
+  Then that tenant's secret names and versions are listed, and no secret value is shown
+  ```
+
+#### GIMLE-828 — The terminal view reads a config key's, ConfigMap's or secret's revision history
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want the revision history of a config key, ConfigMap, secret or SecretMap, so that I can see what changed and when after something started failing at a time nothing was deployed.
+- **Status**: Complete. `v` on a resource-browser row opens the ledger behind it, newest first, with the revision in effect named on the label. Four routes answer in four shapes (`versions` against `groupVersions`, `version` against `groupVersion`, and a different field carrying what a revision was), so what differs per kind is written down once as a ledger description rather than branched through the reading. Only the four tenant-scoped kinds keep a ledger; anything else is answered with that rather than with an empty pane, since 'no history kept' and 'no history yet' are different answers and only one is about the selected resource. No revision's secret is shown because none is read: the plaintext config ledger records values and is safe to show in full, an encrypted write never entering it, while the secret ledgers record only who wrote a revision, when, and its type. Author and time are left blank wherever the ledger does not record them rather than invented. The revision in effect is read against the whole ledger rather than against whatever survived a filter, so narrowing to older revisions cannot make one of them read as the one in force.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/VersionReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/VersionSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/VersionScreen.java`
+- **Test coverage**: VersionReaderTest covers each of the four ledger shapes, a deleted revision, newest-first ordering however the route ordered them, a kind that keeps no ledger being told apart from an empty one, path escaping, and the filter. VersionScreenTest covers the revision in effect named on the label, a ledger recording no author or time leaving those columns blank rather than inventing them, a deleted revision saying so in words, no-ledger against empty-ledger wording, the in-effect marker surviving a filter that hides it, the frame fitting the viewport, and no escape sequences with colour off.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a config key written more than once
+  When an operator selects it in the browser and presses `v`
+  Then every revision is listed newest first, with the one currently in effect named
   ```

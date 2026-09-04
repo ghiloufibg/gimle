@@ -50,4 +50,9 @@ else
   java_bin=java
 fi
 
-exec "$java_bin" -cp "$classpath" com.gimle.cli.GimleCli "$@"
+# --enable-native-access=ALL-UNNAMED is needed by exactly one verb, `gimle top`: JLine's terminal
+# provider reaches termios through the Foreign Function & Memory API, and without the grant it
+# quietly degrades to a terminal that cannot be put into raw mode rather than failing. Granted
+# unconditionally here because these jars all load into the unnamed module anyway, so scoping it
+# any more narrowly would not restrict anything.
+exec "$java_bin" --enable-native-access=ALL-UNNAMED -cp "$classpath" com.gimle.cli.GimleCli "$@"
