@@ -11,10 +11,11 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * {@code mvn gimle:controlplane} -- launches a real {@code ControlPlaneMain} process using {@code
  * gimle-controlplane}'s own resolved runtime classpath. Talks to a {@code gimle-mimir} store
  * cluster over the network rather than embedding one -- {@code gimle.controlplane.storeEndpoints}
- * defaults to {@code gimle:store}'s own default client port, and {@code
- * gimle.controlplane.fafnirEndpoint} defaults to {@code gimle:fafnir}'s own default port, so the
- * three goals keep working together with zero extra flags for single-node local dev. No-ops in
- * every other reactor module (see {@link AbstractGimleMojo}).
+ * defaults to {@code gimle:store}'s own default client port, {@code
+ * gimle.controlplane.fafnirEndpoint} defaults to {@code gimle:fafnir}'s own default port, and
+ * {@code gimle.controlplane.andvariEndpoint} defaults to {@code gimle:andvari}'s own default port,
+ * so the four goals keep working together with zero extra flags for single-node local dev. No-ops
+ * in every other reactor module (see {@link AbstractGimleMojo}).
  */
 @Mojo(
     name = "controlplane",
@@ -38,6 +39,15 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
   // Matches FafnirMojo's own gimle.fafnir.port default (9092).
   @Parameter(property = "gimle.controlplane.fafnirEndpoint", defaultValue = "127.0.0.1:9092")
   private String fafnirEndpoint;
+
+  // Matches AndvariMojo's own gimle.andvari.port default (9094). Optional at ControlPlaneMain's
+  // own level -- a cluster with no Andvari reachable keeps working on local-artifactPath manifests
+  // unchanged -- but defaulted here anyway, the same "zero extra flags for single-node local dev"
+  // posture storeEndpoints/fafnirEndpoint above already take, so gimle:publish and a
+  // coordinate-only gimle:deploy work against a plain `mvn gimle:controlplane` without the operator
+  // having to know this flag exists.
+  @Parameter(property = "gimle.controlplane.andvariEndpoint", defaultValue = "127.0.0.1:9094")
+  private String andvariEndpoint;
 
   /**
    * Local-dev convenience for {@code gimle.transport.protocol} -- unset by default (plaintext,
@@ -77,8 +87,37 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
 
   @Override
   protected List<String> buildCommand() {
+    return buildCommand(
+        javaExecutable(),
+        String.join(File.pathSeparator, runtimeClasspathElements),
+        port,
+        secretKeyPath,
+        storeEndpoints,
+        fafnirEndpoint,
+        andvariEndpoint,
+        transportProtocol,
+        auditReadResourceKinds,
+        consoleAddons);
+  }
+
+  /**
+   * Pure command construction, split out from {@link #buildCommand()} so it's unit-testable without
+   * Maven's own parameter-injection machinery -- the same seam {@link InitMojo#buildCommand}
+   * establishes.
+   */
+  static List<String> buildCommand(
+      String javaExecutable,
+      String classpath,
+      String port,
+      String secretKeyPath,
+      String storeEndpoints,
+      String fafnirEndpoint,
+      String andvariEndpoint,
+      String transportProtocol,
+      String auditReadResourceKinds,
+      String consoleAddons) {
     List<String> command = new ArrayList<>();
-    command.add(javaExecutable());
+    command.add(javaExecutable);
     if (transportProtocol != null && !transportProtocol.isBlank()) {
       command.add("-Dgimle.transport.protocol=" + transportProtocol);
     }
@@ -89,7 +128,7 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
       command.add("-Dgimle.controlplane.consoleAddons=" + consoleAddons);
     }
     command.add("-cp");
-    command.add(String.join(File.pathSeparator, runtimeClasspathElements));
+    command.add(classpath);
     command.add("com.gimle.controlplane.ControlPlaneMain");
     command.add(port);
     command.add(secretKeyPath);
@@ -97,6 +136,10 @@ public final class ControlPlaneMojo extends AbstractGimleMojo {
     command.add(storeEndpoints);
     command.add("--fafnir-endpoint");
     command.add(fafnirEndpoint);
+    if (andvariEndpoint != null && !andvariEndpoint.isBlank()) {
+      command.add("--andvari-endpoint");
+      command.add(andvariEndpoint);
+    }
     return command;
   }
 }

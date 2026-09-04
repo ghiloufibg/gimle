@@ -104,6 +104,7 @@ network (see `mvn gimle:store` above) rather than embedding one.
 | `gimle.controlplane.port` | `8080` | API server port. |
 | `gimle.controlplane.secretKeyPath` | `${project.build.directory}/gimle-state/secret.key` | Where this replica's own AES-256 secrets master key persists to disk. |
 | `gimle.controlplane.storeEndpoints` | `127.0.0.1:9091` | `host:clientPort,...` of every store endpoint to connect to — matches `mvn gimle:store`'s own default client port. |
+| `gimle.controlplane.andvariEndpoint` | `127.0.0.1:9094` | `host:port` of the artifact registry replica to resolve registry-coordinate deployments against — matches `mvn gimle:andvari`'s own default port. Optional at the process level (a cluster with no reachable Andvari keeps working on local-`artifactPath` manifests unchanged), but defaulted here so `mvn gimle:publish` and a coordinate-only `mvn gimle:deploy` work against a plain `mvn gimle:controlplane` with no extra flags. |
 | `gimle.controlplane.transportProtocol` | *(unset, plaintext)* | Local-dev convenience for `gimle.transport.protocol` — see [Transport security](../architecture/transport-security.md). |
 | `gimle.controlplane.audit.readResourceKinds` | *(unset, no READ auditing)* | Comma-separated `ResourceKind` names to opt into READ-decision audit-trail coverage — see [Authentication and authorization § Audit logging](../architecture/authn-authz.md#audit-logging). |
 
