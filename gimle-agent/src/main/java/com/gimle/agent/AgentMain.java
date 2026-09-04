@@ -420,6 +420,14 @@ public final class AgentMain {
     SleipnirTrainer sleipnirTrainer = new SleipnirTrainer(javaExecutable, sleipnirCache);
     sleipnirTrainer.start(commandTail);
     CapacityTracker capacityTracker = CapacityTracker.ofThisMachine();
+    // A second, separately-scoped tracker from capacityTracker above: that one sums each
+    // instance's own declared *request* (an oversubscription-style scheduling figure, read
+    // elsewhere via its own snapshot()), while this one sums the real committed ceiling
+    // (handle.limit()) a freshly spawned worker JVM is actually started with -- the only figure
+    // that can genuinely exhaust this machine's real memory. Reserved only at the point a new
+    // worker JVM is spawned (startInstance), never for an instance packed into an already-running
+    // shared worker (installIntoExistingWorker), since packing costs no additional real memory.
+    CapacityTracker committedWorkerCapacity = CapacityTracker.ofThisMachine();
     HttpClient httpClient = buildHttpClient();
     // Tracked separately from supervised: a vessel instance has no ControlChannelServer/
     // ModuleDescriptor/worker connection at all, so stretching SupervisedInstance to cover both
@@ -585,6 +593,7 @@ public final class AgentMain {
             resourceLimiter,
             volumeManager,
             capacityTracker,
+            committedWorkerCapacity,
             gossipMember,
             catalog,
             logRoot,
@@ -1550,6 +1559,7 @@ public final class AgentMain {
       ResourceLimiter resourceLimiter,
       VolumeManager volumeManager,
       CapacityTracker capacityTracker,
+      CapacityTracker committedWorkerCapacity,
       GossipMember gossipMember,
       ServiceCatalog catalog,
       Path logRoot,
@@ -1630,6 +1640,7 @@ public final class AgentMain {
             key,
             supervised,
             capacityTracker,
+            committedWorkerCapacity,
             instanceShippers,
             workerShippers,
             volumeManager,
@@ -1686,6 +1697,7 @@ public final class AgentMain {
                   tier1Budget,
                   sleipnirCache,
                   capacityTracker,
+                  committedWorkerCapacity,
                   gossipMember,
                   catalog,
                   httpClient,
@@ -1712,6 +1724,7 @@ public final class AgentMain {
             key,
             supervised,
             capacityTracker,
+            committedWorkerCapacity,
             instanceShippers,
             workerShippers,
             volumeManager,
@@ -2442,7 +2455,7 @@ public final class AgentMain {
    * blocking this tick's own loop, the same "never block assignment-poll on a slow-starting JVM"
    * posture {@link #driveInstanceUp} already takes for a freshly spawned worker's owning instance.
    */
-  private static void installIntoExistingWorker(
+  static void installIntoExistingWorker(
       AssignedInstance assigned,
       String key,
       ModuleDescriptor descriptor,
@@ -2611,7 +2624,7 @@ public final class AgentMain {
     }
   }
 
-  private static void startInstance(
+  static void startInstance(
       AssignedInstance assigned,
       String key,
       ModuleDescriptor descriptor,
@@ -2623,6 +2636,7 @@ public final class AgentMain {
       Tier1WorkerBudget tier1Budget,
       SleipnirCache sleipnirCache,
       CapacityTracker capacityTracker,
+      CapacityTracker committedWorkerCapacity,
       GossipMember gossipMember,
       ServiceCatalog catalog,
       HttpClient httpClient,
@@ -2680,6 +2694,7 @@ public final class AgentMain {
                   exhaustedKey);
               resourceLimiter.release(handle);
               capacityTracker.release(exhaustedKey);
+              committedWorkerCapacity.release(exhaustedKey);
               supervised.remove(exhaustedKey);
             },
             Optional.of(systemLogFile),
@@ -2706,14 +2721,35 @@ public final class AgentMain {
     supervised.put(key, instance);
     try {
       capacityTracker.tryAssign(key, descriptor.resourceRequest());
+      // Real committed memory, not the tiny declared request tryAssign above tracks -- the
+      // check that actually catches a node overcommitting its real machine memory across
+      // accumulated shared-worker ceilings. Checked (and reserved) before supervisor.start()
+      // below actually forks the process, so a refusal here never spawns anything to clean up.
+      if (!committedWorkerCapacity.tryAssign(key, handle.limit())) {
+        CapacityTracker.Snapshot committed = committedWorkerCapacity.snapshot();
+        String refusal =
+            "refusing to spawn worker "
+                + key
+                + ": committing its "
+                + ResourceSpec.formatMemory(handle.limit().memoryBytes())
+                + " ceiling would exceed this node's own real memory budget (already committed: "
+                + ResourceSpec.formatMemory(committed.assignedMemoryBytes())
+                + ", node total: "
+                + ResourceSpec.formatMemory(committed.totalMemoryBytes())
+                + ")";
+        log.error(refusal);
+        throw new IOException(refusal);
+      }
       startShippingInstanceLogs(muninnEndpoint, instanceShippers, key, assigned, logRoot);
       supervisor.start();
     } catch (IOException | RuntimeException e) {
       // Undo everything registered above so a start failure leaves no trace behind -- mirrors
       // installIntoExistingWorker's own failure cleanup, plus closing the control channel server
-      // this method (unlike that one) freshly bound.
+      // this method (unlike that one) freshly bound. committedWorkerCapacity.release is a safe
+      // no-op when the refusal above never actually reserved anything.
       supervised.remove(key);
       capacityTracker.release(key);
+      committedWorkerCapacity.release(key);
       stopShippingInstanceLogs(instanceShippers, key);
       try {
         server.close();
@@ -3824,10 +3860,11 @@ public final class AgentMain {
    * for why the latter must never release: the whole point of sticky placement is that the data at
    * {@code volumeHandles}' host paths survive exactly that case.
    */
-  private static void stopInstance(
+  static void stopInstance(
       String key,
       Map<String, SupervisedInstance> supervised,
       CapacityTracker capacityTracker,
+      CapacityTracker committedWorkerCapacity,
       Map<String, List<MuninnShipper>> instanceShippers,
       Map<String, WorkerShipperPair> workerShippers,
       VolumeManager volumeManager,
@@ -3892,6 +3929,16 @@ public final class AgentMain {
       // a worker that never completed its Hello handshake (e.g. it crashed before connecting), in
       // which case nothing was ever started to stop.
       stopShippingWorkerMetricsAndTraces(workerShippers, instance.fabricWorkerId);
+      // Only the worker JVM actually going away frees its real committed memory -- released under
+      // workerKey (the key whichever instance's own startInstance call originally reserved it
+      // under), not this instance's own key, since the last instance to leave a Tier 1
+      // density-packed worker is very often a packed sibling rather than the owner itself (see
+      // findReusableTier1Worker's own javadoc on the owner-stopped-while-siblings-remain case).
+      // null only for the handful of unit tests that construct a SupervisedInstance with no real
+      // worker behind it.
+      if (instance.workerKey != null) {
+        committedWorkerCapacity.release(instance.workerKey);
+      }
     }
     capacityTracker.release(key);
   }
