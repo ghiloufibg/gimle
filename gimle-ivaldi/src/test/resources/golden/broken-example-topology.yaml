@@ -1,0 +1,21 @@
+name: broken-example
+transport: mtls
+machines:
+  - name: box
+    host: 127.0.0.1
+runtime:
+  dataRoot: ~/.gimle/broken/data
+store:
+  replicas:
+    - machine: box
+controlPlane:
+  replicas:
+    - machine: box
+    - machine: box
+fafnir:
+  keyFile: ~/.gimle/fafnir.key
+  replicas:
+    - machine: box
+agents:
+  - machine: box
+    nodeId: node-1

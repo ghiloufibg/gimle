@@ -1,0 +1,30 @@
+name: orders-platform-local
+machines:
+  - name: local
+    host: 127.0.0.1
+runtime:
+  dataRoot: ~/.gimle/ivaldi/data
+store:
+  replicas:
+    - machine: local
+controlPlane:
+  replicas:
+    - machine: local
+fafnir:
+  keyFile: ~/.gimle/ivaldi/fafnir.key
+  replicas:
+    - machine: local
+muninn:
+  replicas:
+    - machine: local
+andvari:
+  replicas:
+    - machine: local
+agents:
+  - machine: local
+    nodeId: node-1
+    labels:
+      - ssd
+  - machine: local
+    nodeId: node-2
+    gossipPort: 9095

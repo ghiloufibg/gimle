@@ -58,7 +58,7 @@ export function workloadNodes(bp: Blueprint): BlueprintNode[] {
   return bp.nodes.filter((n) => isWorkload(n.kind));
 }
 
-function validateTopology(bp: Blueprint): Problem[] {
+export function validateTopology(bp: Blueprint): Problem[] {
   const p: Problem[] = [];
   const machines = nodesOf(bp, "machine");
   const names = machines.map((m) => (m.data as MachineData).name);
