@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.cli.spi.ClusterReader;
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ResourceCatalog;
 import com.gimle.hugin.model.ResourceKind;
 import java.io.ByteArrayInputStream;
@@ -38,7 +39,7 @@ class KindsScreenTest {
     List<String> lines = render(ResourceCatalog.builtInOnly(), new Viewport(140, 12));
 
     assertTrue(
-        lines.getFirst().contains(ResourceKind.builtIns().size() + " kinds"), lines.getFirst());
+        lines.getFirst().contains("kinds " + ResourceKind.builtIns().size()), lines.getFirst());
     assertTrue(lines.stream().anyMatch(line -> line.contains("more than this window holds")));
   }
 
@@ -53,7 +54,7 @@ class KindsScreenTest {
             .findFirst()
             .orElseThrow(() -> new AssertionError("no greetings row in " + lines));
     assertTrue(row.contains("registered kind"), row);
-    assertTrue(lines.getFirst().contains("1 registered by this cluster"), lines.getFirst());
+    assertTrue(lines.getFirst().contains("registered 1"), lines.getFirst());
   }
 
   @Test
@@ -77,7 +78,7 @@ class KindsScreenTest {
   }
 
   private List<String> render(final ResourceCatalog catalog, final Viewport viewport) {
-    return screen.render(catalog, "localhost:8080", viewport);
+    return screen.render(catalog, "localhost:8080", new UiState(), viewport);
   }
 
   /** A cluster with exactly one kind of its own, so "registered" has something to point at. */

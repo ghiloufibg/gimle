@@ -45,7 +45,7 @@ public final class ScanScreen {
       final Instant now) {
     List<ScanFinding> findings = Scan.findings(cluster, services, now, ui.filter());
     List<String> lines = new ArrayList<>();
-    lines.add(StatusBar.cluster(painter, cluster, ui, viewport, paused, now));
+    lines.add(bar(cluster, ui, viewport, paused, now));
     lines.add("");
     lines.add(label(findings, ui.filter()));
     lines.add(header(viewport));
@@ -74,23 +74,15 @@ public final class ScanScreen {
   private String label(final List<ScanFinding> findings, final String filter) {
     long errors = count(findings, ScanFinding.Severity.ERROR);
     long warnings = count(findings, ScanFinding.Severity.WARNING);
-    Line line =
-        new Line(painter)
-            .add("SCAN", Style.fg(Palette.HUD).asBold())
-            .add(
-                "  " + findings.size() + (findings.size() == 1 ? " finding" : " findings"),
-                Style.fg(Palette.MUTED_FOREGROUND));
+    SectionLabel label =
+        SectionLabel.of(painter, "findings").detail(String.valueOf(findings.size()));
     if (errors > 0) {
-      line.add("   " + errors + " to fix now", Style.fg(Palette.BAD));
+      label.alert(errors + " to fix now", StatusVariant.BAD);
     }
     if (warnings > 0) {
-      line.add("   " + warnings + " to watch", Style.fg(Palette.WARN));
+      label.alert(warnings + " to watch", StatusVariant.WARN);
     }
-    if (filter != null && !filter.isBlank()) {
-      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
-          .add(filter, Style.fg(Palette.PRIMARY));
-    }
-    return line.build();
+    return label.filter(filter).build();
   }
 
   /**
@@ -101,6 +93,30 @@ public final class ScanScreen {
     return filter == null || filter.isBlank()
         ? "nothing found: every node, workload, instance and Service reads as it should"
         : "nothing matches";
+  }
+
+  /**
+   * Named for this screen rather than borrowed from the cluster view's. The two read the same
+   * cluster, and a bar identical to the one behind it would make this look like that screen with
+   * its table replaced.
+   *
+   * <p>It carries no count of what it found: the label two lines below already says that, beside
+   * the table the count is about, and saying it twice on one frame reads as two findings.
+   */
+  private String bar(
+      final ClusterSnapshot cluster,
+      final UiState ui,
+      final Viewport viewport,
+      final boolean paused,
+      final Instant now) {
+    TitleBar bar =
+        TitleBar.of(painter, "scan")
+            .subject(cluster.serverAddress())
+            .connection(cluster.connected(), cluster.staleReason(), cluster.age(now))
+            .scope(ui)
+            .stat("nodes", cluster.nodes().size())
+            .stat("instances", cluster.instances().size());
+    return bar.paused(paused).build(viewport);
   }
 
   private String header(final Viewport viewport) {

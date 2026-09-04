@@ -111,43 +111,21 @@ public final class TraceScreen {
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   TRACES   ", bar.asBold())
-            .add(instance.deploymentName() + "/" + instance.instanceIndex(), bar);
-    if (snapshot.connected()) {
-      line.add("  ", bar).add("●", Style.fg(Palette.OK).on(Palette.CARD)).add(" connected", bar);
-    } else {
-      Style warn = Style.fg(Palette.WARN).on(Palette.CARD);
-      String age = snapshot.age(now).map(Text::age).map(value -> " " + value + " old").orElse("");
-      line.add("  ", bar)
-          .add("●", warn)
-          .add(" " + snapshot.staleReason().orElse("disconnected") + age, warn);
-    }
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+    return TitleBar.of(painter, "traces")
+        .subject(instance.deploymentName() + " / " + instance.instanceIndex())
+        .connection(snapshot.connected(), snapshot.staleReason(), snapshot.age(now))
+        .tenant(instance.tenantId())
+        .paused(paused)
+        .build(viewport);
   }
 
   private String label(final TraceSnapshot snapshot, final int shown, final String filter) {
-    Line line =
-        new Line(painter)
-            .add("TRACES", Style.fg(Palette.HUD).asBold())
-            .add("  " + shown + " recent, newest first", Style.fg(Palette.MUTED_FOREGROUND));
+    SectionLabel label = SectionLabel.of(painter, "traces").detail(shown + " recent, newest first");
     long failed = snapshot.failedTraceCount();
     if (failed > 0) {
-      line.add("   " + failed + " with a failed span", Style.fg(Palette.BAD));
+      label.alert(failed + " with a failed span", StatusVariant.BAD);
     }
-    if (filter != null && !filter.isBlank()) {
-      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
-          .add(filter, Style.fg(Palette.PRIMARY));
-    }
-    return line.build();
+    return label.filter(filter).build();
   }
 
   private String header(final Viewport viewport) {

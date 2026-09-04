@@ -5,11 +5,8 @@ import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.ResourceSnapshot;
 import com.gimle.hugin.model.ServiceSnapshot;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Locale;
-import java.util.Optional;
 
 /**
  * The two bars that frame every screen: a status line across the top and a key hint line across the
@@ -29,33 +26,21 @@ final class StatusBar {
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", brand())
-            .add(" TOP", bar.asBold())
-            .add("   ", bar)
-            .add(snapshot.serverAddress(), bar);
-    appendConnection(line, snapshot, bar, now);
-    appendTenantScope(line, ui, bar);
-    line.add("   nodes ", bar)
-        .add(String.valueOf(snapshot.nodes().size()), bar.asBold())
-        .add("  instances ", bar)
-        .add(String.valueOf(snapshot.instances().size()), bar.asBold())
-        .add("  ", bar);
-    appendHealthSplit(line, snapshot.instances(), bar);
+    TitleBar bar =
+        TitleBar.unnamed(painter)
+            .subject(snapshot.serverAddress())
+            .connection(snapshot.connected(), snapshot.staleReason(), snapshot.age(now))
+            .scope(ui)
+            .stat("nodes", snapshot.nodes().size())
+            .stat("instances", snapshot.instances().size());
+    appendHealthSplit(bar, snapshot.instances());
     // Replicas the scheduler placed nowhere have no instance row, so they are absent from the
     // split above and need saying separately or they go unsaid entirely.
     int unplaced = snapshot.unplacedCount();
     if (unplaced > 0) {
-      line.add("   unplaced ", bar)
-          .add(String.valueOf(unplaced), Style.fg(Palette.WARN).on(Palette.CARD).asBold());
+      bar.badge("unplaced " + unplaced, StatusVariant.WARN);
     }
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+    return bar.paused(paused).build(viewport);
   }
 
   static String services(
@@ -65,30 +50,18 @@ final class StatusBar {
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", brand())
-            .add(" TOP", bar.asBold())
-            .add("   SERVICES", bar.asBold())
-            .add("   ", bar)
-            .add(snapshot.serverAddress(), bar);
-    appendConnection(line, snapshot.connected(), snapshot.staleReason(), snapshot.age(now), bar);
-    appendTenantScope(line, ui, bar);
-    line.add("   services ", bar)
-        .add(String.valueOf(snapshot.services().size()), bar.asBold())
-        .add("  endpoints ", bar)
-        .add(String.valueOf(snapshot.endpointCount()), bar.asBold());
+    TitleBar bar =
+        TitleBar.of(painter, "services")
+            .subject(snapshot.serverAddress())
+            .connection(snapshot.connected(), snapshot.staleReason(), snapshot.age(now))
+            .scope(ui)
+            .stat("services", snapshot.services().size())
+            .stat("endpoints", snapshot.endpointCount());
     int unresolved = snapshot.unresolvedCount();
     if (unresolved > 0) {
-      line.add("   ", bar)
-          .add(unresolved + " unresolved", Style.fg(Palette.BAD).on(Palette.CARD).asBold());
+      bar.badge(unresolved + " unresolved", StatusVariant.BAD);
     }
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+    return bar.paused(paused).build(viewport);
   }
 
   static String resources(
@@ -98,81 +71,26 @@ final class StatusBar {
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", brand())
-            .add(" TOP", bar.asBold())
-            .add("   " + snapshot.kind().key().toUpperCase(Locale.ROOT), bar.asBold())
-            .add("   ", bar)
-            .add(snapshot.serverAddress(), bar);
-    appendConnection(line, snapshot.connected(), snapshot.staleReason(), snapshot.age(now), bar);
-    appendTenantScope(line, ui, bar);
+    TitleBar bar =
+        TitleBar.of(painter, snapshot.kind().key())
+            .subject(snapshot.serverAddress())
+            .connection(snapshot.connected(), snapshot.staleReason(), snapshot.age(now))
+            .scope(ui);
     if (snapshot.permitted()) {
-      line.add("   " + snapshot.kind().label() + " ", bar)
-          .add(String.valueOf(snapshot.rows().size()), bar.asBold());
+      bar.stat(snapshot.kind().label(), snapshot.rows().size());
     } else {
-      line.add("   not permitted", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
+      bar.badge("not permitted", StatusVariant.WARN);
     }
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+    return bar.paused(paused).build(viewport);
   }
 
   /**
-   * The tenant in scope, said on the bar of every screen it narrows. Without it a cluster showing
-   * one tenant's three instances is indistinguishable from a cluster that has only three, which is
-   * the one way this feature could mislead rather than help.
+   * Counts the three-way lifecycle rollup the bar shows. Everything that is neither settled nor
+   * failed -- STARTING, STOPPING, still INSTALLED, not yet observed at all -- lands in the middle,
+   * so the three numbers always sum to the instance count and an operator can read "settled or not"
+   * off the line without doing arithmetic.
    */
-  private static void appendTenantScope(final Line line, final UiState ui, final Style bar) {
-    ui.tenantScope()
-        .ifPresent(
-            tenant ->
-                line.add("   tenant ", bar)
-                    .add(tenant, Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold()));
-  }
-
-  private static Style brand() {
-    return Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold();
-  }
-
-  private static void appendConnection(
-      final Line line, final ClusterSnapshot snapshot, final Style bar, final Instant now) {
-    appendConnection(line, snapshot.connected(), snapshot.staleReason(), snapshot.age(now), bar);
-  }
-
-  /**
-   * The indicator, its wording and, when there is one, the age of the rows behind it -- written
-   * against the three readings every snapshot kind exposes rather than against one snapshot type,
-   * so a second view's status line cannot drift into saying "stale" differently.
-   */
-  private static void appendConnection(
-      final Line line,
-      final boolean connected,
-      final Optional<String> staleReason,
-      final Optional<Duration> age,
-      final Style bar) {
-    line.add("  ", bar);
-    if (connected) {
-      line.add("●", Style.fg(Palette.OK).on(Palette.CARD)).add(" connected", bar);
-      return;
-    }
-    Style warn = Style.fg(Palette.WARN).on(Palette.CARD);
-    line.add("●", warn);
-    String suffix = age.map(Text::age).map(value -> " " + value + " old").orElse("");
-    line.add(" " + staleReason.orElse("disconnected") + suffix, warn);
-  }
-
-  /**
-   * The ok / warn / bad instance split, the same three-way rollup the console's overview shows.
-   * Written as three separately-coloured numbers rather than one string so each keeps its own
-   * colour when there is colour to be had, and summing to the instance count so the line reads as a
-   * whole rather than as three unrelated tallies.
-   */
-  private static void appendHealthSplit(
-      final Line line, final List<InstanceRow> instances, final Style bar) {
+  private static void appendHealthSplit(final TitleBar bar, final List<InstanceRow> instances) {
     int ok = 0;
     int warn = 0;
     int bad = 0;
@@ -180,17 +98,10 @@ final class StatusBar {
       switch (StatusVariant.ofLifecycleState(instance.lifecycleState())) {
         case OK -> ok++;
         case BAD -> bad++;
-        // Everything else -- STARTING, STOPPING, still INSTALLED, not yet observed at all -- is
-        // counted here, so the three numbers always sum to the instance count and an operator can
-        // read "settled or not" off the line without doing arithmetic.
         default -> warn++;
       }
     }
-    line.add(String.valueOf(ok), Style.fg(Palette.OK).on(Palette.CARD))
-        .add("/", bar)
-        .add(String.valueOf(warn), Style.fg(Palette.WARN).on(Palette.CARD))
-        .add("/", bar)
-        .add(String.valueOf(bad), Style.fg(Palette.BAD).on(Palette.CARD));
+    bar.health(ok, warn, bad);
   }
 
   /**

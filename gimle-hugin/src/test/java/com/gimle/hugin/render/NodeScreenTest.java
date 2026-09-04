@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceKey;
 import com.gimle.hugin.model.InstanceRow;
@@ -100,7 +101,7 @@ class NodeScreenTest {
 
   private List<String> render(
       final NodeRow node, final ClusterSnapshot snapshot, final Viewport viewport) {
-    return screen.render(node, snapshot, viewport, false, NOW);
+    return screen.render(node, snapshot, new UiState(), viewport, false, NOW);
   }
 
   private static String field(final List<String> lines, final String label) {

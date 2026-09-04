@@ -51,12 +51,7 @@ public final class HelpOverlay {
 
   public List<String> render(final Viewport viewport) {
     List<String> lines = new ArrayList<>();
-    lines.add(
-        new Line(painter)
-            .add(" GIMLÉ TOP", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add("  keys", Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
-            .fillTo(viewport.columns(), Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD))
-            .build());
+    lines.add(TitleBar.of(painter, "keys").build(viewport));
     lines.add("");
     for (String[] binding : BINDINGS) {
       lines.add(

@@ -63,7 +63,7 @@ class VersionScreenTest {
     // revisions cannot make one of them read as the revision currently in force.
     List<String> lines = render(ledger(), "INFO");
 
-    assertTrue(labelLine(lines).contains("1 revision"), labelLine(lines));
+    assertTrue(labelLine(lines).contains("REVISIONS  1"), labelLine(lines));
     assertTrue(labelLine(lines).contains("in effect v3"), labelLine(lines));
     // Matched on the version rather than on the value: the label itself echoes the filter text.
     assertTrue(lineContaining(lines, "v1").contains("INFO"), lineContaining(lines, "v1"));
@@ -112,9 +112,9 @@ class VersionScreenTest {
         Optional.empty());
   }
 
-  /** The label line, found by wording only it carries -- the title bar also says HISTORY. */
+  /** The label line. Searched below the title bar, which names the screen HISTORY as well. */
   private static String labelLine(final List<String> lines) {
-    return lineContaining(lines, "newest first");
+    return Frames.lineContaining(lines, "REVISIONS");
   }
 
   private static int indexOfLine(final List<String> lines, final String needle) {

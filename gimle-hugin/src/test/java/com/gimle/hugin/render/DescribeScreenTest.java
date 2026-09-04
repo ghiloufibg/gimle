@@ -34,7 +34,7 @@ class DescribeScreenTest {
   void the_title_names_the_kind_the_resource_and_the_tenant_that_owns_it() {
     String title = render(greeting(), new UiState(), wide()).getFirst();
 
-    assertTrue(title.contains("greetings"), title);
+    assertTrue(title.contains("GREETINGS"), title);
     assertTrue(title.contains("hello"), title);
     assertTrue(title.contains("tenant acme"), title);
   }

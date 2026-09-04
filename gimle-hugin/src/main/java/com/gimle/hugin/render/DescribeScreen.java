@@ -47,16 +47,10 @@ public final class DescribeScreen {
   }
 
   private String title(final ResourceKind kind, final ResourceRow row, final Viewport viewport) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   " + kind.key() + "   ", bar)
-            .add(row.displayName(), Style.fg(Palette.FOREGROUND).on(Palette.CARD).asBold());
-    row.tenantId().ifPresent(tenant -> line.add("   tenant " + tenant, bar));
-    return line.fillTo(viewport.columns(), bar).build();
+    return TitleBar.of(painter, kind.key())
+        .subject(row.displayName())
+        .tenant(row.tenantId())
+        .build(viewport);
   }
 
   private String subtitle(final int total, final int offset, final int available) {

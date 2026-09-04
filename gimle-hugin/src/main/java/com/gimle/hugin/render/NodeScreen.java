@@ -1,5 +1,6 @@
 package com.gimle.hugin.render;
 
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ClusterSnapshot;
 import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.NodeRow;
@@ -26,11 +27,12 @@ public final class NodeScreen {
   public List<String> render(
       final NodeRow node,
       final ClusterSnapshot snapshot,
+      final UiState ui,
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
     List<String> lines = new ArrayList<>();
-    lines.add(header(node, viewport, paused, now));
+    lines.add(header(node, ui, viewport, paused, now));
     lines.add("");
     lines.addAll(detail(node, now));
     lines.add("");
@@ -53,22 +55,18 @@ public final class NodeScreen {
   }
 
   private String header(
-      final NodeRow node, final Viewport viewport, final boolean paused, final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
+      final NodeRow node,
+      final UiState ui,
+      final Viewport viewport,
+      final boolean paused,
+      final Instant now) {
     String state = node.state(now);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   node ", bar)
-            .add(node.nodeId(), Style.fg(Palette.FOREGROUND).on(Palette.CARD))
-            .add("   ", bar)
-            .add(state, Style.fg(StatusVariant.ofNodeState(state)).on(Palette.CARD).asBold());
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+    return TitleBar.of(painter, "node")
+        .subject(node.nodeId())
+        .scope(ui)
+        .badge(state, StatusVariant.ofNodeState(state))
+        .paused(paused)
+        .build(viewport);
   }
 
   private List<String> detail(final NodeRow node, final Instant now) {

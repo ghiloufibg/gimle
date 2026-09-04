@@ -86,34 +86,12 @@ public final class PermissionScreen {
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   PERMISSIONS", bar.asBold())
-            .add("   ", bar)
-            .add(snapshot.serverAddress(), bar);
-    if (snapshot.connected()) {
-      line.add("  ", bar).add("●", Style.fg(Palette.OK).on(Palette.CARD)).add(" connected", bar);
-    } else {
-      Style warn = Style.fg(Palette.WARN).on(Palette.CARD);
-      String age = snapshot.age(now).map(Text::age).map(value -> " " + value + " old").orElse("");
-      line.add("  ", bar)
-          .add("●", warn)
-          .add(" " + snapshot.staleReason().orElse("disconnected") + age, warn);
-    }
-    snapshot
-        .tenantId()
-        .ifPresent(
-            tenant ->
-                line.add("   tenant ", bar)
-                    .add(tenant, Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold()));
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+    return TitleBar.of(painter, "permissions")
+        .subject(snapshot.serverAddress())
+        .connection(snapshot.connected(), snapshot.staleReason(), snapshot.age(now))
+        .tenant(snapshot.tenantId())
+        .paused(paused)
+        .build(viewport);
   }
 
   /**
@@ -121,27 +99,18 @@ public final class PermissionScreen {
    * cluster answers a different grid for every certificate that asks.
    */
   private String label(final PermissionSnapshot snapshot, final int shown, final String filter) {
-    Line line =
-        new Line(painter)
-            .add("AS", Style.fg(Palette.HUD).asBold())
-            .add("  " + snapshot.principal(), Style.fg(Palette.PRIMARY))
-            .add(
-                "   " + shown + (shown == 1 ? " kind" : " kinds"),
-                Style.fg(Palette.MUTED_FOREGROUND));
+    SectionLabel label =
+        SectionLabel.of(painter, "as")
+            .subject(snapshot.principal())
+            .note(shown + (shown == 1 ? " kind" : " kinds"));
     if (snapshot.readable()) {
-      line.add(
-          "   " + snapshot.allowedKindCount() + " with something permitted",
-          Style.fg(Palette.MUTED_FOREGROUND));
+      label.note(snapshot.allowedKindCount() + " with something permitted");
     }
     long unanswered = snapshot.unansweredCount();
     if (unanswered > 0) {
-      line.add("   " + unanswered + " unanswered", Style.fg(Palette.WARN));
+      label.alert(unanswered + " unanswered", StatusVariant.WARN);
     }
-    if (filter != null && !filter.isBlank()) {
-      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
-          .add(filter, Style.fg(Palette.PRIMARY));
-    }
-    return line.build();
+    return label.filter(filter).build();
   }
 
   /**

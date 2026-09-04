@@ -8,7 +8,6 @@ import com.gimle.hugin.model.ResourceSnapshot;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * The resource browser: one kind's collection as a table, with the columns that kind declares.
@@ -95,21 +94,16 @@ public final class ResourceScreen {
   private String label(
       final ResourceSnapshot snapshot, final int shown, final int total, final String filter) {
     ResourceKind kind = snapshot.kind();
-    Line line =
-        new Line(painter)
-            .add(kind.key().toUpperCase(Locale.ROOT), Style.fg(Palette.HUD).asBold())
-            .add("  " + kind.route(), Style.fg(Palette.MUTED_FOREGROUND));
+    SectionLabel label = SectionLabel.of(painter, kind.key()).detail(kind.route());
     if (kind.custom()) {
       // Said out loud: a custom kind's columns were chosen by whoever registered it, which is why
       // two clusters can show the same kind differently.
-      line.add("   registered kind", Style.fg(Palette.MUTED));
+      label.aside("registered kind");
     }
     if (filter != null && !filter.isBlank()) {
-      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
-          .add(filter, Style.fg(Palette.PRIMARY))
-          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+      label.note(shown + " of " + total);
     }
-    return line.build();
+    return label.filter(filter).build();
   }
 
   private String header(final ResourceKind kind, final ResourceLayout layout) {

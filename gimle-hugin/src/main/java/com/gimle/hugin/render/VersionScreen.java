@@ -100,47 +100,17 @@ public final class VersionScreen {
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   HISTORY   ", bar.asBold())
-            .add(snapshot.subject(), bar);
-    if (snapshot.connected()) {
-      line.add("  ", bar).add("●", Style.fg(Palette.OK).on(Palette.CARD)).add(" connected", bar);
-    } else {
-      Style warn = Style.fg(Palette.WARN).on(Palette.CARD);
-      String age = snapshot.age(now).map(Text::age).map(value -> " " + value + " old").orElse("");
-      line.add("  ", bar)
-          .add("●", warn)
-          .add(" " + snapshot.staleReason().orElse("disconnected") + age, warn);
-    }
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+    return TitleBar.of(painter, "history")
+        .subject(snapshot.subject())
+        .connection(snapshot.connected(), snapshot.staleReason(), snapshot.age(now))
+        .paused(paused)
+        .build(viewport);
   }
 
   private String label(final VersionSnapshot snapshot, final int shown, final String filter) {
-    Line line =
-        new Line(painter)
-            .add("HISTORY", Style.fg(Palette.HUD).asBold())
-            .add(
-                "  " + shown + (shown == 1 ? " revision" : " revisions") + ", newest first",
-                Style.fg(Palette.MUTED_FOREGROUND));
-    snapshot
-        .current()
-        .ifPresent(
-            row ->
-                line.add("   in effect ", Style.fg(Palette.MUTED_FOREGROUND))
-                    .add("v" + row.version(), Style.fg(Palette.PRIMARY)));
-    if (filter != null && !filter.isBlank()) {
-      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
-          .add(filter, Style.fg(Palette.PRIMARY));
-    }
-    return line.build();
+    SectionLabel label = SectionLabel.of(painter, "revisions").detail(shown + ", newest first");
+    snapshot.current().ifPresent(row -> label.value("in effect", "v" + row.version()));
+    return label.filter(filter).build();
   }
 
   private String header(final Viewport viewport) {

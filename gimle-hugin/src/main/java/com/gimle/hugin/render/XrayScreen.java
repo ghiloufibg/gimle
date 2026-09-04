@@ -41,7 +41,7 @@ public final class XrayScreen {
       final Instant now) {
     List<XrayRow> rows = Xray.rows(services, cluster, ui.filter());
     List<String> lines = new ArrayList<>();
-    lines.add(StatusBar.services(painter, services, ui, viewport, paused, now));
+    lines.add(bar(services, ui, viewport, paused, now));
     lines.add("");
     lines.add(label(rows, ui.filter()));
     lines.add(header(viewport));
@@ -84,21 +84,40 @@ public final class XrayScreen {
             .filter(row -> !row.state().isBlank())
             .count();
     long unfronted = rows.stream().filter(row -> row.kind() == XrayRow.Kind.UNFRONTED).count();
-    Line line =
-        new Line(painter)
-            .add("XRAY", Style.fg(Palette.HUD).asBold())
-            .add("  service → deployment → instance", Style.fg(Palette.MUTED_FOREGROUND));
+    SectionLabel label =
+        SectionLabel.of(painter, "chain").detail("service → deployment → instance");
     if (broken > 0) {
-      line.add("   " + broken + " fronting nothing live", Style.fg(Palette.BAD));
+      label.alert(broken + " fronting nothing live", StatusVariant.BAD);
     }
     if (unfronted > 0) {
-      line.add("   some workloads fronted by no Service", Style.fg(Palette.WARN));
+      label.alert("some workloads fronted by no Service", StatusVariant.WARN);
     }
-    if (filter != null && !filter.isBlank()) {
-      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
-          .add(filter, Style.fg(Palette.PRIMARY));
+    return label.filter(filter).build();
+  }
+
+  /**
+   * Named for this screen rather than borrowed from the services one. The counts are the same
+   * because the reading is, but a bar that names another screen is the one thing on a frame an
+   * operator has no way to tell is wrong.
+   */
+  private String bar(
+      final ServiceSnapshot services,
+      final UiState ui,
+      final Viewport viewport,
+      final boolean paused,
+      final Instant now) {
+    TitleBar bar =
+        TitleBar.of(painter, "xray")
+            .subject(services.serverAddress())
+            .connection(services.connected(), services.staleReason(), services.age(now))
+            .scope(ui)
+            .stat("services", services.services().size())
+            .stat("endpoints", services.endpointCount());
+    int unresolved = services.unresolvedCount();
+    if (unresolved > 0) {
+      bar.badge(unresolved + " unresolved", StatusVariant.BAD);
     }
-    return line.build();
+    return bar.paused(paused).build(viewport);
   }
 
   private String header(final Viewport viewport) {

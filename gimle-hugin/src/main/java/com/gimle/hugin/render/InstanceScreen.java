@@ -78,7 +78,7 @@ public final class InstanceScreen {
     watcher.observe(row);
 
     List<String> lines = new ArrayList<>();
-    lines.add(header(row, viewport, paused));
+    lines.add(header(row, ui, viewport, paused));
     lines.add("");
     lines.addAll(detail(row, watcher.metrics()));
     lines.add("");
@@ -119,24 +119,14 @@ public final class InstanceScreen {
     return Frame.fitWithKeyBar(lines, StatusBar.instanceKeys(painter, ui, viewport), viewport);
   }
 
-  private String header(final InstanceRow row, final Viewport viewport, final boolean paused) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   ", bar)
-            .add(row.deploymentName(), Style.fg(Palette.FOREGROUND).on(Palette.CARD))
-            .add(" / ", bar)
-            .add(
-                String.valueOf(row.instanceIndex()), Style.fg(Palette.FOREGROUND).on(Palette.CARD));
-    row.tenantId().ifPresent(tenant -> line.add("   tenant ", bar).add(tenant, bar.asBold()));
-    line.add("   node ", bar).add(row.nodeId(), bar.asBold());
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+  private String header(
+      final InstanceRow row, final UiState ui, final Viewport viewport, final boolean paused) {
+    return TitleBar.of(painter, row.kind().label())
+        .subject(row.deploymentName() + " / " + row.instanceIndex())
+        .tenant(row.tenantId())
+        .stat("node", row.nodeId())
+        .paused(paused)
+        .build(viewport);
   }
 
   private List<String> detail(final InstanceRow row, final MetricsHistory history) {
@@ -383,19 +373,15 @@ public final class InstanceScreen {
       final int shown,
       final int total,
       final Viewport viewport) {
-    Line line =
-        new Line(painter)
-            .add("LOGS", Style.fg(Palette.HUD).asBold())
-            .add(" ", Style.PLAIN)
-            .add(
-                watcher.category().name().toLowerCase(Locale.ROOT) + " · following",
-                Style.fg(Palette.MUTED_FOREGROUND));
+    SectionLabel label =
+        SectionLabel.of(painter, "logs")
+            .detail(watcher.category().name().toLowerCase(Locale.ROOT) + " · following");
     if (filter != null && !filter.isBlank()) {
-      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
-          .add(filter, Style.fg(Palette.PRIMARY))
-          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+      label.note(shown + " of " + total);
     }
-    watcher.logError().ifPresent(error -> line.add("  " + error, Style.fg(Palette.WARN)));
+    label.filter(filter);
+    watcher.logError().ifPresent(error -> label.alert(error, StatusVariant.WARN));
+    Line line = label.line();
     return line.padTo(Math.max(line.width(), viewport.columns() - 18))
         .add("c: cycle category", Style.fg(Palette.MUTED))
         .build();

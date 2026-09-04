@@ -225,7 +225,7 @@ public final class Hugin {
           now);
     }
     if (ui.viewingKinds()) {
-      return kindsScreen.render(catalog(), reader.serverAddress(), viewport);
+      return kindsScreen.render(catalog(), reader.serverAddress(), ui, viewport);
     }
     if (ui.viewingResources() && resourcePoller != null) {
       return resourceFrame(resourcePoller.current(), viewport, now);
@@ -248,7 +248,7 @@ public final class Hugin {
                 nodeId ->
                     snapshot.nodes().stream().filter(n -> n.nodeId().equals(nodeId)).findFirst());
     if (inspectedNode.isPresent()) {
-      return nodeScreen.render(inspectedNode.get(), snapshot, viewport, paused, now);
+      return nodeScreen.render(inspectedNode.get(), snapshot, ui, viewport, paused, now);
     }
     // The node was open and has since left the cluster, the same way an inspected instance can.
     if (ui.inspectingNode().isPresent()) {

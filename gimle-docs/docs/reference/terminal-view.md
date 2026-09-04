@@ -20,6 +20,15 @@ the terminal exactly as it found it.
 
 ## What it shows
 
+Every screen is framed the same way: a status bar across the top, a section label above whatever it
+is showing, and a key bar across the bottom. The bar reads left to right as the question you are
+asking — what am I looking at, what is it about, is the reading current, what is it narrowed to,
+what does it add up to, and last what is wrong with it. The cluster view is the one screen that
+names nothing there: it is where `esc` returns you to rather than somewhere you go, and the cells a
+name would cost are ones its own counts need. Wherever a filter is narrowing a section, it is said
+at the end of that section's label, on every screen, so it is something to glance at rather than
+look for.
+
 **Cluster view** — the default screen:
 
 - A status line: the control-plane address, whether the last poll succeeded, node and instance
@@ -115,7 +124,9 @@ three instances is indistinguishable from a cluster that has only three.
   page ahead of it. Everything else arrives whole, so its rows are narrowed exactly.
 - A name matching nothing shows nothing. That is the honest answer for a tenant your certificate
   cannot see and for one that was mistyped alike — and since the bar names the scope, an empty
-  screen is never a mystery.
+  screen is never a mystery. Every screen the scope narrows says so, the node drill-down included:
+  its instance list is that node's *and* that tenant's, and a bar that named only the node would
+  make a tenant's two instances read as everything the machine is running.
 
 **Traces** — `T` in the instance view:
 

@@ -78,7 +78,7 @@ class ActivityScreenTest {
 
     List<String> byTarget = render(snapshot(), "checkout", new Viewport(140, 30));
     assertTrue(byTarget.stream().anyMatch(line -> line.contains("alice")));
-    assertTrue(lineContaining(byTarget, "ACTIVITY").contains("1 of 3"));
+    assertTrue(Frames.lineContaining(byTarget, "ACTIVITY").contains("1 of 3"));
   }
 
   @Test
@@ -122,13 +122,13 @@ class ActivityScreenTest {
     // The three answer different questions; a feed mistaken for another silently omits exactly
     // what was being looked for.
     assertTrue(
-        lineContaining(render(feed(FeedMode.AUDIT), "", wide()), "ACTIVITY")
+        Frames.lineContaining(render(feed(FeedMode.AUDIT), "", wide()), "ACTIVITY")
             .contains("authorization decisions"));
     assertTrue(
-        lineContaining(render(feed(FeedMode.LIFECYCLE), "", wide()), "ACTIVITY")
+        Frames.lineContaining(render(feed(FeedMode.LIFECYCLE), "", wide()), "ACTIVITY")
             .contains("lifecycle transitions"));
     assertTrue(
-        lineContaining(render(feed(FeedMode.ALERTS), "", wide()), "ACTIVITY")
+        Frames.lineContaining(render(feed(FeedMode.ALERTS), "", wide()), "ACTIVITY")
             .contains("alert rules"));
   }
 

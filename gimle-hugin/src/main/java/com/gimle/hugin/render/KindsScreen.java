@@ -1,5 +1,6 @@
 package com.gimle.hugin.render;
 
+import com.gimle.hugin.UiState;
 import com.gimle.hugin.model.ResourceCatalog;
 import com.gimle.hugin.model.ResourceKind;
 import java.util.ArrayList;
@@ -38,9 +39,12 @@ public final class KindsScreen {
   }
 
   public List<String> render(
-      final ResourceCatalog catalog, final String serverAddress, final Viewport viewport) {
+      final ResourceCatalog catalog,
+      final String serverAddress,
+      final UiState ui,
+      final Viewport viewport) {
     List<String> lines = new ArrayList<>();
-    lines.add(title(catalog, serverAddress, viewport));
+    lines.add(title(catalog, serverAddress, ui, viewport));
     lines.add("");
     lines.add(
         new Line(painter)
@@ -81,21 +85,20 @@ public final class KindsScreen {
   }
 
   private String title(
-      final ResourceCatalog catalog, final String serverAddress, final Viewport viewport) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
+      final ResourceCatalog catalog,
+      final String serverAddress,
+      final UiState ui,
+      final Viewport viewport) {
     long custom = catalog.kinds().stream().filter(ResourceKind::custom).count();
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   KINDS   ", bar.asBold())
-            .add(serverAddress, bar)
-            .add("   " + catalog.kinds().size() + " kinds", bar);
+    TitleBar bar =
+        TitleBar.of(painter, "kinds")
+            .subject(serverAddress)
+            .scope(ui)
+            .stat("kinds", catalog.kinds().size());
     if (custom > 0) {
-      line.add("   " + custom + " registered by this cluster", bar);
+      bar.stat("registered", custom);
     }
-    return line.fillTo(viewport.columns(), bar).build();
+    return bar.build(viewport);
   }
 
   private String header() {

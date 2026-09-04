@@ -53,7 +53,7 @@ public final class ActivityScreen {
       final boolean paused,
       final Instant now) {
     List<String> lines = new ArrayList<>();
-    lines.add(statusLine(snapshot, viewport, paused, now));
+    lines.add(statusLine(snapshot, ui, viewport, paused, now));
     lines.add("");
 
     if (!snapshot.permitted()) {
@@ -102,55 +102,34 @@ public final class ActivityScreen {
 
   private String statusLine(
       final ActivitySnapshot snapshot,
+      final UiState ui,
       final Viewport viewport,
       final boolean paused,
       final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   activity   ", bar)
-            .add(snapshot.serverAddress(), bar);
-    if (snapshot.connected()) {
-      line.add("  ", bar).add("●", Style.fg(Palette.OK).on(Palette.CARD)).add(" connected", bar);
-    } else {
-      Style warn = Style.fg(Palette.WARN).on(Palette.CARD);
-      String age = snapshot.age(now).map(Text::age).map(value -> " " + value + " old").orElse("");
-      line.add("  ", bar)
-          .add("●", warn)
-          .add(" " + snapshot.staleReason().orElse("disconnected") + age, warn);
-    }
-    line.add("   " + snapshot.mode().label() + " ", bar)
-        .add(String.valueOf(snapshot.events().size()), bar.asBold());
+    TitleBar bar =
+        TitleBar.of(painter, "activity")
+            .subject(snapshot.serverAddress())
+            .connection(snapshot.connected(), snapshot.staleReason(), snapshot.age(now))
+            .scope(ui)
+            .stat(snapshot.mode().label(), snapshot.events().size());
     long notable = snapshot.notableCount();
     if (notable > 0) {
-      line.add("   ", bar)
-          .add(
-              notable + " " + (snapshot.mode() == FeedMode.ALERTS ? "firing" : "refused"),
-              Style.fg(Palette.BAD).on(Palette.CARD).asBold());
+      bar.badge(
+          notable + " " + (snapshot.mode() == FeedMode.ALERTS ? "firing" : "refused"),
+          StatusVariant.BAD);
     }
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+    return bar.paused(paused).build(viewport);
   }
 
   private String label(final int shown, final int total, final String filter, final FeedMode mode) {
-    Line line =
-        new Line(painter)
-            .add("ACTIVITY", Style.fg(Palette.HUD).asBold())
-            .add("  " + describe(mode), Style.fg(Palette.MUTED_FOREGROUND));
+    SectionLabel label = SectionLabel.of(painter, "activity").detail(describe(mode));
     if (filter != null && !filter.isBlank()) {
-      line.add("   filter ", Style.fg(Palette.MUTED_FOREGROUND))
-          .add(filter, Style.fg(Palette.PRIMARY))
-          .add("  " + shown + " of " + total, Style.fg(Palette.MUTED_FOREGROUND));
+      label.note(shown + " of " + total);
     }
-    return line.build();
+    return label.filter(filter).build();
   }
 
-  /** What each feed is, said in the label so no reader has to infer which record they are in. */
+  /** What each feed is a record of, said so a reader never has to infer which one they are in. */
   private static String describe(final FeedMode mode) {
     return switch (mode) {
       case AUDIT -> "authorization decisions, newest first";

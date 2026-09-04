@@ -42,7 +42,7 @@ public final class PulseScreen {
       final boolean paused,
       final Instant now) {
     List<String> lines = new ArrayList<>();
-    lines.add(statusLine(pulse, viewport, paused, now));
+    lines.add(statusLine(pulse, ui, viewport, paused, now));
     lines.add("");
     lines.addAll(controlPlaneBlock(pulse));
     lines.add("");
@@ -53,28 +53,17 @@ public final class PulseScreen {
   }
 
   private String statusLine(
-      final PulseSnapshot pulse, final Viewport viewport, final boolean paused, final Instant now) {
-    Style bar = Style.fg(Palette.MUTED_FOREGROUND).on(Palette.CARD);
-    Line line =
-        new Line(painter)
-            .add(" ", bar)
-            .add("GIMLÉ", Style.fg(Palette.PRIMARY).on(Palette.CARD).asBold())
-            .add(" TOP", bar.asBold())
-            .add("   PULSE   ", bar.asBold())
-            .add(pulse.serverAddress(), bar);
-    if (pulse.connected()) {
-      line.add("  ", bar).add("●", Style.fg(Palette.OK).on(Palette.CARD)).add(" connected", bar);
-    } else {
-      Style warn = Style.fg(Palette.WARN).on(Palette.CARD);
-      String age = pulse.age(now).map(Text::age).map(value -> " " + value + " old").orElse("");
-      line.add("  ", bar)
-          .add("●", warn)
-          .add(" " + pulse.staleReason().orElse("disconnected") + age, warn);
-    }
-    if (paused) {
-      line.add("   PAUSED", Style.fg(Palette.WARN).on(Palette.CARD).asBold());
-    }
-    return line.fillTo(viewport.columns(), bar).build();
+      final PulseSnapshot pulse,
+      final UiState ui,
+      final Viewport viewport,
+      final boolean paused,
+      final Instant now) {
+    return TitleBar.of(painter, "pulse")
+        .subject(pulse.serverAddress())
+        .connection(pulse.connected(), pulse.staleReason(), pulse.age(now))
+        .scope(ui)
+        .paused(paused)
+        .build(viewport);
   }
 
   private List<String> controlPlaneBlock(final PulseSnapshot pulse) {

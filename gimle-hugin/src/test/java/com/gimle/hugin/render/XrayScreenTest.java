@@ -44,7 +44,7 @@ class XrayScreenTest {
     List<String> lines = render(broken(), brokenCluster(), "");
 
     assertTrue(lineContaining(lines, "typo-api").contains("NOT FOUND"));
-    assertTrue(lineContaining(lines, "XRAY").contains("fronting nothing live"));
+    assertTrue(Frames.lineContaining(lines, "CHAIN").contains("fronting nothing live"));
   }
 
   @Test
@@ -52,13 +52,13 @@ class XrayScreenTest {
     List<String> lines = render(broken(), brokenCluster(), "");
 
     assertTrue(lines.stream().anyMatch(line -> line.contains("fronted by no Service")));
-    assertTrue(lineContaining(lines, "XRAY").contains("fronted by no Service"));
+    assertTrue(Frames.lineContaining(lines, "CHAIN").contains("fronted by no Service"));
   }
 
   @Test
   void the_label_says_what_the_tree_is_so_nobody_has_to_infer_the_direction_of_it() {
     assertTrue(
-        lineContaining(render(healthy(), healthyCluster(), ""), "XRAY")
+        Frames.lineContaining(render(healthy(), healthyCluster(), ""), "CHAIN")
             .contains("service → deployment"));
   }
 

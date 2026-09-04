@@ -178,12 +178,9 @@ class ScanScreenTest {
         Optional.empty());
   }
 
-  /**
-   * The label line, found by wording only it carries -- the header row above it also says SCAN's
-   * columns, and the status bar says the cluster's own counts.
-   */
+  /** The label line. Searched below the title bar, which names the screen SCAN as well. */
   private static String labelLine(final List<String> lines) {
-    return lineContaining(lines, "finding");
+    return Frames.lineContaining(lines, "FINDINGS");
   }
 
   private static int indexOfLine(final List<String> lines, final String needle) {
