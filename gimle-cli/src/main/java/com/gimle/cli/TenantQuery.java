@@ -2,6 +2,7 @@ package com.gimle.cli;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -22,21 +23,44 @@ final class TenantQuery {
 
   /**
    * {@code argsAfterName} is whatever remains once the resource name itself has already been
-   * consumed by the caller -- this never sees the name, only flags.
+   * consumed by the caller -- this never sees the name, only flags. {@code usage} is the calling
+   * command's own usage line, carried in rather than synthesized here: this class knows the request
+   * path but not the verb that built it, so anything it could invent for itself would be the
+   * unfilled placeholder a caller used to be shown when its flags failed to parse.
    */
-  static String appendTo(String path, List<String> argsAfterName) {
-    String tenant = valueOf(argsAfterName);
+  static String appendTo(String path, List<String> argsAfterName, String usage) {
+    return appendTo(path, argsAfterName, usage, Set.of());
+  }
+
+  /**
+   * {@code alsoRecognized} names the flags the calling verb parses for itself out of this same
+   * argument list ({@code rollback}'s own {@code --to-revision}, say). Without it this helper would
+   * reject a flag its caller legitimately accepts, since all it knows about on its own is {@code
+   * --tenant}.
+   */
+  static String appendTo(
+      String path, List<String> argsAfterName, String usage, Set<String> alsoRecognized) {
+    String tenant = valueOf(argsAfterName, usage, alsoRecognized);
     return tenant == null
         ? path
         : path + "?tenant=" + URLEncoder.encode(tenant, StandardCharsets.UTF_8);
   }
 
   /** The bare {@code --tenant} value, or {@code null} if the flag wasn't given. */
-  static String valueOf(List<String> args) {
+  static String valueOf(List<String> args, String usage) {
+    return valueOf(args, usage, Set.of());
+  }
+
+  static String valueOf(List<String> args, String usage, Set<String> alsoRecognized) {
     if (args.isEmpty()) {
       return null;
     }
-    Flags flags = Flags.parse(args, Set.of(), "usage: ... [--tenant <id>]");
+    // parseKnown, not parse: --tenant is the only flag any of these paths accepts, and an
+    // unrecognized one used to be parsed into a map nothing reads -- accepted in silence,
+    // leaving a caller believing it had scoped a request it had not.
+    Set<String> recognized = new LinkedHashSet<>(alsoRecognized);
+    recognized.add(FLAG);
+    Flags flags = Flags.parseKnown(args, recognized, usage);
     return flags.getOrDefault(FLAG, null);
   }
 }

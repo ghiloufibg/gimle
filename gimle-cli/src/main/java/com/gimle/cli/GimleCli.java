@@ -253,6 +253,17 @@ public final class GimleCli {
       return;
     }
 
+    // Local-only, like context above: `seal value` reads a public key off disk and runs the
+    // sealing itself entirely client-side. Producing a sealed value with no live authenticated
+    // session is the whole point of sealing -- a CI pipeline holding only Fafnir's public key --
+    // so demanding a resolvable server first refused the one workflow this verb exists for.
+    if ((verb.equals("seal") || verb.equals("seals"))
+        && !rest.isEmpty()
+        && rest.get(0).equals("value")) {
+      new SealCommand(null, output, out).run(rest);
+      return;
+    }
+
     String server = ServerResolver.resolve(serverFlag, System.getenv("GIMLE_SERVER"), err);
 
     // Handled before the shared client below: `cert request`/`cert status` deliberately run

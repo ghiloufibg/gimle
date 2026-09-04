@@ -82,9 +82,13 @@ public final class VolumesCommand {
             : "?tenant=" + URLEncoder.encode(tenant, StandardCharsets.UTF_8);
     ApiResponse response =
         client.delete("/volumes/" + nodeId + "/" + statefulSet + "/" + index + tenantQuery);
-    client.expectSuccess(response);
+    String body = client.expectSuccess(response);
+    // The node answers this idempotently, like every other delete here, so a 200 alone doesn't
+    // mean anything was there to destroy -- the body says which of the two happened, and an
+    // operator who addressed the wrong node or tenant needs to be told, not congratulated.
+    boolean destroyed = !body.contains("\"destroyed\":false");
     Map<String, Object> resultBody = new LinkedHashMap<>();
-    resultBody.put("result", "destroyed");
+    resultBody.put("result", destroyed ? "destroyed" : "nothing to destroy");
     resultBody.put("kind", "volume");
     resultBody.put("id", statefulSet + "/" + index);
     resultBody.put("nodeId", nodeId);
@@ -92,7 +96,7 @@ public final class VolumesCommand {
     OutputFormat.printResult(
         output,
         resultBody,
-        "destroyed volume "
+        (destroyed ? "destroyed volume " : "no volume to destroy: ")
             + statefulSet
             + "["
             + index

@@ -36,6 +36,9 @@ import java.util.Set;
  */
 public final class NetworkPolicyCommand {
 
+  private static final String TENANT_USAGE =
+      "usage: gimle get|delete networkpolicies <name> --tenant <id>";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -65,7 +68,7 @@ public final class NetworkPolicyCommand {
    * already takes for its own required {@code --tenant}.
    */
   private static String requireTenantScopedPath(String path, List<String> argsAfterName) {
-    String withTenant = TenantQuery.appendTo(path, argsAfterName);
+    String withTenant = TenantQuery.appendTo(path, argsAfterName, TENANT_USAGE);
     if (withTenant.equals(path)) {
       throw new CliException("networkpolicy requires --tenant <id>");
     }

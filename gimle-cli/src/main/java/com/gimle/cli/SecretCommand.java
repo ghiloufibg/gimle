@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * {@code secret list <tenantId>}, {@code secret get <tenantId> <key> [--version N]}, {@code secret
@@ -99,17 +100,62 @@ public final class SecretCommand {
     }
     String tenantId = args.get(0);
     String key = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage);
+    Flags flags = Flags.parseKnown(args.subList(2, args.size()), Set.of("--version"), usage);
     String version = flags.getOrDefault("--version", null);
     String path =
         "/secrets/" + tenantId + "/" + key + (version == null ? "" : "?version=" + version);
 
-    Map<String, Object> response = client.getObject(path);
+    Map<String, Object> response;
+    try {
+      response = client.getObject(path);
+    } catch (CliException e) {
+      throw explainMissingVersion(e, tenantId, key, version);
+    }
     Map<String, Object> printed = new LinkedHashMap<>();
     printed.put("key", key);
     printed.put("version", response.get("version"));
     printed.put("value", decode((String) response.get("value")));
     OutputFormat.printObject(output, printed, out);
+  }
+
+  /**
+   * Turns the server's own "no such secret" into the real reason whenever the key does exist and it
+   * was the requested version that didn't. Both cases answer 404 there, and the server is right to:
+   * it is asked for one {@code key@version} address, which genuinely isn't there. But the two mean
+   * opposite things to a caller -- "you never created this" versus "you asked for version 9 of
+   * something that stops at 3" -- so the distinction is drawn here, where the version the caller
+   * asked for is still known, by re-reading the key's own version list. A failure of that second
+   * read changes nothing: the original 404 is what gets thrown.
+   */
+  private CliException explainMissingVersion(
+      CliException original, String tenantId, String key, String version) {
+    if (version == null || original.exitCode() != CliExitCode.NOT_FOUND) {
+      return original;
+    }
+    List<Map<String, Object>> versions;
+    try {
+      versions =
+          Json.asObjectList(
+              client.getObject("/secrets/" + tenantId + "/" + key + "/versions").get("versions"));
+    } catch (RuntimeException ignored) {
+      return original;
+    }
+    if (versions.isEmpty()) {
+      return original;
+    }
+    String known =
+        versions.stream()
+            .map(v -> String.valueOf(v.get("version")))
+            .collect(Collectors.joining(", "));
+    return CliException.notFound(
+        "not found: secrets/"
+            + tenantId
+            + "/"
+            + key
+            + " has no version "
+            + version
+            + "; existing versions: "
+            + known);
   }
 
   private void set(List<String> args) {
@@ -120,7 +166,9 @@ public final class SecretCommand {
     }
     String tenantId = args.get(0);
     String key = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage);
+    Flags flags =
+        Flags.parseKnown(
+            args.subList(2, args.size()), Set.of("--value", "--from-file", "--type"), usage);
     String value = readValue(flags, usage);
 
     Map<String, Object> body = new LinkedHashMap<>();
@@ -174,7 +222,13 @@ public final class SecretCommand {
     }
     String tenantId = args.get(0);
     String key = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of("--destroy"), usage);
+    Flags flags =
+        Flags.parseKnown(
+            args.subList(2, args.size()),
+            Set.of("--destroy"),
+            Set.of(),
+            Set.of("--destroy"),
+            usage);
     boolean destroy = flags.isSet("--destroy");
     String path = "/secrets/" + tenantId + "/" + key + (destroy ? "?destroy=true" : "");
 
@@ -193,7 +247,7 @@ public final class SecretCommand {
     }
     String tenantId = args.get(0);
     String key = args.get(1);
-    Flags flags = Flags.parse(args.subList(2, args.size()), Set.of(), usage);
+    Flags flags = Flags.parseKnown(args.subList(2, args.size()), Set.of("--version"), usage);
     String version = flags.getOrDefault("--version", null);
     String path =
         "/secrets/"
@@ -263,7 +317,7 @@ public final class SecretCommand {
       throw new CliException(usage);
     }
     String tenantId = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
+    Flags flags = Flags.parseKnown(args.subList(1, args.size()), Set.of("--out"), usage);
     Path destination = Path.of(flags.get("--out"));
 
     Map<String, Object> listed = client.getObject("/secrets/" + tenantId);
@@ -330,7 +384,7 @@ public final class SecretCommand {
       throw new CliException(usage);
     }
     String tenantId = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
+    Flags flags = Flags.parseKnown(args.subList(1, args.size()), Set.of("--in"), usage);
     Path source = Path.of(flags.get("--in"));
 
     Map<String, Object> document = readExportFile(source);

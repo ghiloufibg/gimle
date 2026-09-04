@@ -18,6 +18,11 @@ import java.util.Map;
  */
 public final class CronJobsCommand {
 
+  private static final String TENANT_USAGE =
+      """
+      usage: gimle get|delete cronjobs <name> [--tenant <id>]
+             gimle cronjob trigger <name> [--tenant <id>]""";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -54,7 +59,8 @@ public final class CronJobsCommand {
   }
 
   private static String pathFor(List<String> args) {
-    return TenantQuery.appendTo("/cronjobs/" + args.get(0), args.subList(1, args.size()));
+    return TenantQuery.appendTo(
+        "/cronjobs/" + args.get(0), args.subList(1, args.size()), TENANT_USAGE);
   }
 
   public void apply(List<String> args, PrintStream err) {
@@ -78,7 +84,8 @@ public final class CronJobsCommand {
       throw new CliException("missing cronjob name/id");
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/cronjobs/" + name, args.subList(1, args.size()));
+    String path =
+        TenantQuery.appendTo("/cronjobs/" + name, args.subList(1, args.size()), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "cronjob/" + name + " deleted", out);
@@ -96,7 +103,8 @@ public final class CronJobsCommand {
     }
     String name = args.get(0);
     String path =
-        TenantQuery.appendTo("/cronjobs/" + name + "/trigger", args.subList(1, args.size()));
+        TenantQuery.appendTo(
+            "/cronjobs/" + name + "/trigger", args.subList(1, args.size()), TENANT_USAGE);
     String responseBody = client.expectSuccess(client.post(path, ""));
     Map<String, Object> body;
     try {

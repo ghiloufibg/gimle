@@ -25,6 +25,11 @@ import java.util.Set;
  */
 public final class DaemonSetsCommand {
 
+  private static final String TENANT_USAGE =
+      """
+      usage: gimle get|delete daemonsets <name> [--tenant <id>]
+             gimle daemonset revisions|rollback <name> [--tenant <id>]""";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -64,7 +69,8 @@ public final class DaemonSetsCommand {
   }
 
   private static String pathFor(List<String> args) {
-    return TenantQuery.appendTo("/daemonsets/" + args.get(0), args.subList(1, args.size()));
+    return TenantQuery.appendTo(
+        "/daemonsets/" + args.get(0), args.subList(1, args.size()), TENANT_USAGE);
   }
 
   public void apply(List<String> args, PrintStream err) {
@@ -88,7 +94,8 @@ public final class DaemonSetsCommand {
       throw new CliException("missing daemonset name/id");
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/daemonsets/" + name, args.subList(1, args.size()));
+    String path =
+        TenantQuery.appendTo("/daemonsets/" + name, args.subList(1, args.size()), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "daemonset/" + name + " deleted", out);
@@ -104,7 +111,8 @@ public final class DaemonSetsCommand {
     }
     String name = args.get(0);
     String path =
-        TenantQuery.appendTo("/daemonsets/" + name + "/revisions", args.subList(1, args.size()));
+        TenantQuery.appendTo(
+            "/daemonsets/" + name + "/revisions", args.subList(1, args.size()), TENANT_USAGE);
     Map<String, Object> response = client.getObject(path);
     OutputFormat.printList(output, Json.asObjectList(response.get("revisions")), out);
   }
@@ -126,7 +134,11 @@ public final class DaemonSetsCommand {
       body.put("toRevision", parseRevision(toRevision));
     }
     String path =
-        TenantQuery.appendTo("/daemonsets/" + name + "/rollback", args.subList(1, args.size()));
+        TenantQuery.appendTo(
+            "/daemonsets/" + name + "/rollback",
+            args.subList(1, args.size()),
+            TENANT_USAGE,
+            Set.of("--to-revision"));
     String response = client.expectSuccess(client.post(path, Json.write(body)));
     OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
   }

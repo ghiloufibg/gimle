@@ -22,6 +22,11 @@ import java.util.Set;
  */
 public final class ServicesCommand {
 
+  private static final String TENANT_USAGE =
+      """
+      usage: gimle get|delete services <name> [--tenant <id>]
+             gimle service endpoints <name> [--tenant <id>]""";
+
   private static final String GET_USAGE = "usage: gimle get services [name] [--tenant <id>]";
 
   private final ControlPlaneClient client;
@@ -39,11 +44,12 @@ public final class ServicesCommand {
         GetCommandArgs.split(args, Set.of("--tenant"), "service", GET_USAGE);
     if (split.name() == null) {
       List<Map<String, Object>> services =
-          filterByTenant(client.getList("/services"), TenantQuery.valueOf(split.flagArgs()));
+          filterByTenant(
+              client.getList("/services"), TenantQuery.valueOf(split.flagArgs(), TENANT_USAGE));
       OutputFormat.printList(output, services, out);
       return;
     }
-    String path = TenantQuery.appendTo("/services/" + split.name(), split.flagArgs());
+    String path = TenantQuery.appendTo("/services/" + split.name(), split.flagArgs(), TENANT_USAGE);
     OutputFormat.printObject(output, client.getObject(path), out);
   }
 
@@ -184,7 +190,8 @@ public final class ServicesCommand {
       throw new CliException("missing service name/id");
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/services/" + name, args.subList(1, args.size()));
+    String path =
+        TenantQuery.appendTo("/services/" + name, args.subList(1, args.size()), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "service/" + name + " deleted", out);
@@ -200,7 +207,8 @@ public final class ServicesCommand {
     }
     String name = args.get(0);
     String path =
-        TenantQuery.appendTo("/services/" + name + "/endpoints", args.subList(1, args.size()));
+        TenantQuery.appendTo(
+            "/services/" + name + "/endpoints", args.subList(1, args.size()), TENANT_USAGE);
     OutputFormat.printObject(output, client.getObject(path), out);
   }
 

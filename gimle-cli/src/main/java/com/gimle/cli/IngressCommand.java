@@ -20,6 +20,9 @@ import java.util.Map;
  */
 public final class IngressCommand {
 
+  private static final String TENANT_USAGE =
+      "usage: gimle get|delete ingresses [name] [--tenant <id>]";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -33,8 +36,9 @@ public final class IngressCommand {
   public void get(List<String> args) {
     String path =
         args.isEmpty()
-            ? TenantQuery.appendTo("/ingresses", args)
-            : TenantQuery.appendTo("/ingresses/" + args.get(0), args.subList(1, args.size()));
+            ? TenantQuery.appendTo("/ingresses", args, TENANT_USAGE)
+            : TenantQuery.appendTo(
+                "/ingresses/" + args.get(0), args.subList(1, args.size()), TENANT_USAGE);
     OutputFormat.printObject(output, client.getObject(path), out);
   }
 
@@ -44,7 +48,9 @@ public final class IngressCommand {
     }
     String name = args.get(0);
     client.expectSuccess(
-        client.delete(TenantQuery.appendTo("/ingresses/" + name, args.subList(1, args.size()))));
+        client.delete(
+            TenantQuery.appendTo(
+                "/ingresses/" + name, args.subList(1, args.size()), TENANT_USAGE)));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "ingress/" + name + " deleted", out);
   }

@@ -22,6 +22,20 @@ public final class RollbackCommand {
 
   private static final Set<String> BOOLEAN_FLAGS = Set.of("--wait", "--dry-run");
 
+  /**
+   * Appended to this verb's own "no such release" failure. {@code rollback} and {@code
+   * upgrade-cluster} share nothing but a colloquial meaning: this one re-applies a past revision of
+   * a release bundle through the control plane's API, while {@code upgrade-cluster} restarts
+   * platform processes onto a different classpath. An operator who has just rolled a platform
+   * binary out reaches for "rollback" first, and hilmir keeps no record of the previous classpath
+   * to offer them, so the least it can do is say which verb they actually want.
+   */
+  private static final String NOT_A_PLATFORM_ROLLBACK =
+      "\n\nnote: this verb rolls back a release bundle, not a platform binary rollout. To undo an"
+          + " `upgrade-cluster`, re-run `upgrade-cluster` with --new-classpath pointing at the"
+          + " previous classpath -- hilmir keeps no history of it, so it has to be named"
+          + " explicitly.";
+
   private RollbackCommand() {}
 
   public static int run(List<String> args, PrintStream out) {
@@ -32,7 +46,10 @@ public final class RollbackCommand {
 
     ReleaseMeta meta =
         ReleaseLedger.readMeta(api, releaseName)
-            .orElseThrow(() -> new HilmirException("no release named '" + releaseName + "'"));
+            .orElseThrow(
+                () ->
+                    new HilmirException(
+                        "no release named '" + releaseName + "'" + NOT_A_PLATFORM_ROLLBACK));
     int targetRevision = resolveTargetRevision(flags, releaseName, meta);
     ReleaseRevision target =
         ReleaseLedger.readRevision(api, releaseName, targetRevision)

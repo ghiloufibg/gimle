@@ -21,6 +21,11 @@ import java.util.Set;
  */
 public final class StatefulSetsCommand {
 
+  private static final String TENANT_USAGE =
+      """
+      usage: gimle get|delete statefulsets <name> [--tenant <id>]
+             gimle statefulset revisions|rollback <name> [--tenant <id>]""";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -60,7 +65,8 @@ public final class StatefulSetsCommand {
   }
 
   private static String pathFor(List<String> args) {
-    return TenantQuery.appendTo("/statefulsets/" + args.get(0), args.subList(1, args.size()));
+    return TenantQuery.appendTo(
+        "/statefulsets/" + args.get(0), args.subList(1, args.size()), TENANT_USAGE);
   }
 
   public void apply(List<String> args, PrintStream err) {
@@ -84,7 +90,8 @@ public final class StatefulSetsCommand {
       throw new CliException("missing statefulset name/id");
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/statefulsets/" + name, args.subList(1, args.size()));
+    String path =
+        TenantQuery.appendTo("/statefulsets/" + name, args.subList(1, args.size()), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "statefulset/" + name + " deleted", out);
@@ -100,7 +107,8 @@ public final class StatefulSetsCommand {
     }
     String name = args.get(0);
     String path =
-        TenantQuery.appendTo("/statefulsets/" + name + "/revisions", args.subList(1, args.size()));
+        TenantQuery.appendTo(
+            "/statefulsets/" + name + "/revisions", args.subList(1, args.size()), TENANT_USAGE);
     Map<String, Object> response = client.getObject(path);
     OutputFormat.printList(output, Json.asObjectList(response.get("revisions")), out);
   }
@@ -122,7 +130,11 @@ public final class StatefulSetsCommand {
       body.put("toRevision", parseRevision(toRevision));
     }
     String path =
-        TenantQuery.appendTo("/statefulsets/" + name + "/rollback", args.subList(1, args.size()));
+        TenantQuery.appendTo(
+            "/statefulsets/" + name + "/rollback",
+            args.subList(1, args.size()),
+            TENANT_USAGE,
+            Set.of("--to-revision"));
     String response = client.expectSuccess(client.post(path, Json.write(body)));
     OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
   }

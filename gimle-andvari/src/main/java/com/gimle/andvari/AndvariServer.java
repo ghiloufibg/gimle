@@ -610,11 +610,13 @@ public final class AndvariServer implements AutoCloseable {
         exchange, Verb.DELETE, moduleId + ":" + version, moduleId, version, storedTenant)) {
       return;
     }
-    if (!artifactStore.delete(moduleId, version)) {
-      respond(exchange, 404, "no artifact stored for " + moduleId + ":" + version);
-      return;
-    }
-    respondJson(exchange, 200, Map.of("deleted", true));
+    // Idempotent, matching how every workload/config/RBAC kind's own DELETE already answers a name
+    // that isn't there: the caller asked for this coordinate to be gone, and it is. Answering 404
+    // instead made a re-run of a cleanup script fail on work it had already finished, and made this
+    // one verb behave unlike the eighteen others an operator reaches for the same way.
+    // "deleted" distinguishes the two outcomes for a caller that does care.
+    boolean deleted = artifactStore.delete(moduleId, version);
+    respondJson(exchange, 200, Map.of("deleted", deleted));
   }
 
   // ---- Maven-2 repository surface: /repository/{group/path}/{artifactId}/{version}/{file} ----

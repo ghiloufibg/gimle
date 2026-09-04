@@ -19,6 +19,9 @@ import java.util.Set;
  */
 public final class AlertRulesCommand {
 
+  private static final String TENANT_USAGE =
+      "usage: gimle get|delete alertrules <name> [--tenant <id>]";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -35,7 +38,8 @@ public final class AlertRulesCommand {
       return;
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/alertrules/" + name, args.subList(1, args.size()));
+    String path =
+        TenantQuery.appendTo("/alertrules/" + name, args.subList(1, args.size()), TENANT_USAGE);
     OutputFormat.printObject(output, client.getObject(path), out);
   }
 
@@ -87,7 +91,8 @@ public final class AlertRulesCommand {
       throw new CliException("missing alert rule name/id");
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/alertrules/" + name, args.subList(1, args.size()));
+    String path =
+        TenantQuery.appendTo("/alertrules/" + name, args.subList(1, args.size()), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "alertrule/" + name + " deleted", out);

@@ -2357,6 +2357,56 @@ class GimleCliTest {
   }
 
   @Test
+  void an_unsupported_flag_on_a_secret_write_is_refused_rather_than_dropped() {
+    // --version is real on `secret get`, and borrowing it here used to parse into a map nothing
+    // read: the write landed anyway, against the latest version, reporting success.
+    int exit = run("secret", "set", "default", "some-key", "--value", "v1", "--version", "2");
+    assertEquals(1, exit);
+    assertTrue(stderr().contains("unknown flag: --version"), stderr());
+  }
+
+  @Test
+  void a_stray_flag_after_a_workload_name_names_that_command_not_a_placeholder() {
+    // TenantQuery used to hand Flags a literal "usage: ... [--tenant <id>]" template, so this was
+    // the entire guidance a caller got back.
+    int exit = run("delete", "cronjob", "nightly", "--bogus", "x");
+    assertEquals(1, exit);
+    assertFalse(stderr().contains("usage: ..."), stderr());
+    assertTrue(stderr().contains("gimle cronjob trigger"), stderr());
+  }
+
+  @Test
+  void seal_value_runs_with_no_server_configured_at_all() throws Exception {
+    Path publicKeyFile = tempDir.resolve("seal-public-key.json");
+    int exported = run("seal", "public-key", "--out", publicKeyFile.toString());
+    assertEquals(0, exported, stderr());
+
+    reset();
+    // No --server, no GIMLE_SERVER: sealing is entirely client-side, which is the whole point of
+    // handing a CI pipeline nothing but a public key.
+    int exit =
+        GimleCli.run(
+            new String[] {
+              "seal",
+              "value",
+              "hunter2",
+              "--public-key",
+              publicKeyFile.toString(),
+              "--tenant",
+              "default",
+              "--name",
+              "creds",
+              "--key",
+              "password"
+            },
+            out,
+            err);
+
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("sealingKeyId"), stdout());
+  }
+
+  @Test
   void help_flag_never_requires_a_configured_server() {
     int exit = GimleCli.run(new String[] {"get", "deployments", "-h"}, out, err);
     assertEquals(0, exit, stderr());

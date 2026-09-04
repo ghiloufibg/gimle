@@ -18,6 +18,11 @@ import java.util.Set;
  */
 public final class DeploymentsCommand {
 
+  private static final String TENANT_USAGE =
+      """
+      usage: gimle get|delete deployments <name> [--tenant <id>]
+             gimle deployment revisions|rollback <name> [--tenant <id>]""";
+
   private static final String GET_USAGE = "usage: gimle get deployments [name] [--tenant <id>]";
 
   private final ControlPlaneClient client;
@@ -56,7 +61,8 @@ public final class DeploymentsCommand {
         GetCommandArgs.split(args, Set.of("--tenant"), "deployment", GET_USAGE);
     if (split.name() == null) {
       List<Map<String, Object>> deployments =
-          filterByTenant(client.getList("/deployments"), TenantQuery.valueOf(split.flagArgs()));
+          filterByTenant(
+              client.getList("/deployments"), TenantQuery.valueOf(split.flagArgs(), TENANT_USAGE));
       // Humanization is table-only -- see NodesCommand#list's identical reasoning: -o json keeps
       // the raw spec/instances/quota shape at full fidelity for scripting.
       return output == OutputFormat.Kind.TABLE ? humanizeAll(deployments) : deployments;
@@ -66,7 +72,7 @@ public final class DeploymentsCommand {
   }
 
   private static String pathFor(GetCommandArgs.Split split) {
-    return TenantQuery.appendTo("/deployments/" + split.name(), split.flagArgs());
+    return TenantQuery.appendTo("/deployments/" + split.name(), split.flagArgs(), TENANT_USAGE);
   }
 
   /**
@@ -112,7 +118,8 @@ public final class DeploymentsCommand {
       throw new CliException("missing deployment name/id");
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/deployments/" + name, args.subList(1, args.size()));
+    String path =
+        TenantQuery.appendTo("/deployments/" + name, args.subList(1, args.size()), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", name), "deployment/" + name + " deleted", out);
@@ -128,7 +135,8 @@ public final class DeploymentsCommand {
     }
     String name = args.get(0);
     String path =
-        TenantQuery.appendTo("/deployments/" + name + "/revisions", args.subList(1, args.size()));
+        TenantQuery.appendTo(
+            "/deployments/" + name + "/revisions", args.subList(1, args.size()), TENANT_USAGE);
     Map<String, Object> response = client.getObject(path);
     OutputFormat.printList(output, Json.asObjectList(response.get("revisions")), out);
   }
@@ -151,7 +159,11 @@ public final class DeploymentsCommand {
       body.put("toRevision", parseRevision(toRevision));
     }
     String path =
-        TenantQuery.appendTo("/deployments/" + name + "/rollback", args.subList(1, args.size()));
+        TenantQuery.appendTo(
+            "/deployments/" + name + "/rollback",
+            args.subList(1, args.size()),
+            TENANT_USAGE,
+            Set.of("--to-revision"));
     String response = client.expectSuccess(client.post(path, Json.write(body)));
     OutputFormat.printObject(output, Json.asObject(Json.parse(response)), out);
   }

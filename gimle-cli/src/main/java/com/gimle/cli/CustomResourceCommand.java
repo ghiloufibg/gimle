@@ -28,6 +28,9 @@ import java.util.Optional;
  */
 public final class CustomResourceCommand {
 
+  private static final String TENANT_USAGE =
+      "usage: gimle get|delete <custom-kind> [name] [--tenant <id>]";
+
   private static final int MAX_CONFLICT_RETRIES = 3;
 
   /** The retryable-conflict marker both concurrent-modification 409 messages end with. */
@@ -155,14 +158,16 @@ public final class CustomResourceCommand {
 
   public void get(String kindName, List<String> args) {
     if (args.isEmpty() || args.get(0).startsWith("--")) {
-      String path = TenantQuery.appendTo("/resources/" + encode(kindName), args);
+      String path = TenantQuery.appendTo("/resources/" + encode(kindName), args, TENANT_USAGE);
       printResources(kindName, client.getList(path));
       return;
     }
     String name = args.get(0);
     String path =
         TenantQuery.appendTo(
-            "/resources/" + encode(kindName) + "/" + encode(name), args.subList(1, args.size()));
+            "/resources/" + encode(kindName) + "/" + encode(name),
+            args.subList(1, args.size()),
+            TENANT_USAGE);
     printResources(kindName, List.of(client.getObject(path)));
   }
 
@@ -183,7 +188,9 @@ public final class CustomResourceCommand {
     String name = args.get(0);
     String path =
         TenantQuery.appendTo(
-            "/resources/" + encode(kindName) + "/" + encode(name), args.subList(1, args.size()));
+            "/resources/" + encode(kindName) + "/" + encode(name),
+            args.subList(1, args.size()),
+            TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(
         output, resultBody("deleted", kindName, name), kindName + "/" + name + " deleted", out);

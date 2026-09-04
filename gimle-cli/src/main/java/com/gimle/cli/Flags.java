@@ -24,6 +24,37 @@ final class Flags {
   }
 
   /**
+   * The strict counterpart to {@link #parse}: every {@code --flag} must appear in {@code
+   * recognizedFlagNames} (boolean and repeatable names included), and one that doesn't is refused
+   * rather than parsed into a map nothing ever reads. Without this a stray flag -- a real one
+   * borrowed from a sibling verb, say {@code --version} on a write -- was accepted in silence, so a
+   * caller who believed it had scoped their write got no signal at all that it hadn't.
+   */
+  static Flags parseKnown(
+      List<String> args,
+      Set<String> booleanFlagNames,
+      Set<String> repeatableFlagNames,
+      Set<String> recognizedFlagNames,
+      String usage) {
+    for (String token : args) {
+      if (!token.startsWith("--")) {
+        continue;
+      }
+      int equals = token.indexOf('=');
+      String name = equals >= 0 ? token.substring(0, equals) : token;
+      if (!recognizedFlagNames.contains(name)) {
+        throw new CliException("unknown flag: " + name + "\n\n" + usage);
+      }
+    }
+    return parse(args, booleanFlagNames, repeatableFlagNames, usage);
+  }
+
+  /** {@link #parseKnown} for the common case of no boolean and no repeatable flags. */
+  static Flags parseKnown(List<String> args, Set<String> recognizedFlagNames, String usage) {
+    return parseKnown(args, Set.of(), Set.of(), recognizedFlagNames, usage);
+  }
+
+  /**
    * {@code repeatableFlagNames} may appear more than once, accumulating into {@link
    * #getAll(String)} rather than each occurrence overwriting the last -- {@code set role}'s {@code
    * --permission}, repeated once per grant, is the one caller that needs this today.

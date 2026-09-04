@@ -138,12 +138,34 @@ public final class ControlPlaneApi {
   private static String describeError(ApiResponse response) {
     return switch (response.statusCode()) {
       case 400 -> "invalid request: " + response.body();
+      case 403 -> describeForbidden(response.body());
       case 404 -> "not found: " + response.body();
       case 405 -> "method not allowed: " + response.body();
       case 409 -> "conflict: " + response.body();
       case 307 -> describeNotLeader(response.body());
       default -> "unexpected response (" + response.statusCode() + "): " + response.body();
     };
+  }
+
+  /**
+   * Names the cause a caller has no way to guess from the body alone. Every release verb records
+   * itself under the fixed {@code gimle-hilmir} bookkeeping tenant, creating that tenant on first
+   * use -- and a tenant creation is exactly what a plaintext control plane refuses once any other
+   * tenant already exists. The refusal therefore has nothing to do with the bundle being deployed
+   * or the tenant it targets, which is where an operator reading the bare message looks first.
+   */
+  private static String describeForbidden(String body) {
+    String detail = body == null || body.isBlank() ? "" : ": " + body;
+    if (body != null && body.contains("only one real tenant may exist")) {
+      return "forbidden"
+          + detail
+          + "\n\nevery hilmir release verb records itself under the fixed gimle-hilmir"
+          + " bookkeeping tenant and creates it on first use, which a plaintext control plane"
+          + " refuses once another tenant already exists -- this is not about the bundle or the"
+          + " tenant it targets. Use mTLS (-Dgimle.transport.protocol=tls with operator"
+          + " credentials) for a cluster that has more than one tenant.";
+    }
+    return "forbidden" + detail;
   }
 
   private static String describeNotLeader(String body) {

@@ -19,6 +19,8 @@ import java.util.Set;
  */
 public final class JobsCommand {
 
+  private static final String TENANT_USAGE = "usage: gimle get|delete jobs <name> [--tenant <id>]";
+
   private static final String GET_USAGE = "usage: gimle get jobs [name] [--tenant <id>]";
 
   private final ControlPlaneClient client;
@@ -53,13 +55,14 @@ public final class JobsCommand {
   public List<Map<String, Object>> rows(List<String> args) {
     GetCommandArgs.Split split = GetCommandArgs.split(args, Set.of("--tenant"), "job", GET_USAGE);
     if (split.name() == null) {
-      return filterByTenant(client.getList("/jobs"), TenantQuery.valueOf(split.flagArgs()));
+      return filterByTenant(
+          client.getList("/jobs"), TenantQuery.valueOf(split.flagArgs(), TENANT_USAGE));
     }
     return List.of(client.getObject(pathFor(split)));
   }
 
   private static String pathFor(GetCommandArgs.Split split) {
-    return TenantQuery.appendTo("/jobs/" + split.name(), split.flagArgs());
+    return TenantQuery.appendTo("/jobs/" + split.name(), split.flagArgs(), TENANT_USAGE);
   }
 
   /**
@@ -101,7 +104,7 @@ public final class JobsCommand {
       throw new CliException("missing job name/id");
     }
     String name = args.get(0);
-    String path = TenantQuery.appendTo("/jobs/" + name, args.subList(1, args.size()));
+    String path = TenantQuery.appendTo("/jobs/" + name, args.subList(1, args.size()), TENANT_USAGE);
     client.expectSuccess(client.delete(path));
     OutputFormat.printResult(output, resultBody("deleted", name), "job/" + name + " deleted", out);
   }

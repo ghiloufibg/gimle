@@ -12,6 +12,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * {@code secretmap list <tenantId>}, {@code secretmap get <tenantId> <name>}, {@code secretmap set
@@ -316,12 +317,23 @@ public final class SecretMapCommand {
    * them, so a CI script gating on exit status (`gimle secretmap seal ... || fail`) never saw the
    * failure. Called only after the results are already printed, so the operator sees exactly which
    * key(s) failed and why before the process exits nonzero.
+   *
+   * <p>The message names each failing key and its own reason rather than deferring to what was
+   * printed above it: the per-key {@code error} field only survives into {@code -o json} output, so
+   * "see above" pointed a table-output caller at rows that never carried the reason at all.
    */
   private static void failIfAnyKeyErrored(List<Map<String, Object>> results) {
-    long failed = results.stream().filter(result -> result.containsKey("error")).count();
-    if (failed > 0) {
-      throw new CliException(failed + " of " + results.size() + " key(s) failed -- see above");
+    List<Map<String, Object>> failures =
+        results.stream().filter(result -> result.containsKey("error")).toList();
+    if (failures.isEmpty()) {
+      return;
     }
+    String detail =
+        failures.stream()
+            .map(failure -> "  " + failure.get("key") + ": " + failure.get("error"))
+            .collect(Collectors.joining("\n"));
+    throw new CliException(
+        failures.size() + " of " + results.size() + " key(s) failed:\n" + detail);
   }
 
   private static Map<String, Object> resultBody(String result, String tenantId, String name) {

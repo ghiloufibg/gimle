@@ -379,23 +379,13 @@ final class AgentLogServer implements AutoCloseable {
                   + "] is held by a currently-supervised instance");
           return;
         }
-        if (!volumeManager.destroy(tenantId, statefulSetName, instanceIndex)) {
-          // Nothing on disk at that coordinate. Answering 200 {"destroyed": true} here would tell
-          // an operator their reclaim succeeded when they had in fact addressed a volume that does
-          // not exist -- on this node, or under this tenant.
-          respond(
-              exchange,
-              404,
-              "no volume "
-                  + statefulSetName
-                  + "["
-                  + instanceIndex
-                  + "] for tenant "
-                  + tenantId.orElse("(untenanted)")
-                  + " on this node");
-          return;
-        }
-        respondJson(exchange, 200, Map.of("destroyed", true));
+        // Idempotent, like every other DELETE on this platform: the caller asked for this volume
+        // to be gone and it is, so a re-run of a reclaim script doesn't fail on work it already
+        // finished. The earlier 404 existed to stop an operator reading success into a coordinate
+        // that never existed -- a real concern, kept by reporting the distinction in the body
+        // instead of the status: "destroyed" is false when there was nothing on disk to destroy.
+        boolean destroyed = volumeManager.destroy(tenantId, statefulSetName, instanceIndex);
+        respondJson(exchange, 200, Map.of("destroyed", destroyed));
         return;
       }
       respond(exchange, 405, "method not allowed");

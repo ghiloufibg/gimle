@@ -48,10 +48,27 @@ public final class SealCommand {
   private final OutputFormat.Kind output;
   private final PrintStream out;
 
+  /**
+   * {@code client} is null when this command was dispatched for {@code value} alone, which never
+   * calls the control plane at all -- see {@link #requireClient}. Every other verb here receives a
+   * real one.
+   */
   public SealCommand(ControlPlaneClient client, OutputFormat.Kind output, PrintStream out) {
     this.client = client;
     this.output = output;
     this.out = out;
+  }
+
+  /**
+   * Guards the three verbs that do call the control plane against the null {@code client} the
+   * server-free {@code value} dispatch passes -- so a future caller wiring this up wrongly gets a
+   * named failure rather than a bare NullPointerException from somewhere deeper.
+   */
+  private ControlPlaneClient requireClient() {
+    if (client == null) {
+      throw new CliException("this seal verb needs a control plane; pass --server");
+    }
+    return client;
   }
 
   public void run(List<String> args) {
@@ -70,8 +87,9 @@ public final class SealCommand {
   }
 
   private void publicKey(List<String> args) {
-    Flags flags = Flags.parse(args, Set.of(), "usage: gimle seal public-key [--out <path>]");
-    String response = client.expectSuccess(client.get("/seal/public-key"));
+    Flags flags =
+        Flags.parseKnown(args, Set.of("--out"), "usage: gimle seal public-key [--out <path>]");
+    String response = requireClient().expectSuccess(requireClient().get("/seal/public-key"));
     String outFile = flags.getOrDefault("--out", null);
     if (outFile != null) {
       writeFile(outFile, response);
@@ -93,7 +111,11 @@ public final class SealCommand {
       throw new CliException(usage);
     }
     String plaintext = args.get(0);
-    Flags flags = Flags.parse(args.subList(1, args.size()), Set.of(), usage);
+    Flags flags =
+        Flags.parseKnown(
+            args.subList(1, args.size()),
+            Set.of("--public-key", "--tenant", "--name", "--key", "--out"),
+            usage);
     Path publicKeyFile = Path.of(flags.get("--public-key"));
     String tenantId = flags.get("--tenant");
     String name = flags.get("--name");
@@ -127,7 +149,7 @@ public final class SealCommand {
   }
 
   private void rotateKey() {
-    String response = client.expectSuccess(client.post("/seal/rotate-key", ""));
+    String response = requireClient().expectSuccess(requireClient().post("/seal/rotate-key", ""));
     Object activeSealingKeyId = Json.asObject(Json.parse(response)).get("activeSealingKeyId");
     Map<String, Object> resultBody = new LinkedHashMap<>();
     resultBody.put("result", "rotated");
@@ -143,7 +165,9 @@ public final class SealCommand {
     }
     int keyId = parseKeyId(args.get(0));
     String response =
-        client.expectSuccess(client.post("/seal/retire-key", Json.write(Map.of("keyId", keyId))));
+        requireClient()
+            .expectSuccess(
+                requireClient().post("/seal/retire-key", Json.write(Map.of("keyId", keyId))));
     Object retiredKeyId = Json.asObject(Json.parse(response)).get("retiredKeyId");
     Map<String, Object> resultBody = new LinkedHashMap<>();
     resultBody.put("result", "retired");

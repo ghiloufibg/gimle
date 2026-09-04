@@ -340,13 +340,13 @@ class AgentLogServerTest {
   }
 
   /**
-   * A destroy naming a tenant this node holds no such volume for must not report success. The
-   * volume directory tree is keyed by tenant, so answering 200 for a coordinate with nothing on
-   * disk would tell an operator their reclaim happened when they had in fact addressed the wrong
-   * tenant -- and left the volume they meant to reclaim untouched.
+   * A destroy naming a tenant this node holds no such volume for must not claim it destroyed
+   * anything. The volume directory tree is keyed by tenant, so an operator who addressed the wrong
+   * one has left the volume they meant to reclaim untouched -- which the response body has to say,
+   * even though the status is the same 200 every repeated delete on this platform answers with.
    */
   @Test
-  void destroying_a_volume_under_the_wrong_tenant_reports_404_and_leaves_it_on_disk()
+  void destroying_a_volume_under_the_wrong_tenant_reports_nothing_destroyed_and_leaves_it_on_disk()
       throws Exception {
     Path dataRoot = logRoot.resolve("data");
     LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
@@ -360,11 +360,20 @@ class AgentLogServerTest {
             logRoot, 0, java.util.function.Function.identity(), volumeManager, Set::of);
     server.start();
 
-    assertEquals(404, delete("/volumes/sessions/0").statusCode());
-    assertEquals(404, delete("/volumes/sessions/0?tenant=globex").statusCode());
+    // Addressing the wrong tenant (or none) is a no-op that says so: the status stays 200 because
+    // deleting is idempotent here like everywhere else on this platform, and "destroyed": false is
+    // what tells the operator their reclaim addressed nothing.
+    HttpResponse<String> untenanted = delete("/volumes/sessions/0");
+    assertEquals(200, untenanted.statusCode());
+    assertTrue(untenanted.body().contains("\"destroyed\":false"), untenanted.body());
+    HttpResponse<String> wrongTenant = delete("/volumes/sessions/0?tenant=globex");
+    assertEquals(200, wrongTenant.statusCode());
+    assertTrue(wrongTenant.body().contains("\"destroyed\":false"), wrongTenant.body());
     assertTrue(Files.exists(tenanted));
 
-    assertEquals(200, delete("/volumes/sessions/0?tenant=acme").statusCode());
+    HttpResponse<String> rightTenant = delete("/volumes/sessions/0?tenant=acme");
+    assertEquals(200, rightTenant.statusCode());
+    assertTrue(rightTenant.body().contains("\"destroyed\":true"), rightTenant.body());
     assertFalse(Files.exists(tenanted));
   }
 
@@ -392,9 +401,14 @@ class AgentLogServerTest {
     assertFalse(Files.exists(untenanted));
   }
 
-  /** A second destroy of the same volume is a 404, not a second "destroyed" for the same data. */
+  /**
+   * A second destroy succeeds like every other repeated delete on this platform -- a reclaim script
+   * re-run must not fail on work it already finished -- while still reporting that this particular
+   * call found nothing left to destroy.
+   */
   @Test
-  void destroying_an_already_destroyed_volume_reports_404_rather_than_success() throws Exception {
+  void destroying_an_already_destroyed_volume_succeeds_but_reports_nothing_destroyed()
+      throws Exception {
     Path dataRoot = logRoot.resolve("data");
     LocalDiskVolumeManager volumeManager = new LocalDiskVolumeManager(dataRoot);
     volumeManager.allocate(
@@ -404,8 +418,13 @@ class AgentLogServerTest {
             logRoot, 0, java.util.function.Function.identity(), volumeManager, Set::of);
     server.start();
 
-    assertEquals(200, delete("/volumes/sessions/0").statusCode());
-    assertEquals(404, delete("/volumes/sessions/0").statusCode());
+    HttpResponse<String> first = delete("/volumes/sessions/0");
+    assertEquals(200, first.statusCode());
+    assertTrue(first.body().contains("\"destroyed\":true"), first.body());
+
+    HttpResponse<String> second = delete("/volumes/sessions/0");
+    assertEquals(200, second.statusCode());
+    assertTrue(second.body().contains("\"destroyed\":false"), second.body());
   }
 
   private HttpResponse<String> delete(String path) throws Exception {
