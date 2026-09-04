@@ -10,10 +10,13 @@ import com.gimle.core.tenant.NetworkPolicyRule;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -360,5 +363,108 @@ class BifrostProxyTest {
     proxy.pollOnce();
 
     assertEquals("A", readTagFrom(proxy.boundAddressFor("orders").orElseThrow()));
+  }
+
+  /**
+   * M63: a UDP Service whose own declared {@code port} numerically coincides with a socket a
+   * co-located workload already has bound wildcard -- an entirely ordinary way for a UDP server to
+   * listen, and one that opts into {@code SO_REUSEADDR} the way a well-behaved server sharing a box
+   * with other listeners should. Before the fix this failed to bind, repeatably, with "Address
+   * already in use" regardless of the workload's own socket options, since the old, always-reuse-
+   * off {@code new DatagramSocket(bindAddress)} could never share a wildcard/specific pair even
+   * when the other side cooperated.
+   */
+  @Test
+  @Timeout(15)
+  void a_udp_service_binds_despite_a_wildcard_socket_already_holding_its_port() throws Exception {
+    DatagramSocket wildcardWorkload = new DatagramSocket((SocketAddress) null);
+    wildcardWorkload.setReuseAddress(true);
+    wildcardWorkload.bind(new InetSocketAddress((InetAddress) null, 0));
+    try {
+      int collidingPort = wildcardWorkload.getLocalPort();
+      DatagramSocket backendSocket = new DatagramSocket(0);
+      try {
+        source.putUdp(
+            "dns",
+            collidingPort,
+            List.of(
+                new ServiceEndpoint(
+                    InetAddress.getLoopbackAddress().getHostAddress(),
+                    backendSocket.getLocalPort())));
+        proxy = new BifrostProxy(source, Duration.ofMinutes(5));
+        proxy.pollOnce();
+
+        InetSocketAddress clusterAddress = proxy.boundAddressFor("dns").orElseThrow();
+        DatagramSocket client = new DatagramSocket();
+        try {
+          client.setSoTimeout(3_000);
+          byte[] payload = "hello".getBytes(StandardCharsets.UTF_8);
+          client.send(new DatagramPacket(payload, payload.length, clusterAddress));
+          byte[] buffer = new byte[64];
+          DatagramPacket reply = new DatagramPacket(buffer, buffer.length);
+          backendSocket.receive(reply);
+          assertEquals(
+              "hello",
+              new String(
+                  reply.getData(), reply.getOffset(), reply.getLength(), StandardCharsets.UTF_8));
+        } finally {
+          client.close();
+        }
+      } finally {
+        backendSocket.close();
+      }
+    } finally {
+      wildcardWorkload.close();
+    }
+  }
+
+  /**
+   * M64 sub-bug 1: with {@code exposeOnAllInterfaces} on, a Service whose backing instance is
+   * co-located on this proxy's own node at the identical port must not have its wildcard bind
+   * contested by this proxy -- the workload's own listener already serves that port directly, and a
+   * race between the two starves whichever one loses, forever.
+   */
+  @Test
+  @Timeout(15)
+  void expose_mode_leaves_a_co_located_same_port_service_to_its_own_instance() throws Exception {
+    int servicePort = freePort();
+    // Stands in for the real workload's own listening socket: bound at the exact address and port
+    // BifrostProxy's wildcard bind would otherwise contest.
+    ServerSocket coLocatedWorkload = new ServerSocket(servicePort);
+    try {
+      Thread.ofVirtual()
+          .start(
+              () -> {
+                while (!coLocatedWorkload.isClosed()) {
+                  try (Socket connection = coLocatedWorkload.accept()) {
+                    connection
+                        .getOutputStream()
+                        .write("workload\n".getBytes(StandardCharsets.UTF_8));
+                  } catch (IOException e) {
+                    return;
+                  }
+                }
+              });
+      ServiceEndpoint colocated =
+          new ServiceEndpoint(InetAddress.getLoopbackAddress().getHostAddress(), servicePort)
+              .withNodeId("this-node");
+      source.put("echo", servicePort, List.of(colocated));
+      proxy =
+          new BifrostProxy(
+              source,
+              NetworkPolicySnapshot::empty,
+              new BifrostSettings(
+                  Duration.ofMinutes(5), true, Optional.of("this-node"), Optional.empty()));
+      proxy.pollOnce();
+
+      assertTrue(
+          proxy.boundAddressFor("echo").isEmpty(),
+          "bifrost must not bind a wildcard listener over its own co-located instance's port");
+      assertEquals(
+          "workload",
+          readTagFrom(new InetSocketAddress(InetAddress.getLoopbackAddress(), servicePort)));
+    } finally {
+      coLocatedWorkload.close();
+    }
   }
 }

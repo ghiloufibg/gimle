@@ -44,6 +44,13 @@ final class InMemoryServiceSource implements ServiceSource {
         name, new ServiceEndpoints(name, port, OptionalInt.of(port), sessionAffinity, endpoints));
   }
 
+  /** A UDP Service with {@code port == targetPort}, untenanted. */
+  synchronized void putUdp(String name, int port, List<ServiceEndpoint> endpoints) {
+    summaries.put(name, new ServiceSummary(name, Optional.empty(), Set.of()));
+    services.put(
+        name, new ServiceEndpoints(name, port, OptionalInt.of(port), false, endpoints, true));
+  }
+
   synchronized void remove(String name) {
     summaries.remove(name);
     services.remove(name);

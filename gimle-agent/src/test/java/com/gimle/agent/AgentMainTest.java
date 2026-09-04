@@ -13,6 +13,7 @@ import com.gimle.core.module.ResourceSpec;
 import com.gimle.core.module.Version;
 import com.gimle.core.protocol.AssignedInstance;
 import com.gimle.core.protocol.ControlMessage;
+import com.gimle.core.restart.RestartTracker;
 import com.gimle.core.vessel.VesselEnvValue;
 import com.gimle.core.vessel.VesselProbeSpec;
 import com.gimle.core.vessel.VesselProbes;
@@ -35,6 +36,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -1554,6 +1556,128 @@ class AgentMainTest {
             Optional.of(vesselSpec("hello")));
 
     assertFalse(AgentMain.requiresReplacement(assignedWithVessel, existing));
+  }
+
+  // ---- reconcileVesselAssignment: a vessel that has genuinely exhausted VesselProcessSupervisor's
+  // restart budget must actually stay given up on the very next poll tick, not be handed a fresh
+  // supervisor and a fresh budget the moment reconcileAssignments next runs -- the M64 finding's
+  // "exhausted its restart budget; giving up" ERROR log was directly contradicted by the agent
+  // respawning the same instance roughly 15s later, over and over, because the old code removed
+  // the exhausted SupervisedVessel outright, so the next tick simply read "never started" and
+  // started over with a clean RestartTracker. ----
+
+  @Test
+  void an_exhausted_vessel_with_an_unchanged_assignment_is_not_handed_a_fresh_budget() {
+    ModuleDescriptor descriptor = descriptor("echo-vessel", IsolationTier.TIER_2);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "echo-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("hello")));
+    SupervisedVessel exhausted = supervisedVessel(assigned);
+    exhausted.restartBudgetExhausted = true;
+    Map<String, SupervisedVessel> supervisedVessels = new LinkedHashMap<>();
+    String key = "echo-deployment#0";
+    supervisedVessels.put(key, exhausted);
+
+    // A fresh AssignedInstance with identical field values -- what an ordinary re-fetch of
+    // unchanged desired state looks like, exactly the shape reconcileAssignments calls this with
+    // on every tick regardless of whether anything actually changed.
+    AssignedInstance sameAssignmentAgain =
+        new AssignedInstance(
+            "echo-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("hello")));
+
+    AgentMain.reconcileVesselAssignment(
+        sameAssignmentAgain,
+        key,
+        supervisedVessels,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null);
+
+    // Still the exact same (dead) SupervisedVessel object: no new VesselProcessSupervisor, and
+    // therefore no fresh RestartTracker, was ever created for this unchanged assignment.
+    assertTrue(
+        supervisedVessels.get(key) == exhausted,
+        "an unchanged assignment must leave a give-up state alone rather than restart it");
+  }
+
+  @Test
+  void a_changed_assignment_clears_an_exhausted_vessels_give_up_state() {
+    // A real (never-started) supervisor rather than null: the replacement branch below calls
+    // stopVesselInstance, which closes the existing instance's supervisor unconditionally.
+    VesselProcessSupervisor neverStarted =
+        new VesselProcessSupervisor(
+            "echo-deployment#0",
+            List.of("true"),
+            Map.of(),
+            Optional.empty(),
+            new RestartTracker(
+                Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30), 5, Duration.ofMinutes(10)),
+            exhaustedKey -> {},
+            Path.of("does-not-matter.log"),
+            respawnedKey -> {});
+    ModuleDescriptor descriptor = descriptor("echo-vessel", IsolationTier.TIER_2);
+    AssignedInstance original =
+        new AssignedInstance(
+            "echo-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("v1")));
+    SupervisedVessel exhausted =
+        new SupervisedVessel(
+            original,
+            original.vessel().orElseThrow(),
+            neverStarted,
+            null,
+            Map.of(),
+            List.of(),
+            Instant.now());
+    exhausted.restartBudgetExhausted = true;
+    Map<String, SupervisedVessel> supervisedVessels = new LinkedHashMap<>();
+    String key = "echo-deployment#0";
+    supervisedVessels.put(key, exhausted);
+
+    AssignedInstance changed =
+        new AssignedInstance(
+            "echo-deployment",
+            0,
+            descriptor.id(),
+            "/does/not/matter.jar",
+            Optional.empty(),
+            OptionalInt.empty(),
+            Optional.of(vesselSpec("v2")));
+
+    // The subsequent startVesselInstance call fails against these null collaborators (no real
+    // artifact/resource limiter to spawn from) and is caught and logged, exactly like any other
+    // start failure -- what this asserts is that the old give-up state does not survive that
+    // attempt, not that a real process gets spawned (VesselProcessSupervisorTest already covers
+    // real spawning end to end).
+    AgentMain.reconcileVesselAssignment(
+        changed, key, supervisedVessels, null, null, null, null, null, null, null, null);
+
+    assertTrue(
+        supervisedVessels.get(key) != exhausted,
+        "a genuinely changed assignment must clear a prior give-up state rather than leave it"
+            + " stuck forever");
   }
 
   // ---- instanceKey: tenant-scoped so two tenants' identically-named workload never collapse

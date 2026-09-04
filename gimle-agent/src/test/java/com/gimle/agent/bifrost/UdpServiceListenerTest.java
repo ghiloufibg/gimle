@@ -11,6 +11,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -168,6 +169,42 @@ class UdpServiceListenerTest {
 
     send(client, listener.boundAddress(), "hello");
 
+    assertEquals("echo:hello", receive(client));
+  }
+
+  @Test
+  void binds_at_a_specific_address_already_sharing_its_port_with_a_wildcard_socket()
+      throws Exception {
+    // Reproduces the collision a co-located UDP workload creates: it binds its own socket to the
+    // wildcard address at some port (ordinary for a UDP server that wants any interface), and this
+    // listener then needs a specific loopback address at that identical numeric port. Linux's UDP
+    // overlap check treats a wildcard bind and a specific-address bind at the same port as
+    // colliding unless SO_REUSEADDR is set on the socket already occupying the port as well as the
+    // one binding after it -- true of a well-behaved UDP server that wants to coexist with other
+    // listeners on the box, and exactly the case the old, always-reuse-off `new
+    // DatagramSocket(bindAddress)` could never satisfy even when the workload's own socket
+    // cooperated. Without a workload that opts in, no bind call on either side can make two
+    // processes share one wildcard/specific pair -- that is a kernel-level limit, not a bug this
+    // listener's own bind call can paper over.
+    DatagramSocket wildcardWorkload = new DatagramSocket((SocketAddress) null);
+    wildcardWorkload.setReuseAddress(true);
+    wildcardWorkload.bind(new InetSocketAddress((InetAddress) null, 0));
+    toClose.add(wildcardWorkload);
+    int collidingPort = wildcardWorkload.getLocalPort();
+
+    UdpServiceListener listener =
+        new UdpServiceListener(
+            "colliding-service",
+            new InetSocketAddress(InetAddress.getLoopbackAddress(), collidingPort),
+            Optional.empty());
+    toClose.add(listener);
+
+    assertEquals(collidingPort, listener.boundAddress().getPort());
+
+    EchoBackend backend = startBackend("echo:");
+    listener.updateEndpoints(List.of(backend.endpoint()));
+    DatagramSocket client = clientSocket();
+    send(client, listener.boundAddress(), "hello");
     assertEquals("echo:hello", receive(client));
   }
 
