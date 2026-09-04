@@ -64,6 +64,19 @@ final class RunLedger {
   }
 
   /**
+   * Same as {@link #read}, but an absent ledger file (a machine's first-ever {@code up}, or a data
+   * root {@code down} already cleared) yields an empty list instead of a thrown exception -- {@code
+   * up} needs to tell "nothing recorded here yet" apart from "the file is there but corrupt," so
+   * only the latter still throws.
+   */
+  static List<RunRecord> tryRead(final Path dataRoot) {
+    if (Files.notExists(dataRoot.resolve(FILE_NAME))) {
+      return List.of();
+    }
+    return read(dataRoot);
+  }
+
+  /**
    * Read-modify-write upsert of exactly one entry: replaces the record whose {@code id} matches
    * {@code id} with {@code newRecord}, leaving every other machine's co-located process record
    * byte-for-byte untouched. Used by {@code MachineLauncher#restartRole} so restarting one process
