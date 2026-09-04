@@ -49,19 +49,20 @@ import java.util.Optional;
  * ServiceEndpointResolver} match against this record's own {@code deploymentName}/{@code
  * instanceIndex} also checks {@code tenantId} for exactly this reason.
  *
- * <p>{@code isolationTier} and {@code resourceLimit} are the declared values from the running
- * module's own descriptor, relayed so a reader has a denominator for {@code cpuMillicoresUsed}/
- * {@code memoryBytesUsed} -- a usage figure with no ceiling beside it is a number, not a judgement.
- * Both are {@link Optional#empty()} for a vessel instance, which is an OS process with no module
- * descriptor behind it at all.
+ * <p>{@code isolationTier} is the declared value from the running module's own descriptor. {@code
+ * resourceLimit} is the real ceiling this instance's worker JVM was actually spawned under -- a
+ * denominator for {@code cpuMillicoresUsed}/{@code memoryBytesUsed}, since a usage figure with no
+ * ceiling beside it is a number, not a judgement. Both are {@link Optional#empty()} for a vessel
+ * instance, which is an OS process with no module descriptor behind it at all.
  *
- * <p>A consumer must read {@code resourceLimit} against {@code isolationTier} or it will mislead.
- * At {@link IsolationTier#TIER_2} one instance owns its worker JVM, so the declared limit is that
- * instance's own enforced {@code -Xmx} ceiling and a used/limit ratio is correct. At {@link
- * IsolationTier#TIER_1} several instances share one worker JVM whose heap was sized for whichever
- * instance happened to spawn it, so the declared limit is what the manifest asked for, not a bound
- * anything applies to this instance -- rendering it as a ratio there draws a ceiling that does not
- * exist.
+ * <p>{@code resourceLimit} is deliberately not always the module's own declared {@code
+ * resources.limit}. At {@link IsolationTier#TIER_2} one instance owns its worker JVM, so its
+ * declared limit is that instance's own enforced {@code -Xmx} ceiling and the two coincide. At
+ * {@link IsolationTier#TIER_1} several instances share one worker JVM sized by the node's own
+ * shared-worker budget, not by any one instance's manifest -- so {@code resourceLimit} there
+ * carries that shared worker's real spawned size instead, which is the number a used/limit reader
+ * actually needs. A module's own declared TIER_1 request/limit remains what admission and
+ * scheduling use; it is simply not what this field reports.
  */
 public record InstanceObservation(
     String deploymentName,

@@ -1153,15 +1153,36 @@ public final class AgentMain {
       observation.put("workerId", instance.fabricWorkerId);
     }
     instance.assigned.tenantId().ifPresent(tenantId -> observation.put("tenantId", tenantId));
-    // The declared tier and ceiling this instance was admitted under, relayed so a reader has a
-    // denominator for the usage numbers above. Read straight off the descriptor the agent already
-    // holds -- null only for a unit test that constructs a SupervisedInstance with no descriptor
-    // behind it, and omitted entirely in that case rather than sent as null.
+    // The tier this instance was admitted under, plus the ceiling it actually runs against --
+    // relayed so a reader has a real denominator for the usage numbers above. isolationTier is
+    // read straight off the descriptor the agent already holds; resourceLimit is deliberately NOT
+    // the descriptor's own declared limit (see effectiveResourceLimit's own javadoc for why that
+    // would mislead at TIER_1). Both are null only for a unit test that constructs a
+    // SupervisedInstance with no descriptor behind it, and omitted entirely in that case rather
+    // than sent as null.
     if (instance.descriptor != null) {
       observation.put("isolationTier", instance.descriptor.isolationTier().name());
-      observation.put("resourceLimit", resourceSpecJson(instance.descriptor.resourceLimit()));
+      observation.put("resourceLimit", resourceSpecJson(effectiveResourceLimit(instance)));
     }
     return observation;
+  }
+
+  /**
+   * The ceiling {@code instance} is actually running under, for {@link #observationJson} to report
+   * as {@code resourceLimit}. At TIER_2 this instance owns its worker JVM outright, so {@code
+   * workerLimit} is the exact same {@link ResourceSpec} its manifest declared -- reporting it is
+   * unchanged from reporting the descriptor's own limit. At TIER_1 several instances share one
+   * worker JVM sized by {@link Tier1WorkerBudget}, so {@code workerLimit} instead carries that
+   * shared worker's real spawned {@code -Xmx}/CPU size, which is what a used/limit reader actually
+   * needs -- the module's own declared request/limit bears no relation to the JVM this instance is
+   * actually running inside (see {@link SupervisedInstance#workerLimit}'s own javadoc). Falls back
+   * to the descriptor's own declared limit only when no real worker stands behind this instance at
+   * all, which in practice means a unit test that never spawned one.
+   */
+  private static ResourceSpec effectiveResourceLimit(SupervisedInstance instance) {
+    return instance.workerLimit != null
+        ? instance.workerLimit
+        : instance.descriptor.resourceLimit();
   }
 
   private static Map<String, Object> resourceSpecJson(ResourceSpec spec) {

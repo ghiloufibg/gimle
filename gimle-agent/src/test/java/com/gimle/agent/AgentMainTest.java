@@ -533,9 +533,11 @@ class AgentMainTest {
   }
 
   @Test
-  void observation_json_reports_the_declared_isolation_tier_and_resource_limit() {
+  void observation_json_falls_back_to_the_declared_limit_with_no_real_worker_behind_it() {
     // Without these, a reader has usage numbers and no ceiling to read them against -- 142Mi tells
-    // an operator nothing about whether the instance is comfortable or about to die.
+    // an operator nothing about whether the instance is comfortable or about to die. This
+    // particular instance was never actually spawned (workerLimit null, as only a unit test does),
+    // so the descriptor's own declared limit is the only ceiling there is to report.
     ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit();
     AssignedInstance assigned =
         new AssignedInstance(
@@ -548,6 +550,47 @@ class AgentMainTest {
     assertEquals("TIER_1", observation.get("isolationTier"));
     // The limit, never the request: the request is a scheduling input, the limit is the ceiling
     // the instance actually runs under.
+    assertEquals(Map.of("memory", "64Mi", "cpu", "2000m"), observation.get("resourceLimit"));
+  }
+
+  @Test
+  void observation_json_reports_the_real_shared_worker_ceiling_for_a_tier1_instance() {
+    // Regression test for the bug where a TIER_1 instance's reported resourceLimit was its own
+    // declared 64Mi/2000m manifest limit -- a number with no relationship to the JVM it actually
+    // runs inside, which is a shared worker sized by Tier1WorkerBudget, not by this instance's own
+    // manifest. workerLimit (populated from the real spawn) must win over the descriptor here.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit(IsolationTier.TIER_1);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "orders-service", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    ResourceSpec sharedWorkerCeiling = new ResourceSpec("1Gi", "2000m");
+    SupervisedInstance instance =
+        new SupervisedInstance(assigned, null, null, descriptor, "worker-key", sharedWorkerCeiling);
+    instance.lifecycleState = "ACTIVE";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals("TIER_1", observation.get("isolationTier"));
+    assertEquals(Map.of("memory", "1Gi", "cpu", "2000m"), observation.get("resourceLimit"));
+  }
+
+  @Test
+  void observation_json_reports_the_modules_own_declared_limit_for_a_tier2_instance() {
+    // No regression: at TIER_2 the instance owns its worker outright, so workerLimit (the real
+    // spawn size) and the descriptor's own declared limit are the same ResourceSpec -- reporting
+    // workerLimit here must still read as "the module's own declared limit", unchanged from before.
+    ModuleDescriptor descriptor = descriptorWithDistinctRequestAndLimit(IsolationTier.TIER_2);
+    AssignedInstance assigned =
+        new AssignedInstance(
+            "orders-service", 0, descriptor.id(), "/does/not/matter.jar", Optional.empty());
+    SupervisedInstance instance =
+        new SupervisedInstance(
+            assigned, null, null, descriptor, "worker-key", descriptor.resourceLimit());
+    instance.lifecycleState = "ACTIVE";
+
+    Map<String, Object> observation = AgentMain.observationJson(instance);
+
+    assertEquals("TIER_2", observation.get("isolationTier"));
     assertEquals(Map.of("memory", "64Mi", "cpu", "2000m"), observation.get("resourceLimit"));
   }
 
