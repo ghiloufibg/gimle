@@ -128,6 +128,12 @@ class GimleCliTest {
     return outBuffer.toString(StandardCharsets.UTF_8);
   }
 
+  /** Clears both capture buffers so one test can assert on several invocations independently. */
+  private void reset() {
+    outBuffer.reset();
+    errBuffer.reset();
+  }
+
   private String stderr() {
     return errBuffer.toString(StandardCharsets.UTF_8);
   }
@@ -2300,6 +2306,54 @@ class GimleCliTest {
     assertTrue(stdout().contains("usage: gimle secret <verb>"), stdout());
     assertTrue(stdout().contains("rotate-key"), stdout());
     assertFalse(stdout().contains("usage: gimle get <resource>"), stdout());
+  }
+
+  @Test
+  void the_top_level_usage_lists_every_secret_verb_the_narrower_help_does() {
+    // A verb reachable only from `secret -h` is a verb most callers never learn exists -- and
+    // `undelete` in particular is the one recovery path a soft delete depends on.
+    int exit = run("-h");
+    assertEquals(0, exit, stderr());
+    for (String verb : List.of("secret undelete", "secret export", "secret import")) {
+      assertTrue(stdout().contains(verb), verb + " missing from:\n" + stdout());
+    }
+    assertTrue(
+        stdout().contains("secret set <tenantId> <key> (--value <v> | --from-file"), stdout());
+  }
+
+  @Test
+  void cert_request_help_documents_the_common_name_flag_it_actually_accepts() {
+    assertEquals(0, run("-h"), stderr());
+    assertTrue(stdout().contains("[--common-name <name>]"), stdout());
+
+    reset();
+    assertEquals(0, run("cert", "-h"), stderr());
+    assertTrue(stdout().contains("[--common-name <name>]"), stdout());
+  }
+
+  @Test
+  void scoped_get_and_delete_help_document_the_tenant_flag_they_honour() {
+    // Each of these verbs already resolves --tenant correctly; the flag was simply absent from
+    // every usage line, so the only way to discover it was to read the source.
+    for (String noun : List.of("deployments", "jobs", "cronjobs", "daemonsets", "statefulsets")) {
+      reset();
+      assertEquals(0, run("get", noun, "-h"), stderr());
+      assertTrue(stdout().contains("[--tenant <id>]"), noun + " get help:\n" + stdout());
+    }
+    for (String noun : List.of("deployment", "job", "cronjob", "daemonset", "statefulset")) {
+      reset();
+      assertEquals(0, run("delete", noun, "-h"), stderr());
+      assertTrue(stdout().contains("[--tenant <id>]"), noun + " delete help:\n" + stdout());
+    }
+  }
+
+  @Test
+  void networkpolicy_help_shows_its_tenant_flag_as_required_not_optional() {
+    // Unlike every other by-name resource, a NetworkPolicy has no untenanted namespace at all --
+    // the command refuses locally without --tenant, so the help must not imply it is optional.
+    assertEquals(0, run("get", "networkpolicies", "-h"), stderr());
+    assertTrue(stdout().contains("--tenant <id>"), stdout());
+    assertFalse(stdout().contains("[--tenant <id>]"), stdout());
   }
 
   @Test

@@ -834,26 +834,40 @@ public final class GimleCli {
 
   private static final Map<String, String> GET_NOUN_USAGE =
       Map.ofEntries(
-          Map.entry("deployment", "usage: gimle get deployments [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("deployments", "usage: gimle get deployments [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("job", "usage: gimle get jobs [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("jobs", "usage: gimle get jobs [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("cronjob", "usage: gimle get cronjobs [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("cronjobs", "usage: gimle get cronjobs [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("daemonset", "usage: gimle get daemonsets [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("daemonsets", "usage: gimle get daemonsets [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("statefulset", "usage: gimle get statefulsets [name]" + WATCH_FLAGS_USAGE),
-          Map.entry("statefulsets", "usage: gimle get statefulsets [name]" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "deployment",
+              "usage: gimle get deployments [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "deployments",
+              "usage: gimle get deployments [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry("job", "usage: gimle get jobs [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry("jobs", "usage: gimle get jobs [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "cronjob", "usage: gimle get cronjobs [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "cronjobs", "usage: gimle get cronjobs [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "daemonset",
+              "usage: gimle get daemonsets [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "daemonsets",
+              "usage: gimle get daemonsets [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "statefulset",
+              "usage: gimle get statefulsets [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
+          Map.entry(
+              "statefulsets",
+              "usage: gimle get statefulsets [name] [--tenant <id>]" + WATCH_FLAGS_USAGE),
           Map.entry("node", "usage: gimle get nodes" + WATCH_FLAGS_USAGE),
           Map.entry("nodes", "usage: gimle get nodes" + WATCH_FLAGS_USAGE),
           Map.entry(
               "node-assignments", "usage: gimle get node-assignments <nodeId>" + WATCH_FLAGS_USAGE),
-          Map.entry("service", "usage: gimle get services [name]"),
-          Map.entry("services", "usage: gimle get services [name]"),
-          Map.entry("networkpolicy", "usage: gimle get networkpolicies [name]"),
-          Map.entry("networkpolicies", "usage: gimle get networkpolicies [name]"),
-          Map.entry("alertrule", "usage: gimle get alertrules [name]"),
-          Map.entry("alertrules", "usage: gimle get alertrules [name]"),
+          Map.entry("service", "usage: gimle get services [name] [--tenant <id>]"),
+          Map.entry("services", "usage: gimle get services [name] [--tenant <id>]"),
+          Map.entry("networkpolicy", "usage: gimle get networkpolicies [name] --tenant <id>"),
+          Map.entry("networkpolicies", "usage: gimle get networkpolicies [name] --tenant <id>"),
+          Map.entry("alertrule", "usage: gimle get alertrules [name] [--tenant <id>]"),
+          Map.entry("alertrules", "usage: gimle get alertrules [name] [--tenant <id>]"),
           Map.entry("tenant", "usage: gimle get tenants [id]"),
           Map.entry("tenants", "usage: gimle get tenants [id]"),
           Map.entry("limitrange", "usage: gimle get limitranges [tenantId]"),
@@ -947,22 +961,22 @@ public final class GimleCli {
 
   private static final Map<String, String> DELETE_NOUN_USAGE =
       Map.ofEntries(
-          Map.entry("deployment", "usage: gimle delete deployment <name>"),
-          Map.entry("deployments", "usage: gimle delete deployment <name>"),
-          Map.entry("job", "usage: gimle delete job <name>"),
-          Map.entry("jobs", "usage: gimle delete job <name>"),
-          Map.entry("cronjob", "usage: gimle delete cronjob <name>"),
-          Map.entry("cronjobs", "usage: gimle delete cronjob <name>"),
-          Map.entry("daemonset", "usage: gimle delete daemonset <name>"),
-          Map.entry("daemonsets", "usage: gimle delete daemonset <name>"),
-          Map.entry("statefulset", "usage: gimle delete statefulset <name>"),
-          Map.entry("statefulsets", "usage: gimle delete statefulset <name>"),
-          Map.entry("service", "usage: gimle delete service <name>"),
-          Map.entry("services", "usage: gimle delete service <name>"),
-          Map.entry("networkpolicy", "usage: gimle delete networkpolicy <name>"),
-          Map.entry("networkpolicies", "usage: gimle delete networkpolicy <name>"),
-          Map.entry("alertrule", "usage: gimle delete alertrule <name>"),
-          Map.entry("alertrules", "usage: gimle delete alertrule <name>"),
+          Map.entry("deployment", "usage: gimle delete deployment <name> [--tenant <id>]"),
+          Map.entry("deployments", "usage: gimle delete deployment <name> [--tenant <id>]"),
+          Map.entry("job", "usage: gimle delete job <name> [--tenant <id>]"),
+          Map.entry("jobs", "usage: gimle delete job <name> [--tenant <id>]"),
+          Map.entry("cronjob", "usage: gimle delete cronjob <name> [--tenant <id>]"),
+          Map.entry("cronjobs", "usage: gimle delete cronjob <name> [--tenant <id>]"),
+          Map.entry("daemonset", "usage: gimle delete daemonset <name> [--tenant <id>]"),
+          Map.entry("daemonsets", "usage: gimle delete daemonset <name> [--tenant <id>]"),
+          Map.entry("statefulset", "usage: gimle delete statefulset <name> [--tenant <id>]"),
+          Map.entry("statefulsets", "usage: gimle delete statefulset <name> [--tenant <id>]"),
+          Map.entry("service", "usage: gimle delete service <name> [--tenant <id>]"),
+          Map.entry("services", "usage: gimle delete service <name> [--tenant <id>]"),
+          Map.entry("networkpolicy", "usage: gimle delete networkpolicy <name> --tenant <id>"),
+          Map.entry("networkpolicies", "usage: gimle delete networkpolicy <name> --tenant <id>"),
+          Map.entry("alertrule", "usage: gimle delete alertrule <name> [--tenant <id>]"),
+          Map.entry("alertrules", "usage: gimle delete alertrule <name> [--tenant <id>]"),
           Map.entry("tenant", "usage: gimle delete tenant <id>"),
           Map.entry("tenants", "usage: gimle delete tenant <id>"),
           Map.entry("limitrange", "usage: gimle delete limitrange <tenantId>"),
@@ -1184,9 +1198,12 @@ public final class GimleCli {
           delete config <tenantId> <key>
           secret list <tenantId>
           secret get <tenantId> <key> [--version N]
-          secret set <tenantId> <key> --value <v>
+          secret set <tenantId> <key> (--value <v> | --from-file <path>) [--type <t>]
           secret delete <tenantId> <key> [--destroy]
+          secret undelete <tenantId> <key> [--version N]
           secret versions <tenantId> <key>
+          secret export <tenantId> --out <file>
+          secret import <tenantId> --in <file>
           secret rotate-key
           secret retire-key <keyId>
           configmap list <tenantId>
@@ -1225,7 +1242,7 @@ public final class GimleCli {
           delete account <username>
           can-i <verb> <resource> [--tenant <id>] [--target <id>]
           cert token create [--ttl <duration>]
-          cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path> --out-key <path>
+          cert request --purpose operator|node|tenant [--tenant <id>] --out-cert <path> --out-key <path> [--common-name <name>]
           cert status <request-id> --out-cert <path>
           cert approve <request-id>
           cert renew [--force]

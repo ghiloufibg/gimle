@@ -640,6 +640,7 @@ since it has no manifest to read a `vessel:` block from yet — see below.
 | `CALLS_SYSTEM_EXIT` | `ERROR` (module intent) / `WARNING` (`--vessel`) | A class calls `System.exit`. |
 | `LEAK_RISK` | `WARNING` | A class registers a JVM shutdown hook, constructs a `Thread` without `setDaemon(true)`, or declares a static `ExecutorService` field with no `shutdown`/`shutdownNow`/`close` call anywhere in that same class. |
 | `BINDS_OWN_PORT` | `INFO` | A class opens a `ServerSocket`/`ServerSocketChannel`/`com.sun.net.httpserver.HttpServer` — informational only, the platform has no ingress story for a plain module today. |
+| `MAKES_OUTBOUND_CALLS` | `INFO` | A class constructs a connecting `java.net.Socket`, opens a `SocketChannel`, or builds a `java.net.http.HttpClient` — informational only, the mirror of `BINDS_OWN_PORT` on the egress side: nothing on the platform restricts a module's outbound traffic today. |
 | `SPLIT_PACKAGE` | `ERROR` | Two of the jars given on the command line (the primary plus any `<dep-jar>` arguments) declare the same package. |
 | `BUNDLED_LOGGING_BINDING` | `WARNING` | A `logback-classic`/`log4j-core`/`slf4j-simple` class prefix or bundled dependency jar name is found among the artifact's own entries (its own nested `lib/` layout, or an extra `<dep-jar>` argument). |
 
