@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -36,31 +37,26 @@ import org.junit.jupiter.api.Timeout;
  * plus, separately, the already-shipped {@code ServiceExport} tenant re-check proven against a real
  * cross-tenant fabric call.
  *
- * <p>Two real, structural gaps this class documents rather than papers over, both found only by
- * actually running this scenario against a real cluster:
+ * <p>{@code greeter-provider} now opens a real HTTP status listener and reports it via {@code
+ * ctx.reportPort} ({@code GreeterProviderHooks}), so with no {@code targetPort} declared here,
+ * {@code ServiceEndpointResolver#resolve} resolves the instance's one reported port as the
+ * Service's live endpoint -- a plain hosted module (never a Vessel) can now genuinely back a
+ * Service, and Skald's own real poll of {@code GET /services/{name}/endpoints} (via {@code
+ * HttpServiceCatalogClient}, which decodes the same JSON shape correctly) resolves it into a real
+ * DNS answer. One real, structural gap remains and is still documented rather than papered over:
+ * {@code HttpServiceSource#listServiceNames} (the class {@code BifrostProxy} polls through, a
+ * different client than Skald's) casts each {@code GET /services} array entry straight to {@code
+ * String}, but {@code ApiServer#handleServicesList}'s own real response is an array of Service
+ * objects ({@code serviceToJson}) -- every real poll throws a {@code ClassCastException}, so {@code
+ * BifrostProxy} can never bind a listener at all today, for any Service. Both {@code
+ * HttpServiceSource} (gimle-agent) and {@code ApiServer} (its wire counterpart in
+ * gimle-controlplane) are outside this module's own scope to fix.
  *
- * <ul>
- *   <li>{@code ServiceEndpointResolver#resolve} only ever contributes an endpoint for an instance
- *       reporting exactly one declared port ({@code InstanceObservation#ports}), and that map is
- *       populated only for a Vessel instance ({@code AgentMain#vesselObservationJson}'s own {@code
- *       allocatedPorts}) -- a plain hosted module like {@code greeter-provider} (built purely
- *       against {@code ModuleLifecycleHooks}/fabric, never a Vessel) never reports a port at all,
- *       so a Service fronting it can never resolve a live endpoint under today's wiring.
- *   <li>{@code HttpServiceSource#listServiceNames} (the real class {@code BifrostProxy} polls
- *       through) casts each {@code GET /services} array entry straight to {@code String}, but
- *       {@code ApiServer#handleServicesList}'s own real response is an array of Service objects
- *       ({@code serviceToJson}) -- every real poll throws a {@code ClassCastException}, so {@code
- *       BifrostProxy} can never bind a listener at all today, for any Service, regardless of the
- *       gap above. Both {@code HttpServiceSource} (gimle-agent) and {@code ApiServer} (its wire
- *       counterpart in gimle-controlplane) are outside this module's own scope to fix.
- * </ul>
- *
- * <p>Given both, this class's first scenario proves exactly what is genuinely true today: the
- * Service is created for real through the real API, the real {@code bifrostEnabled} flag really
- * starts a real {@code BifrostProxy} that is really polling, and Skald's own real DNS answer for
- * the Service stays a well-formed {@code NXDOMAIN} -- the correct, real behavior given no live
- * endpoint. It stops short of asserting a live Bifrost loopback listener or a live DNS answer,
- * since neither can exist while the two gaps above stand.
+ * <p>Given that, this class's first scenario proves what is genuinely true today: the Service is
+ * created for real through the real API, resolves a real live endpoint at greeter-provider's own
+ * reported port, and a real hand-crafted DNS query against a real {@code SkaldMain} answers it with
+ * a real address -- while the real {@code bifrostEnabled} flag still starts a real {@code
+ * BifrostProxy} that can never successfully poll, per the one remaining gap above.
  */
 @Tag("smoke")
 class ServiceNetworkIT extends GreeterSmokeClusterSupport {
@@ -109,12 +105,12 @@ class ServiceNetworkIT extends GreeterSmokeClusterSupport {
         Set.of("greeter-provider-deployment"),
         servicePort);
 
-    // Step 3, scoped: the Service is real and queryable through the real API -- but its
-    // endpoints list structurally can never gain a live entry for a module-backed Deployment
-    // (see this class's own javadoc), so this asserts the real API contract (200, correct
-    // name/port, and no targetPort echoed back since none was declared) and that the empty
-    // endpoints list is stable, not a genuine "not ready yet" transient this suite would
-    // otherwise wait out with Await.until.
+    // Step 3: the Service is real and queryable through the real API (200, correct name/port, no
+    // targetPort echoed back since none was declared), and now genuinely resolves a live endpoint
+    // -- greeter-provider reports exactly one port (see GreeterProviderHooks), so with no
+    // targetPort declared, ServiceEndpointResolver#resolve's own "exactly one reported port"
+    // fallback picks it up. This is the fix this scenario now proves rather than a gap it
+    // documents: a plain hosted module (never a Vessel) can back a real, dialable Service.
     Await.until(
         () -> serviceIsRegistered(baseUrl, SERVICE_NAME),
         Duration.ofSeconds(30),
@@ -122,12 +118,31 @@ class ServiceNetworkIT extends GreeterSmokeClusterSupport {
     Map<String, Object> endpointsBody = fetchServiceEndpoints(baseUrl, SERVICE_NAME);
     assertEquals(servicePort, ((Number) endpointsBody.get("port")).intValue());
     assertFalse(endpointsBody.containsKey("targetPort"));
+    Await.until(
+        () ->
+            !Json.asArray(fetchServiceEndpoints(baseUrl, SERVICE_NAME).get("endpoints")).isEmpty(),
+        Duration.ofSeconds(30),
+        "the Service should resolve a live endpoint now that greeter-provider-deployment reports"
+            + " its own listening port");
+    List<Map<String, Object>> resolvedEndpoints =
+        Json.asObjectList(fetchServiceEndpoints(baseUrl, SERVICE_NAME).get("endpoints"));
+    assertEquals(1, resolvedEndpoints.size());
+    int reportedPort = ((Number) resolvedEndpoints.get(0).get("port")).intValue();
+    assertTrue(
+        reportedPort > 0 && reportedPort <= 65535,
+        "the resolved endpoint's port should be greeter-provider's own real ephemeral listening"
+            + " port, got "
+            + reportedPort);
     assertConditionHoldsThroughout(
-        () -> Json.asArray(fetchServiceEndpoints(baseUrl, SERVICE_NAME).get("endpoints")).isEmpty(),
+        () -> {
+          List<Map<String, Object>> current =
+              Json.asObjectList(fetchServiceEndpoints(baseUrl, SERVICE_NAME).get("endpoints"));
+          return current.size() == 1
+              && ((Number) current.get(0).get("port")).intValue() == reportedPort;
+        },
         Duration.ofSeconds(3),
         Duration.ofSeconds(1),
-        "greeter-provider-deployment never declares a port, so this Service's endpoint list"
-            + " should stay empty rather than transiently resolving one");
+        "the resolved endpoint should stay stable at the same real port greeter-provider reported");
 
     // Step 4, scoped: real Bifrost startup, not full reachability. -Dgimle.agent.bifrostEnabled=
     // true genuinely starts a real BifrostProxy against the real control plane (observed here
@@ -153,11 +168,13 @@ class ServiceNetworkIT extends GreeterSmokeClusterSupport {
         "the real -Dgimle.agent.bifrostEnabled=true flag should have started a real BifrostProxy"
             + " on this agent");
 
-    // Step 5: real Skald DNS resolution. No live endpoint exists for this Service (see the
-    // class-level javadoc), so ControlPlaneServicePoller#poll never caches it and the correct,
-    // real answer is a well-formed NXDOMAIN -- proving the genuine wire path (real UDP query ->
-    // real SkaldServer -> real control-plane poll -> real, correct "no live endpoint" answer),
-    // not a fabricated "resolves to a live address" this Service structurally can never produce.
+    // Step 5: real Skald DNS resolution. The Service now has a real live endpoint (Step 3 above),
+    // and ControlPlaneServicePoller reaches it through HttpServiceCatalogClient -- a different
+    // client than BifrostProxy's own broken HttpServiceSource, decoding the same
+    // GET /services/{name}/endpoints response shape correctly -- so the real, correct answer is
+    // now a genuine NOERROR with the resolved address, proving the whole real wire path (real UDP
+    // query -> real SkaldServer -> real control-plane poll -> real live endpoint) rather than the
+    // "correctly reports nothing exists yet" case this scenario proved before the fix.
     int dnsPort;
     try (PortLease dnsLease = PortLease.reserve(1)) {
       dnsPort = dnsLease.ports().get(0);
@@ -172,17 +189,47 @@ class ServiceNetworkIT extends GreeterSmokeClusterSupport {
             tempDir.resolve("skald.log"));
     processes.add(skald);
 
+    // SkaldMain polls the control plane on its own fixed interval, independent of when this
+    // Service's endpoint actually resolved above, so the first query or two may still see a stale
+    // NXDOMAIN -- retried until a real answer lands or the overall budget elapses.
     byte[] response =
-        queryOverUdp(dnsPort, SERVICE_NAME + ".svc.gimle.local", Duration.ofSeconds(30));
-    int flags = unsignedShort(response, 2);
-    int rcode = flags & 0xF;
+        awaitDnsAnswer(dnsPort, SERVICE_NAME + ".svc.gimle.local", Duration.ofSeconds(30));
+    int rcode = unsignedShort(response, 2) & 0xF;
     int answerCount = unsignedShort(response, 6);
     assertEquals(
-        DnsCodec.RCODE_NXDOMAIN,
+        DnsCodec.RCODE_NOERROR,
         rcode,
-        "skald should answer NXDOMAIN for a Service with no live endpoint, not a fabricated"
-            + " success");
-    assertEquals(0, answerCount);
+        "skald should now resolve a real answer for a Service with a live endpoint");
+    assertEquals(1, answerCount);
+  }
+
+  /**
+   * Repeatedly issues the same DNS query (see {@link #queryOverUdp}) until the response answers
+   * {@code NOERROR} with at least one record, or {@code overallTimeout} elapses -- needed because
+   * {@code SkaldMain}'s own poll cycle against the control plane runs on a fixed interval
+   * independent of when the queried Service's endpoint actually resolved.
+   */
+  private static byte[] awaitDnsAnswer(int dnsPort, String dottedName, Duration overallTimeout)
+      throws IOException {
+    long deadlineNanos = System.nanoTime() + overallTimeout.toNanos();
+    byte[] last;
+    do {
+      last = queryOverUdp(dnsPort, dottedName, Duration.ofSeconds(5));
+      if ((unsignedShort(last, 2) & 0xF) == DnsCodec.RCODE_NOERROR && unsignedShort(last, 6) > 0) {
+        return last;
+      }
+      try {
+        Thread.sleep(500);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError("interrupted while awaiting a real skald DNS answer", e);
+      }
+    } while (System.nanoTime() < deadlineNanos);
+    throw new AssertionError(
+        "skald never answered NOERROR with a live record for "
+            + dottedName
+            + " within "
+            + overallTimeout);
   }
 
   /** Reimplements {@code LoopbackAddressAllocator#allocate}'s own hash-derived address exactly. */

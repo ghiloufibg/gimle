@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 796,
+  "requirementCount": 797,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13817,6 +13817,22 @@
       "otherTestCoverage": "`ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging`, `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`isAgentReachable`, `proxyToAgent`)"
+      ]
+    },
+    {
+      "id": "GIMLE-797",
+      "module": "gimle-examples",
+      "feature": "A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve",
+      "category": "Networking/Service Discovery",
+      "status": "New",
+      "statusNote": "New requirement: none of Midgard's three bundled example modules ever called ctx.reportPort, so a Service created against a real Midgard-seeded cluster resolved zero endpoints for any workload the platform actually ships, regardless of replica count or targetPort. GreeterProviderHooks.onStart now opens a real ephemeral-port HTTP status listener and reports it, giving Service endpoint resolution a genuine bundled workload to resolve.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario deploys the real greeter-provider example jar and asserts a Service resolves its endpoint -- service-fabric.feature's own port-reporting scenario (GIMLE-571) uses a synthetic ModuleFixtures-built module, not this bundled example. Real coverage exists in gimle-smoke-tests' ServiceNetworkIT, which does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ServiceNetworkIT#a_declared_service_starts_a_real_bifrost_proxy_and_skald_answers_it_correctly` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-examples/greeter-provider/src/main/java/com/gimle/examples/greeter/provider/GreeterProviderHooks.java`",
+        "`gimle-examples/greeter-provider/src/main/java/module-info.java`"
       ]
     }
   ]
