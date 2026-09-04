@@ -15735,15 +15735,17 @@
       "feature": "Ivaldi run engine: cluster connections and running a Blueprint in-process",
       "category": "Developer tooling / Internal-Infra",
       "status": "New",
-      "statusNote": "Dry-run proxy and per-cluster TLS identity remain unbuilt; a real MachineLauncher boot/deploy/down round trip against a genuinely running cluster is not yet exercised by an automated test.",
+      "statusNote": "Backend and console are both wired to each other now (console-side /v1/* mock protocol and localStorage clusters are gone). Dry-run proxy and per-cluster TLS identity remain unbuilt; a real MachineLauncher boot/deploy/down round trip against a genuinely running cluster is not yet exercised by an automated test.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "gapNote": "No Holmgang scenario runs a Blueprint through Ivaldi yet. Covered instead by gimle-ivaldi's own unit/integration suite (ClusterStoreTest, PortPreflightTest, RunControllerTest, IvaldiServerTest); a real end-to-end boot-through-deploy scenario belongs in gimle-smoke-tests, following the same real-subprocess-cluster pattern GreeterClusterTopologyIT already establishes, and does not exist yet.",
-      "otherTestCoverage": "`ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java`, `IvaldiServerTest.java` (cluster + run endpoint additions) in gimle-ivaldi's own test suite",
+      "gapNote": "No Holmgang scenario runs a Blueprint through Ivaldi yet. Covered instead by gimle-ivaldi's own unit/integration suite (ClusterStoreTest, PortPreflightTest, RunControllerTest, IvaldiServerTest) and gimle-ivaldi-console's Vitest suite (httpClusters.test.ts, runPhases.test.ts); a real end-to-end boot-through-deploy scenario belongs in gimle-smoke-tests, following the same real-subprocess-cluster pattern GreeterClusterTopologyIT already establishes, and does not exist yet.",
+      "otherTestCoverage": "`ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java`, `IvaldiServerTest.java` (cluster + run endpoint additions) in gimle-ivaldi's own test suite; `httpClusters.test.ts`, `runPhases.test.ts` in gimle-ivaldi-console's Vitest suite",
       "sourceLocations": [
         "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java`",
         "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/{RunController,RunStatus,RunSnapshot,RunLog,PortPreflight}.java`",
-        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`"
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`",
+        "`gimle-ivaldi-console/src/repositories/{httpClusters,httpRunner,index}.ts`",
+        "`gimle-ivaldi-console/src/lib/runPhases.ts`"
       ]
     }
   ]

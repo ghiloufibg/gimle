@@ -10011,7 +10011,7 @@
       "module": "gimle-ivaldi",
       "category": "Developer tooling / Internal-Infra",
       "feature": "Ivaldi run engine: cluster connections and running a Blueprint in-process",
-      "step": "Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied.",
+      "step": "Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied. Given the console's Run drawer open against a saved cluster, When I click Run, Then the drawer polls the real backend and reflects each phase (validate/boot/seed/deploy/active) as the corresponding log line arrives, ending in running or a surfaced error -- no mock runner involved.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
