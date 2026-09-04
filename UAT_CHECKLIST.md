@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 814
+- **Total requirements**: 828
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 684
-- **Release-readiness (automated coverage)**: 16.0%
+- **Not covered by automated test**: 698
+- **Release-readiness (automated coverage)**: 15.7%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -18,25 +18,25 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-os | 8 | 0 | 8 | 0.0% |
 | gimle-pki | 12 | 6 | 6 | 50.0% |
 | gimle-worker | 24 | 2 | 22 | 8.3% |
-| gimle-agent | 56 | 6 | 50 | 10.7% |
+| gimle-agent | 61 | 6 | 55 | 9.8% |
 | gimle-mimir | 69 | 36 | 33 | 52.2% |
-| gimle-fabric | 41 | 1 | 40 | 2.4% |
-| gimle-controlplane | 117 | 17 | 100 | 14.5% |
+| gimle-fabric | 42 | 1 | 41 | 2.4% |
+| gimle-controlplane | 119 | 17 | 102 | 14.3% |
 | gimle-fafnir | 33 | 11 | 22 | 33.3% |
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
-| gimle-gateway | 20 | 0 | 20 | 0.0% |
+| gimle-gateway | 21 | 0 | 21 | 0.0% |
 | gimle-cli | 43 | 0 | 43 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 54 | 0 | 54 | 0.0% |
+| gimle-console | 57 | 0 | 57 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
-| gimle-andvari-console | 8 | 0 | 8 | 0.0% |
+| gimle-andvari-console | 9 | 0 | 9 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
 | gimle-saga | 14 | 0 | 14 | 0.0% |
 | gimle-testkit | 7 | 0 | 7 | 0.0% |
-| gimle-examples | 6 | 3 | 3 | 50.0% |
+| gimle-examples | 7 | 3 | 4 | 42.9% |
 | gimle-smoke-tests | 22 | 0 | 22 | 0.0% |
 | gimle-holmgang | 29 | 15 | 14 | 51.7% |
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
@@ -154,7 +154,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-032 | Instance lifecycle event log model | Given a TRANSITION_FAILED event, When constructed, Then it carries a non-empty causeSummary alongside a stable id. | No |
 | [ ] | GIMLE-737 | Logs can be filtered by level threshold and text at the reader, on every surface | Given a log containing lines at several levels When it is read with a level threshold of WARN and a text filter Then only matching WARN and ERROR lines are returned And the same query against a gone node's shipped history returns the same lines And a query matching nothing reports that rather than returning silence | No |
-| [ ] | GIMLE-779 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling | No |
+| [ ] | GIMLE-779 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling Given the console's deployment Instances table and instance detail page read that same observation, When either screen renders, Then it shows the usage figure as "used / limit" alongside the instance's isolation tier, not a bare usage number with no ceiling to judge it against. | No |
 
 #### Observability / Logging
 
@@ -555,6 +555,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-121 | Vessel health probing (process-alive + TCP/HTTP rungs, initial-delay aware) | Given a vessel process is alive and declares an HTTP readiness probe When updateVesselHealth runs (polled once per agent tick) Then lifecycleState becomes FAILED if the process is dead or liveness fails, STARTING if alive-but-not-ready, ACTIVE if both pass Given the probe's initialDelaySeconds hasn't elapsed since startedAt Then it reports the appropriate before-delay default (true for liveness, false for readiness) rather than actually dialing | No |
+| [ ] | GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Given a hosted module declares a readiness probe that never passes When the module reaches ACTIVE and its probe loop ticks Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE Given a module restarts Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one | No |
 
 #### Internal-Infra
 
@@ -575,12 +576,18 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-746 | Tier-1 worker density is an operator-configurable, validated knob | Given an agent configured with a Tier-1 density of one When two Tier-1 modules are assigned to it Then they are not packed into the same worker And an agent configured with a zero or non-numeric density fails at startup | No |
 
+#### Multi-tenancy / Scheduling
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | Given tenant A and tenant B each deploy a StatefulSet named "session-store" and both land instance index 0 on the same node; When this agent reconciles both assignments; Then each gets its own real worker, keyed separately by tenant, rather than the second one reading as already-supervised. Given tenant A's own "session-store" is later deleted entirely; When the agent next reconciles; Then tenant B's own "session-store" instance -- previously starved of a worker -- is now correctly started, its own key having never been occupied by tenant A's own instance in the first place. | No |
+
 #### Networking
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-748 | A closed Bifrost service listener never serves one more connection | Given a Bifrost listener for a Service When that Service disappears from the source Then a subsequent connection attempt is refused rather than proxied | No |
-| [ ] | GIMLE-782 | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead | No |
+| [ ] | GIMLE-782 | A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams | Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead Given a UDP Service whose declared port numerically coincides with a socket a co-located workload already has bound wildcard, When BifrostProxy polls and binds its own listener, Then the bind succeeds and datagrams are relayed normally instead of failing with "Address already in use" on every tick. | No |
 
 #### Networking / Services
 
@@ -646,6 +653,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-591 | Narrowed secret delivery via `secretMapRefs` | Given a tenant owns secrets `db-creds/username` and `other-secret`, When an instance's deployment declares `secretMapRefs: [db-creds]`, Then only `username` is delivered to that instance -- `other-secret` never is. | No |
 
+#### Security / Identity
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-791 | Per-worker certificates: node-minted worker identity carrying the worker's tenant | Given a node agent holding a gimle:nodes certificate and an instance assignment for tenant acme, When it submits a WORKER_CLIENT CSR with CN <nodeId>:<instanceKey> and tenantId acme, Then the control plane signs it with O=gimle:workers and O=gimle:tenant:acme, and the certificate cannot act as the node. Given the same node, When it requests a worker certificate for a tenant it holds no assignment for, or a CN prefixed by another node's id, Then the request is refused with 403 and audited. Given a TLS cluster, When the agent spawns a worker, Then the worker is started with its own per-worker certificate and key and only the cluster CA file shared from the agent. Given a supervised worker whose certificate is due for renewal, When the agent ticks, Then a fresh certificate is issued under the same subject, key written before certificate, and the worker reloads it through its own file watcher. | No |
+
 #### Security / Networking
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -701,6 +714,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-603 | Sleipnir: agent-managed JDK AOT startup cache for worker JVMs | Given a running cluster from topology "minimal", And module "greeter-provider" version "1.0.0" deployed with 1 replica as "sleipnir-greeter", Then within 60s deployment "sleipnir-greeter" is ACTIVE, And within 30s node "node-0" logs "AOT cache ineligible: directory on worker classpath", And node "node-0" has no AOT cache files. | Yes |
 | [ ] | GIMLE-681 | Vessel config drift (env/args/jvmFlags/files/probes/resources) is detected on reassignment, not just moduleId/artifactPath | Given a Vessel instance already running under a fixed key with a given vessel: configuration; When the control plane's assignment for that key is re-polled with the same moduleId/artifactPath but an edited vessel: block (env, args, jvmFlags, files, probes, or resource request/limit); Then the agent detects the drift and restarts the process with the new configuration. Given a Vessel instance already running under a fixed key; When the control plane's assignment for that key is re-polled with an identical vessel: block; Then the agent does not restart the process. Given a hosted-module instance already running under a fixed key; When its assignment is re-polled with an unrelated vessel() value present but the same moduleId/artifactPath; Then requiresReplacement still returns false, since module runtime config comes from the artifact's own gimle-module.yaml rather than from vessel(). | No |
 | [ ] | GIMLE-786 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Given an agent with a declared Tier-1 shared-worker heap budget When a TIER_1 instance spawns a worker Then that worker is sized from the budget, not from the instance's own declared limit Given a shared worker whose residents' declared memory limits already fill its heap When another TIER_1 instance of the same tenant is assigned to that node Then it is not packed into that worker and gets a fresh one instead | No |
+| [ ] | GIMLE-793 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Given an agent with a declared Tier-1 shared-worker heap budget When a TIER_1 instance spawns a worker Then that worker is sized from the budget, not from the instance's own declared limit Given a shared worker whose residents' declared memory limits already fill its heap When another TIER_1 instance of the same tenant is assigned to that node Then it is not packed into that worker and gets a fresh one, sized to its own declared limit plus the reserve, instead | No |
+| [ ] | GIMLE-794 | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | Given the agent's tick loop is running When reconcileAssignments (or any other step of a tick) throws a fatal Error such as OutOfMemoryError Then the agent logs the failure and halts the JVM with the same exit code a worker's own OOM exit uses And it does not merely let the main thread die while other agent threads keep the process alive | No |
 
 #### Worker Supervision / Config
 
@@ -990,6 +1005,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-195 | Distributed Trace Propagation Across Fabric Hops | Given a caller with an active span and baggage; When it invokes a remote service; Then the callee starts a child span parented on the caller's real span, observing the same baggage. | No |
 | [ ] | GIMLE-196 | Fabric Transport over Mutual TLS with Hot Cert Reload | Given fabric configured for mTLS; When a cross-machine invocation is made; Then it succeeds over TLS; a client trusting a different CA is rejected; reload lets a fresh connection succeed without restart. | No |
 | [ ] | GIMLE-719 | Fabric calls retry only where retrying is provably safe, with server-side correlationId deduplication | Given a service method not annotated @Idempotent When the call fails after the request was written Then the failure is surfaced to the caller rather than retried And when the connection was never established, the call fails over to a different endpoint And a duplicate correlationId replays the original response instead of executing twice | No |
+| [ ] | GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | Given a service-exporting instance registered in the fabric catalog When it is disposed (unregistered) and a replacement instance registers under a new worker/module identity Then the registry's own candidate list for that service contains only the replacement's endpoint, never the disposed one And repeating this redeploy four times in a row never leaves more than one live candidate behind | No |
 
 #### Service fabric
 
@@ -1124,6 +1140,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-581 | ConfigMap store and API with optimistic-concurrency writes | Given a ConfigMap already exists at version N, When a caller PUTs with a stale `expectedVersion`, Then the write is rejected with 409 and the current version/data, and nothing is written; When N concurrent callers each PATCH a distinct key into the same ConfigMap, retrying on 409 against the freshly-read version, Then the final ConfigMap contains every key any caller wrote. | No |
 
+#### Control plane / API server
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-792 | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | Given the control plane's general admission budget is set to a small number When a concurrent flood of ordinary API requests well past that budget arrives Then every request resolves to a fast 200 or 429, never a hang or timeout, and at least one request is rejected Given the same flood is saturating the general admission lane When a node agent concurrently sends its own heartbeat requests Then every heartbeat request still succeeds, because it draws from its own reserved admission lane | No |
+
 #### Custom Kinds (Galdr)
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
@@ -1217,7 +1239,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-628 | ExternalName Services resolved via Skald CNAME and Bifrost forwarding | Given a Service declaring externalName, When its endpoints are resolved, Then the sole endpoint is the external host at targetPort with no nodeId. Given the same Service, When an A query reaches Skald, Then it answers a CNAME to the external hostname for the caller's own resolver to finish. | No |
-| [ ] | GIMLE-776 | A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing | Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN | No |
+| [ ] | GIMLE-776 | A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing | Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN Given a Service declared for tenant `acme` with no explicit ?tenant= on the delete request When DELETE /services/{name} is called Then the real tenant-scoped Service is removed -- confirmed gone from a follow-up GET and the collection listing -- not silently no-op against a key nothing was ever stored under Given a Service fronting a DaemonSet (or StatefulSet) workload with every replica ACTIVE/ready and reporting a port matching the Service's own targetPort; When its endpoints are resolved; Then the live endpoints are returned, not an empty array. | No |
 
 #### Observability
 
@@ -1228,6 +1250,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-772 | Each `GET /metrics` rollup row names its owning tenant, so two tenants running a same-named deployment are told apart rather than indistinguishable | Given tenants `acme` and `globex` each running a deployment named `api` When an operator reads the per-deployment rollup Then two rows are returned, one naming each tenant, neither merged into a single average And an untenanted deployment named `api` is a third, distinct row carrying a null tenant | No |
 | [ ] | GIMLE-788 | Cluster-wide instance lifecycle event read | Given lifecycle events recorded across several deployments and tenants; When GET /events is requested with no deployment/instance params; Then every matching event is returned merged newest-first, paginated the same since/limit/cursor way GET /audit already is. Given only `deployment` or only `instance` is supplied; When GET /events is requested; Then the request is rejected with 400, never reinterpreted as the cluster-wide mode. Given a caller holding no DEPLOYMENT:READ grant; When GET /events (cluster-wide mode) is requested; Then the request is forbidden, the same gate the single-instance mode already applies. | No |
 | [ ] | GIMLE-790 | A durable, replica-agnostic read of whether an AlertRule is currently firing | Given an AlertRule that has just been declared and never evaluated; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=false and no firing field. Given an AlertRule that AlertReconciler has observed crossing its threshold; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=true and firing=true, on every control-plane replica that answers. Given a control-plane replica restarts (or a different replica answers) after a rule was already firing; When that replica's own AlertReconciler next ticks; Then it reads the durable verdict and does not re-send a FIRING notification for the same ongoing incident. Given a caller with no grant for ResourceKind.ALERT_RULE; When it requests GET /alertrules/{name}/firing over mTLS; Then the response is 403. | No |
+| [ ] | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | Given a node registered with an advertised log-server address nothing is actually listening on; When GET /logs/instances/{name}/{idx}?follow=true is requested with Muninn configured; Then the response falls back to Muninn's own shipped history within seconds, not indefinitely. Given the identical setup with no Muninn configured; When the same follow request is made; Then the response is a fast 502 naming the agent as unreachable, never an indefinitely open connection. | No |
 
 #### Orchestration / Internal-Infra
 
@@ -1764,6 +1787,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-722 | Gateway TLS selects a per-virtual-host certificate from the client's SNI extension | Given a gateway terminating TLS for two routed hostnames When a client connects with SNI naming the second hostname Then the gateway presents that hostname's own certificate And a client sending no SNI receives the cluster-wide certificate | No |
+| [ ] | GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged. Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged. | No |
 
 ### gimle-cli
 
@@ -1798,7 +1822,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-765 | gimle context: pointing the CLI at more than one cluster | Given a configured current context When a command is run with an explicit --server Then the explicit flag wins And a malformed config file degrades to a warning rather than breaking the command | No |
 | [ ] | GIMLE-767 | gimle get --watch observes a resource converging | Given a deployment being scaled When gimle get deployments --watch is running Then only the changed row is printed on the next tick And a deleted row is reported as deleted rather than silently disappearing | No |
 | [ ] | GIMLE-770 | `gimle volume destroy` addresses a volume's owning tenant explicitly, instead of silently resolving to whichever tenant the server defaulted to | Given a volume owned by tenant `acme` at sessions[0] on node-a, and an identically-named volume owned by the `default` tenant When an operator runs `gimle volume destroy sessions 0 --node node-a --tenant acme` Then only the `acme` volume is reclaimed and the default tenant's volume is untouched And running the same command with no --tenant addresses the untenanted namespace, never either of them | No |
-| [ ] | GIMLE-791 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | Given a CliExtension provider for the verb "top" on the CLI's own classpath When an operator runs `gimle top` Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed And `gimle top -h` prints that verb's own usage rather than the full verb listing | No |
+| [ ] | GIMLE-805 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | Given a CliExtension provider for the verb "top" on the CLI's own classpath When an operator runs `gimle top` Then the provider runs, and with no provider on the path the same unknown-verb error is produced as before the seam existed And `gimle top -h` prints that verb's own usage rather than the full verb listing | No |
 
 #### CLI / Build Tooling
 
@@ -1822,7 +1846,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-385 | RBAC role binding management | Given "gimle set rolebinding b1 --subject user:alice --role cluster-admin", Then PUT /rolebindings/b1; "gimle get rolebindings" lists "user:alice". | No |
 | [ ] | GIMLE-386 | Operator account management | Given "gimle set account admin --password s3cret-password", Then PUT /accounts/admin sent; JSON output includes "username" but never "passwordHash" or the raw password. | No |
 | [ ] | GIMLE-387 | Certificate lifecycle management (bootstrap token, CSR request/status/approve, renewal) | Given "gimle cert request --purpose operator --out-cert op.crt --out-key op.key" against a trust-only connection, Then a keypair/CSR is generated locally, private key written immediately, and CSR POSTed unauthenticated to /bootstrap/csr; a due-for-renewal cred triggers a warning on any other command. | No |
-| [ ] | GIMLE-792 | An extension is handed a read-only view of the control-plane API, never the client | Given a CLI extension holding a ClusterReader When it tries to reach a write method Then no such method exists on the type it was handed | No |
+| [ ] | GIMLE-806 | An extension is handed a read-only view of the control-plane API, never the client | Given a CLI extension holding a ClusterReader When it tries to reach a write method Then no such method exists on the type it was handed | No |
 
 #### CLI / console parity
 
@@ -2032,6 +2056,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it | No |
 | [ ] | GIMLE-778 | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no entry for it in the group its catalog entry names | No |
 | [ ] | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Given a Deployment whose replicas are all placed but one instance is FAILED When I open the Applications screen Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node Given a Deployment placing 1 of 2 desired replicas, that one healthy Then it reads Progressing on health and OutOfSync on sync Given a Job that has SUCCEEDED Then it reads Healthy, because a Job's desired state is having run Given a CronJob whose newest generated Job FAILED Then it reads Degraded, naming that Job Given a custom resource whose status reports an observedGeneration behind its generation Then it reads Progressing and OutOfSync, naming both generations Given a control plane whose consoleAddons property does not name this addon Then the sidebar carries no Applications entry and its route explains which property would enable it | No |
+| [ ] | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away. Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner. | No |
+| [ ] | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare "saved" message. Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears. | No |
+| [ ] | GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array. Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance. | No |
 
 #### Web Console / Testing
 
@@ -2076,6 +2103,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-472 | Push artifact dialog (drag-and-drop upload) | Given I push an existing module@version unmodified, When upload completes, Then it's treated as an idempotent no-op; a differing re-push surfaces a 409 conflict. | No |
 | [ ] | GIMLE-473 | Maven-2 repository interop view | Given the console is served at a known origin, When I open `/repository`, Then the repository base URL and a copyable Maven config snippet render. | No |
 | [ ] | GIMLE-474 | Andvari copy-to-clipboard utility | Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard. | No |
+| [ ] | GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed. Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before. | No |
 
 ### gimle-saga-console
 
@@ -2159,6 +2187,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-638 | node-local-cache's flag-consumer logs its very first FeatureFlagCache lookup failure at INFO, not WARN, since it's an expected membership-propagation race, not a fault | Given local-flag-cache-daemonset is already fully ACTIVE, When flag-consumer-deployment is deployed and its first FeatureFlagCache call races ahead of this node's own membership-propagation catch-up, Then the failure is logged at INFO with an explanation, not WARN. Given flag-consumer has already logged one successful FeatureFlagCache call, When a later call fails, Then that failure is logged at WARN, since a failure after a previous success is a genuine regression. | No |
+
+#### Networking/Service Discovery
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Given greeter-provider-deployment is deployed from its own bundled jar and reaches ACTIVE, When a Service is created fronting it with no targetPort declared, Then GET /services/{name}/endpoints resolves exactly one live endpoint at the real port GreeterProviderHooks opened and reported. Given that same Service now has a live endpoint, When a real SkaldMain instance is queried for the Service's DNS name, Then it answers NOERROR with a real address instead of NXDOMAIN. | No |
 
 #### Sample Module
 
@@ -2337,30 +2371,30 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-793 | `gimle top` renders a live, read-only cluster view of nodes and instances | Given a running cluster with nodes and placed instances When an operator runs `gimle top` Then both tables render live and refresh on a fixed interval without any further command | Yes |
-| [ ] | GIMLE-794 | A failed poll keeps the last good rows and ages them rather than clearing the screen | Given `gimle top` showing a healthy cluster When the control plane becomes unreachable Then the last good rows stay on screen, aged, with the failure's reason on the status line | No |
-| [ ] | GIMLE-795 | Instance drill-down with lifecycle timeline and a live log tail | Given `gimle top` with an instance selected When the operator presses Enter Then that instance's detail, recent lifecycle events and a live log tail are shown, and esc returns to the cluster view And its declared isolation tier and resource limit are shown, with a memory headroom gauge only where that limit is a per-instance ceiling | No |
-| [ ] | GIMLE-796 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | Given `gimle top` running against a cluster When the operator moves the selection, filters, pauses and quits Then each key does what the help overlay says, and quitting restores the terminal | No |
-| [ ] | GIMLE-797 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | Given a terminal that advertises a particular colour depth When `gimle top` renders a frame Then it emits the console's own token values at that depth, and nothing at all under NO_COLOR | No |
-| [ ] | GIMLE-799 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | Given a deployment asking for four replicas of which the scheduler placed two When an operator runs `gimle top` Then a NOT SETTLED line names that workload and its shortfall, and the status line counts the unplaced replicas | Yes |
-| [ ] | GIMLE-800 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | Given a cluster running a Deployment, a DaemonSet and a StatefulSet When an operator runs `gimle top` Then all three kinds' instances appear in one table, each labelled with its own kind | No |
-| [ ] | GIMLE-801 | A services screen showing each Service's live endpoint resolution | Given a Service naming deployments that currently have no running instances When an operator presses `s` in `gimle top` Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read | Yes |
-| [ ] | GIMLE-802 | An activity view of what has been done to the cluster, over the audit trail | Given a cluster where a deployment was created and a secret read was refused When an operator presses `a` in `gimle top` Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line | No |
-| [ ] | GIMLE-803 | The activity view reads three cluster records: authorization, lifecycle and alerts | Given a cluster with a refused request, a failed instance transition and a firing alert rule When an operator presses `a` and cycles the feed with `c` Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line | No |
-| [ ] | GIMLE-804 | The terminal view browses every collection the control plane lists, including registered custom kinds | Given a cluster with tenants, roles and a registered custom kind When an operator opens `gimle top` and types `:tenants` Then the tenants collection is shown with the columns that kind declares | No |
-| [ ] | GIMLE-805 | The terminal view describes a selected resource as YAML without re-reading it | Given the terminal view's resource browser open on a kind When an operator presses enter on a row Then that resource's whole object is shown as YAML, scrollable | No |
-| [ ] | GIMLE-806 | The terminal view lists what it can open, and can be pointed at another control plane | Given an operator in the terminal view When they press `:` and then enter with nothing typed Then every kind this cluster can show is listed, registered kinds included | No |
-| [ ] | GIMLE-807 | The terminal view joins Services to the instances behind them and names the gaps | Given a Service naming a deployment that is not running When an operator presses `x` in the terminal view Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts | No |
-| [ ] | GIMLE-808 | The terminal view reads the control plane's own health alongside what it is running | Given a control plane that has lost its store When an operator presses `P` in the terminal view Then the control plane is reported as unhealthy rather than the cluster reading as serene | No |
-| [ ] | GIMLE-809 | The terminal view reads a worker's shipped traces for the instance it is inspecting | Given an instance whose worker ships traces When an operator presses `T` in its drill-down Then that worker's recent spans are shown grouped into their traces | No |
-| [ ] | GIMLE-810 | The terminal view narrows every screen to one tenant | Given a cluster running two tenants' workloads When an operator types `:tenant acme` Then every screen shows only that tenant's rows, and the bar names the tenant | No |
-| [ ] | GIMLE-811 | The terminal view scans the cluster for what is wrong | Given a cluster with an unplaced replica, an unready instance and a cordoned node When an operator presses `S` Then the three findings are listed worst first, each saying what is wrong on its own line | No |
-| [ ] | GIMLE-812 | The terminal view shows what the calling certificate may do | Given an operator connected with a certificate holding a subset of the cluster's permissions When they press `R` Then each resource kind is listed against each verb with the control plane's own yes or no | No |
-| [ ] | GIMLE-813 | The terminal view browses a tenant's own config and secret holdings | Given a tenant holding config keys and secrets When an operator runs `:tenant acme` and then `:secrets` Then that tenant's secret names and versions are listed, and no secret value is shown | No |
-| [ ] | GIMLE-814 | The terminal view reads a config key's, ConfigMap's or secret's revision history | Given a config key written more than once When an operator selects it in the browser and presses `v` Then every revision is listed newest first, with the one currently in effect named | No |
+| [ ] | GIMLE-807 | `gimle top` renders a live, read-only cluster view of nodes and instances | Given a running cluster with nodes and placed instances When an operator runs `gimle top` Then both tables render live and refresh on a fixed interval without any further command | Yes |
+| [ ] | GIMLE-808 | A failed poll keeps the last good rows and ages them rather than clearing the screen | Given `gimle top` showing a healthy cluster When the control plane becomes unreachable Then the last good rows stay on screen, aged, with the failure's reason on the status line | No |
+| [ ] | GIMLE-809 | Instance drill-down with lifecycle timeline and a live log tail | Given `gimle top` with an instance selected When the operator presses Enter Then that instance's detail, recent lifecycle events and a live log tail are shown, and esc returns to the cluster view And its declared isolation tier and resource limit are shown, with a memory headroom gauge only where that limit is a per-instance ceiling | No |
+| [ ] | GIMLE-810 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | Given `gimle top` running against a cluster When the operator moves the selection, filters, pauses and quits Then each key does what the help overlay says, and quitting restores the terminal | No |
+| [ ] | GIMLE-811 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | Given a terminal that advertises a particular colour depth When `gimle top` renders a frame Then it emits the console's own token values at that depth, and nothing at all under NO_COLOR | No |
+| [ ] | GIMLE-813 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | Given a deployment asking for four replicas of which the scheduler placed two When an operator runs `gimle top` Then a NOT SETTLED line names that workload and its shortfall, and the status line counts the unplaced replicas | Yes |
+| [ ] | GIMLE-814 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | Given a cluster running a Deployment, a DaemonSet and a StatefulSet When an operator runs `gimle top` Then all three kinds' instances appear in one table, each labelled with its own kind | No |
+| [ ] | GIMLE-815 | A services screen showing each Service's live endpoint resolution | Given a Service naming deployments that currently have no running instances When an operator presses `s` in `gimle top` Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read | Yes |
+| [ ] | GIMLE-816 | An activity view of what has been done to the cluster, over the audit trail | Given a cluster where a deployment was created and a secret read was refused When an operator presses `a` in `gimle top` Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line | No |
+| [ ] | GIMLE-817 | The activity view reads three cluster records: authorization, lifecycle and alerts | Given a cluster with a refused request, a failed instance transition and a firing alert rule When an operator presses `a` and cycles the feed with `c` Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line | No |
+| [ ] | GIMLE-818 | The terminal view browses every collection the control plane lists, including registered custom kinds | Given a cluster with tenants, roles and a registered custom kind When an operator opens `gimle top` and types `:tenants` Then the tenants collection is shown with the columns that kind declares | No |
+| [ ] | GIMLE-819 | The terminal view describes a selected resource as YAML without re-reading it | Given the terminal view's resource browser open on a kind When an operator presses enter on a row Then that resource's whole object is shown as YAML, scrollable | No |
+| [ ] | GIMLE-820 | The terminal view lists what it can open, and can be pointed at another control plane | Given an operator in the terminal view When they press `:` and then enter with nothing typed Then every kind this cluster can show is listed, registered kinds included | No |
+| [ ] | GIMLE-821 | The terminal view joins Services to the instances behind them and names the gaps | Given a Service naming a deployment that is not running When an operator presses `x` in the terminal view Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts | No |
+| [ ] | GIMLE-822 | The terminal view reads the control plane's own health alongside what it is running | Given a control plane that has lost its store When an operator presses `P` in the terminal view Then the control plane is reported as unhealthy rather than the cluster reading as serene | No |
+| [ ] | GIMLE-823 | The terminal view reads a worker's shipped traces for the instance it is inspecting | Given an instance whose worker ships traces When an operator presses `T` in its drill-down Then that worker's recent spans are shown grouped into their traces | No |
+| [ ] | GIMLE-824 | The terminal view narrows every screen to one tenant | Given a cluster running two tenants' workloads When an operator types `:tenant acme` Then every screen shows only that tenant's rows, and the bar names the tenant | No |
+| [ ] | GIMLE-825 | The terminal view scans the cluster for what is wrong | Given a cluster with an unplaced replica, an unready instance and a cordoned node When an operator presses `S` Then the three findings are listed worst first, each saying what is wrong on its own line | No |
+| [ ] | GIMLE-826 | The terminal view shows what the calling certificate may do | Given an operator connected with a certificate holding a subset of the cluster's permissions When they press `R` Then each resource kind is listed against each verb with the control plane's own yes or no | No |
+| [ ] | GIMLE-827 | The terminal view browses a tenant's own config and secret holdings | Given a tenant holding config keys and secrets When an operator runs `:tenant acme` and then `:secrets` Then that tenant's secret names and versions are listed, and no secret value is shown | No |
+| [ ] | GIMLE-828 | The terminal view reads a config key's, ConfigMap's or secret's revision history | Given a config key written more than once When an operator selects it in the browser and presses `v` Then every revision is listed newest first, with the one currently in effect named | No |
 
 #### Distribution
 
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
-| [ ] | GIMLE-798 | The terminal view ships in the CLI archives and is removable in one directory delete | Given the CLI distribution archive When gimle-hugin and its JLine jars are on its lib/ classpath Then `gimle top` resolves, and with them removed the verb is unknown again | No |
+| [ ] | GIMLE-812 | The terminal view ships in the CLI archives and is removable in one directory delete | Given the CLI distribution archive When gimle-hugin and its JLine jars are on its lib/ classpath Then `gimle top` resolves, and with them removed the verb is unknown again | No |

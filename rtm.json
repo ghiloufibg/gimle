@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 814,
+  "requirementCount": 828,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -149,7 +149,7 @@
       "category": "Module System / Health",
       "status": "Modified",
       "statusNote": "Modified by GIMLE-725 (FUNC-36): the health: block gained intervalSeconds, timeoutSeconds and failureThreshold alongside the existing probe classes and initialDelaySeconds. Coverage re-verified from scratch rather than carried over: the existing Holmgang scenario exercises the initial-delay half only and still passes against the new behavior, so it remains genuine coverage for that half; the three added fields have no scenario and are tracked as a gap below.",
-      "coverage": "Not Covered",
+      "coverage": "Partially Covered",
       "holmgangScenarios": [
         {
           "featureFile": "gimle-holmgang/src/test/resources/features/module-system.feature",
@@ -157,7 +157,7 @@
           "whyThisCounts": "A module with a declared health-probe initial delay stays ACTIVE through that whole window and only fails once probing genuinely starts afterward -- if the delay weren't honored, the probe would trip immediately and the instance would never observably survive the delay window."
         }
       ],
-      "gapNote": "The existing scenario covers initialDelaySeconds only. No .feature deploys a module declaring its own intervalSeconds/timeoutSeconds/failureThreshold; covering that needs a fixture whose readiness probe is deliberately slower than the worker default, asserted to reach ACTIVE only when its manifest declares a larger timeoutSeconds. Recorded as Not Covered rather than the invalid 'Partially Covered' the RTM gate rejects: the cited scenario genuinely covers the initial-delay half, and the interval/timeout/failure-threshold half has none, which the two-valued coverage rule resolves against the requirement as a whole.",
+      "gapNote": "The existing scenario covers initialDelaySeconds only. No .feature deploys a module declaring its own intervalSeconds/timeoutSeconds/failureThreshold; covering that needs a fixture whose readiness probe is deliberately slower than the worker default, asserted to reach ACTIVE only when its manifest declares a larger timeoutSeconds.",
       "otherTestCoverage": "`ModuleDescriptorParserTest` (no_initial_delay leaves empty, parses seconds, negative/non-numeric throws)",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/module/HealthProbes.java`"
@@ -12314,16 +12314,16 @@
       "feature": "A declarative AlertRule primitive: a threshold on one deployment's observed signal that posts a webhook notification when crossed and again when resolved",
       "category": "Observability",
       "status": "New",
-      "statusNote": "New requirement: Fixed: closes FUNC-27 -- previously no alerting/notification primitive existed anywhere in the platform; gimle-muninn was a purely passive metrics/logs/traces store with no threshold-evaluation or outbound-notification concept. Added AlertRuleSpec (gimle-mimir manifest: name, optional tenantId, deploymentName, one of five Metric signals matching AutoscalePolicy's own signal set, a GREATER_THAN/LESS_THAN Comparator, threshold, webhookUrl, enabled), Raft-replicated the same way ServiceSpec/NetworkPolicySpec are (StateMutation.PutAlertRule/RemoveAlertRule, StateStore accessors, full StoreRpc/StoreCodec read-path plumbing so a rule created against one control-plane replica is visible on every other). AlertReconciler runs on the same level-triggered reconcile tick as every other reconciler, averaging each enabled rule's configured signal across its deployment's current InstanceObservations (the identical aggregation ApiServer#handleMetrics already uses for the console's own Metrics screen) and calling AlertNotifier#notify exactly once per FIRING/RESOLVED transition -- never re-notifying every tick a condition merely continues to hold, and pruning a deleted rule's tracked firing state so it doesn't accumulate forever. WebhookAlertNotifier POSTs a small JSON body and is best-effort (an unreachable webhook is logged and dropped, never fails the reconcile tick). ApiServer exposes POST/GET/DELETE /alertrules*, RBAC-gated via the new ResourceKind.ALERT_RULE (tenant view/edit templates include it); gimle-cli gained `get/set/delete alertrule`.",
+      "statusNote": "New requirement: Fixed: closes FUNC-27 -- previously no alerting/notification primitive existed anywhere in the platform; gimle-muninn was a purely passive metrics/logs/traces store with no threshold-evaluation or outbound-notification concept. Added AlertRuleSpec (gimle-mimir manifest: name, optional tenantId, deploymentName, one of five Metric signals matching AutoscalePolicy's own signal set, a GREATER_THAN/LESS_THAN Comparator, threshold, webhookUrl, enabled), Raft-replicated the same way ServiceSpec/NetworkPolicySpec are (StateMutation.PutAlertRule/RemoveAlertRule, StateStore accessors, full StoreRpc/StoreCodec read-path plumbing so a rule created against one control-plane replica is visible on every other). AlertReconciler runs on the same level-triggered reconcile tick as every other reconciler, averaging each enabled rule's configured signal across its deployment's current InstanceObservations (the identical aggregation ApiServer#handleMetrics already uses for the console's own Metrics screen) and calling AlertNotifier#notify exactly once per FIRING/RESOLVED transition -- never re-notifying every tick a condition merely continues to hold. Whether a rule is currently firing is itself now durable, Raft-replicated state (StateMutation.PutAlertFiringState, StateStore#putAlertFiringState/getAlertFiringState) rather than a field kept purely in the reconciler's own process, closing the gap where two control-plane replicas could disagree and a restart silently reset every rule to \"not firing\"; deleting an AlertRule cascades to clear its durable firing verdict (StateStore#removeAlertRule), so a same-named rule created afterward starts from \"never evaluated\" rather than inheriting a stale transition. GET /alertrules/{name}/firing (GIMLE-790) serves the verdict, previously nothing did. WebhookAlertNotifier POSTs a small JSON body and is best-effort (an unreachable webhook is logged and dropped, never fails the reconcile tick). ApiServer exposes POST/GET/DELETE /alertrules*, RBAC-gated via the new ResourceKind.ALERT_RULE (tenant view/edit templates include it); gimle-cli gained `get/set/delete alertrule`.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
       "gapNote": "No Holmgang scenario exercises this yet. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
-      "otherTestCoverage": "AlertRuleSpecTest covers constructor validation and the GREATER_THAN/LESS_THAN crossing predicate. AlertReconcilerTest (real StateStore, no mocks) proves: fires once on crossing, never re-fires while still crossed, resolves exactly once when the reading returns to safe, a disabled rule never fires, an unobserved instance contributes nothing to the average (never drags it toward zero), and a deleted rule's tracked firing state is pruned rather than leaking forever. ApiServerAlertRulesTest covers POST/GET/DELETE/list round-tripping, the enabled flag, 400s on a missing name or blank webhookUrl, replace-on-repost, and cross-replica visibility through one shared store (mirroring ApiServerNetworkPoliciesTest's own proof). RaftCodecTest and StoreCodecTest gained round-trip coverage for the new StateMutation/StoreRpc/StateSnapshot wire shapes.",
+      "otherTestCoverage": "AlertRuleSpecTest covers constructor validation and the GREATER_THAN/LESS_THAN crossing predicate. AlertReconcilerTest (real StateStore, no mocks) proves: fires once on crossing, never re-fires while still crossed, resolves exactly once when the reading returns to safe, a disabled rule never fires, an unobserved instance contributes nothing to the average (never drags it toward zero), and a deleted rule's durable firing state is cleared rather than leaking forever, an arbitrary starting store with no prior firing history is treated as not-yet-firing, and a freshly instantiated AlertReconciler over the same durable store (standing in for a control-plane restart or failover) reads the already-firing verdict back rather than re-notifying. ApiServerAlertRulesTest covers POST/GET/DELETE/list round-tripping, the enabled flag, 400s on a missing name or blank webhookUrl, replace-on-repost, and cross-replica visibility through one shared store (mirroring ApiServerNetworkPoliciesTest's own proof). RaftCodecTest and StoreCodecTest gained round-trip coverage for the new StateMutation/StoreRpc/StateSnapshot wire shapes. StateStoreTest covers putAlertFiringState/getAlertFiringState round-tripping (absent, true, false), the removeAlertRule cascade, and snapshot round-trip. RaftCodecTest and StoreCodecTest gained round-trip coverage for the new PutAlertFiringState mutation and GetAlertFiringState/AlertFiringStateResult wire shapes.",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/AlertRuleSpec.java`",
-        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutAlertRule`, `RemoveAlertRule`)",
-        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StoreReader.java` (`*AlertRule*`)",
-        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java` (`*AlertRule*`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutAlertRule`, `RemoveAlertRule`, `PutAlertFiringState`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StoreReader.java` (`*AlertRule*`, `*AlertFiringState*`)",
+        "`gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java` (`*AlertRule*`, `*AlertFiringState*`)",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertRuleRegistry.java`, `AlertReconciler.java`, `AlertNotifier.java`, `AlertNotification.java`, `WebhookAlertNotifier.java`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/alertrules*` handlers)",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (reconcile-tick wiring)",
@@ -13447,20 +13447,21 @@
     {
       "id": "GIMLE-776",
       "module": "gimle-controlplane",
-      "feature": "A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing",
+      "feature": "A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing",
       "category": "Networking / Services",
-      "status": "New",
-      "statusNote": "New requirement: Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as \"raced to deletion\" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN.",
+      "status": "Modified",
+      "statusNote": "Wave-3 QA fix: previously-tracked behavior corrected during a Forseti pre-release QA pass (see requirements-matrix.json's own updated statusDetail for the full account); not a regression in this pass, a fix to one found before this scan.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "otherTestCoverage": "ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint.",
+      "otherTestCoverage": "ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint. ApiServerServicesTest also gained delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name, asserting both that a bare-name GET already resolves a tenant-scoped Service and that DELETE actually removes it (confirmed absent from both a follow-up GET and the collection listing).; `ServiceReconcilerTest#a_service_fronting_a_daemonset_resolves_its_endpoints`, `#a_service_fronting_a_statefulset_resolves_its_endpoints`",
       "sourceLocations": [
+        "`ApiServer#declaredOrExistingTenant`",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolveTenantForServiceName`, `handleService`)",
-        "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`",
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`",
         "`gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`",
-        "`gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`"
+        "`gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`"
       ],
-      "gapNote": "NET-2 and NET-4 both drive the real behaviour this fixes (Skald resolving a Service, the gateway serving a SERVICE route), but no .feature scenario asserts the tenant-scoped case specifically. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+      "gapNote": "NET-2 and NET-4 both drive the real behaviour this fixes (Skald resolving a Service, the gateway serving a SERVICE route), but no .feature scenario asserts the tenant-scoped case specifically, and none exercises DELETE against a tenant-scoped Service with no explicit ?tenant= at all. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     },
     {
       "id": "GIMLE-777",
@@ -13503,18 +13504,24 @@
       "module": "gimle-core",
       "feature": "An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under",
       "category": "Observability",
-      "status": "New",
-      "statusNote": "New requirement: Implemented. `ModuleDescriptor` declares `isolationTier` and `resourceLimit` and both are load-bearing at runtime (`AgentMain.prepareResourceLimit` turns the limit into the worker JVM's own `-Xmx`/`-XX:ActiveProcessorCount`), but neither was ever persisted or served: `InstanceObservation` carried `cpuMillicoresUsed`/`memoryBytesUsed` with no ceiling to read them against and no tier, so `GET /deployments`, `/daemonsets`, `/statefulsets` and `/jobs` -- all four sharing the single `ApiServer.observationToJson` -- could report a usage number but never a judgement. Both are now relayed as `Optional` fields along the pipe that already runs agent -> control plane -> store: `AgentMain.observationJson` reads them off the `ModuleDescriptor` the agent already retains on `SupervisedInstance`, `ApiServer` reads/writes them in its one shared observation codec, and `DomainCodec` encodes them onto the Raft-replicated heartbeat. Empty for a vessel instance, which is an OS process with no module descriptor behind it. A consumer must render the limit per tier or it misleads: at TIER_2 one instance owns its worker JVM so a used/limit ratio is correct, while at TIER_1 several instances share a JVM whose heap was sized for whichever instance spawned it, so the declared limit is what the manifest asked for rather than a bound applied to that instance. The record's seven telescoping constructors (arities 6 through 17, the shape that let a new field be silently defaulted at a call site) were replaced by a single canonical constructor plus an `InstanceObservation.builder(...)` taking the six facts a node can always report, with every measurable or declarable field defaulting to zero/empty until set; all 45 construction sites now build through it.",
+      "status": "Modified",
+      "statusNote": "New requirement: Implemented. `ModuleDescriptor` declares `isolationTier` and `resourceLimit` and both are load-bearing at runtime (`AgentMain.prepareResourceLimit` turns the limit into the worker JVM's own `-Xmx`/`-XX:ActiveProcessorCount`), but neither was ever persisted or served: `InstanceObservation` carried `cpuMillicoresUsed`/`memoryBytesUsed` with no ceiling to read them against and no tier, so `GET /deployments`, `/daemonsets`, `/statefulsets` and `/jobs` -- all four sharing the single `ApiServer.observationToJson` -- could report a usage number but never a judgement. Both are now relayed as `Optional` fields along the pipe that already runs agent -> control plane -> store: `AgentMain.observationJson` reads them off the `ModuleDescriptor` the agent already retains on `SupervisedInstance`, `ApiServer` reads/writes them in its one shared observation codec, and `DomainCodec` encodes them onto the Raft-replicated heartbeat. Empty for a vessel instance, which is an OS process with no module descriptor behind it. A consumer must render the limit per tier or it misleads: at TIER_2 one instance owns its worker JVM so a used/limit ratio is correct, while at TIER_1 several instances share a JVM whose heap was sized for whichever instance spawned it, so the declared limit is what the manifest asked for rather than a bound applied to that instance. The record's seven telescoping constructors (arities 6 through 17, the shape that let a new field be silently defaulted at a call site) were replaced by a single canonical constructor plus an `InstanceObservation.builder(...)` taking the six facts a node can always report, with every measurable or declarable field defaulting to zero/empty until set; all 45 construction sites now build through it. M17 fix: none of this ever reached the console -- the deployment Instances table and instance detail page showed CPU/memory used with no limit and no tier anywhere. InstanceObservation/ModuleInstance (gimle-console's own TypeScript types) gained optional isolationTier/resourceLimit fields threaded through every mapping that already carries cpuMillicoresUsed/memoryBytesUsed, a new TierBadge component, and both read surfaces now show \"used / limit\" alongside a tier badge instead of a bare usage number with no denominator.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "otherTestCoverage": "AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them.",
+      "otherTestCoverage": "AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them. Console: repositories/http/deployments.test.ts and repositories/http/instances.test.ts gained isolationTier/resourceLimit pass-through tests; repositories/instances.test.ts (mock) asserts every row carries both fields.",
       "sourceLocations": [
         "`gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java` (`isolationTier`, `resourceLimit`)",
         "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`)",
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationToJson`, `observationFromJson`, `isolationTierFromJson`)",
-        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`)"
+        "`gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`)",
+        "`gimle-console/src/types/index.ts`",
+        "`gimle-console/src/repositories/http/deployments.ts`",
+        "`gimle-console/src/repositories/http/instances.ts`",
+        "`gimle-console/src/components/status.tsx` (`TierBadge`)",
+        "`gimle-console/src/components/instances-table.tsx`",
+        "`gimle-console/src/routes/instances.$name.$idx.tsx`"
       ],
-      "gapNote": "No .feature scenario reads an instance observation's tier or limit off a workload status response; Holmgang's scenarios assert lifecycle state and placement, not the observation's own resource fields. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+      "gapNote": "No .feature scenario reads an instance observation's tier or limit off a workload status response; Holmgang's scenarios assert lifecycle state and placement, not the observation's own resource fields. Unit/integration coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule. The console's own rendering of this field is likewise covered only by Vitest repository tests, not a Holmgang scenario."
     },
     {
       "id": "GIMLE-780",
@@ -13556,17 +13563,18 @@
       "feature": "A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams",
       "category": "Networking",
       "status": "New",
-      "statusNote": "New requirement: Implemented. `ServiceListener` relayed TCP only (`ServerSocket`/`Socket`), so no Service could front a DNS-shaped or any other datagram workload. `ServiceSpec` gained a `protocol` field (`ServiceProtocol.TCP|UDP`, the `Service.spec.ports[].protocol` analogue, TCP being what declaring none means), carried through `DomainCodec`, the `/services` API, the `/services/{name}/endpoints` payload Bifrost reads, and `gimle set service --protocol`. A UDP Service now binds `UdpServiceListener` instead. The hard part is reply routing: UDP has no connection, so every datagram arrives on one bound socket and the listener keeps a session per client address -- a dedicated upstream `DatagramSocket` connected to the selected backend plus a reader returning replies to that client -- reaped once idle past 60s, swept on the receive path rather than by a timer. Same shape kube-proxy's userspace UDP mode used. Two consequences documented rather than papered over: a session pins its backend for its lifetime whether or not `sessionAffinity` is declared (one upstream socket per client is what makes reply routing work; `sessionAffinity` instead decides how a *new* session picks its backend), and a UDP Service under a NetworkPolicy always fails closed, since a datagram relay has no handshake and no peer certificate from which to learn a caller's tenant -- the same permanent limit a plaintext TCP listener has, reached sooner because UDP has no TLS to opt into. Both listeners now sit behind a `ServiceRelay` interface so `BifrostProxy`'s poll loop drives either.",
+      "statusNote": "New requirement: Implemented. `ServiceListener` relayed TCP only (`ServerSocket`/`Socket`), so no Service could front a DNS-shaped or any other datagram workload. `ServiceSpec` gained a `protocol` field (`ServiceProtocol.TCP|UDP`, the `Service.spec.ports[].protocol` analogue, TCP being what declaring none means), carried through `DomainCodec`, the `/services` API, the `/services/{name}/endpoints` payload Bifrost reads, and `gimle set service --protocol`. A UDP Service now binds `UdpServiceListener` instead. The hard part is reply routing: UDP has no connection, so every datagram arrives on one bound socket and the listener keeps a session per client address -- a dedicated upstream `DatagramSocket` connected to the selected backend plus a reader returning replies to that client -- reaped once idle past 60s, swept on the receive path rather than by a timer. Same shape kube-proxy's userspace UDP mode used. Two consequences documented rather than papered over: a session pins its backend for its lifetime whether or not `sessionAffinity` is declared (one upstream socket per client is what makes reply routing work; `sessionAffinity` instead decides how a *new* session picks its backend), and a UDP Service under a NetworkPolicy always fails closed, since a datagram relay has no handshake and no peer certificate from which to learn a caller's tenant -- the same permanent limit a plaintext TCP listener has, reached sooner because UDP has no TLS to opt into. Both listeners now sit behind a `ServiceRelay` interface so `BifrostProxy`'s poll loop drives either. Fixed alongside (M63): UdpServiceListener now binds unbound-then-explicit with SO_REUSEADDR (and best-effort SO_REUSEPORT) set before bind, so a Service at port==targetPort sharing its numeric port with a co-located wildcard-bound workload binds successfully instead of failing \"Address already in use\" on every poll tick.",
       "coverage": "Not Covered",
       "holmgangScenarios": [],
-      "otherTestCoverage": "New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing).",
+      "otherTestCoverage": "New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing). Regression (M63): UdpServiceListenerTest#binds_at_a_specific_address_already_sharing_its_port_with_a_wildcard_socket, BifrostProxyTest#a_udp_service_binds_despite_a_wildcard_socket_already_holding_its_port.",
       "sourceLocations": [
         "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceProtocol.java`",
         "`gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java` (`protocol`)",
         "`gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java`",
         "`gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceRelay.java`",
         "`gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`",
-        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`)"
+        "`gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java` (`bindWithReuse`)"
       ],
       "gapNote": "No .feature scenario deploys a UDP workload behind a Service against a real cluster. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
     },
@@ -13728,6 +13736,243 @@
     },
     {
       "id": "GIMLE-791",
+      "module": "gimle-agent",
+      "feature": "Per-worker certificates: node-minted worker identity carrying the worker's tenant",
+      "category": "Security / Identity",
+      "status": "New",
+      "statusNote": "newly added to close the fabric caller-identity gap: workers previously inherited the agent's node certificate wholesale",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "mtls.feature's \"The cluster functions end to end over mutual TLS\" deploys a tenant module over TLS, which after this change cannot reach ACTIVE without a WORKER_CLIENT issuance -- and a live run of that scenario does reach ACTIVE with the agent logging \"issued worker certificate\" -- but the scenario as a whole currently fails on its final log step for a reason unrelated to this requirement: the harness's /logs/instances follow request carries no ?tenant=, and the control plane defaults an omitted tenant to `default`, so a holmgang-tenant instance's log is never found (MinimalTopologyIT fails identically in plaintext). No scenario step asserts the issued identity itself (its groups, or a refused issuance for an unassigned tenant) either.",
+      "otherTestCoverage": "`WorkerClientCsrTest` (6 tests against a real mTLS ApiServer: issuance for an assigned tenant with server-stamped groups and a worker certificate refused as a node; unassigned tenant, foreign-node CN, operator caller, and anonymous caller each refused; untenanted worker gets only gimle:workers); `WorkerCertificatesTest` (5 tests against a real CA: issue-once/reuse, untenanted submission, renewal of a due certificate only, refused issuance leaves nothing behind, per-worker directories); `AgentMainTest` (worker's own cert/key plus shared CA forwarded, never the node's; stable flags carry no TLS material); `SubjectsTest`; `CertificateIdentityTest`.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/protocol/CsrPurpose.java`",
+        "`gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tls/CertificateIdentity.java`",
+        "`gimle-pki/src/main/java/com/gimle/pki/Subjects.java`",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/WorkerCertificates.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-792",
+      "module": "gimle-controlplane",
+      "feature": "ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic",
+      "category": "Control plane / API server",
+      "status": "New",
+      "statusNote": "New requirement: Fixed: closes Forseti finding M1. ApiServer's HttpServer/HttpsServer ran every route on an unbounded virtual-thread-per-task executor with no admission control in front of it, so a large concurrent flood against an ordinary read route (GET /deployments in the reported incident) was accepted without limit until raw thread/connection volume exhausted the JVM before any 429 path was ever reached, starving the node agent's own heartbeat calls on the same executor and triggering a false-stale-node mass rescheduling. Added a ConcurrencyLimiter admission gate in gimle-core and wired two independent instances into ApiServer#instrument: a general budget gating every ordinary route, and a separate, structurally isolated budget gating only the node-agent-facing /nodes/{nodeId}/... endpoint, so a flood saturating the general lane can never starve node heartbeats.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "ConcurrencyLimiterTest (6 cases, gimle-core) and ApiServerAdmissionControlTest (gimle-controlplane): a real concurrent flood against a real ApiServer resolves entirely to 200/429 with real rejections past the configured budget, while a concurrent node-heartbeat hammer sharing the same process succeeds throughout.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/throttle/ConcurrencyLimiter.java` (new)",
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`generalAdmission`, `nodeAdmission`, `instrument`)"
+      ],
+      "gapNote": "No Holmgang .feature scenario drives a real concurrent flood against a live cluster's control plane to exercise this end to end; coverage today is a real-ApiServer JUnit integration test (ApiServerAdmissionControlTest), which the RTM coverage rule does not count as Holmgang coverage."
+    },
+    {
+      "id": "GIMLE-793",
+      "module": "gimle-agent",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "category": "Worker Supervision",
+      "status": "New",
+      "statusNote": "New requirement: Implemented. A Tier-1 shared worker's -Xmx came from whichever instance happened to spawn it, and installIntoExistingWorker never re-derived one, so every instance packed in afterwards ran under an arbitrary ceiling -- a small module could allocate far past its declared limit, a large one was strangled by a ceiling it never asked for, and a Tier-1 resources.limit was closer to decorative than enforced. Tier1WorkerBudget now holds the node's shared-worker heap and cpu (gimle.agent.tier1WorkerHeap, default 1Gi; gimle.agent.tier1WorkerCpu, default 2000m) plus an overhead reserve held back for the worker JVM's own footprint (gimle.agent.tier1WorkerOverheadReserve, default 128Mi), each parsed and validated at agent startup so a malformed value fails there rather than the first time a Tier-1 instance is placed. prepareResourceLimit sizes a TIER_1 worker from that budget and a TIER_2 worker from the instance's own limit as before, never below the spawning instance's own declared limit plus the reserve so a module larger than a whole budget still gets the heap its manifest declares. findReusableTier1Worker gained a weight check alongside the existing count cap: a worker is reused only while the summed resources.limit.memory of its residents plus the candidate's still fits the heap that worker was actually spawned with, recorded on the worker's owning instance (SupervisedInstance.workerLimit) so the answer does not change when the spawning instance is stopped while the worker lives on. Limits are summed rather than requests, because a shared unpartitioned heap offers no per-instance ceiling to fall back on; cpu is deliberately not summed, being time-shared rather than exhaustible. Overflow spawns a fresh worker rather than refusing an already-scheduled assignment. Explicitly a reservation and not enforcement: one JVM has one heap, so a module overrunning its declared limit can still OOM its co-tenants, which is what TIER_2 remains for.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "New Tier1WorkerBudgetTest (8 tests) covers default fallback, a malformed quantity naming the property it came from, a reserve as large as the heap rejected, budget sizing winning over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, and cpu deliberately not summed. AgentMainTest gained coverage for: TIER_1 sized by the budget, TIER_2 still sized by the descriptor's limit, reuse refused once residents fill the heap, reuse granted while they still fit, and an oversized module getting a dedicated worker sized at its own limit plus the reserve.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/Tier1WorkerBudget.java`",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`prepareResourceLimit`, `findReusableTier1Worker`, `workerSizeOf`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`workerLimit`)"
+      ],
+      "gapNote": "No .feature scenario declares Tier-1 modules whose summed limits overflow a shared worker's budget and asserts against a real cluster that they land in separate worker JVMs. Unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule."
+    },
+    {
+      "id": "GIMLE-794",
+      "module": "gimle-agent",
+      "feature": "The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie",
+      "category": "Worker Supervision",
+      "status": "New",
+      "statusNote": "New requirement: Fixed. The tick loop's own catch (RuntimeException | IOException e) did not catch Error, so an uncaught OutOfMemoryError killed only the main thread while every other non-daemon thread the agent started (gossip, the admin API, the relays) kept the process alive as a zombie that never ticks or heartbeats again -- indistinguishable from a healthy agent in ps aux. The agent's own JVM is launched without -XX:+ExitOnOutOfMemoryError by the surrounding tooling, unlike every worker JVM it spawns (which always carries that flag via stableWorkerFlags), and a launch flag is not something a running process can add to itself. The tick loop now also catches Error and calls the new handleFatalTickError, which halts the JVM with the same exit code (3) a worker's own OOM exit uses, so the agent's own supervisor (systemd/hilmir/docker) sees a real process exit and restarts it.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "otherTestCoverage": "AgentMainTest#a_fatal_error_during_a_tick_halts_the_process_with_the_workers_own_oom_exit_code exercises handleFatalTickError directly with a recording stub in place of Runtime.getRuntime()::halt, so the test process itself is not terminated by the assertion.",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`main`'s tick loop, `handleFatalTickError`)"
+      ],
+      "gapNote": "No .feature scenario drives a real agent process to an actual OutOfMemoryError and asserts the process exits and is respawned by its supervisor -- doing so deterministically against a real cluster is impractical; unit coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule. Closing the companion cross-module half (the agent's own launch command line carrying -XX:+ExitOnOutOfMemoryError, in gimle-hilmir's LaunchPlanner and/or gimle-dist's topology.yaml) remains open."
+    },
+    {
+      "id": "GIMLE-795",
+      "module": "gimle-agent",
+      "feature": "Tenant-scoped instance supervision keying (instanceKey)",
+      "category": "Multi-tenancy / Scheduling",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises two tenants' identically-named workload landing on the same node at the same index. To close: a scenario deploying that exact collision across two tenants and asserting both get a real, independently-supervised worker.",
+      "otherTestCoverage": "`AgentMainTest#instance_key_is_scoped_by_tenant_not_just_deployment_name_and_index`",
+      "sourceLocations": [
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`instanceKey`, `workloadTokenFor`)"
+      ]
+    },
+    {
+      "id": "GIMLE-796",
+      "module": "gimle-controlplane",
+      "feature": "Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging",
+      "category": "Observability",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises `gimle logs --follow` against a node whose agent is stopped. To close: a scenario stopping a node's agent mid-follow and asserting either the Muninn fallback or a fast, clear error, never a hang.",
+      "otherTestCoverage": "`ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging`, `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured`",
+      "sourceLocations": [
+        "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`isAgentReachable`, `proxyToAgent`)"
+      ]
+    },
+    {
+      "id": "GIMLE-797",
+      "module": "gimle-fabric",
+      "feature": "A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice",
+      "category": "Service Fabric",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises a redeploy/rollback asserting zero failed calls against the disposed instance's endpoint (DEP-2/DEP-3 in FORSETI.md describe this objective, but the scenario itself is a Forseti fleet exercise, not a Cucumber .feature file). To close: add a scenario extending the rolling-update problem area that drives a real cluster through a cross-worker redeploy while a caller polls the target service, asserting the caller never observes a failed call once the new instance is ACTIVE.",
+      "otherTestCoverage": "`ServiceCatalogTest#a_redeploy_leaves_only_the_replacement_instances_endpoint`, `#repeated_redeploys_never_accumulate_stale_endpoints`; `FabricServiceRegistryTest#redeploying_a_service_drops_the_disposed_instances_endpoint_from_every_later_lookup`, `#repeated_redeploys_of_the_same_deployment_never_accumulate_stale_candidates`.",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`handleLifecycleEvent`, `handleUninstalled`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`stopInstance`, `awaitGracefulUninstall`)",
+        "`gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java` (`localUnregister`, `evictWorker`)"
+      ]
+    },
+    {
+      "id": "GIMLE-798",
+      "module": "gimle-agent",
+      "feature": "A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state",
+      "category": "Health / Self-Healing",
+      "status": "New",
+      "statusNote": "New requirement: closes M19 -- a declared readiness probe genuinely ran but its result never reached anything outside the worker; AgentMain#observationJson derived `ready` purely from `lifecycleState == \"ACTIVE\"`. See requirements-matrix.json for the full description.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises this yet. Unit/integration test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink`; `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it`.",
+      "sourceLocations": [
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`)",
+        "`gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`)",
+        "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`)",
+        "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)"
+      ]
+    },
+    {
+      "id": "GIMLE-799",
+      "module": "gimle-gateway",
+      "feature": "Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart",
+      "category": "Transport Security",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises a live gateway.tlsCertificates update. To close: add a scenario that boots a TLS-terminating gateway DaemonSet with a per-host certificate binding, updates gateway.tlsCertificates through the real API, and asserts (without restarting any instance) that a client's SNI-selected certificate changes to the new binding on its very next handshake.",
+      "otherTestCoverage": "`GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java`",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-800",
+      "module": "gimle-examples",
+      "feature": "A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve",
+      "category": "Networking/Service Discovery",
+      "status": "New",
+      "statusNote": "New requirement: none of Midgard's three bundled example modules ever called ctx.reportPort, so a Service created against a real Midgard-seeded cluster resolved zero endpoints for any workload the platform actually ships, regardless of replica count or targetPort. GreeterProviderHooks.onStart now opens a real ephemeral-port HTTP status listener and reports it, giving Service endpoint resolution a genuine bundled workload to resolve.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario deploys the real greeter-provider example jar and asserts a Service resolves its endpoint -- service-fabric.feature's own port-reporting scenario (GIMLE-571) uses a synthetic ModuleFixtures-built module, not this bundled example. Real coverage exists in gimle-smoke-tests' ServiceNetworkIT, which does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`ServiceNetworkIT#a_declared_service_starts_a_real_bifrost_proxy_and_skald_answers_it_correctly` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-examples/greeter-provider/src/main/java/com/gimle/examples/greeter/provider/GreeterProviderHooks.java`",
+        "`gimle-examples/greeter-provider/src/main/java/module-info.java`"
+      ]
+    },
+    {
+      "id": "GIMLE-801",
+      "module": "gimle-console",
+      "feature": "The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: Fixed defensively -- see requirements-matrix.json for full detail. The submit handler already surfaced a rejected create() via toast; a persistent inline error banner was added so the rejection reason survives past a toast's own auto-dismiss timer.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario drives the console's New Deployment form against a real rejected admission; coverage today is Vitest repository/store tests only.",
+      "otherTestCoverage": "`repositories/http/deployments.test.ts`, `stores/useDeploymentsStore.test.ts` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-console/src/routes/deployments.new.tsx`",
+        "`gimle-console/src/repositories/http/deployments.ts`",
+        "`gimle-console/src/stores/useDeploymentsStore.ts`"
+      ]
+    },
+    {
+      "id": "GIMLE-802",
+      "module": "gimle-console",
+      "feature": "Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: Fixed. The console's HttpServicesRepository#save read the response body but dropped the X-Gimle-Warning header the control plane attaches to a Service POST carrying an overlap/advisory warning -- gimle-cli already prints this header verbatim. A new requestOkWithWarning apiClient primitive, threaded through ServicesRepository#save -> useServicesStore#save -> the Networking screen's submit handler, now shows it as its own toast.warning alongside the success toast.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario drives the console's Service creation form against a real overlap-advisory response; coverage today is Vitest repository/store tests only.",
+      "otherTestCoverage": "`repositories/http/apiClient.test.ts`, `repositories/http/services.test.ts`, `repositories/services.test.ts`, `stores/useServicesStore.test.ts` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-console/src/repositories/http/apiClient.ts`",
+        "`gimle-console/src/repositories/http/services.ts`",
+        "`gimle-console/src/repositories/services.ts`",
+        "`gimle-console/src/stores/useServicesStore.ts`",
+        "`gimle-console/src/routes/networking.tsx`"
+      ]
+    },
+    {
+      "id": "GIMLE-803",
+      "module": "gimle-console",
+      "feature": "Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: Fixed. ReplicaGrid on the Topology screen labeled and highlighted each badge by its position in the instances array rather than the instance's own instanceIndex, mislabeling badges whenever the control plane returned instances out of ascending-index order. The badge-slot computation is now a pure, tested function (replicaBadgeSlots) that sorts by instanceIndex first.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario drives the Topology screen against a real cluster returning instances out of order; coverage today is a pure-function Vitest suite only.",
+      "otherTestCoverage": "`lib/topology.test.ts` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-console/src/lib/topology.ts`",
+        "`gimle-console/src/routes/topology.tsx`"
+      ]
+    },
+    {
+      "id": "GIMLE-804",
+      "module": "gimle-andvari-console",
+      "feature": "Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: closes M22 -- PushArtifactDialog stored a pushed jar under whatever coordinate the operator typed, with no cross-check against the jar's own descriptor. See requirements-matrix.json for the full description.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises the Andvari console's Push dialog at all (Holmgang's Cucumber surface drives the platform API/CLI, not this console's own UI). Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail.",
+      "sourceLocations": [
+        "`gimle-andvari-console/src/lib/zip.ts`",
+        "`gimle-andvari-console/src/lib/moduleDescriptor.ts`",
+        "`gimle-andvari-console/src/components/PushArtifactDialog.tsx`"
+      ]
+    },
+    {
+      "id": "GIMLE-805",
       "module": "gimle-cli",
       "feature": "CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider",
       "category": "CLI",
@@ -13745,7 +13990,7 @@
       "gapNote": "No .feature exercises the CLI's verb dispatch: Holmgang drives the platform through its own harness, not through GimleCli's argument parsing."
     },
     {
-      "id": "GIMLE-792",
+      "id": "GIMLE-806",
       "module": "gimle-cli",
       "feature": "An extension is handed a read-only view of the control-plane API, never the client",
       "category": "CLI / Security",
@@ -13761,7 +14006,7 @@
       "gapNote": "A compile-time property of a Java interface; no running-cluster scenario can observe it, and no .feature exercises the CLI's extension surface at all."
     },
     {
-      "id": "GIMLE-793",
+      "id": "GIMLE-807",
       "module": "gimle-hugin",
       "feature": "`gimle top` renders a live, read-only cluster view of nodes and instances",
       "category": "CLI UX",
@@ -13782,7 +14027,7 @@
       ]
     },
     {
-      "id": "GIMLE-794",
+      "id": "GIMLE-808",
       "module": "gimle-hugin",
       "feature": "A failed poll keeps the last good rows and ages them rather than clearing the screen",
       "category": "CLI UX",
@@ -13795,10 +14040,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterPoller.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: Holmgang can cut the link to a control plane, but has no way to observe what a terminal frame then shows."
+      "gapNote": "Same TUI gap as GIMLE-807: Holmgang can cut the link to a control plane, but has no way to observe what a terminal frame then shows."
     },
     {
-      "id": "GIMLE-795",
+      "id": "GIMLE-809",
       "module": "gimle-hugin",
       "feature": "Instance drill-down with lifecycle timeline and a live log tail",
       "category": "CLI UX",
@@ -13812,10 +14057,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/InstanceScreen.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793. The underlying /events and follow-log routes are themselves reachable from a scenario, but the pane that renders them is not."
+      "gapNote": "Same TUI gap as GIMLE-807. The underlying /events and follow-log routes are themselves reachable from a scenario, but the pane that renders them is not."
     },
     {
-      "id": "GIMLE-796",
+      "id": "GIMLE-810",
       "module": "gimle-hugin",
       "feature": "Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal",
       "category": "CLI UX",
@@ -13832,7 +14077,7 @@
       "gapNote": "Holmgang cannot send keystrokes to a raw-mode terminal; there is no headless path to drive this end to end."
     },
     {
-      "id": "GIMLE-797",
+      "id": "GIMLE-811",
       "module": "gimle-hugin",
       "feature": "Terminal colour is the console's own tokens, degrading to 256-colour and to none",
       "category": "CLI UX",
@@ -13846,10 +14091,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/StatusVariant.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/Painter.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793; the console-parity half is pinned by a unit test against a transcribed copy of the console's own mapping rather than by a running cluster."
+      "gapNote": "Same TUI gap as GIMLE-807; the console-parity half is pinned by a unit test against a transcribed copy of the console's own mapping rather than by a running cluster."
     },
     {
-      "id": "GIMLE-798",
+      "id": "GIMLE-812",
       "module": "gimle-hugin",
       "feature": "The terminal view ships in the CLI archives and is removable in one directory delete",
       "category": "Distribution",
@@ -13866,7 +14111,7 @@
       "gapNote": "Holmgang boots processes from the reactor's own classpath, never from a built distribution archive, so no scenario exercises the archive's contents."
     },
     {
-      "id": "GIMLE-799",
+      "id": "GIMLE-813",
       "module": "gimle-hugin",
       "feature": "The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange",
       "category": "CLI UX",
@@ -13892,7 +14137,7 @@
       ]
     },
     {
-      "id": "GIMLE-800",
+      "id": "GIMLE-814",
       "module": "gimle-hugin",
       "feature": "DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments",
       "category": "CLI UX",
@@ -13905,10 +14150,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/WorkloadKind.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/SnapshotReader.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read the rendered table, though the underlying list routes are themselves reachable from one."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read the rendered table, though the underlying list routes are themselves reachable from one."
     },
     {
-      "id": "GIMLE-801",
+      "id": "GIMLE-815",
       "module": "gimle-hugin",
       "feature": "A services screen showing each Service's live endpoint resolution",
       "category": "CLI UX",
@@ -13929,7 +14174,7 @@
       ]
     },
     {
-      "id": "GIMLE-802",
+      "id": "GIMLE-816",
       "module": "gimle-hugin",
       "feature": "An activity view of what has been done to the cluster, over the audit trail",
       "category": "CLI UX",
@@ -13942,10 +14187,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The /audit route itself is reachable from a scenario; the screen that renders it is not."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The /audit route itself is reachable from a scenario; the screen that renders it is not."
     },
     {
-      "id": "GIMLE-803",
+      "id": "GIMLE-817",
       "module": "gimle-hugin",
       "feature": "The activity view reads three cluster records: authorization, lifecycle and alerts",
       "category": "CLI UX",
@@ -13958,10 +14203,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ActivityReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ActivityScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The three routes themselves are reachable from a scenario; the screen that renders them is not."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The three routes themselves are reachable from a scenario; the screen that renders them is not."
     },
     {
-      "id": "GIMLE-804",
+      "id": "GIMLE-818",
       "module": "gimle-hugin",
       "feature": "The terminal view browses every collection the control plane lists, including registered custom kinds",
       "category": "CLI UX",
@@ -13974,10 +14219,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceCatalog.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ResourceScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered table. The collection routes themselves are reachable from a scenario; the browser that draws them is not."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered table. The collection routes themselves are reachable from a scenario; the browser that draws them is not."
     },
     {
-      "id": "GIMLE-805",
+      "id": "GIMLE-819",
       "module": "gimle-hugin",
       "feature": "The terminal view describes a selected resource as YAML without re-reading it",
       "category": "CLI UX",
@@ -13990,10 +14235,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/Yaml.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/DescribeScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
     },
     {
-      "id": "GIMLE-806",
+      "id": "GIMLE-820",
       "module": "gimle-hugin",
       "feature": "The terminal view lists what it can open, and can be pointed at another control plane",
       "category": "CLI UX",
@@ -14006,10 +14251,10 @@
         "`gimle-cli/src/main/java/com/gimle/cli/ControlPlaneClusterReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/KindsScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The context resolution itself is reachable from a scenario; the view that uses it is not."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The context resolution itself is reachable from a scenario; the view that uses it is not."
     },
     {
-      "id": "GIMLE-807",
+      "id": "GIMLE-821",
       "module": "gimle-hugin",
       "feature": "The terminal view joins Services to the instances behind them and names the gaps",
       "category": "CLI UX",
@@ -14022,10 +14267,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/Xray.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/XrayRow.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The routes behind it are reachable from a scenario; the screen is not."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The routes behind it are reachable from a scenario; the screen is not."
     },
     {
-      "id": "GIMLE-808",
+      "id": "GIMLE-822",
       "module": "gimle-hugin",
       "feature": "The terminal view reads the control plane's own health alongside what it is running",
       "category": "CLI UX",
@@ -14038,10 +14283,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/PulseReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/PulseSnapshot.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame. The routes behind it are reachable from a scenario; the screen is not."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame. The routes behind it are reachable from a scenario; the screen is not."
     },
     {
-      "id": "GIMLE-809",
+      "id": "GIMLE-823",
       "module": "gimle-hugin",
       "feature": "The terminal view reads a worker's shipped traces for the instance it is inspecting",
       "category": "CLI UX",
@@ -14054,10 +14299,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/TraceReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/TraceSnapshot.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
     },
     {
-      "id": "GIMLE-810",
+      "id": "GIMLE-824",
       "module": "gimle-hugin",
       "feature": "The terminal view narrows every screen to one tenant",
       "category": "CLI UX",
@@ -14070,10 +14315,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/UiState.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ClusterSnapshot.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
     },
     {
-      "id": "GIMLE-811",
+      "id": "GIMLE-825",
       "module": "gimle-hugin",
       "feature": "The terminal view scans the cluster for what is wrong",
       "category": "CLI UX",
@@ -14086,10 +14331,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/Scan.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/ScanScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
     },
     {
-      "id": "GIMLE-812",
+      "id": "GIMLE-826",
       "module": "gimle-hugin",
       "feature": "The terminal view shows what the calling certificate may do",
       "category": "CLI UX",
@@ -14102,10 +14347,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/PermissionReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/PermissionScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
     },
     {
-      "id": "GIMLE-813",
+      "id": "GIMLE-827",
       "module": "gimle-hugin",
       "feature": "The terminal view browses a tenant's own config and secret holdings",
       "category": "CLI UX",
@@ -14118,10 +14363,10 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceKind.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/ResourceReader.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
     },
     {
-      "id": "GIMLE-814",
+      "id": "GIMLE-828",
       "module": "gimle-hugin",
       "feature": "The terminal view reads a config key's, ConfigMap's or secret's revision history",
       "category": "CLI UX",
@@ -14134,7 +14379,7 @@
         "`gimle-hugin/src/main/java/com/gimle/hugin/model/VersionReader.java`",
         "`gimle-hugin/src/main/java/com/gimle/hugin/render/VersionScreen.java`"
       ],
-      "gapNote": "Same TUI gap as GIMLE-793: no scenario can attach a terminal to read a rendered frame."
+      "gapNote": "Same TUI gap as GIMLE-807: no scenario can attach a terminal to read a rendered frame."
     }
   ]
 }

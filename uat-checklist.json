@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 814,
+    "totalRequirements": 828,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 684,
-    "releaseReadinessPercent": 16.0
+    "notCoveredByAutomatedTest": 698,
+    "releaseReadinessPercent": 15.7
   },
   "items": [
     {
@@ -8536,8 +8536,8 @@
       "id": "GIMLE-776",
       "module": "gimle-controlplane",
       "category": "Networking / Services",
-      "feature": "A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing",
-      "step": "Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN",
+      "feature": "A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing",
+      "step": "Given a Service declared for tenant `acme` with live backing instances When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name Then the route is served from a live endpoint instead of answering 502 And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN Given a Service declared for tenant `acme` with no explicit ?tenant= on the delete request When DELETE /services/{name} is called Then the real tenant-scoped Service is removed -- confirmed gone from a follow-up GET and the collection listing -- not silently no-op against a key nothing was ever stored under Given a Service fronting a DaemonSet (or StatefulSet) workload with every replica ACTIVE/ready and reporting a port matching the Service's own targetPort; When its endpoints are resolved; Then the live endpoints are returned, not an empty array.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -8570,7 +8570,7 @@
       "module": "gimle-core",
       "category": "Observability",
       "feature": "An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under",
-      "step": "Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling",
+      "step": "Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit When a node agent heartbeats an observation for one of its instances And an operator reads that deployment's status Then the instance's observation carries both the declared tier and the declared limit And an instance with no module descriptor behind it carries neither rather than an invented ceiling Given the console's deployment Instances table and instance detail page read that same observation, When either screen renders, Then it shows the usage figure as \"used / limit\" alongside the instance's isolation tier, not a bare usage number with no ceiling to judge it against.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -8603,7 +8603,7 @@
       "module": "gimle-agent",
       "category": "Networking",
       "feature": "A Service may declare `protocol: UDP`, and gimle-bifrost relays it with per-client session tracking rather than only TCP streams",
-      "step": "Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead",
+      "step": "Given a Service declaring protocol UDP over a datagram workload When two different clients each send a datagram to the Service's bound address Then each client receives the reply to its own request And a NetworkPolicy applying to that Service causes every datagram to be dropped instead Given a UDP Service whose declared port numerically coincides with a socket a co-located workload already has bound wildcard, When BifrostProxy polls and binds its own listener, Then the bind succeeds and datagrams are relayed normally instead of failing with \"Address already in use\" on every tick.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,
@@ -8699,6 +8699,160 @@
     },
     {
       "id": "GIMLE-791",
+      "module": "gimle-agent",
+      "category": "Security / Identity",
+      "feature": "Per-worker certificates: node-minted worker identity carrying the worker's tenant",
+      "step": "Given a node agent holding a gimle:nodes certificate and an instance assignment for tenant acme, When it submits a WORKER_CLIENT CSR with CN <nodeId>:<instanceKey> and tenantId acme, Then the control plane signs it with O=gimle:workers and O=gimle:tenant:acme, and the certificate cannot act as the node. Given the same node, When it requests a worker certificate for a tenant it holds no assignment for, or a CN prefixed by another node's id, Then the request is refused with 403 and audited. Given a TLS cluster, When the agent spawns a worker, Then the worker is started with its own per-worker certificate and key and only the cluster CA file shared from the agent. Given a supervised worker whose certificate is due for renewal, When the agent ticks, Then a fresh certificate is issued under the same subject, key written before certificate, and the worker reloads it through its own file watcher.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-792",
+      "module": "gimle-controlplane",
+      "category": "Control plane / API server",
+      "feature": "ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic",
+      "step": "Given the control plane's general admission budget is set to a small number When a concurrent flood of ordinary API requests well past that budget arrives Then every request resolves to a fast 200 or 429, never a hang or timeout, and at least one request is rejected Given the same flood is saturating the general admission lane When a node agent concurrently sends its own heartbeat requests Then every heartbeat request still succeeds, because it draws from its own reserved admission lane",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-793",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits",
+      "step": "Given an agent with a declared Tier-1 shared-worker heap budget When a TIER_1 instance spawns a worker Then that worker is sized from the budget, not from the instance's own declared limit Given a shared worker whose residents' declared memory limits already fill its heap When another TIER_1 instance of the same tenant is assigned to that node Then it is not packed into that worker and gets a fresh one, sized to its own declared limit plus the reserve, instead",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-794",
+      "module": "gimle-agent",
+      "category": "Worker Supervision",
+      "feature": "The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie",
+      "step": "Given the agent's tick loop is running When reconcileAssignments (or any other step of a tick) throws a fatal Error such as OutOfMemoryError Then the agent logs the failure and halts the JVM with the same exit code a worker's own OOM exit uses And it does not merely let the main thread die while other agent threads keep the process alive",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-795",
+      "module": "gimle-agent",
+      "category": "Multi-tenancy / Scheduling",
+      "feature": "Tenant-scoped instance supervision keying (instanceKey)",
+      "step": "Given tenant A and tenant B each deploy a StatefulSet named \"session-store\" and both land instance index 0 on the same node; When this agent reconciles both assignments; Then each gets its own real worker, keyed separately by tenant, rather than the second one reading as already-supervised. Given tenant A's own \"session-store\" is later deleted entirely; When the agent next reconciles; Then tenant B's own \"session-store\" instance -- previously starved of a worker -- is now correctly started, its own key having never been occupied by tenant A's own instance in the first place.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-796",
+      "module": "gimle-controlplane",
+      "category": "Observability",
+      "feature": "Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging",
+      "step": "Given a node registered with an advertised log-server address nothing is actually listening on; When GET /logs/instances/{name}/{idx}?follow=true is requested with Muninn configured; Then the response falls back to Muninn's own shipped history within seconds, not indefinitely. Given the identical setup with no Muninn configured; When the same follow request is made; Then the response is a fast 502 naming the agent as unreachable, never an indefinitely open connection.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-797",
+      "module": "gimle-fabric",
+      "category": "Service Fabric",
+      "feature": "A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice",
+      "step": "Given a service-exporting instance registered in the fabric catalog When it is disposed (unregistered) and a replacement instance registers under a new worker/module identity Then the registry's own candidate list for that service contains only the replacement's endpoint, never the disposed one And repeating this redeploy four times in a row never leaves more than one live candidate behind",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-798",
+      "module": "gimle-agent",
+      "category": "Health / Self-Healing",
+      "feature": "A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state",
+      "step": "Given a hosted module declares a readiness probe that never passes When the module reaches ACTIVE and its probe loop ticks Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE Given a module restarts Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-799",
+      "module": "gimle-gateway",
+      "category": "Transport Security",
+      "feature": "Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart",
+      "step": "Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged. Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-800",
+      "module": "gimle-examples",
+      "category": "Networking/Service Discovery",
+      "feature": "A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve",
+      "step": "Given greeter-provider-deployment is deployed from its own bundled jar and reaches ACTIVE, When a Service is created fronting it with no targetPort declared, Then GET /services/{name}/endpoints resolves exactly one live endpoint at the real port GreeterProviderHooks opened and reported. Given that same Service now has a live endpoint, When a real SkaldMain instance is queried for the Service's DNS name, Then it answers NOERROR with a real address instead of NXDOMAIN.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-801",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast",
+      "step": "Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away. Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-802",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli",
+      "step": "Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare \"saved\" message. Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-803",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array",
+      "step": "Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array. Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-804",
+      "module": "gimle-andvari-console",
+      "category": "Web Console / Frontend",
+      "feature": "Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one",
+      "step": "Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed. Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-805",
       "module": "gimle-cli",
       "category": "CLI",
       "feature": "CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider",
@@ -8709,7 +8863,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-792",
+      "id": "GIMLE-806",
       "module": "gimle-cli",
       "category": "CLI / Security",
       "feature": "An extension is handed a read-only view of the control-plane API, never the client",
@@ -8720,7 +8874,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-793",
+      "id": "GIMLE-807",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "`gimle top` renders a live, read-only cluster view of nodes and instances",
@@ -8731,7 +8885,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-794",
+      "id": "GIMLE-808",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "A failed poll keeps the last good rows and ages them rather than clearing the screen",
@@ -8742,7 +8896,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-795",
+      "id": "GIMLE-809",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "Instance drill-down with lifecycle timeline and a live log tail",
@@ -8753,7 +8907,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-796",
+      "id": "GIMLE-810",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal",
@@ -8764,7 +8918,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-797",
+      "id": "GIMLE-811",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "Terminal colour is the console's own tokens, degrading to 256-colour and to none",
@@ -8775,7 +8929,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-798",
+      "id": "GIMLE-812",
       "module": "gimle-hugin",
       "category": "Distribution",
       "feature": "The terminal view ships in the CLI archives and is removable in one directory delete",
@@ -8786,7 +8940,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-799",
+      "id": "GIMLE-813",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange",
@@ -8797,7 +8951,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-800",
+      "id": "GIMLE-814",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments",
@@ -8808,7 +8962,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-801",
+      "id": "GIMLE-815",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "A services screen showing each Service's live endpoint resolution",
@@ -8819,7 +8973,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-802",
+      "id": "GIMLE-816",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "An activity view of what has been done to the cluster, over the audit trail",
@@ -8830,7 +8984,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-803",
+      "id": "GIMLE-817",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The activity view reads three cluster records: authorization, lifecycle and alerts",
@@ -8841,7 +8995,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-804",
+      "id": "GIMLE-818",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view browses every collection the control plane lists, including registered custom kinds",
@@ -8852,7 +9006,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-805",
+      "id": "GIMLE-819",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view describes a selected resource as YAML without re-reading it",
@@ -8863,7 +9017,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-806",
+      "id": "GIMLE-820",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view lists what it can open, and can be pointed at another control plane",
@@ -8874,7 +9028,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-807",
+      "id": "GIMLE-821",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view joins Services to the instances behind them and names the gaps",
@@ -8885,7 +9039,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-808",
+      "id": "GIMLE-822",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view reads the control plane's own health alongside what it is running",
@@ -8896,7 +9050,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-809",
+      "id": "GIMLE-823",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view reads a worker's shipped traces for the instance it is inspecting",
@@ -8907,7 +9061,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-810",
+      "id": "GIMLE-824",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view narrows every screen to one tenant",
@@ -8918,7 +9072,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-811",
+      "id": "GIMLE-825",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view scans the cluster for what is wrong",
@@ -8929,7 +9083,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-812",
+      "id": "GIMLE-826",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view shows what the calling certificate may do",
@@ -8940,7 +9094,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-813",
+      "id": "GIMLE-827",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view browses a tenant's own config and secret holdings",
@@ -8951,7 +9105,7 @@
       "signedOffAt": null
     },
     {
-      "id": "GIMLE-814",
+      "id": "GIMLE-828",
       "module": "gimle-hugin",
       "category": "CLI UX",
       "feature": "The terminal view reads a config key's, ConfigMap's or secret's revision history",

@@ -785,7 +785,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-773 | A Gateway console screen showing the declared route table and what each route currently resolves to | Web Console / Frontend | Complete | Yes |
 | GIMLE-774 | A Skald DNS console screen showing which `svc.gimle.local` names resolve, and each tracked responder's directory staleness | Service Discovery / DNS | Complete | Yes |
 | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Web Console / Frontend | Complete | Yes |
-| GIMLE-776 | A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing | Networking / Services | Complete | Yes |
+| GIMLE-776 | A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing | Networking / Services | Complete | Yes |
 | GIMLE-777 | A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog | Web Console / Frontend | Complete | Yes |
 | GIMLE-778 | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Web Console / Frontend | Complete | Yes |
 | GIMLE-779 | An instance observation carries the declared isolation tier and resource limit, so every read surface can show a usage figure against the ceiling it runs under | Observability | Complete | Yes |
@@ -800,30 +800,44 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-788 | Cluster-wide instance lifecycle event read | Observability | Complete | Yes |
 | GIMLE-789 | DaemonSet status reports a reconciler-computed desired (eligible-node) count alongside placed instances | Reconciliation / Orchestration | Complete | Yes |
 | GIMLE-790 | A durable, replica-agnostic read of whether an AlertRule is currently firing | Observability | Complete | Yes |
-| GIMLE-791 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | CLI | Complete | Yes |
-| GIMLE-792 | An extension is handed a read-only view of the control-plane API, never the client | CLI / Security | Complete | Yes |
-| GIMLE-793 | `gimle top` renders a live, read-only cluster view of nodes and instances | CLI UX | Complete (v1 scope) | Unit only |
-| GIMLE-794 | A failed poll keeps the last good rows and ages them rather than clearing the screen | CLI UX | Complete | Unit only |
-| GIMLE-795 | Instance drill-down with lifecycle timeline and a live log tail | CLI UX | Complete (v1 scope) | Unit only |
-| GIMLE-796 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | CLI UX | Complete | Partial |
-| GIMLE-797 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | CLI UX | Complete | Unit only |
-| GIMLE-798 | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | Complete | Partial |
-| GIMLE-799 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | CLI UX | Complete | Unit only |
-| GIMLE-800 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | CLI UX | Complete | Unit only |
-| GIMLE-801 | A services screen showing each Service's live endpoint resolution | CLI UX | Complete | Unit only |
-| GIMLE-802 | An activity view of what has been done to the cluster, over the audit trail | CLI UX | Complete | Unit only |
-| GIMLE-803 | The activity view reads three cluster records: authorization, lifecycle and alerts | CLI UX | Complete | Unit only |
-| GIMLE-804 | The terminal view browses every collection the control plane lists, including registered custom kinds | CLI UX | Complete | Unit only |
-| GIMLE-805 | The terminal view describes a selected resource as YAML without re-reading it | CLI UX | Complete | Unit only |
-| GIMLE-806 | The terminal view lists what it can open, and can be pointed at another control plane | CLI UX | Complete | Unit only |
-| GIMLE-807 | The terminal view joins Services to the instances behind them and names the gaps | CLI UX | Complete | Unit only |
-| GIMLE-808 | The terminal view reads the control plane's own health alongside what it is running | CLI UX | Complete | Unit only |
-| GIMLE-809 | The terminal view reads a worker's shipped traces for the instance it is inspecting | CLI UX | Complete | Unit only |
-| GIMLE-810 | The terminal view narrows every screen to one tenant | CLI UX | Complete | Unit only |
-| GIMLE-811 | The terminal view scans the cluster for what is wrong | CLI UX | Complete | Unit only |
-| GIMLE-812 | The terminal view shows what the calling certificate may do | CLI UX | Complete | Unit only |
-| GIMLE-813 | The terminal view browses a tenant's own config and secret holdings | CLI UX | Complete | Unit only |
-| GIMLE-814 | The terminal view reads a config key's, ConfigMap's or secret's revision history | CLI UX | Complete | Unit only |
+| GIMLE-791 | Per-worker certificates: node-minted worker identity carrying the worker's tenant | Security / Identity | Complete | Yes |
+| GIMLE-792 | ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic | Control plane / API server | Complete | Yes |
+| GIMLE-793 | Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits | Worker Supervision | Complete | Yes |
+| GIMLE-794 | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | Worker Supervision | Complete | Yes |
+| GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | Multi-tenancy / Scheduling | Complete | Yes |
+| GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | Observability | Complete | Yes |
+| GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | Service Fabric | Fixed | Yes |
+| GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | Complete | Yes |
+| GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | Complete | Yes |
+| GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Networking/Service Discovery | Fixed | Yes |
+| GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Web Console / Frontend | Fixed | Yes |
+| GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Web Console / Frontend | Fixed | Yes |
+| GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Web Console / Frontend | Fixed | Yes |
+| GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Web Console / Frontend | Fixed | Yes |
+| GIMLE-805 | CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider | CLI | Complete | Yes |
+| GIMLE-806 | An extension is handed a read-only view of the control-plane API, never the client | CLI / Security | Complete | Yes |
+| GIMLE-807 | `gimle top` renders a live, read-only cluster view of nodes and instances | CLI UX | Complete (v1 scope) | Unit only |
+| GIMLE-808 | A failed poll keeps the last good rows and ages them rather than clearing the screen | CLI UX | Complete | Unit only |
+| GIMLE-809 | Instance drill-down with lifecycle timeline and a live log tail | CLI UX | Complete (v1 scope) | Unit only |
+| GIMLE-810 | Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal | CLI UX | Complete | Partial |
+| GIMLE-811 | Terminal colour is the console's own tokens, degrading to 256-colour and to none | CLI UX | Complete | Unit only |
+| GIMLE-812 | The terminal view ships in the CLI archives and is removable in one directory delete | Distribution | Complete | Partial |
+| GIMLE-813 | The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange | CLI UX | Complete | Unit only |
+| GIMLE-814 | DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments | CLI UX | Complete | Unit only |
+| GIMLE-815 | A services screen showing each Service's live endpoint resolution | CLI UX | Complete | Unit only |
+| GIMLE-816 | An activity view of what has been done to the cluster, over the audit trail | CLI UX | Complete | Unit only |
+| GIMLE-817 | The activity view reads three cluster records: authorization, lifecycle and alerts | CLI UX | Complete | Unit only |
+| GIMLE-818 | The terminal view browses every collection the control plane lists, including registered custom kinds | CLI UX | Complete | Unit only |
+| GIMLE-819 | The terminal view describes a selected resource as YAML without re-reading it | CLI UX | Complete | Unit only |
+| GIMLE-820 | The terminal view lists what it can open, and can be pointed at another control plane | CLI UX | Complete | Unit only |
+| GIMLE-821 | The terminal view joins Services to the instances behind them and names the gaps | CLI UX | Complete | Unit only |
+| GIMLE-822 | The terminal view reads the control plane's own health alongside what it is running | CLI UX | Complete | Unit only |
+| GIMLE-823 | The terminal view reads a worker's shipped traces for the instance it is inspecting | CLI UX | Complete | Unit only |
+| GIMLE-824 | The terminal view narrows every screen to one tenant | CLI UX | Complete | Unit only |
+| GIMLE-825 | The terminal view scans the cluster for what is wrong | CLI UX | Complete | Unit only |
+| GIMLE-826 | The terminal view shows what the calling certificate may do | CLI UX | Complete | Unit only |
+| GIMLE-827 | The terminal view browses a tenant's own config and secret holdings | CLI UX | Complete | Unit only |
+| GIMLE-828 | The terminal view reads a config key's, ConfigMap's or secret's revision history | CLI UX | Complete | Unit only |
 
 ## Detailed Requirements
 
@@ -1520,10 +1534,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Observability
 - **User story**: As an operator reading an instance's memory and CPU usage, I want the declared limit and isolation tier alongside it, so I can tell whether 142Mi is comfortable or about to die instead of reading a number with no denominator.
-- **Status**: Implemented. `ModuleDescriptor` declares `isolationTier` and `resourceLimit` and both are load-bearing at runtime (`AgentMain.prepareResourceLimit` turns the limit into the worker JVM's own `-Xmx`/`-XX:ActiveProcessorCount`), but neither was ever persisted or served: `InstanceObservation` carried `cpuMillicoresUsed`/`memoryBytesUsed` with no ceiling to read them against and no tier, so `GET /deployments`, `/daemonsets`, `/statefulsets` and `/jobs` -- all four sharing the single `ApiServer.observationToJson` -- could report a usage number but never a judgement. Both are now relayed as `Optional` fields along the pipe that already runs agent -> control plane -> store: `AgentMain.observationJson` reads them off the `ModuleDescriptor` the agent already retains on `SupervisedInstance`, `ApiServer` reads/writes them in its one shared observation codec, and `DomainCodec` encodes them onto the Raft-replicated heartbeat. Empty for a vessel instance, which is an OS process with no module descriptor behind it. A consumer must render the limit per tier or it misleads: at TIER_2 one instance owns its worker JVM so a used/limit ratio is correct, while at TIER_1 several instances share a JVM whose heap was sized for whichever instance spawned it, so the declared limit is what the manifest asked for rather than a bound applied to that instance. The record's seven telescoping constructors (arities 6 through 17, the shape that let a new field be silently defaulted at a call site) were replaced by a single canonical constructor plus an `InstanceObservation.builder(...)` taking the six facts a node can always report, with every measurable or declarable field defaulting to zero/empty until set; all 45 construction sites now build through it.
+- **Status**: Implemented. `ModuleDescriptor` declares `isolationTier` and `resourceLimit` and both are load-bearing at runtime (`AgentMain.prepareResourceLimit` turns the limit into the worker JVM's own `-Xmx`/`-XX:ActiveProcessorCount`), but neither was ever persisted or served: `InstanceObservation` carried `cpuMillicoresUsed`/`memoryBytesUsed` with no ceiling to read them against and no tier, so `GET /deployments`, `/daemonsets`, `/statefulsets` and `/jobs` -- all four sharing the single `ApiServer.observationToJson` -- could report a usage number but never a judgement. Both are now relayed as `Optional` fields along the pipe that already runs agent -> control plane -> store: `AgentMain.observationJson` reads them off the `ModuleDescriptor` the agent already retains on `SupervisedInstance`, `ApiServer` reads/writes them in its one shared observation codec, and `DomainCodec` encodes them onto the Raft-replicated heartbeat. Empty for a vessel instance, which is an OS process with no module descriptor behind it. A consumer must render the limit per tier or it misleads: at TIER_2 one instance owns its worker JVM so a used/limit ratio is correct, while at TIER_1 several instances share a JVM whose heap was sized for whichever instance spawned it, so the declared limit is what the manifest asked for rather than a bound applied to that instance. The record's seven telescoping constructors (arities 6 through 17, the shape that let a new field be silently defaulted at a call site) were replaced by a single canonical constructor plus an `InstanceObservation.builder(...)` taking the six facts a node can always report, with every measurable or declarable field defaulting to zero/empty until set; all 45 construction sites now build through it. M17 fix: none of this ever reached the console -- the deployment Instances table and the instance detail page showed CPU/memory used with no limit and no tier anywhere, so an operator could not tell whether a usage number was close to its ceiling or whether that ceiling was even a real enforced number for a shared-worker (TIER_1) instance. `InstanceObservation`/`ModuleInstance` (gimle-console's own TypeScript types) gained optional `isolationTier`/`resourceLimit` fields threaded through every mapping that already carries `cpuMillicoresUsed`/`memoryBytesUsed` (`HttpDeploymentsRepository#mapDeployment`, `HttpInstancesRepository`/`MockInstancesRepository#flatten`), a new `TierBadge` component, and both read surfaces now show `used / limit` alongside a tier badge instead of a bare usage number with no denominator.
 - **Confidence**: High
-- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java` (`isolationTier`, `resourceLimit`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationToJson`, `observationFromJson`, `isolationTierFromJson`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`)
-- **Test coverage**: AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them.
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/InstanceObservation.java` (`isolationTier`, `resourceLimit`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`observationJson`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`observationToJson`, `observationFromJson`, `isolationTierFromJson`), `gimle-mimir/src/main/java/com/gimle/mimir/codec/DomainCodec.java` (`writeInstanceObservation`, `readInstanceObservation`), `gimle-console/src/types/index.ts` (`InstanceObservation.isolationTier`/`resourceLimit`, `ModuleInstance.isolationTier`/`resourceLimit`), `gimle-console/src/repositories/http/deployments.ts` (`RawDeploymentInstance.observation`, `mapDeployment`), `gimle-console/src/repositories/http/instances.ts`, `gimle-console/src/repositories/instances.ts` (`flatten`), `gimle-console/src/components/status.tsx` (`TierBadge`), `gimle-console/src/components/instances-table.tsx` (Tier column, cpu/mem used/limit), `gimle-console/src/routes/instances.$name.$idx.tsx` (Isolation tier, CPU used/limit, Memory used/limit stat cells)
+- **Test coverage**: AgentMainTest gained observation_json_reports_the_declared_isolation_tier_and_resource_limit (asserting the limit, not the request, is what travels) and observation_json_omits_the_tier_and_limit_when_no_descriptor_is_held. DomainCodecTest gained an_instance_observation_with_a_tier_and_resource_limit_round_trips and an_instance_observation_with_no_tier_or_limit_round_trips_as_empty. ApiServerTest gained a_heartbeats_declared_tier_and_resource_limit_reach_the_deployments_read_surface, which drives both directions of the JSON hop through the real HTTP surface, and an_observation_with_no_declared_tier_or_limit_omits_both_rather_than_inventing_them. Console: `repositories/http/deployments.test.ts` gained maps_an_instance_observations_isolationTier_and_resourceLimit_through_unchanged and maps_an_instance_observation_with_no_isolationTier/resourceLimit_keys_to_undefined,_not_a_fabricated_default; `repositories/http/instances.test.ts`'s flatten test now asserts isolationTier/resourceLimit pass through; `repositories/instances.test.ts` (mock) gained a test asserting every row carries both fields, not just usage.
 - **Gherkin scenario**:
   ```gherkin
   Given a deployment whose module declares TIER_2 isolation and a 256Mi memory limit
@@ -1531,6 +1545,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And an operator reads that deployment's status
   Then the instance's observation carries both the declared tier and the declared limit
   And an instance with no module descriptor behind it carries neither rather than an invented ceiling
+  Given the console's deployment Instances table and instance detail page read that same observation, When either screen renders, Then it shows the usage figure as "used / limit" alongside the instance's isolation tier, not a bare usage number with no ceiling to judge it against.
   ```
 
 ### gimle-module
@@ -3472,16 +3487,17 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Networking
 - **User story**: As an operator fronting a UDP workload (a DNS responder, a metrics receiver) with a Service, I want Bifrost to relay its datagrams and route each reply back to the client that sent the request, so a UDP workload is reachable through a Service at all.
-- **Status**: Implemented. `ServiceListener` relayed TCP only (`ServerSocket`/`Socket`), so no Service could front a DNS-shaped or any other datagram workload. `ServiceSpec` gained a `protocol` field (`ServiceProtocol.TCP|UDP`, the `Service.spec.ports[].protocol` analogue, TCP being what declaring none means), carried through `DomainCodec`, the `/services` API, the `/services/{name}/endpoints` payload Bifrost reads, and `gimle set service --protocol`. A UDP Service now binds `UdpServiceListener` instead. The hard part is reply routing: UDP has no connection, so every datagram arrives on one bound socket and the listener keeps a session per client address -- a dedicated upstream `DatagramSocket` connected to the selected backend plus a reader returning replies to that client -- reaped once idle past 60s, swept on the receive path rather than by a timer. Same shape kube-proxy's userspace UDP mode used. Two consequences documented rather than papered over: a session pins its backend for its lifetime whether or not `sessionAffinity` is declared (one upstream socket per client is what makes reply routing work; `sessionAffinity` instead decides how a *new* session picks its backend), and a UDP Service under a NetworkPolicy always fails closed, since a datagram relay has no handshake and no peer certificate from which to learn a caller's tenant -- the same permanent limit a plaintext TCP listener has, reached sooner because UDP has no TLS to opt into. Both listeners now sit behind a `ServiceRelay` interface so `BifrostProxy`'s poll loop drives either.
+- **Status**: Implemented. `ServiceListener` relayed TCP only (`ServerSocket`/`Socket`), so no Service could front a DNS-shaped or any other datagram workload. `ServiceSpec` gained a `protocol` field (`ServiceProtocol.TCP|UDP`, the `Service.spec.ports[].protocol` analogue, TCP being what declaring none means), carried through `DomainCodec`, the `/services` API, the `/services/{name}/endpoints` payload Bifrost reads, and `gimle set service --protocol`. A UDP Service now binds `UdpServiceListener` instead. The hard part is reply routing: UDP has no connection, so every datagram arrives on one bound socket and the listener keeps a session per client address -- a dedicated upstream `DatagramSocket` connected to the selected backend plus a reader returning replies to that client -- reaped once idle past 60s, swept on the receive path rather than by a timer. Same shape kube-proxy's userspace UDP mode used. Two consequences documented rather than papered over: a session pins its backend for its lifetime whether or not `sessionAffinity` is declared (one upstream socket per client is what makes reply routing work; `sessionAffinity` instead decides how a *new* session picks its backend), and a UDP Service under a NetworkPolicy always fails closed, since a datagram relay has no handshake and no peer certificate from which to learn a caller's tenant -- the same permanent limit a plaintext TCP listener has, reached sooner because UDP has no TLS to opt into. Both listeners now sit behind a `ServiceRelay` interface so `BifrostProxy`'s poll loop drives either. Fixed alongside (M63): UdpServiceListener bound its socket via `new DatagramSocket(bindAddress)`, which binds with `SO_REUSEADDR` off. A co-located UDP workload binding wildcard at the identical numeric port -- an entirely ordinary way for a UDP server to listen -- collided with that unconditionally, and since neither BifrostProxy's own poll loop nor the workload's bind ever succeeds, the listener never got created and every subsequent poll tick retried the identical failing bind forever, logging "Address already in use" indefinitely while the Service itself kept reporting healthy live endpoints. Fixed by binding unbound-then-explicit (`new DatagramSocket((SocketAddress) null)` then `setReuseAddress(true)` then `bind(...)`, since `DatagramSocket`'s option setters throw once already bound) with a best-effort `SO_REUSEPORT` alongside it. This resolves the collision whenever the other socket also opts into address reuse (the ordinary case for a well-behaved UDP server sharing a box with other listeners) -- a kernel-level UDP port-sharing rule, not a bug either socket's own bind call can paper over unilaterally, still refuses to share a wildcard/specific pair with a peer that sets neither option.
 - **Confidence**: High
-- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceProtocol.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java` (`protocol`), `gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceRelay.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`)
-- **Test coverage**: New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing).
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceProtocol.java`, `gimle-mimir/src/main/java/com/gimle/mimir/manifest/ServiceSpec.java` (`protocol`), `gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/ServiceRelay.java`, `gimle-agent/src/main/java/com/gimle/agent/bifrost/BifrostProxy.java`, `gimle-cli/src/main/java/com/gimle/cli/ServicesCommand.java` (`--protocol`), `gimle-agent/src/main/java/com/gimle/agent/bifrost/UdpServiceListener.java` (`bindWithReuse`)
+- **Test coverage**: New UdpServiceListenerTest drives real UDP sockets on loopback (a real client, a real echo backend, no socket stubbing): a datagram reaching the backend with its reply returning to the client, a client staying on one backend across datagrams, two clients each receiving their own reply rather than each other's (the failure a relay that did not track clients would produce), a drop when no endpoints are live, a policy-restricted service relaying nothing with the backend never seeing the datagram, traffic resuming once the policy is lifted, and an 8KB datagram surviving intact (guarding the buffer sizing). Regression (M63): `UdpServiceListenerTest#binds_at_a_specific_address_already_sharing_its_port_with_a_wildcard_socket` and `BifrostProxyTest#a_udp_service_binds_despite_a_wildcard_socket_already_holding_its_port`, both reproducing a wildcard-bound peer sharing the identical numeric port and asserting the listener binds and relays successfully rather than throwing `BindException`.
 - **Gherkin scenario**:
   ```gherkin
   Given a Service declaring protocol UDP over a datagram workload
   When two different clients each send a datagram to the Service's bound address
   Then each client receives the reply to its own request
   And a NetworkPolicy applying to that Service causes every datagram to be dropped instead
+  Given a UDP Service whose declared port numerically coincides with a socket a co-located workload already has bound wildcard, When BifrostProxy polls and binds its own listener, Then the bind succeeds and datagrams are relayed normally instead of failing with "Address already in use" on every tick.
   ```
 
 #### GIMLE-786 — Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits
@@ -3500,6 +3516,87 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a shared worker whose residents' declared memory limits already fill its heap
   When another TIER_1 instance of the same tenant is assigned to that node
   Then it is not packed into that worker and gets a fresh one instead
+  ```
+
+#### GIMLE-791 — Per-worker certificates: node-minted worker identity carrying the worker's tenant
+
+- **Category**: Security / Identity
+- **User story**: As a platform operator, I want every worker JVM to present its own control-plane-issued certificate naming the one tenant it hosts, minted by its node agent only for a tenant the scheduler actually placed on that node, so a receiving fabric listener verifies a caller's tenant from something the caller cannot forge rather than from a claim written into the request, and so hosted-module code that can reach its own worker's key material holds a worker's identity, never the node's.
+- **Status**: Complete. Previously every worker spawned by an agent was handed the agent's own node certificate wholesale (`AgentMain#workerTlsFlags` forwarded `gimle.tls.certFile`/`keyFile` verbatim), which carries no tenant at all and, worse, the node's `gimle:nodes` self-service identity. A new `CsrPurpose.WORKER_CLIENT` is handled by `ApiServer#handleWorkerClientRequest` ahead of the same-subject rotation branch: the submission must arrive over a `gimle:nodes` certificate (401 with none, 403 for any other principal, an operator included), the requested CN must be prefixed by the presenting node's own id (`<nodeId>:<instanceKey>`, so node-1 can never mint a certificate that reads as node-2's worker), and a requested tenant must satisfy `Authorizer#isTenantAssignedToNode` -- the identical level-triggered store check Fafnir makes before letting a node read a tenant's secrets. The issued subject is server-stamped `O=gimle:workers` (new `BuiltinRoles.GROUP_WORKERS`, bound to no role anywhere) plus `O=gimle:tenant:<id>` for a tenanted worker, via a new multi-group `Subjects.withOrganizations`; the CSR's own O= never survives, the requester's SAN is trusted only as far as its own connection address backs it (the node-join rule), and every decision is audited under the node's principal against CERTIFICATE_REQUEST/APPROVE. On the agent, a new `WorkerCertificates` helper issues the material before an instance's first spawn (`ensureIssued`, over the agent's own mTLS client; a refused issuance fails that start, which the next reconcile tick retries) into `workers/<instanceKey>/worker.crt|key` beside the agent's own certificate, key written before certificate so the worker's mtime-polling `FabricServerTlsWatcher` never pairs a fresh certificate with a stale key, and renews each due certificate on the agent tick (`renewDue`, a fresh same-subject issuance rather than the rotation branch, which authenticates by the certificate being rotated -- a worker never talks to the control plane). `buildWorkerCommand` now takes the per-worker material and forwards only the shared CA file from the agent's own settings; TLS material left `stableWorkerFlags` since those feed Sleipnir's AOT cache key and must not vary per instance. A Tier 1 density-packed worker (same-tenant by construction) presents one certificate for all its instances. Reading a certificate back into a `Principal` moved to a single pure-JDK implementation, `CertificateIdentity` in `gimle-core` (`LdapName` over the RFC 2253 rendering), which `gimle-pki`'s `Subjects.principalFrom` now delegates to, so a worker JVM with no Bouncy Castle derives exactly the identity the control plane stamped.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/protocol/CsrPurpose.java` (`WORKER_CLIENT`), `gimle-core/src/main/java/com/gimle/core/authz/BuiltinRoles.java` (`GROUP_WORKERS`), `gimle-core/src/main/java/com/gimle/core/tls/CertificateIdentity.java`, `gimle-pki/src/main/java/com/gimle/pki/Subjects.java` (`withOrganizations`, `commonNameOf`, `principalFrom`), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`handleBootstrapCsrSubmit`, `handleWorkerClientRequest`, `workerRequestRefusal`), `gimle-agent/src/main/java/com/gimle/agent/WorkerCertificates.java`, `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`issueWorkerCertificate`, `renewWorkerCertificates`, `workerTlsFlags`, `buildWorkerCommand`, `stableWorkerFlags`)
+- **Test coverage**: `WorkerClientCsrTest` against a real mTLS `ApiServer` (a node obtains a worker certificate for a tenant it holds an assignment for, stamped `gimle:workers`+`gimle:tenant:acme` with the CSR's own `O=gimle:nodes` discarded, and that certificate is refused on the node self-service surface; a tenant the node holds no assignment for, a subject naming another node's worker, an operator caller, and an anonymous caller are each refused; an untenanted worker gets only `gimle:workers`); `WorkerCertificatesTest` against a real `CertificateAuthority` (issued once and reused on a later spawn with the expected purpose/tenant/CN, untenanted submissions carry no tenant, a renewal pass re-issues only a due certificate, a refused issuance fails the spawn leaving no material, per-worker directories); `AgentMainTest` (the spawned command forwards the worker's own certificate and the shared CA and never the agent's node cert/key; stable worker flags carry no TLS material); `SubjectsTest` (multi-group stamping round-trips through a signed certificate); `CertificateIdentityTest` (CN/O parsing, escaping, no-CN rejection).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node agent holding a gimle:nodes certificate and an instance assignment for tenant acme, When it submits a WORKER_CLIENT CSR with CN <nodeId>:<instanceKey> and tenantId acme, Then the control plane signs it with O=gimle:workers and O=gimle:tenant:acme, and the certificate cannot act as the node.
+  Given the same node, When it requests a worker certificate for a tenant it holds no assignment for, or a CN prefixed by another node's id, Then the request is refused with 403 and audited.
+  Given a TLS cluster, When the agent spawns a worker, Then the worker is started with its own per-worker certificate and key and only the cluster CA file shared from the agent.
+  Given a supervised worker whose certificate is due for renewal, When the agent ticks, Then a fresh certificate is issued under the same subject, key written before certificate, and the worker reloads it through its own file watcher.
+  ```
+
+#### GIMLE-793 — Tier-1 shared workers are sized by a node budget and admit instances by summed declared limits
+
+- **Category**: Worker Supervision
+- **User story**: As an operator declaring resources.limit on a Tier-1 module, I want a shared worker JVM to be sized by the node rather than by whichever instance happened to spawn it, and to admit further instances only while their declared limits still fit, so that a Tier-1 limit is a real admission input with a predictable worker behind it instead of a number the runtime discards.
+- **Status**: Fixed. A Tier-1 worker's -Xmx was whatever the first instance to land on it declared, and installIntoExistingWorker never re-derived one, so every later instance ran under an arbitrary ceiling: a small module could allocate far past its declared limit, and a large one was strangled by a ceiling it never asked for. Tier1WorkerBudget now holds the node's shared-worker heap/cpu (gimle.agent.tier1WorkerHeap, default 1Gi; gimle.agent.tier1WorkerCpu, default 2000m) and an overhead reserve held back for the worker JVM's own footprint (gimle.agent.tier1WorkerOverheadReserve, default 128Mi), all parsed and validated at agent startup. prepareResourceLimit sizes a TIER_1 worker from that budget (a TIER_2 worker still from the instance's own limit), never below the spawning instance's own declared limit plus the reserve so a large module is not strangled; findReusableTier1Worker additionally refuses reuse once the summed resources.limit.memory of the residents plus the candidate would exceed the heap the worker was actually spawned with, recorded on the worker's owning instance (SupervisedInstance.workerLimit) so the answer survives the spawning instance being stopped. Limits are summed rather than requests, since a shared unpartitioned heap has no per-instance ceiling to fall back on; CPU is deliberately not summed, being time-shared rather than exhaustible. Overflow spawns a fresh worker rather than refusing the assignment. This is a reservation, not enforcement: one JVM has one heap, so a module overrunning its declared limit can still OOM its co-tenants, which remains the reason TIER_2 exists.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/Tier1WorkerBudget.java` (new), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`prepareResourceLimit`, `findReusableTier1Worker`, `workerSizeOf`, `installIntoExistingWorker`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`workerLimit`)
+- **Test coverage**: `Tier1WorkerBudgetTest` (8: default fallback, malformed quantity naming its property, a reserve as large as the heap rejected, budget sizing over a first instance's limit, an oversized module keeping its declared heap, summed admission against the post-reserve heap, an empty worker refusing an oversized claim, cpu not summed); `AgentMainTest#a_tier1_worker_is_sized_by_the_shared_budget_not_by_whichever_instance_spawned_it`, `#a_tier2_worker_is_sized_by_the_descriptors_limit_not_its_request`, `#a_worker_is_not_reused_once_the_residents_declared_limits_fill_its_heap`, `#a_worker_is_reused_while_the_declared_limits_still_fit_inside_its_heap`, `#an_oversized_tier1_module_still_gets_its_own_dedicated_worker_sized_at_limit_plus_reserve`
+- **Gherkin scenario**:
+  ```gherkin
+  Given an agent with a declared Tier-1 shared-worker heap budget
+  When a TIER_1 instance spawns a worker
+  Then that worker is sized from the budget, not from the instance's own declared limit
+  Given a shared worker whose residents' declared memory limits already fill its heap
+  When another TIER_1 instance of the same tenant is assigned to that node
+  Then it is not packed into that worker and gets a fresh one, sized to its own declared limit plus the reserve, instead
+  ```
+
+#### GIMLE-794 — The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie
+
+- **Category**: Worker Supervision
+- **User story**: As an operator running node agents under a process supervisor (systemd/hilmir/docker), I want the agent's own JVM to terminate when its tick loop suffers a fatal error, so that the supervisor can restart it instead of the agent staying visible and running in `ps aux` while its heartbeat and log go permanently silent.
+- **Status**: Fixed. The tick loop's own `catch (RuntimeException | IOException e)` did not catch Error, so an uncaught OutOfMemoryError (reconciling a large enough set of pre-existing deployments against this agent's own fixed -Xmx is exactly the kind of allocation burst that can trigger one) killed only the main thread -- every other non-daemon thread the agent started (gossip, the admin API, the config/network-policy relays, Bifrost) kept the process alive indefinitely with no scheduling or heartbeat ever happening again. Unlike the worker JVMs this agent spawns (whose launch always carries -XX:+ExitOnOutOfMemoryError via stableWorkerFlags), the agent's own JVM is launched without that flag by the surrounding tooling (gimle-hilmir's LaunchPlanner / a topology.yaml's jvm.agent list) -- a launch-time option this running process cannot add to itself. The tick loop now also catches Error and calls handleFatalTickError, which logs the failure and calls Runtime.getRuntime().halt() with the same exit code (3) HotSpot's own -XX:+ExitOnOutOfMemoryError uses for a worker, so the agent's own supervisor sees a real process exit and restarts it. halt (not exit) skips shutdown hooks and finalizers, which themselves risk allocating under the same low-memory condition that caused this. This closes only the gimle-agent-side half of the underlying finding: adding -XX:+ExitOnOutOfMemoryError to the agent's own launch command line (gimle-hilmir's LaunchPlanner and/or gimle-dist's topology.yaml jvm.agent lists) remains open as a separate, cross-module follow-up, since it is not something gimle-agent's own code can express.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`main`'s tick loop, `handleFatalTickError`)
+- **Test coverage**: `AgentMainTest#a_fatal_error_during_a_tick_halts_the_process_with_the_workers_own_oom_exit_code` (exercises handleFatalTickError directly with a recording stub in place of Runtime.getRuntime()::halt, so the test process itself is not terminated).
+- **Gherkin scenario**:
+  ```gherkin
+  Given the agent's tick loop is running
+  When reconcileAssignments (or any other step of a tick) throws a fatal Error such as OutOfMemoryError
+  Then the agent logs the failure and halts the JVM with the same exit code a worker's own OOM exit uses
+  And it does not merely let the main thread die while other agent threads keep the process alive
+  ```
+
+#### GIMLE-795 — Tenant-scoped instance supervision keying (instanceKey)
+
+- **Category**: Multi-tenancy / Scheduling
+- **User story**: As a platform operator, I want two tenants' identically-named workload landing on the same node at the same index to be supervised as genuinely separate instances, so neither one silently starves the other of a real worker.
+- **Status**: Fixed. AgentMain's own supervision bookkeeping (the `supervised`/`instanceShippers`/`capacityTracker` maps, keyed by `instanceKey`) used a bare `deploymentName#instanceIndex` key with no tenant in it at all. Two different tenants' identically-named StatefulSet (or any workload kind) landing on the same node at the same index -- the control plane's own scheduler places both, both show up in `get node-assignments` -- collapsed onto the exact same key: whichever tenant's assignment this agent processed first "owned" the slot, and the second tenant's own assignment always read as already-supervised via a plain `containsKey` check, so this agent never started a real worker for it at all -- permanently, even after the first tenant's workload was deleted and the key genuinely freed, since nothing ever re-evaluates a key already believed occupied. `instanceKey` now folds `AssignedInstance#tenantId` into the key (`tenantId#deploymentName#instanceIndex`-shaped), which the deliberate same-key reuse a rolling update needs (`requiresReplacement`'s own javadoc) is untouched by, since a workload's tenant can never change mid-rollout. A related, narrower instance of the identical defect was found and fixed alongside it: `workloadTokenFor`'s own cache key (minted workload-identity tokens, cached per node) was also bare `deploymentName#nodeId`, meaning two tenants' identically-named workload on the same node could share a cached token minted for only one of them.
+- **Confidence**: High
+- **Source location(s)**: `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`instanceKey`, `workloadTokenFor`)
+- **Test coverage**: `AgentMainTest#instance_key_is_scoped_by_tenant_not_just_deployment_name_and_index` (two different tenants' identical name/index never collide, the identical tenant/name/index always resolves to the identical key); every existing `findRenameSource`/`renameInPlace` test updated to key its own fixtures through the same `instanceKey` helper instead of a hand-written literal, proving the rolling-update-reuse invariant survives the tenant-scoping change unchanged.
+- **Gherkin scenario**:
+  ```gherkin
+  Given tenant A and tenant B each deploy a StatefulSet named "session-store" and both land instance index 0 on the same node; When this agent reconciles both assignments; Then each gets its own real worker, keyed separately by tenant, rather than the second one reading as already-supervised.
+  Given tenant A's own "session-store" is later deleted entirely; When the agent next reconciles; Then tenant B's own "session-store" instance -- previously starved of a worker -- is now correctly started, its own key having never been occupied by tenant A's own instance in the first place.
+  ```
+
+#### GIMLE-798 — A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state
+
+- **Category**: Health / Self-Healing
+- **User story**: As the platform, I want a hosted module instance's `ready` field (read by an operator, the console, and HealthReconciler) to reflect its own declared readiness probe's real, current answer, so a readiness probe that never passes is never reported ready:true forever just because the module reached ACTIVE.
+- **Status**: Fixed (M19). WorkerRuntime#onActive genuinely wires up and ticks a declared readiness probe (ProbeLoop, see GIMLE-088) and reacts to its result via onReadinessResult -- but that result only ever updated this worker's own in-JVM ServiceRegistry (which entries are eligible for a same-worker service lookup), never anything the agent could see. AgentMain#observationJson derived the externally-reported `ready` field purely from `lifecycleState == "ACTIVE"`, so once a module reached ACTIVE it read ready:true forever regardless of what its readiness probe actually answered on every subsequent tick. The wire message this needed, ControlMessage.HealthReport(id, alive, ready), already existed with full codec support but was never constructed by any production code and never handled by AgentMain#readLoop. WorkerRuntime#onReadinessResult now reports through a new HealthReportSink on every tick; WorkerMain wires it to relay a real HealthReport up the worker's own control channel; AgentMain#readLoop applies it to a new SupervisedInstance#readinessReported field (reset to empty on every ModuleStateChanged, so a stale reading from a previous ACTIVE window never survives a restart); observationJson now reports that reading when present, falling back to the original ACTIVE-derived default only when no readiness probe has reported yet (none declared, or none has ticked since the last transition) -- the same fallback this field always used before HealthReport existed.
+- **Confidence**: High
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerRuntime.java` (`onReadinessResult`, `HealthReportSink`), `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`buildControllerAndRuntime`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`readLoop`, `observationJson`), `gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`), `gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)
+- **Test coverage**: `WorkerRuntimeTest#a_readiness_result_is_reported_through_the_health_report_sink` (a real readiness probe's pass/fail/pass cycle is observed through the sink, and alive is always reported true from this path); `AgentHealthReportTest#a_health_report_of_not_ready_overrides_the_active_derived_default`, `#a_module_state_change_clears_a_stale_readiness_reading_from_before_it` (both drive a real `ControlChannelServer`/`WorkerConnection` pair with hand-sent wire messages, no worker subprocess needed since the fix is entirely in message handling).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a hosted module declares a readiness probe that never passes
+  When the module reaches ACTIVE and its probe loop ticks
+  Then the instance's reported ready field reflects the probe's real false answer, not just ACTIVE
+  Given a module restarts
+  Then a readiness reading from the previous ACTIVE window is cleared, not carried into the new one
   ```
 
 ### gimle-mimir
@@ -4995,6 +5092,22 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And the transition counter increments for the state entered
   ```
 
+#### GIMLE-797 — A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice
+
+- **Category**: Service Fabric
+- **User story**: As a caller of a cross-worker fabric service, I want a redeployed or rolled-back provider's old instance to stop being a routing candidate the moment it is actually gone, so a rolling update or rollback of the same deployment doesn't produce real failed calls against a torn-down worker, over and over, on every redeploy.
+- **Status**: Fixed. `ServiceCatalog#localUnregister`/`evictWorker` already existed and correctly tombstone a disposed instance's endpoint the moment either runs -- verified directly: a register/unregister/register-again sequence, repeated across four successive redeploys, never leaves a stale candidate behind. The actual gap was in *when* that removal ran relative to when the owning worker's process was allowed to be killed. `WorkerMain#handleLifecycleEvent` sent this event's own `ControlMessage.ModuleStateChanged("UNINSTALLED")` -- the exact message `AgentMain#awaitGracefulUninstall` treats as its signal that a worker is now safe to force-kill -- *before* `WorkerRuntime#onUninstalled` ran (reached via `runtimeRef.get().onLifecycleEvent`), which is what actually calls `ServiceRegistry#remove`/`FabricServiceRegistry#remove` and sends the resulting `ControlMessage.ServiceUnregistered` the agent relays into its own `ServiceCatalog` and gossips onward. A rolling update or rollback of the same deployment could therefore have its old worker force-killed -- tearing down the very control channel `ServiceUnregistered` travels over -- before that notification was ever sent or read, leaving every cluster member's catalog believing the torn-down instance's endpoint was still live until its circuit breaker eventually noticed on its own, more of them each successive redeploy: exactly the compounding failure Forseti finding M2 reported. `WorkerMain#handleUninstalled` now runs the unregister and sends `ServiceUnregistered` strictly before `ModuleStateChanged("UNINSTALLED")`, over that same connection, so the agent -- and everything it gossips onward -- learns of the removal no later than it learns it may kill the worker. `AgentMain#stopInstance` also gained a fallback for the timeout case: `awaitGracefulUninstall` now reports whether the worker actually confirmed in time, and if it didn't, the agent calls `ServiceCatalog#evictWorker` itself before force-killing it -- the same backstop an unexpected worker crash already gets via `onWorkerCrash`.
+- **Confidence**: High
+- **Source location(s)**: `gimle-worker/src/main/java/com/gimle/worker/WorkerMain.java` (`handleLifecycleEvent`, `handleUninstalled`), `gimle-agent/src/main/java/com/gimle/agent/AgentMain.java` (`stopInstance`, `awaitGracefulUninstall`), `gimle-fabric/src/main/java/com/gimle/fabric/catalog/ServiceCatalog.java` (`localUnregister`, `evictWorker`)
+- **Test coverage**: `ServiceCatalogTest#a_redeploy_leaves_only_the_replacement_instances_endpoint`, `#repeated_redeploys_never_accumulate_stale_endpoints` (four successive redeploys, each generation leaving only its own endpoint as a candidate); `FabricServiceRegistryTest#redeploying_a_service_drops_the_disposed_instances_endpoint_from_every_later_lookup`, `#repeated_redeploys_of_the_same_deployment_never_accumulate_stale_candidates`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a service-exporting instance registered in the fabric catalog
+  When it is disposed (unregistered) and a replacement instance registers under a new worker/module identity
+  Then the registry's own candidate list for that service contains only the replacement's endpoint, never the disposed one
+  And repeating this redeploy four times in a row never leaves more than one live candidate behind
+  ```
+
 ### gimle-controlplane
 
 #### GIMLE-211 — First-fit-decreasing bin-packing scheduler
@@ -6281,10 +6394,10 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 - **Category**: Observability
 - **User story**: As a cluster operator, I want to declare a threshold on a deployment's request rate, error rate, queue depth, CPU, or memory usage and be notified via webhook when it's crossed (and again when it resolves), so I don't have to poll the Metrics screen to catch a degraded workload.
-- **Status**: Fixed: closes FUNC-27 -- previously no alerting/notification primitive existed anywhere in the platform; gimle-muninn was a purely passive metrics/logs/traces store with no threshold-evaluation or outbound-notification concept. Added AlertRuleSpec (gimle-mimir manifest: name, optional tenantId, deploymentName, one of five Metric signals matching AutoscalePolicy's own signal set, a GREATER_THAN/LESS_THAN Comparator, threshold, webhookUrl, enabled), Raft-replicated the same way ServiceSpec/NetworkPolicySpec are (StateMutation.PutAlertRule/RemoveAlertRule, StateStore accessors, full StoreRpc/StoreCodec read-path plumbing so a rule created against one control-plane replica is visible on every other). AlertReconciler runs on the same level-triggered reconcile tick as every other reconciler, averaging each enabled rule's configured signal across its deployment's current InstanceObservations (the identical aggregation ApiServer#handleMetrics already uses for the console's own Metrics screen) and calling AlertNotifier#notify exactly once per FIRING/RESOLVED transition -- never re-notifying every tick a condition merely continues to hold, and pruning a deleted rule's tracked firing state so it doesn't accumulate forever. WebhookAlertNotifier POSTs a small JSON body and is best-effort (an unreachable webhook is logged and dropped, never fails the reconcile tick). ApiServer exposes POST/GET/DELETE /alertrules*, RBAC-gated via the new ResourceKind.ALERT_RULE (tenant view/edit templates include it); gimle-cli gained `get/set/delete alertrule`.
+- **Status**: Fixed: closes FUNC-27 -- previously no alerting/notification primitive existed anywhere in the platform; gimle-muninn was a purely passive metrics/logs/traces store with no threshold-evaluation or outbound-notification concept. Added AlertRuleSpec (gimle-mimir manifest: name, optional tenantId, deploymentName, one of five Metric signals matching AutoscalePolicy's own signal set, a GREATER_THAN/LESS_THAN Comparator, threshold, webhookUrl, enabled), Raft-replicated the same way ServiceSpec/NetworkPolicySpec are (StateMutation.PutAlertRule/RemoveAlertRule, StateStore accessors, full StoreRpc/StoreCodec read-path plumbing so a rule created against one control-plane replica is visible on every other). AlertReconciler runs on the same level-triggered reconcile tick as every other reconciler, averaging each enabled rule's configured signal across its deployment's current InstanceObservations (the identical aggregation ApiServer#handleMetrics already uses for the console's own Metrics screen) and calling AlertNotifier#notify exactly once per FIRING/RESOLVED transition -- never re-notifying every tick a condition merely continues to hold. Whether a rule is currently firing is itself now durable, Raft-replicated state (StateMutation.PutAlertFiringState, StateStore#putAlertFiringState/getAlertFiringState) rather than a field kept purely in the reconciler's own process, closing the gap where two control-plane replicas could disagree and a restart silently reset every rule to "not firing"; deleting an AlertRule cascades to clear its durable firing verdict (StateStore#removeAlertRule), so a same-named rule created afterward starts from "never evaluated" rather than inheriting a stale transition. GET /alertrules/{name}/firing (GIMLE-790) serves the verdict, previously nothing did. WebhookAlertNotifier POSTs a small JSON body and is best-effort (an unreachable webhook is logged and dropped, never fails the reconcile tick). ApiServer exposes POST/GET/DELETE /alertrules*, RBAC-gated via the new ResourceKind.ALERT_RULE (tenant view/edit templates include it); gimle-cli gained `get/set/delete alertrule`.
 - **Confidence**: High
-- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/AlertRuleSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutAlertRule`, `RemoveAlertRule`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StoreReader.java` (`*AlertRule*`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java` (`*AlertRule*`), `gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertRuleRegistry.java`, `AlertReconciler.java`, `AlertNotifier.java`, `AlertNotification.java`, `WebhookAlertNotifier.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/alertrules*` handlers), `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (reconcile-tick wiring), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java`, `BuiltinRoles.java` (`ALERT_RULE`), `gimle-cli/src/main/java/com/gimle/cli/AlertRulesCommand.java`
-- **Test coverage**: AlertRuleSpecTest covers constructor validation and the GREATER_THAN/LESS_THAN crossing predicate. AlertReconcilerTest (real StateStore, no mocks) proves: fires once on crossing, never re-fires while still crossed, resolves exactly once when the reading returns to safe, a disabled rule never fires, an unobserved instance contributes nothing to the average (never drags it toward zero), and a deleted rule's tracked firing state is pruned rather than leaking forever. ApiServerAlertRulesTest covers POST/GET/DELETE/list round-tripping, the enabled flag, 400s on a missing name or blank webhookUrl, replace-on-repost, and cross-replica visibility through one shared store (mirroring ApiServerNetworkPoliciesTest's own proof). RaftCodecTest and StoreCodecTest gained round-trip coverage for the new StateMutation/StoreRpc/StateSnapshot wire shapes.
+- **Source location(s)**: `gimle-mimir/src/main/java/com/gimle/mimir/manifest/AlertRuleSpec.java`, `gimle-mimir/src/main/java/com/gimle/mimir/raft/StateMutation.java` (`PutAlertRule`, `RemoveAlertRule`, `PutAlertFiringState`), `gimle-mimir/src/main/java/com/gimle/mimir/store/StateStore.java`, `StoreReader.java` (`*AlertRule*`, `*AlertFiringState*`), `gimle-mimir/src/main/java/com/gimle/mimir/rpc/StoreRpc.java`, `StoreNode.java`, `StoreClient.java`, `StoreCodec.java` (`*AlertRule*`, `*AlertFiringState*`), `gimle-controlplane/src/main/java/com/gimle/controlplane/alert/AlertRuleRegistry.java`, `AlertReconciler.java`, `AlertNotifier.java`, `AlertNotification.java`, `WebhookAlertNotifier.java`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`/alertrules*` handlers), `gimle-controlplane/src/main/java/com/gimle/controlplane/ControlPlaneMain.java` (reconcile-tick wiring), `gimle-core/src/main/java/com/gimle/core/authz/ResourceKind.java`, `BuiltinRoles.java` (`ALERT_RULE`), `gimle-cli/src/main/java/com/gimle/cli/AlertRulesCommand.java`
+- **Test coverage**: AlertRuleSpecTest covers constructor validation and the GREATER_THAN/LESS_THAN crossing predicate. AlertReconcilerTest (real StateStore, no mocks) proves: fires once on crossing, never re-fires while still crossed, resolves exactly once when the reading returns to safe, a disabled rule never fires, an unobserved instance contributes nothing to the average (never drags it toward zero), and a deleted rule's durable firing state is cleared rather than leaking forever, an arbitrary starting store with no prior firing history is treated as not-yet-firing, and a freshly instantiated AlertReconciler over the same durable store (standing in for a control-plane restart or failover) reads the already-firing verdict back rather than re-notifying. ApiServerAlertRulesTest covers POST/GET/DELETE/list round-tripping, the enabled flag, 400s on a missing name or blank webhookUrl, replace-on-repost, and cross-replica visibility through one shared store (mirroring ApiServerNetworkPoliciesTest's own proof). RaftCodecTest and StoreCodecTest gained round-trip coverage for the new StateMutation/StoreRpc/StateSnapshot wire shapes. StateStoreTest covers putAlertFiringState/getAlertFiringState round-tripping (absent, true, false), the removeAlertRule cascade, and snapshot round-trip. RaftCodecTest and StoreCodecTest gained round-trip coverage for the new PutAlertFiringState mutation and GetAlertFiringState/AlertFiringStateResult wire shapes.
 - **Gherkin scenario**:
   ```gherkin
   Given an enabled AlertRule on deployment 'checkout-service' with metric=ERROR_RATE_PER_SECOND, comparator=GREATER_THAN, threshold=5.0; When the deployment's averaged observed error rate rises to 8.0 on a reconcile tick; Then exactly one FIRING webhook notification is sent.
@@ -6484,20 +6597,24 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And an untenanted deployment named `api` is a third, distinct row carrying a null tenant
   ```
 
-#### GIMLE-776 — A tenant-scoped Service resolves its endpoints from a bare name, so gateway SERVICE routes and Skald DNS stop silently answering nothing
+#### GIMLE-776 — A tenant-scoped Service resolves its endpoints, and its own GET/DELETE, from a bare name, so gateway SERVICE routes, Skald DNS, and ordinary CRUD stop silently answering nothing
 
 - **Category**: Networking / Services
-- **User story**: As an operator declaring a Service for a tenant, I want the gateway to proxy to it and Skald to resolve its DNS name, rather than both silently behaving as though the Service does not exist.
-- **Status**: Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as "raced to deletion" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN.
+- **User story**: As an operator declaring a Service for a tenant, I want the gateway to proxy to it, Skald to resolve its DNS name, and gimle delete/get service to actually address it by its bare name, rather than any of the three silently behaving as though the Service does not exist.
+- **Status**: Fixed. `GET /services/{name}/endpoints` required a `?tenant=` the callers that need it most could not supply, while its sibling `GET /endpoints/{name}` had resolved a bare workload name to its own tenant all along. Both of the gateway's endpoint caches address their target by bare name -- `VesselEndpointCache` through `/endpoints/{name}`, `ServiceEndpointCache` through this route -- so the two behaved differently for the same spelling: every tenant-scoped Service a `SERVICE` route named answered 404, and the gateway returned 502 for that route. Skald had a second, independent instance of the same defect: `ServiceCatalogClient.fetchEndpoints` took a bare name even though `listServices` had just read each Service's `tenantId` to build its own qualified DNS name, and the resulting 404 was swallowed as "raced to deletion" -- so a whole zone answered NXDOMAIN with nothing logged, no metric moved and no staleness raised. Both halves are fixed: `resolveTenantForServiceName` stands in for a hint nobody gave (an explicit `?tenant=` still wins), and `fetchEndpoints` now takes the whole `ServiceListing` so the tenant Skald already knew rides the read. Found by deploying a real cluster, not by inspection: a tenant-scoped Service showed 2 live endpoints in the console while `dig` against the live responder answered NXDOMAIN. A third, more severe instance of the identical defect was found in the plain `GET`/`DELETE /services/{name}` branch itself (not just its `/endpoints` sub-route): with no explicit `?tenant=`, `DELETE` resolved the same empty tenant hint and removed the untenanted key nothing was ever stored under -- a silent no-op that still answered 200, confirmed at Fleet scale on 11 different Services across both control-plane replicas while Deployment/DaemonSet/NetworkPolicy deletes in the same session all worked correctly. `GET` had the same read-side bug, less visible since a caller more often supplied an explicit `?tenant=` for reads than for a delete. `handleService`'s GET/DELETE branch now shares the same `declaredOrExistingTenant`-backed fallback the `/endpoints` sub-route already had. A fourth, independent instance of the same class of defect was found and fixed: ServiceEndpointResolver.resolve only ever consulted store.listAssignmentsFor, Deployment-kind bookkeeping alone -- a Service fronting a DaemonSet or StatefulSet workload never resolved any endpoints at all, even with every replica genuinely ACTIVE/ready and reporting a port matching the Service's own targetPort, indistinguishable from "no live backing instance yet." The resolver now tries all three placeable kinds a Service may front (Deployment, StatefulSet, DaemonSet) via a shared, kind-erased Candidate shape, the same cross-kind join /endpoints/{name} and handleAppendInstanceEvent already established elsewhere.
 - **Confidence**: High
-- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolveTenantForServiceName`, `handleService`), `gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`
-- **Test coverage**: ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint.
+- **Source location(s)**: `ApiServer#declaredOrExistingTenant`, `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`resolveTenantForServiceName`, `handleService`), `gimle-controlplane/src/main/java/com/gimle/controlplane/service/ServiceEndpointResolver.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/ControlPlaneServicePoller.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/HttpServiceCatalogClient.java`, `gimle-skald/src/main/java/com/gimle/skald/directory/ServiceCatalogClient.java`
+- **Test coverage**: ApiServerServicesTest gained a_tenant_scoped_service_resolves_its_endpoints_from_the_bare_name and an_explicit_tenant_still_decides_which_service_is_addressed (the latter pinning that a declared tenant still wins and a wrong one still 404s). HttpServiceCatalogClientTest gained the_listings_own_tenant_rides_the_endpoints_read and an_untenanted_service_asks_for_no_tenant_at_all, asserting on the query string the stub actually received. Verified end to end on a real cluster: the bare-name endpoints read went 404 -> 200, a gateway SERVICE route went 502 -> 200 serving its backend's own body, and the Skald responder went NXDOMAIN -> NOERROR with a real A record, with NODATA still distinct for a Service that has no live endpoint. `ApiServerServicesTest` also gained `delete_removes_a_tenant_scoped_service_addressed_by_its_bare_name`, asserting both that a bare-name GET already resolves a tenant-scoped Service and that DELETE actually removes it (confirmed absent from both a follow-up GET and the collection listing), not merely that the HTTP response claims success. `ServiceReconcilerTest#a_service_fronting_a_daemonset_resolves_its_endpoints` and `#a_service_fronting_a_statefulset_resolves_its_endpoints` cover the two previously-unresolved kinds directly.
 - **Gherkin scenario**:
   ```gherkin
   Given a Service declared for tenant `acme` with live backing instances
   When the gateway proxies a SERVICE route naming it, and a resolver queries its `svc.gimle.local` name
   Then the route is served from a live endpoint instead of answering 502
   And the DNS query answers NOERROR with that endpoint's address instead of NXDOMAIN
+  Given a Service declared for tenant `acme` with no explicit ?tenant= on the delete request
+  When DELETE /services/{name} is called
+  Then the real tenant-scoped Service is removed -- confirmed gone from a follow-up GET and the collection listing -- not silently no-op against a key nothing was ever stored under
+  Given a Service fronting a DaemonSet (or StatefulSet) workload with every replica ACTIVE/ready and reporting a port matching the Service's own targetPort; When its endpoints are resolved; Then the live endpoints are returned, not an empty array.
   ```
 
 #### GIMLE-777 — A control plane advertises only the console addons its `consoleAddons` property names, validated at startup against the console's own bundled catalog
@@ -6624,6 +6741,38 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given an AlertRule that AlertReconciler has observed crossing its threshold; When an operator reads GET /alertrules/{name}/firing; Then the response is 200 with known=true and firing=true, on every control-plane replica that answers.
   Given a control-plane replica restarts (or a different replica answers) after a rule was already firing; When that replica's own AlertReconciler next ticks; Then it reads the durable verdict and does not re-send a FIRING notification for the same ongoing incident.
   Given a caller with no grant for ResourceKind.ALERT_RULE; When it requests GET /alertrules/{name}/firing over mTLS; Then the response is 403.
+  ```
+
+#### GIMLE-792 — ApiServer admits requests under a bounded concurrency budget, with a reserved lane for node-agent traffic
+
+- **Category**: Control plane / API server
+- **User story**: As a platform operator, I want a flood of ordinary API traffic to be turned away with fast 429s once past a concurrency budget, and a node agent's own heartbeat/assignment traffic to keep succeeding regardless, so a flood on one read route cannot exhaust the process and cascade into the control plane mistaking a live node for a dead one.
+- **Status**: Fixed: closes Forseti finding M1. ApiServer's HttpServer/HttpsServer ran every route on Executors.newVirtualThreadPerTaskExecutor() with no admission control in front of it -- RequestRateLimiter (csrAddressRateLimiter/csrClusterRateLimiter) and LoginThrottle only ever governed acceptance rate on /bootstrap/csr and /auth/login specifically, so a large concurrent flood against any other route (GET /deployments in the reported incident) was accepted and dispatched without limit until raw thread/connection volume exhausted the JVM, well before any 429 path was ever reached. A large enough flood then starved the node agent's own /nodes/{nodeId}/heartbeat calls sharing the same unbounded executor, which the control plane read as the node having gone dark, triggering a mass rescheduling of that node's instances. Added ConcurrencyLimiter (gimle-core, a non-blocking Semaphore-backed admission gate distinct from RequestRateLimiter's time-based budget) and wired two independent instances into ApiServer#instrument, which now runs admission control before any handler work begins: generalAdmission (default 200 concurrent, gimle.controlplane.admission.maxConcurrentRequests) gates every ordinary route, and a separate nodeAdmission (default 64 concurrent, gimle.controlplane.admission.maxConcurrentNodeRequests) gates only the "nodes" endpoint -- register/heartbeat/assignments/cordon/taint/events under /nodes/{nodeId}/... -- so a flood that fully saturates the general lane can never leave the node lane with nothing to acquire. A caller finding no permit free gets an immediate 429 with Retry-After, never dispatched to the delegate at all.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/throttle/ConcurrencyLimiter.java` (new), `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`generalAdmission`, `nodeAdmission`, `instrument`, `ADMISSION_GENERAL_LIMIT_PROPERTY`, `ADMISSION_NODE_LIMIT_PROPERTY`)
+- **Test coverage**: ConcurrencyLimiterTest (6): admits exactly up to the limit then refuses, a released slot is reacquired, inFlight() tracking, a refusal claims no slot, non-positive limit rejected, and exactly the configured limit admitted under 100 racing virtual threads holding their slots open. ApiServerAdmissionControlTest drives a real 400-request concurrent flood against a real ApiServer's GET /deployments with the general admission budget set to 4, asserting every response is a definite 200 or 429 (never a hang/timeout) with at least one real rejection, while a concurrent node-heartbeat hammer running for the flood's full duration gets 200 on every single call.
+- **Gherkin scenario**:
+  ```gherkin
+  Given the control plane's general admission budget is set to a small number
+  When a concurrent flood of ordinary API requests well past that budget arrives
+  Then every request resolves to a fast 200 or 429, never a hang or timeout, and at least one request is rejected
+  Given the same flood is saturating the general admission lane
+  When a node agent concurrently sends its own heartbeat requests
+  Then every heartbeat request still succeeds, because it draws from its own reserved admission lane
+  ```
+
+#### GIMLE-796 — Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging
+
+- **Category**: Observability
+- **User story**: As an operator running `gimle logs ... --follow` against a node or instance whose supervising agent is down, I want a clear, fast failure or a real fallback, not an indefinitely open, silent connection.
+- **Status**: Fixed. `proxyFollowToAgent` committed to a chunked 200 response (`exchange.sendResponseHeaders`) before ever attempting the connection to the agent; a stopped agent's connection failure was only discovered afterward, inside the async byte-consumer callback, and only logged at DEBUG -- the caller was left holding an open, silent connection with no way to tell a genuinely hung follow from a healthy, quiet one, and (since headers were already committed) no way to downgrade to a Muninn fallback or a real error at that point. `proxyToAgent`'s own `follow=true` branch now runs a bounded (5s, matching `agentHttpClient`'s own `connectTimeout`) plain TCP connect probe (`isAgentReachable`) against the agent's advertised address *before* committing to anything: an unreachable agent now falls back to Muninn when one is configured, or fails fast with a 502 naming the reason ("agent ... unreachable, cannot follow live logs") when none is, rather than ever opening the hanging connection.
+- **Confidence**: High
+- **Source location(s)**: `gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`isAgentReachable`, `proxyToAgent`)
+- **Test coverage**: `ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging` and `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured`, both `@Timeout(15)`-bounded so "must not hang" is an enforced fact of the test, not just a hope.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a node registered with an advertised log-server address nothing is actually listening on; When GET /logs/instances/{name}/{idx}?follow=true is requested with Muninn configured; Then the response falls back to Muninn's own shipped history within seconds, not indefinitely.
+  Given the identical setup with no Muninn configured; When the same follow request is made; Then the response is a fast 502 naming the agent as unreachable, never an indefinitely open connection.
   ```
 
 ### gimle-fafnir
@@ -8386,6 +8535,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then it observes a fully applied route table rather than partial state
   ```
 
+#### GIMLE-799 — Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart
+
+- **Category**: Transport Security
+- **User story**: As a platform operator updating a running TLS-terminating gateway's gateway.tlsCertificates config (adding, changing, or removing a virtual host's certificate binding), I want every already-running gateway instance to pick up the change on its own, the same way a gateway.routes change already does, so a DaemonSet-deployed fleet of gateway instances doesn't keep presenting a stale or missing per-host certificate to callers until whichever instances happen to restart next.
+- **Status**: Fixed. GatewayHooks#onStart parsed gateway.tlsCertificates exactly once and baked it into a fixed SniKeyManager built at HttpsServer construction time, with no listener, poll, or re-parse anywhere afterward -- unlike gateway.routes, which already gained a background reload (GIMLE-679). The gap was real, not merely a documented v1 limitation: SNI certificate selection already runs fresh on every new TLS handshake (see SniKeyManager#chooseServerAlias), so swapping which certificate a hostname resolves to was never actually a rebind the way changing gateway.port is -- there was nothing about an already-bound listener that needed to change, only a missing reload path to trigger the swap. Fixed by making the per-hostname binding set mutable in place: SniKeyManager now holds its alias map behind a volatile reference with a package-private updateHostBindings method, SslContexts.forMutualTls(TlsSettings, List<HostCertificate>) returns a new ReloadableSniContext (wrapping the built SSLContext together with the means to reload its bindings) instead of a bare SSLContext, and is now always built on a SniKeyManager -- even when the starting per-host list is empty -- rather than delegating to the plain KeyManagerFactory path for that case, since an empty starting set still needs to be able to gain bindings later. GatewayHooks#reloadTlsCertificatesIfChanged runs on the exact same background reload tick gateway.routes already reloads on: it re-reads gateway.tlsCertificates, and if it differs from what was last applied, calls ReloadableSniContext#reloadHostCertificates with the freshly parsed binding list -- no HttpsServer rebind, no new HttpsConfigurator, no new listener socket. A malformed update, or one naming unreadable certificate material, is rejected and logged the same way a malformed gateway.routes update already is, keeping whichever bindings are already selecting traffic.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java` (`updateHostBindings`), `gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java` (`forMutualTls(TlsSettings, List<HostCertificate>)`, `ReloadableSniContext`), `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`reloadTlsCertificatesIfChanged`, `createHttpServer`, `BoundServer`)
+- **Test coverage**: `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart` (a hostname gains a binding on a live instance and the very next handshake to it presents the new certificate, with the pre-existing binding still serving correctly across the swap), `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`; every pre-existing GatewayHooksTlsTest case re-verified passing unchanged.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged.
+  Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged.
+  ```
+
 ### gimle-cli
 
 #### GIMLE-371 — Deployment resource management (get/apply/delete)
@@ -8957,7 +9120,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And running the same command with no --tenant addresses the untenanted namespace, never either of them
   ```
 
-#### GIMLE-791 — CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider
+#### GIMLE-805 — CliExtension seam dispatches an unrecognized verb to a ServiceLoader-discovered provider
 
 - **Category**: CLI
 - **User story**: As a platform developer, I want to add a CLI verb from a separate module without gimle-cli depending on it, so that the whole feature is one directory and one reactor entry that can be removed again.
@@ -8973,7 +9136,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And `gimle top -h` prints that verb's own usage rather than the full verb listing
   ```
 
-#### GIMLE-792 — An extension is handed a read-only view of the control-plane API, never the client
+#### GIMLE-806 — An extension is handed a read-only view of the control-plane API, never the client
 
 - **Category**: CLI / Security
 - **User story**: As an operator, I want a contributed CLI verb to be unable to change cluster state, so that a tool added for visibility can never be implicated in a state-changing bug.
@@ -10410,6 +10573,48 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then the sidebar carries no Applications entry and its route explains which property would enable it
   ```
 
+#### GIMLE-801 — The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator submitting a deployment the control plane rejects (e.g. naming a module Andvari has no coordinate for), I want the rejection reason to stay visible on the page, so a toast I glance away from for a moment doesn't leave the failure looking identical to nothing having happened.
+- **Status**: Fixed defensively. The New Deployment form's submit handler already called `notifyApiError` on a rejected `create()` -- reproduced directly against `HttpDeploymentsRepository#create`, which correctly rejects with the control plane's own `ApiError` (status and body text intact) for a 400 admission refusal such as a moduleId Andvari has no coordinate for, and `useDeploymentsStore#create` propagates that rejection to its caller unchanged rather than absorbing it into `store.error` the way its other methods do. The only trace of that failure was therefore a single toast, which auto-dismisses on its own timer and is easy to miss entirely -- leaving the form looking exactly as submitted, as though nothing happened, once that timer has elapsed. The form now also keeps a persistent inline error banner (the same border-l-2/bg-status-bad-bg style `login.tsx` already uses for its own sign-in error) that stays on the page, cleared only by the next submit attempt, so the control plane's real rejection reason survives past a toast nobody happened to be looking at.
+- **Confidence**: Medium
+- **Source location(s)**: `gimle-console/src/routes/deployments.new.tsx` (`submit`, inline error banner), `gimle-console/src/repositories/http/deployments.ts` (`HttpDeploymentsRepository#create`), `gimle-console/src/stores/useDeploymentsStore.ts` (`create`)
+- **Test coverage**: `repositories/http/deployments.test.ts` gained create()_rejects_with_the_control_plane's_own_reason_when_the_PUT_itself_is_denied (asserting the exact status/body reach the caller, and that a denied PUT never triggers a follow-up GET) and create()'s_rejection_is_a_real_ApiError,_not_a_generic_Error,_so_callers_can_inspect_status. `stores/useDeploymentsStore.test.ts` gained create_rejects_with_the_repository's_own_error_instead_of_swallowing_it_into_store.error and a_successful_create_prepends_the_new_deployment_to_the_store's_items, pinning that `create` deliberately does not catch-and-absorb the way `loadFirstPage`/`poll`/`rollback` do.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away.
+  Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner.
+  ```
+
+#### GIMLE-802 — Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator creating a Service the control plane accepts but flags with an overlap/advisory warning, I want the console to show me that warning the same way gimle-cli already does, rather than a bare success toast that reads identically to a fully clean save.
+- **Status**: Fixed. `ApiServer`'s `POST /services` handler attaches each `ServiceAdvisories` warning (a same-tenant deployment overlap, or an unreported target port) as its own `X-Gimle-Warning` response header on an otherwise-200 response whose body is the literal string "ok" -- the exact header `gimle-cli`'s own `ManifestFiles#printWarnings` already reads and prints verbatim. The console's `HttpServicesRepository#save` read the body but never that header, so the identical overlap the CLI prints showed only a bare "Service saved" toast in the console -- confirmed via network capture that the control plane does send the warning. A new `apiClient.ts` primitive, `requestOkWithWarning` (alongside the existing `requestOk`/`requestJson`), returns the header's value or `null`; `ServicesRepository#save`'s return type changed from `Promise<void>` to `Promise<string | null>` and is threaded through `useServicesStore#save` to the Networking screen's own submit handler, which now shows the warning as its own `toast.warning` alongside -- not instead of -- the existing success toast.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/repositories/http/apiClient.ts` (`requestOkWithWarning`), `gimle-console/src/repositories/http/services.ts` (`HttpServicesRepository#save`), `gimle-console/src/repositories/services.ts` (`ServicesRepository#save`, `MockServicesRepository#save`), `gimle-console/src/stores/useServicesStore.ts` (`save`), `gimle-console/src/routes/networking.tsx` (`ServicesTab#submit`)
+- **Test coverage**: `repositories/http/apiClient.test.ts` gained a `requestOkWithWarning` describe block (null when absent, the header's value when present, still throws ApiError on a non-2xx response). `repositories/http/services.test.ts` gained save_returns_the_control_plane's_X-Gimle-Warning_header,_not_just_the_bare_'ok'_body and save_resolves_to_null_when_the_control_plane_attaches_no_warning. `repositories/services.test.ts` (mock) gained a test pinning the mock returns null (no overlap-advisory computation of its own). A new `stores/useServicesStore.test.ts` covers the warning reaching the caller, resolving to null when none is attached, and a repository rejection not being swallowed into `store.error`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare "saved" message.
+  Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears.
+  ```
+
+#### GIMLE-803 — Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator reading the Topology screen's per-replica badges, I want each badge's "instance N" label to name the real instance it represents, so I can trust which replica index actually sits on which node instead of a label that silently swaps whenever the control plane returns instances out of ascending-index order.
+- **Status**: Fixed. `ReplicaGrid` (the Topology screen's per-deployment row of placement squares) labeled and highlighted each badge by its position `i` in `d.instances`, not `d.instances[i].instanceIndex` -- correct only when the control plane happens to return instances already sorted by ascending index. Confirmed against a real 3-replica deployment whose instances array arrived in descending order (indices 2, 1, 0 for agent-2/agent-1/agent-edge respectively): the console mislabeled instance 0 as agent-edge and instance 2 as agent-2 -- indices 0 and 2 swapped -- while index 1 (the one entry whose array position happened to coincidentally match its own instanceIndex) rendered correctly, reproduced identically in both the "by tenant" and "by node" groupings. The badge-slot computation is now a pure, tested function (`replicaBadgeSlots`, `gimle-console/src/lib/topology.ts`) that sorts a copy of the instances by their own `instanceIndex` before building the badge list and pads trailing `null` slots for any replica the manifest asks for but nothing has placed yet, so a badge's label and its node-hover-highlight behavior always describe the instance actually rendered at that position regardless of the API's own array order. `topology-drawer.tsx`'s own instance rows already read `instanceIndex` correctly and needed no change.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/lib/topology.ts` (`replicaBadgeSlots`), `gimle-console/src/routes/topology.tsx` (`ReplicaGrid`)
+- **Test coverage**: `lib/topology.test.ts` (new): orders_slots_by_each_instance's_own_instanceIndex,_not_the_array's_arrival_order (reproduces the exact reported case -- three instances at indices 0/1/2 returned as 2, 1, 0), already-ordered_input_stays_in_the_same_order, pads_trailing_null_slots_for_replicas_the_manifest_asks_for_but_nothing_has_placed_yet, and never_truncates_below_the_placed_count_even_if_replicas_somehow_reports_fewer.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array.
+  Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance.
+  ```
+
 ### gimle-fafnir-console
 
 #### GIMLE-461 — Vault operator login/logout (session-cookie auth)
@@ -10595,6 +10800,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given I click the copy button next to the repository URL, When the click completes, Then the value is written to the clipboard.
+  ```
+
+#### GIMLE-804 — Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one
+
+- **Category**: Web Console / Frontend
+- **User story**: As a registry operator pushing a module jar through Andvari's console, I want the dialog to read the coordinate the jar itself declares and store it under that coordinate, so a typo or a copy-paste mistake in the moduleId/version fields can never land the jar under a coordinate that doesn't match what's actually inside it.
+- **Status**: Fixed (M22). PushArtifactDialog let an operator type any moduleId/version and pushed the selected jar under exactly that typed coordinate with zero cross-check against the jar's own descriptor -- upload succeeded silently, no warning, no diff shown, and the mismatched artifact lingered in the catalog until manually deleted; the control plane's own deploy-time check (ModuleArtifactReader, worker-side) only ever caught the mismatch later, at deploy time, with a generic error far removed from the console step that actually caused it. Andvari itself stays a deliberately dumb, unparsing store (see gimle-andvari's own design), so the fix belongs client-side, mirroring the guarantee `gimle artifact push` already gives via `ModuleArtifactReader`: a new client-side ZIP reader (`src/lib/zip.ts`, a purpose-built central-directory walk supporting the `stored`/`deflate` methods any JDK-produced jar uses -- no zip library dependency for one entry) reads the picked jar's own `META-INF/gimle/gimle-module.yaml` (`src/lib/moduleDescriptor.ts`, reading just the `name`/`version` scalars, not a full descriptor parse) the moment a jar is selected or dropped. When a descriptor is found, moduleId/version are auto-filled from it and the fields are locked (`disabled`/`readOnly`) so the operator can no longer type a conflicting value; a vessel-style jar with no bundled descriptor leaves the fields exactly as freely editable as before, with a note explaining why.
+- **Confidence**: High
+- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`
+- **Test coverage**: `zip.test.ts` (reads a deflate-compressed entry, a stored/uncompressed entry, the right entry among several, null for a missing entry and for a non-ZIP file); `moduleDescriptor.test.ts` (derives moduleId/version from a real descriptor -- including the exact art2:2.0.0-vs-wrongname:9.9.9 finding scenario, quoted scalars, a trailing comment, null for a vessel jar and for a descriptor missing a field).
+- **Gherkin scenario**:
+  ```gherkin
+  Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed.
+  Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before.
   ```
 
 ### gimle-saga-console
@@ -11047,6 +11266,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given local-flag-cache-daemonset is already fully ACTIVE, When flag-consumer-deployment is deployed and its first FeatureFlagCache call races ahead of this node's own membership-propagation catch-up, Then the failure is logged at INFO with an explanation, not WARN.
   Given flag-consumer has already logged one successful FeatureFlagCache call, When a later call fails, Then that failure is logged at WARN, since a failure after a previous success is a genuine regression.
+  ```
+
+#### GIMLE-800 — A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve
+
+- **Category**: Networking/Service Discovery
+- **User story**: As a QA fleet or operator exercising the Service abstraction against a real cluster, I want at least one of the platform's bundled example modules to open a genuine listening port and call ctx.reportPort, so `gimle service endpoints` resolves a real live endpoint instead of staying empty for every workload Midgard ships.
+- **Status**: Fixed. GIMLE-571 shipped the reportPort mechanism itself, but none of Midgard's three bundled example modules (`hello-module`, `greeter-provider`, `greeter-consumer` -- see midgard.xml's own dependencySet) ever called it: `hello-module` is deliberately inert, and `greeter-provider`/`greeter-consumer` only ever communicated over the fabric, never opening a real TCP/HTTP listener of their own. A control-plane-declared Service fronts a plain TCP/HTTP endpoint, not a fabric interface call, so every Service created against a real Midgard-seeded cluster resolved zero endpoints regardless of replica count or whether targetPort was declared -- confirmed identically against two independently created Services (one with an explicit targetPort, one without) plus a third created by a different caller, and independently corroborated by gimle-bifrost's own real poll, which sees the same live replicas but the same total absence of any reported port. `GreeterProviderHooks.onStart` now also opens a real `com.sun.net.httpserver.HttpServer` on an ephemeral port (`GET /` answers this instance's own readiness state) and reports it via `ctx.reportPort("http", port)` -- an ephemeral port, not a fixed one, since more than one TIER_2 replica's dedicated worker JVM can still land on the same node, and a fixed port would make the second replica's bind fail outright. This is a real usage fix, not a mechanism change: ServiceEndpointResolver/InstanceObservation/MetricsReport are untouched.
+- **Confidence**: High
+- **Source location(s)**: `gimle-examples/greeter-provider/src/main/java/com/gimle/examples/greeter/provider/GreeterProviderHooks.java`, `gimle-examples/greeter-provider/src/main/java/module-info.java` (`requires jdk.httpserver`)
+- **Test coverage**: `gimle-smoke-tests`' `ServiceNetworkIT#a_declared_service_starts_a_real_bifrost_proxy_and_skald_answers_it_correctly` deploys the real, bundled `greeter-provider-deployment` (no test-only fixture), creates a real Service fronting it with no targetPort, and asserts `GET /services/{name}/endpoints` resolves exactly one live endpoint at greeter-provider's own real ephemeral port -- proving the fix through the finding's own reproduction path (`gimle service endpoints ...`) against a genuinely deployed bundled example, plus a real `SkaldMain` UDP query against that same Service now answers NOERROR with a live record instead of the NXDOMAIN a Service with no reported port could only ever produce before this fix.
+- **Gherkin scenario**:
+  ```gherkin
+  Given greeter-provider-deployment is deployed from its own bundled jar and reaches ACTIVE, When a Service is created fronting it with no targetPort declared, Then GET /services/{name}/endpoints resolves exactly one live endpoint at the real port GreeterProviderHooks opened and reported.
+  Given that same Service now has a live endpoint, When a real SkaldMain instance is queried for the Service's DNS name, Then it answers NOERROR with a real address instead of NXDOMAIN.
   ```
 
 ### gimle-smoke-tests
@@ -12016,7 +12249,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 
 ### gimle-hugin
 
-#### GIMLE-793 — `gimle top` renders a live, read-only cluster view of nodes and instances
+#### GIMLE-807 — `gimle top` renders a live, read-only cluster view of nodes and instances
 
 - **Category**: CLI UX
 - **User story**: As an operator watching a change settle, I want a live view of nodes and instances in my terminal, so that I stop re-running `gimle get nodes` and `gimle get deployments` by hand.
@@ -12031,7 +12264,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then both tables render live and refresh on a fixed interval without any further command
   ```
 
-#### GIMLE-794 — A failed poll keeps the last good rows and ages them rather than clearing the screen
+#### GIMLE-808 — A failed poll keeps the last good rows and ages them rather than clearing the screen
 
 - **Category**: CLI UX
 - **User story**: As an operator watching a cluster during a restart, I want the view to keep showing what it last knew when a poll fails, so that a transient outage does not blank the one screen I am watching.
@@ -12046,7 +12279,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then the last good rows stay on screen, aged, with the failure's reason on the status line
   ```
 
-#### GIMLE-795 — Instance drill-down with lifecycle timeline and a live log tail
+#### GIMLE-809 — Instance drill-down with lifecycle timeline and a live log tail
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to open one instance from the cluster view and see its state, its recent transitions and its live logs, so that I can find out why it did not settle without leaving the view.
@@ -12062,7 +12295,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   And its declared isolation tier and resource limit are shown, with a memory headroom gauge only where that limit is a per-instance ceiling
   ```
 
-#### GIMLE-796 — Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal
+#### GIMLE-810 — Keyboard interaction: selection, filter, pause, refresh, help, and quit restoring the terminal
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to move around the view with the keys I already use in k9s and top, so that nothing about the tool needs learning before it is useful.
@@ -12077,7 +12310,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then each key does what the help overlay says, and quitting restores the terminal
   ```
 
-#### GIMLE-797 — Terminal colour is the console's own tokens, degrading to 256-colour and to none
+#### GIMLE-811 — Terminal colour is the console's own tokens, degrading to 256-colour and to none
 
 - **Category**: CLI UX
 - **User story**: As an operator who uses both surfaces, I want a state to read the same colour in the terminal as in the web console, so that I am not learning two colour languages for one cluster.
@@ -12092,7 +12325,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then it emits the console's own token values at that depth, and nothing at all under NO_COLOR
   ```
 
-#### GIMLE-798 — The terminal view ships in the CLI archives and is removable in one directory delete
+#### GIMLE-812 — The terminal view ships in the CLI archives and is removable in one directory delete
 
 - **Category**: Distribution
 - **User story**: As a maintainer, I want the terminal view to be droppable without a migration, so that a tool built during stabilization never becomes something stabilization has to work around.
@@ -12107,7 +12340,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then `gimle top` resolves, and with them removed the verb is unknown again
   ```
 
-#### GIMLE-799 — The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange
+#### GIMLE-813 — The terminal view reports a workload short of replicas, over quota, or rejected by a LimitRange
 
 - **Category**: CLI UX
 - **User story**: As an operator watching a rollout, I want the view to tell me a workload is not running what I asked for, so that a shortfall is not represented on screen by nothing at all.
@@ -12122,7 +12355,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then a NOT SETTLED line names that workload and its shortfall, and the status line counts the unplaced replicas
   ```
 
-#### GIMLE-800 — DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments
+#### GIMLE-814 — DaemonSet and StatefulSet instances share the terminal view's instance table with Deployments
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want every long-running workload kind in one table, so that the live view is not silently blind to two thirds of what is running.
@@ -12137,7 +12370,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then all three kinds' instances appear in one table, each labelled with its own kind
   ```
 
-#### GIMLE-801 — A services screen showing each Service's live endpoint resolution
+#### GIMLE-815 — A services screen showing each Service's live endpoint resolution
 
 - **Category**: CLI UX
 - **User story**: As an operator wiring two teams' services together, I want to see which Services currently resolve to nothing, so that a Service fronting deployments that do not exist is visible rather than silently dead.
@@ -12152,7 +12385,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then that Service is listed as resolving to no endpoints, distinctly from one whose endpoints could not be read
   ```
 
-#### GIMLE-802 — An activity view of what has been done to the cluster, over the audit trail
+#### GIMLE-816 — An activity view of what has been done to the cluster, over the audit trail
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to see what has just been done to this cluster, so that a change someone else made is not something I have to infer from its effects.
@@ -12167,7 +12400,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then both decisions are listed newest first, the refusal reads as refused, and the count of refusals appears on the status line
   ```
 
-#### GIMLE-803 — The activity view reads three cluster records: authorization, lifecycle and alerts
+#### GIMLE-817 — The activity view reads three cluster records: authorization, lifecycle and alerts
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want the three records of what is going on in this cluster in one place, so that finding out why something changed does not mean guessing which surface holds the answer.
@@ -12182,7 +12415,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then each record is shown in turn, named as itself, with the rows worth finding counted on the status line
   ```
 
-#### GIMLE-804 — The terminal view browses every collection the control plane lists, including registered custom kinds
+#### GIMLE-818 — The terminal view browses every collection the control plane lists, including registered custom kinds
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to open any resource kind from the terminal view, so that reading a tenant, a role or a volume does not mean leaving the live view for a separate command.
@@ -12197,7 +12430,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then the tenants collection is shown with the columns that kind declares
   ```
 
-#### GIMLE-805 — The terminal view describes a selected resource as YAML without re-reading it
+#### GIMLE-819 — The terminal view describes a selected resource as YAML without re-reading it
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to see a resource's whole object from the browser, so that the fields no column had room for are one keystroke away rather than a separate command.
@@ -12212,7 +12445,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then that resource's whole object is shown as YAML, scrollable
   ```
 
-#### GIMLE-806 — The terminal view lists what it can open, and can be pointed at another control plane
+#### GIMLE-820 — The terminal view lists what it can open, and can be pointed at another control plane
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to see which kinds this cluster can show me and to follow my work between clusters, so that neither requires leaving the live view.
@@ -12227,7 +12460,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then every kind this cluster can show is listed, registered kinds included
   ```
 
-#### GIMLE-807 — The terminal view joins Services to the instances behind them and names the gaps
+#### GIMLE-821 — The terminal view joins Services to the instances behind them and names the gaps
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to see which Service reaches which instances, so that a Service fronting nothing and a workload nothing fronts are both visible instead of each looking healthy in its own table.
@@ -12242,7 +12475,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then that Service is shown fronting nothing live, distinctly from a workload no Service fronts
   ```
 
-#### GIMLE-808 — The terminal view reads the control plane's own health alongside what it is running
+#### GIMLE-822 — The terminal view reads the control plane's own health alongside what it is running
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want one screen telling me whether this cluster is all right, so that neither a sick control plane nor sick workloads under a healthy one can go unnoticed.
@@ -12257,7 +12490,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then the control plane is reported as unhealthy rather than the cluster reading as serene
   ```
 
-#### GIMLE-809 — The terminal view reads a worker's shipped traces for the instance it is inspecting
+#### GIMLE-823 — The terminal view reads a worker's shipped traces for the instance it is inspecting
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to see the spans an instance's worker shipped, so that the call that failed is visible from the same place its logs and metrics are.
@@ -12272,7 +12505,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then that worker's recent spans are shown grouped into their traces
   ```
 
-#### GIMLE-810 — The terminal view narrows every screen to one tenant
+#### GIMLE-824 — The terminal view narrows every screen to one tenant
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to scope the view to one tenant the way a namespace scopes a cluster, so that everything I look at is that tenant's own and nothing else's.
@@ -12287,7 +12520,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then every screen shows only that tenant's rows, and the bar names the tenant
   ```
 
-#### GIMLE-811 — The terminal view scans the cluster for what is wrong
+#### GIMLE-825 — The terminal view scans the cluster for what is wrong
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want one screen listing everything currently wrong with the cluster, worst first, so that I do not have to already know which table a problem would appear in.
@@ -12302,7 +12535,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then the three findings are listed worst first, each saying what is wrong on its own line
   ```
 
-#### GIMLE-812 — The terminal view shows what the calling certificate may do
+#### GIMLE-826 — The terminal view shows what the calling certificate may do
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to see what my own certificate is permitted to do, kind by kind and verb by verb, so that I can answer 'may I delete this' without reading roles and bindings back into a verdict myself.
@@ -12317,7 +12550,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then each resource kind is listed against each verb with the control plane's own yes or no
   ```
 
-#### GIMLE-813 — The terminal view browses a tenant's own config and secret holdings
+#### GIMLE-827 — The terminal view browses a tenant's own config and secret holdings
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want to list the config keys, ConfigMaps, secrets and SecretMaps a tenant holds, so that I can see what a workload is configured from without leaving the view for the CLI.
@@ -12332,7 +12565,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then that tenant's secret names and versions are listed, and no secret value is shown
   ```
 
-#### GIMLE-814 — The terminal view reads a config key's, ConfigMap's or secret's revision history
+#### GIMLE-828 — The terminal view reads a config key's, ConfigMap's or secret's revision history
 
 - **Category**: CLI UX
 - **User story**: As an operator, I want the revision history of a config key, ConfigMap, secret or SecretMap, so that I can see what changed and when after something started failing at a time nothing was deployed.
