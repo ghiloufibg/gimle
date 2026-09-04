@@ -7261,8 +7261,8 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Status**: Active
 - **Coverage**: Not Covered
 - **Gap note**: Holmgang drives the cluster's HTTP API directly and never opens a browser -- console-level behavior is structurally outside its reach. Verifying "Secrets browsing/reveal/version/write/destroy (vault-native UI)" end to end would need a browser-driven scenario (Playwright, as `gimle-console/e2e/` already does for one flow), not a Cucumber/step-definition one; it does not belong in Holmgang.
-- **Other test coverage (non-Holmgang, informational only)**: `src/repositories/secrets.test.ts`, `src/repositories/http/secrets.test.ts`
-- **Source location(s)**: `src/routes/_shell.secrets.tsx`, `src/components/vault/SecretDialog.tsx`, `src/stores/useSecretsStore.ts`, `src/repositories/http/secrets.ts`
+- **Other test coverage (non-Holmgang, informational only)**: `src/repositories/secrets.test.ts`, `src/repositories/http/secrets.test.ts`, `src/stores/useSecretsStore.test.ts` (new)
+- **Source location(s)**: `src/routes/_shell.secrets.tsx`, `src/components/vault/SecretDialog.tsx`, `src/stores/useSecretsStore.ts`, `src/repositories/http/secrets.ts`, `src/repositories/secrets.ts`, `src/lib/secretType.ts` (new), `src/types/index.ts`
 
 #### GIMLE-464 — Tenant filter via URL search param
 
@@ -9016,7 +9016,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-458 | gimle-console | Control-plane status panel | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-459 | gimle-console | Theme toggle (light/dark) | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-462 | gimle-fafnir-console | Vault status overview (uptime, active key, transport mode, tenants) | Web Console / Frontend | NONE recorded in the baseline |
-| GIMLE-463 | gimle-fafnir-console | Secrets browsing/reveal/version/write/destroy (vault-native UI) | Web Console / Frontend | `src/repositories/secrets.test.ts`, `src/repositories/http/secrets.test.ts` |
+| GIMLE-463 | gimle-fafnir-console | Secrets browsing/reveal/version/write/destroy (vault-native UI) | Web Console / Frontend | `src/repositories/secrets.test.ts`, `src/repositories/http/secrets.test.ts`, `src/stores/useSecretsStore.test.ts` (new) |
 | GIMLE-464 | gimle-fafnir-console | Tenant filter via URL search param | Web Console / Frontend | NONE recorded in the baseline |
 | GIMLE-465 | gimle-fafnir-console | Key rotation trigger | Web Console / Frontend | `secrets.test.ts`, `http/secrets.test.ts` |
 | GIMLE-466 | gimle-fafnir-console | Fafnir console error banner / global error capture | Web Console / Frontend | NONE recorded in the baseline |

@@ -1,5 +1,5 @@
 import type { SecretsRepository } from "@/repositories/secrets";
-import type { SecretMetadata, SecretValue, SecretVersion } from "@/types";
+import type { SecretMetadata, SecretType, SecretValue, SecretVersion } from "@/types";
 
 import { requestJson, requestJsonWithBody, requestOk } from "./apiClient";
 
@@ -30,10 +30,16 @@ export class HttpSecretsRepository implements SecretsRepository {
 
   async read(tenantId: string, key: string, version?: number): Promise<SecretValue> {
     const query = version === undefined ? "" : `?version=${version}`;
-    const data = await requestJson<{ value: string; version: number }>(
+    const data = await requestJson<{ value: string; version: number; type?: SecretType }>(
       `/secrets/${seg(tenantId)}/${seg(key)}${query}`,
     );
-    return { tenantId, key, version: data.version, value: decodeValue(data.value) };
+    return {
+      tenantId,
+      key,
+      version: data.version,
+      value: decodeValue(data.value),
+      type: data.type ?? "opaque",
+    };
   }
 
   async versions(tenantId: string, key: string): Promise<SecretVersion[]> {
@@ -47,11 +53,16 @@ export class HttpSecretsRepository implements SecretsRepository {
     return data.versions;
   }
 
-  async upsert(tenantId: string, key: string, value: string): Promise<number> {
+  async upsert(
+    tenantId: string,
+    key: string,
+    value: string,
+    type: SecretType = "opaque",
+  ): Promise<number> {
     const data = await requestJsonWithBody<{ version: number }>(
       `/secrets/${seg(tenantId)}/${seg(key)}`,
       "PUT",
-      { value: encodeValue(value) },
+      { value: encodeValue(value), type },
     );
     return data.version;
   }

@@ -29,6 +29,7 @@ import { ErrorBanner } from "@/components/vault/ErrorBanner";
 import { SecretDialog, type SecretDialogState } from "@/components/vault/SecretDialog";
 import { useSecretsStore } from "@/stores/useSecretsStore";
 import { useStatusStore } from "@/stores/useStatusStore";
+import type { SecretType } from "@/types";
 
 export const Route = createFileRoute("/_shell/secrets")({
   validateSearch: (search: Record<string, unknown>): { tenant?: string | undefined } => ({
@@ -82,12 +83,20 @@ function SecretsPage() {
     void navigate({ to: "/secrets", search: next ? { tenant: next } : {} });
   };
 
-  const submitSecret = async (key: string, value: string) => {
-    const version = await store.save(key, value);
+  const submitSecret = async (key: string, value: string, type: SecretType) => {
+    const version = await store.save(key, value, type);
     if (version !== null) {
       toast.success(`${key} written`, { description: `now at version ${version}` });
       setDialog({ open: false, key: null });
     }
+  };
+
+  const openWriteDialog = async (key: string) => {
+    // Resolved before the dialog opens (rather than opening first and patching currentType in
+    // once it arrives) so SecretDialog's own defaulting effect never re-fires mid-edit and stomps
+    // whatever the operator has already typed.
+    const currentType = await store.currentType(key);
+    setDialog({ open: true, key, currentType });
   };
 
   const confirmDelete = async () => {
@@ -255,7 +264,7 @@ function SecretsPage() {
                           size="icon"
                           className="size-7"
                           aria-label="Write new version"
-                          onClick={() => setDialog({ open: true, key: secret.key })}
+                          onClick={() => void openWriteDialog(secret.key)}
                         >
                           <Pencil className="size-3.5" />
                         </Button>
@@ -291,8 +300,14 @@ function SecretsPage() {
         state={dialog}
         tenantId={store.tenantId}
         pending={store.writing}
-        onOpenChange={(open) => setDialog({ open, key: open ? dialog.key : null })}
-        onSubmit={(key, value) => void submitSecret(key, value)}
+        onOpenChange={(open) =>
+          setDialog({
+            open,
+            key: open ? dialog.key : null,
+            currentType: open ? dialog.currentType : null,
+          })
+        }
+        onSubmit={(key, value, type) => void submitSecret(key, value, type)}
       />
 
       <AlertDialog
