@@ -3,14 +3,24 @@
           xsi:schemaLocation="http://maven.apache.org/plugins/maven-assembly-plugin/assembly/1.1.3 http://maven.apache.org/xsd/assembly-1.1.3.xsd">
   <!--
     The standalone Ivaldi archive: bin/ivaldi plus exactly gimle-ivaldi's own runtime dependency
-    closure, nothing else; confirmed via `mvn -pl gimle-ivaldi dependency:tree -Dscope=runtime`.
+    closure, nothing else; confirmed via `mvn -pl gimle-ivaldi dependency:list -Dscope=runtime`.
     gimle-ivaldi depends on gimle-hilmir and gimle-mimir directly (its own tier-2 validation runs
     the real TopologyParser/TopologyValidator/BundleParser/ManifestParser), which is why this
     closure pulls in gimle-pki/BouncyCastle and gimle-observability/Micrometer/OpenTelemetry too,
-    gimle-mimir's own compile dependencies, not anything gimle-ivaldi calls directly. Omitting
-    any of them here would leave the very first blueprint validate/create call throwing an
-    uncaught NoClassDefFoundError from this archive, the same failure mode gimle-cli's own
-    dependency set already documents guarding against.
+    gimle-mimir's own compile dependencies, not anything gimle-ivaldi calls directly. It also
+    depends at runtime scope on gimle-ivaldi-console (the bundled web console IvaldiMain serves at
+    /console) and on every process-kind module its own RunController hands to MachineLauncher on a
+    spawned child's classpath when it boots a local cluster (gimle-controlplane, gimle-fafnir,
+    gimle-muninn, gimle-andvari, gimle-agent, gimle-worker, and each of those modules' own further
+    runtime dependencies, namely gimle-module, gimle-os, gimle-fabric, and the three bundled
+    process consoles gimle-console/gimle-fafnir-console/gimle-andvari-console). Omitting any of
+    them here left this archive with a console-less API server that could validate a Blueprint but
+    not serve the Designer UI, nor actually run one: MachineLauncher.up defaults an unset topology
+    runtime.classpath to this process's own launched classpath, so a spawned StoreMain,
+    ControlPlaneMain, etc. inherited this narrow lib/ and died immediately with a
+    NoClassDefFoundError, the same failure mode gimle-cli's own dependency set already documents
+    guarding against, missed here because this list was never grown alongside gimle-ivaldi's own
+    pom.xml as the run engine and bundled console were added.
   -->
   <id>ivaldi</id>
   <formats>
@@ -27,7 +37,9 @@
       <scope>runtime</scope>
       <includes>
         <include>com.gimle:gimle-ivaldi</include>
+        <include>com.gimle:gimle-ivaldi-console</include>
         <include>com.gimle:gimle-core</include>
+        <include>com.gimle:gimle-module</include>
         <include>com.gimle:gimle-hilmir</include>
         <include>com.gimle:gimle-mimir</include>
         <include>com.gimle:gimle-pki</include>
@@ -54,6 +66,17 @@
         <include>org.slf4j:slf4j-api</include>
         <include>ch.qos.logback:logback-classic</include>
         <include>ch.qos.logback:logback-core</include>
+        <include>com.gimle:gimle-controlplane</include>
+        <include>com.gimle:gimle-console</include>
+        <include>com.gimle:gimle-fafnir</include>
+        <include>com.gimle:gimle-fafnir-console</include>
+        <include>com.gimle:gimle-muninn</include>
+        <include>com.gimle:gimle-andvari</include>
+        <include>com.gimle:gimle-andvari-console</include>
+        <include>com.gimle:gimle-agent</include>
+        <include>com.gimle:gimle-os</include>
+        <include>com.gimle:gimle-fabric</include>
+        <include>com.gimle:gimle-worker</include>
       </includes>
     </dependencySet>
   </dependencySets>

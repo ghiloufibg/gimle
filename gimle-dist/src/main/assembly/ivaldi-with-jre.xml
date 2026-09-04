@@ -28,7 +28,9 @@
       <scope>runtime</scope>
       <includes>
         <include>com.gimle:gimle-ivaldi</include>
+        <include>com.gimle:gimle-ivaldi-console</include>
         <include>com.gimle:gimle-core</include>
+        <include>com.gimle:gimle-module</include>
         <include>com.gimle:gimle-hilmir</include>
         <include>com.gimle:gimle-mimir</include>
         <include>com.gimle:gimle-pki</include>
@@ -55,6 +57,17 @@
         <include>org.slf4j:slf4j-api</include>
         <include>ch.qos.logback:logback-classic</include>
         <include>ch.qos.logback:logback-core</include>
+        <include>com.gimle:gimle-controlplane</include>
+        <include>com.gimle:gimle-console</include>
+        <include>com.gimle:gimle-fafnir</include>
+        <include>com.gimle:gimle-fafnir-console</include>
+        <include>com.gimle:gimle-muninn</include>
+        <include>com.gimle:gimle-andvari</include>
+        <include>com.gimle:gimle-andvari-console</include>
+        <include>com.gimle:gimle-agent</include>
+        <include>com.gimle:gimle-os</include>
+        <include>com.gimle:gimle-fabric</include>
+        <include>com.gimle:gimle-worker</include>
       </includes>
     </dependencySet>
   </dependencySets>
