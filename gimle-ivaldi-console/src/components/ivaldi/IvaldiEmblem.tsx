@@ -17,17 +17,18 @@ export function IvaldiEmblem({ size = 24, className }: IvaldiEmblemProps) {
       aria-hidden="true"
       className={className}
     >
-      <path d="M4 21 L28 21 L28 24 L22 24 L20 27 L12 27 L10 24 L4 24 Z" />
-      <path d="M4 21 L2 18 L8 18" />
-      <path d="M7 7 L16 4 L25 7" />
-      <path d="M16 4 L16 18" />
-      <path d="M6.6 7 A1.4 1.4 0 1 0 7.4 7" />
-      <path d="M24.6 7 A1.4 1.4 0 1 0 25.4 7" />
+      <path d="M7 15h19l-4 5H12z" />
+      <path d="M7 15L3 16.5 7 18" />
+      <path d="M13 20v4h8v-4M9 24h16v3H9z" />
+      <circle cx="10" cy="8" r="1.6" />
+      <circle cx="16" cy="5" r="1.6" />
+      <circle cx="22" cy="8" r="1.6" />
+      <path d="M11.5 7.3l3.1-1.6M17.4 5.7l3.1 1.6M16 6.8V15" />
     </svg>
   );
 }
 
-const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#1a8f78" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 21 L28 21 L28 24 L22 24 L20 27 L12 27 L10 24 L4 24 Z"/><path d="M4 21 L2 18 L8 18"/><path d="M7 7 L16 4 L25 7"/><path d="M16 4 L16 18"/><path d="M6.6 7 A1.4 1.4 0 1 0 7.4 7"/><path d="M24.6 7 A1.4 1.4 0 1 0 25.4 7"/></svg>`;
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#1a8f78" stroke-width="2.2" stroke-linecap="square" stroke-linejoin="miter"><path d="M7 15h19l-4 5H12z"/><path d="M7 15L3 16.5 7 18"/><path d="M13 20v4h8v-4M9 24h16v3H9z"/><circle cx="10" cy="8" r="1.6"/><circle cx="16" cy="5" r="1.6"/><circle cx="22" cy="8" r="1.6"/><path d="M11.5 7.3l3.1-1.6M17.4 5.7l3.1 1.6M16 6.8V15"/></svg>`;
 
 export const IVALDI_FAVICON = `data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}`;
 
