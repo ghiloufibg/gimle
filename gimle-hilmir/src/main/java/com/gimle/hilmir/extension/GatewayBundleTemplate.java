@@ -41,11 +41,16 @@ final class GatewayBundleTemplate {
     yaml.append("name: ").append(RELEASE_NAME).append('\n');
     yaml.append("version: ").append(moduleVersion).append('\n');
     yaml.append("values:\n");
-    yaml.append("  port: \"").append(DEFAULT_PORT).append("\"\n");
-    yaml.append("  routes: \"").append(DEFAULT_ROUTES).append("\"\n");
+    // The values keys are named identically to the config keys they feed -- "gateway.port"/
+    // "gateway.routes", not a shorter internal alias -- so `--set gateway.routes=...`, the name an
+    // operator actually knows (it's the same key GatewayHooks reads and the one this command's own
+    // usage text names), lands in the merged values map under the exact key ${values.*} looks up,
+    // rather than being silently absorbed as an unrelated, never-referenced values entry.
+    yaml.append("  gateway.port: \"").append(DEFAULT_PORT).append("\"\n");
+    yaml.append("  gateway.routes: \"").append(DEFAULT_ROUTES).append("\"\n");
     yaml.append("config:\n");
-    appendConfigEntry(yaml, "gateway.port", "${values.port}");
-    appendConfigEntry(yaml, "gateway.routes", "${values.routes}");
+    appendConfigEntry(yaml, "gateway.port", "${values.gateway.port}");
+    appendConfigEntry(yaml, "gateway.routes", "${values.gateway.routes}");
     yaml.append("workloads:\n");
     yaml.append("  - manifest: |\n");
     appendIndented(yaml, workloadManifestYaml(moduleName, moduleVersion));
