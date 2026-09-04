@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 803 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 804 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 198 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 172, uncited 0). |
-| **User-observable** | **536** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 536 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **537** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 537 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -130,7 +130,7 @@ not carry over to the new one.
 | **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 66 |
 | **GOV** | Governance — Tenancy, Quotas & RBAC | A platform admin onboarding a second team and needing to prove the first one can't see it. | A C | 12 | 49 |
 | **SEC** | Security & Secrets | Whoever is accountable if a secret leaks or a certificate is trusted that shouldn't be. | C A | 12 | 78 |
-| **ART** | Artifacts & Registry | A release engineer publishing module builds and expecting the registry to behave like Nexus. | A B | 8 | 25 |
+| **ART** | Artifacts & Registry | A release engineer publishing module builds and expecting the registry to behave like Nexus. | A B | 8 | 26 |
 | **OBS** | Observability & Console | An on-call engineer with nothing but the consoles and `gimle logs`, at 3 a.m. | A B | 10 | 76 |
 | **JRN** | Journeys — Sample applications | Someone validating that a real application, not a primitive, works end to end — including a custom-kind operator. | A B | 7 | 26 |
 | **CHAOS** | Exploratory, Chaos & Negative-path | Mildly adversarial, reads no manual twice, and runs the shipped chaos tooling against the cluster. | A B C | 10 | 41 |
@@ -281,7 +281,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 
 | ID | Env | Objective | Oracle | Requirements |
 |---|---|---|---|---|
-| **ART-1** | A | `artifact push` a module jar, `list`/`get` it, open it in the main console's Artifacts screen and in Andvari's own console (catalog search, version detail, checksum, download with client-side verification, drag-and-drop push, copy-to-clipboard); read Andvari's status. | The coordinate comes from the jar's own bundled descriptor, not a flag; every surface shows the same SHA-256 and size; the download verifies; status reports transport and recent pushes. | GIMLE-381, GIMLE-305, GIMLE-297, GIMLE-455, GIMLE-468, GIMLE-469, GIMLE-470, GIMLE-471, GIMLE-472, GIMLE-474, GIMLE-265 |
+| **ART-1** | A | `artifact push` a module jar, `list`/`get` it, open it in the main console's Artifacts screen and in Andvari's own console (catalog search, version detail, checksum, download with client-side verification, drag-and-drop push, copy-to-clipboard); also try typing a coordinate in Andvari console's Push dialog that doesn't match the jar's own bundled descriptor; read Andvari's status. | The coordinate comes from the jar's own bundled descriptor, never from a typed flag or field -- the CLI derives it and never exposed one to override, and Andvari console's Push dialog auto-fills and locks moduleId/version from the same descriptor the instant a jar with one is picked, leaving no way to push it under a mismatched coordinate; every surface shows the same SHA-256 and size; the download verifies; status reports transport and recent pushes. | GIMLE-381, GIMLE-305, GIMLE-297, GIMLE-455, GIMLE-468, GIMLE-469, GIMLE-470, GIMLE-471, GIMLE-472, GIMLE-804, GIMLE-474, GIMLE-265 |
 | **ART-2** | A | Push the identical jar again, then a different jar at the same coordinate. | The first is an idempotent no-op; the second is refused with 409 and the stored jar is untouched. | GIMLE-297 |
 | **ART-3** | A | `artifact delete` a version, then look for it in the CLI, both consoles and the audit trail. | Gone everywhere; the delete decision is audited with the actor. | GIMLE-305, GIMLE-313, GIMLE-470 |
 | **ART-4** | A | Deploy a manifest naming only a pushed coordinate with no `artifactPath`. | Admission HEAD-checks the coordinate; the agent pulls through its cache with zero manual placement; a second deploy of the same coordinate is served from the cache. | GIMLE-061, GIMLE-115, GIMLE-248, GIMLE-010 |
@@ -1300,4 +1300,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-801 | `gimle-console` | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | observable | FLEET | DEP-12 |
 | GIMLE-802 | `gimle-console` | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | observable | FLEET | NET-1 |
 | GIMLE-803 | `gimle-console` | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | observable | FLEET | OBS-6 |
+| GIMLE-804 | `gimle-andvari-console` | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | observable | FLEET | ART-1 |
 <!-- /forseti:generated -->

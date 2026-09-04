@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 803,
+    "totalRequirements": 804,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 676,
+    "notCoveredByAutomatedTest": 677,
     "releaseReadinessPercent": 15.8
   },
   "items": [
@@ -8835,6 +8835,17 @@
       "category": "Web Console / Frontend",
       "feature": "Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array",
       "step": "Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array. Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-804",
+      "module": "gimle-andvari-console",
+      "category": "Web Console / Frontend",
+      "feature": "Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one",
+      "step": "Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed. Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

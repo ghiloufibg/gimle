@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 803,
+  "requirementCount": 804,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16392,6 +16392,27 @@
       "gherkinSteps": [
         "Given a 3-replica deployment whose instances array is returned out of ascending-instanceIndex order (2, 1, 0), When the Topology screen renders that deployment's placement badges, Then each badge's label and node-hover highlight name the instance's own instanceIndex, not its position in the array.",
         "Given the same deployment has fewer placed instances than its declared replica count, When the badges render, Then the shortfall still shows as trailing unplaced slots after every real instance."
+      ],
+      "statusSummary": "Fixed",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-804",
+      "module": "gimle-andvari-console",
+      "feature": "Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one",
+      "category": "Web Console / Frontend",
+      "userStory": "As a registry operator pushing a module jar through Andvari's console, I want the dialog to read the coordinate the jar itself declares and store it under that coordinate, so a typo or a copy-paste mistake in the moduleId/version fields can never land the jar under a coordinate that doesn't match what's actually inside it.",
+      "statusDetail": "Fixed (M22). PushArtifactDialog let an operator type any moduleId/version and pushed the selected jar under exactly that typed coordinate with zero cross-check against the jar's own descriptor -- upload succeeded silently, no warning, no diff shown, and the mismatched artifact lingered in the catalog until manually deleted; the control plane's own deploy-time check (ModuleArtifactReader, worker-side) only ever caught the mismatch later, at deploy time, with a generic error far removed from the console step that actually caused it. Andvari itself stays a deliberately dumb, unparsing store (see gimle-andvari's own design), so the fix belongs client-side, mirroring the guarantee `gimle artifact push` already gives via `ModuleArtifactReader`: a new client-side ZIP reader (`src/lib/zip.ts`, a purpose-built central-directory walk supporting the `stored`/`deflate` methods any JDK-produced jar uses -- no zip library dependency for one entry) reads the picked jar's own `META-INF/gimle/gimle-module.yaml` (`src/lib/moduleDescriptor.ts`, reading just the `name`/`version` scalars, not a full descriptor parse) the moment a jar is selected or dropped. When a descriptor is found, moduleId/version are auto-filled from it and the fields are locked (`disabled`/`readOnly`) so the operator can no longer type a conflicting value; a vessel-style jar with no bundled descriptor leaves the fields exactly as freely editable as before, with a note explaining why.",
+      "confidence": "High",
+      "sourceLocations": [
+        "`gimle-andvari-console/src/lib/zip.ts`",
+        "`gimle-andvari-console/src/lib/moduleDescriptor.ts`",
+        "`gimle-andvari-console/src/components/PushArtifactDialog.tsx`"
+      ],
+      "testCoverageDetail": "`zip.test.ts` (reads a deflate-compressed entry, a stored/uncompressed entry, the right entry among several, null for a missing entry and for a non-ZIP file); `moduleDescriptor.test.ts` (derives moduleId/version from a real descriptor -- including the exact art2:2.0.0-vs-wrongname:9.9.9 finding scenario, quoted scalars, a trailing comment, null for a vessel jar and for a descriptor missing a field).",
+      "gherkinSteps": [
+        "Given a jar whose own gimle-module.yaml declares com.gimle.examples.art2:2.0.0, When it is selected in the Push artifact dialog, Then moduleId/version are auto-filled with that coordinate and locked against further editing, regardless of whatever was previously typed.",
+        "Given a vessel jar with no bundled gimle-module.yaml, When it is selected, Then moduleId/version remain freely editable, as before."
       ],
       "statusSummary": "Fixed",
       "testCoverageLevel": "Yes"

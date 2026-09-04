@@ -818,6 +818,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | New | Not Covered | — |
 | GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | New | Not Covered | — |
 | GIMLE-803 | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | New | Not Covered | — |
+| GIMLE-804 | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -7395,6 +7396,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: NONE recorded in the baseline
 - **Source location(s)**: `src/components/CopyButton.tsx`
 
+#### GIMLE-804 — Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one
+
+- **Category**: Web Console / Frontend
+- **Status**: New  _(New requirement: closes M22 -- PushArtifactDialog stored a pushed jar under whatever coordinate the operator typed, with no cross-check against the jar's own descriptor. See requirements-matrix.json for the full description.)_
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises the Andvari console's Push dialog at all (Holmgang's Cucumber surface drives the platform API/CLI, not this console's own UI). Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.
+- **Other test coverage (non-Holmgang, informational only)**: `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail.
+- **Source location(s)**: `gimle-andvari-console/src/lib/zip.ts`, `gimle-andvari-console/src/lib/moduleDescriptor.ts`, `gimle-andvari-console/src/components/PushArtifactDialog.tsx`
+
 ### gimle-saga-console
 
 #### GIMLE-475 — Runs list (no authentication)
@@ -8430,7 +8440,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**676 of 803 requirements are Not Covered.**
+**677 of 804 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -9082,6 +9092,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-801 | gimle-console | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Web Console / Frontend | `repositories/http/deployments.test.ts`, `stores/useDeploymentsStore.test.ts` -- see requirements-matrix.json for detail |
 | GIMLE-802 | gimle-console | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Web Console / Frontend | `repositories/http/apiClient.test.ts`, `repositories/http/services.test.ts`, `repositories/services.test.ts`, `stores/useServicesStore.test.ts` -- see requirements-matrix.json for detail |
 | GIMLE-803 | gimle-console | Topology screen placement badges are labeled by each instance's own instanceIndex, not its position in the response array | Web Console / Frontend | `lib/topology.test.ts` -- see requirements-matrix.json for detail |
+| GIMLE-804 | gimle-andvari-console | Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one | Web Console / Frontend | `gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail. |
 | GIMLE-475 | gimle-saga-console | Runs list (no authentication) | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "listRuns fetches /api/runs and maps every entry" |
 | GIMLE-476 | gimle-saga-console | Live run detail with streaming test feed | Web Console / Reporting | `src/repositories/http/runs.test.ts` — "followRunEvents streams new finished-test events and skips the already-known count" |
 | GIMLE-477 | gimle-saga-console | Run attachments: Gherkin scenario tree, Chaos ledger, Surtr phase table | Web Console / Reporting | `src/repositories/http/mapping.test.ts` — "groups attachment events by kind and skips unparseable or unrecognized payloads", "accepts a payload shipped as an array of the shape" |

@@ -13953,6 +13953,23 @@
         "`gimle-console/src/lib/topology.ts`",
         "`gimle-console/src/routes/topology.tsx`"
       ]
+    },
+    {
+      "id": "GIMLE-804",
+      "module": "gimle-andvari-console",
+      "feature": "Push artifact dialog derives the coordinate from the jar's own bundled gimle-module.yaml, rather than trusting a typed one",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: closes M22 -- PushArtifactDialog stored a pushed jar under whatever coordinate the operator typed, with no cross-check against the jar's own descriptor. See requirements-matrix.json for the full description.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises the Andvari console's Push dialog at all (Holmgang's Cucumber surface drives the platform API/CLI, not this console's own UI). Unit test coverage listed in otherTestCoverage does not count toward RTM coverage per this file's own coverageRule.",
+      "otherTestCoverage": "`gimle-andvari-console`'s `src/lib/zip.test.ts` and `src/lib/moduleDescriptor.test.ts` -- see requirements-matrix.json for detail.",
+      "sourceLocations": [
+        "`gimle-andvari-console/src/lib/zip.ts`",
+        "`gimle-andvari-console/src/lib/moduleDescriptor.ts`",
+        "`gimle-andvari-console/src/components/PushArtifactDialog.tsx`"
+      ]
     }
   ]
 }
