@@ -90,7 +90,14 @@ export function PushArtifactDialog({ defaultModuleId = "" }: { defaultModuleId?:
         <DialogHeader>
           <DialogTitle>Push artifact</DialogTitle>
           <DialogDescription>
-            Uploads are immutable — a stored version can never be overwritten.
+            Uploads are immutable — a stored version can never be overwritten. The registry stores
+            whatever bytes it is given under the coordinate you name here: it never opens the jar,
+            so a module jar pushed under a coordinate its own{" "}
+            <span className="font-mono">gimle-module.yaml</span> does not declare is accepted here
+            and fails later, at deploy. Push a module jar with{" "}
+            <span className="font-mono">gimle artifact push</span>, which reads the coordinate off
+            the jar instead of taking one; name a coordinate by hand only for a jar that carries no
+            descriptor at all.
           </DialogDescription>
         </DialogHeader>
 
