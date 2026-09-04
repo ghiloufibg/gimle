@@ -157,26 +157,44 @@
       <!--
         This module gets no SBOM for free from the root aggregator (that execution is
         inherited=false and covers the whole reactor, not any one module's own jar set; see the
-        root pom's own comment on cyclonedx-maven-plugin). One combined SBOM covering the union of
-        everything gimle-dist depends on is generated here and then copied to a per-archive
-        filename by the postprocess-archives antrun execution below; four genuinely scoped SBOMs
-        (one per archive's own narrower jar set) were judged not worth the complexity, since
-        cyclonedx-maven-plugin has no artifact-level include/exclude filter of its own, only
-        reactor-aggregate or whole-project-dependency-graph modes, which would otherwise require
-        four separate Maven modules just to get four separate dependency graphs. Union means
-        superset per archive: the shared SBOM also lists the provided-scope example module jars
-        that only the midgard archive actually ships.
+        root pom's own comment on cyclonedx-maven-plugin). cyclonedx-maven-plugin's makeBom has no
+        artifact-level include/exclude filter of its own: it always describes the current
+        project's own full dependency graph, so a genuinely per-archive SBOM for the cli/hilmir/
+        ragnarok archives comes from gimle-cli/gimle-hilmir/gimle-ragnarok's own makeBom
+        executions instead (each of those modules already carries exactly the dependency graph its
+        own archive ships; see each module's own cyclonedx-maven-plugin comment): the
+        postprocess-archives antrun execution below copies THEIR target/bom.json rather than
+        generating a fourth copy here. What's left for this module to generate directly is the two
+        archives gimle-dist's own dependency graph genuinely does describe: the platform archive
+        (every runtime-scoped dependency below except the provided-scope example modules, which it
+        never ships) and the midgard archive (the same graph plus those example modules, which it
+        does ship, under examples/).
       -->
       <plugin>
         <groupId>org.cyclonedx</groupId>
         <artifactId>cyclonedx-maven-plugin</artifactId>
         <executions>
           <execution>
-            <id>sbom</id>
+            <id>sbom-platform</id>
             <phase>prepare-package</phase>
             <goals>
               <goal>makeBom</goal>
             </goals>
+            <configuration>
+              <outputName>bom-platform</outputName>
+              <includeProvidedScope>false</includeProvidedScope>
+            </configuration>
+          </execution>
+          <execution>
+            <id>sbom-midgard</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>makeBom</goal>
+            </goals>
+            <configuration>
+              <outputName>bom-midgard</outputName>
+              <includeProvidedScope>true</includeProvidedScope>
+            </configuration>
           </execution>
         </executions>
       </plugin>
@@ -264,10 +282,15 @@
       </plugin>
 
       <!--
-        Writes a sha256sum-compatible checksum file next to each archive and copies the combined
-        SBOM above to each archive's own -cyclonedx.json name. Runs after both plugins above
-        because Maven executes same-phase plugin executions in the order they're declared in this
-        file, and this is declared last.
+        Writes a sha256sum-compatible checksum file next to each archive and copies each archive's
+        own genuinely-scoped SBOM (see the cyclonedx-maven-plugin executions above and in
+        gimle-cli/gimle-hilmir/gimle-ragnarok's own pom.xml) to that archive's -cyclonedx.json
+        name. Runs after both plugins above because Maven executes same-phase plugin executions in
+        the order they're declared in this file, and this is declared last, in particular after
+        the sbom-platform/sbom-midgard executions above, and after gimle-cli/gimle-hilmir/
+        gimle-ragnarok have each already completed their own package phase (reactor build order:
+        every module gimle-dist depends on finishes package before gimle-dist's own package phase
+        starts), so every source file this copies already exists.
 
         Ant's own <checksum>/<copy> tasks rather than a shell script: this module's whole point is
         producing archives an operator unpacks on their own machine, which includes Windows, where a
@@ -298,16 +321,16 @@
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
                 <checksum file="${project.build.directory}/gimle-midgard-${project.version}.tar.gz"
                           algorithm="SHA-256" format="MD5SUM" fileext=".sha256"/>
-                <copy file="${project.build.directory}/bom.json"
+                <copy file="${project.build.directory}/bom-platform.json"
                       tofile="${project.build.directory}/gimle-platform-${project.version}-cyclonedx.json"/>
-                <copy file="${project.build.directory}/bom.json"
-                      tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"/>
-                <copy file="${project.build.directory}/bom.json"
-                      tofile="${project.build.directory}/gimle-hilmir-${project.version}-cyclonedx.json"/>
-                <copy file="${project.build.directory}/bom.json"
-                      tofile="${project.build.directory}/gimle-ragnarok-${project.version}-cyclonedx.json"/>
-                <copy file="${project.build.directory}/bom.json"
+                <copy file="${project.build.directory}/bom-midgard.json"
                       tofile="${project.build.directory}/gimle-midgard-${project.version}-cyclonedx.json"/>
+                <copy file="${project.basedir}/../gimle-cli/target/bom.json"
+                      tofile="${project.build.directory}/gimle-cli-${project.version}-cyclonedx.json"/>
+                <copy file="${project.basedir}/../gimle-hilmir/target/bom.json"
+                      tofile="${project.build.directory}/gimle-hilmir-${project.version}-cyclonedx.json"/>
+                <copy file="${project.basedir}/../gimle-ragnarok/target/bom.json"
+                      tofile="${project.build.directory}/gimle-ragnarok-${project.version}-cyclonedx.json"/>
               </target>
             </configuration>
           </execution>

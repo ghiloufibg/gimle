@@ -106,6 +106,35 @@
           </execution>
         </executions>
       </plugin>
+      <!--
+        This module's own CycloneDX SBOM, reflecting exactly gimle-ragnarok's own real dependency
+        graph (the same graph `mvn -pl gimle-ragnarok dependency:tree -Dscope=runtime` shows, which
+        is how gimle-dist's own ragnarok.xml assembly descriptor's <includes> list was derived):
+        gimle-dist copies this module's target/bom.json into the standalone Ragnarok archive's own
+        gimle-ragnarok-*-cyclonedx.json rather than generating a whole-reactor bom of its own and
+        renaming it, since cyclonedx-maven-plugin's makeBom has no artifact-level filter and this
+        module already carries the one dependency graph that archive actually ships.
+        includeProvidedScope=false: gimle-ragnarok-pause (embedded inside this module's own jar,
+        never a separate lib jar; see ragnarok.xml's own comment) is a provided-scope dependency
+        precisely so it is never treated as a separately shipped artifact; the same flag keeps it
+        out of this SBOM.
+      -->
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
+        <configuration>
+          <includeProvidedScope>false</includeProvidedScope>
+        </configuration>
+        <executions>
+          <execution>
+            <id>sbom</id>
+            <phase>package</phase>
+            <goals>
+              <goal>makeBom</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>
