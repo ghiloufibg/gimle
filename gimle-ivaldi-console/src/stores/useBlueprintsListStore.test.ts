@@ -6,6 +6,7 @@ const listMock = vi.fn();
 
 vi.mock("@/repositories", () => ({
   blueprintsRepository: {
+    mode: "http",
     list: (...args: unknown[]) => listMock(...args),
     get: vi.fn(),
     create: vi.fn(),

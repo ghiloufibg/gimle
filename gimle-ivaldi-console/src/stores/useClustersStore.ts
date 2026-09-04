@@ -37,11 +37,12 @@ interface ClustersState {
   selectedId: string | null;
   status: Record<string, ClusterStatus>;
   checking: string | null;
-  refresh: () => void;
-  add: (name: string) => ClusterConnection;
-  save: (cluster: ClusterConnection) => void;
-  patch: (id: string, patch: Partial<ClusterConnection>) => void;
-  remove: (id: string) => void;
+  error: string | null;
+  refresh: () => Promise<void>;
+  add: (name: string) => Promise<ClusterConnection>;
+  save: (cluster: ClusterConnection) => Promise<void>;
+  patch: (id: string, patch: Partial<ClusterConnection>) => Promise<void>;
+  remove: (id: string) => Promise<void>;
   select: (id: string | null) => void;
   selected: () => ClusterConnection | null;
   connect: (id: string) => Promise<void>;
@@ -52,37 +53,54 @@ export const useClustersStore = create<ClustersState>((set, get) => ({
   selectedId: null,
   status: {},
   checking: null,
+  error: null,
 
-  refresh: () => {
-    const clusters = clustersRepository.list();
-    const stored = get().selectedId ?? storedSelection();
-    const selectedId = clusters.some((c) => c.id === stored) ? stored : (clusters[0]?.id ?? null);
-    set({ clusters, selectedId });
+  refresh: async () => {
+    try {
+      const clusters = await clustersRepository.list();
+      const stored = get().selectedId ?? storedSelection();
+      const selectedId = clusters.some((c) => c.id === stored) ? stored : (clusters[0]?.id ?? null);
+      set({ clusters, selectedId, error: null });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
   },
 
-  add: (name) => {
-    const cluster = clustersRepository.save(newCluster(name));
-    set({ clusters: clustersRepository.list(), selectedId: cluster.id });
+  add: async (name) => {
+    const cluster = await clustersRepository.save(newCluster(name));
+    set({ clusters: await clustersRepository.list(), selectedId: cluster.id });
     return cluster;
   },
 
-  save: (cluster) => {
-    clustersRepository.save(cluster);
-    set({ clusters: clustersRepository.list() });
+  save: async (cluster) => {
+    try {
+      await clustersRepository.save(cluster);
+      set({ clusters: await clustersRepository.list(), error: null });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
   },
 
-  patch: (id, patch) => {
-    const current = clustersRepository.get(id);
-    if (!current) return;
-    clustersRepository.save({ ...current, ...patch });
-    set({ clusters: clustersRepository.list() });
+  patch: async (id, patch) => {
+    try {
+      const current = await clustersRepository.get(id);
+      if (!current) return;
+      await clustersRepository.save({ ...current, ...patch });
+      set({ clusters: await clustersRepository.list(), error: null });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
   },
 
-  remove: (id) => {
-    clustersRepository.delete(id);
-    const clusters = clustersRepository.list();
-    const selectedId = get().selectedId === id ? (clusters[0]?.id ?? null) : get().selectedId;
-    set({ clusters, selectedId });
+  remove: async (id) => {
+    try {
+      await clustersRepository.delete(id);
+      const clusters = await clustersRepository.list();
+      const selectedId = get().selectedId === id ? (clusters[0]?.id ?? null) : get().selectedId;
+      set({ clusters, selectedId, error: null });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
   },
 
   select: (id) => {

@@ -1,72 +1,265 @@
+import { parse } from "yaml";
+
+import { applyLogLine, finalizeSteps, initialSteps, markCurrentPhase } from "@/lib/runPhases";
+
 import type {
   CreateRunRequest,
+  RunEndpoint,
+  RunLogLine,
   RunSnapshot,
+  RunStep,
   RunnerClient,
   RunnerEvent,
   RunnerHealth,
 } from "./contracts";
 
+const POLL_INTERVAL_MS = 1200;
+const DEFAULT_PORT: Record<string, number> = {
+  controlPlane: 8080,
+  muninn: 9093,
+  andvari: 9094,
+};
+
+/** The exact shape gimle-ivaldi's RunController.snapshotOf/toJsonMap emits. `processes` exists
+ * on the wire but nothing here reads it yet -- steps are derived from the log instead (see
+ * lib/runPhases.ts), the finer-grained per-process readiness has no UI consumer today. */
+interface RawRunSnapshot {
+  id?: string | null;
+  clusterId?: string | null;
+  status?: string;
+  rebooted?: boolean;
+  error?: string | null;
+  startedAt?: string;
+  updatedAt?: string;
+}
+
+interface TopologyRole {
+  port?: number;
+}
+
+interface Topology {
+  machines?: { host?: string }[];
+  controlPlane?: { replicas?: TopologyRole[] };
+  muninn?: { replicas?: TopologyRole[] };
+  andvari?: { replicas?: TopologyRole[] };
+}
+
+function safeParseTopology(content: string | undefined): Topology {
+  if (!content) return {};
+  try {
+    return (parse(content) as Topology) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Endpoints are static once a topology is known -- derived here rather than reported by the
+ * backend, which tracks process readiness, not link labels. */
+function endpointsFromTopologyText(content: string | undefined): RunEndpoint[] {
+  const topology = safeParseTopology(content);
+  const host = topology.machines?.[0]?.host ?? "127.0.0.1";
+  const endpoints: RunEndpoint[] = [];
+  const cpPort = topology.controlPlane?.replicas?.[0]?.port ?? DEFAULT_PORT.controlPlane;
+  if (topology.controlPlane?.replicas?.length) {
+    endpoints.push({ label: "Console", url: `http://${host}:${cpPort}/console` });
+    endpoints.push({ label: "Control plane API", url: `http://${host}:${cpPort}/api` });
+  }
+  const muninnPort = topology.muninn?.replicas?.[0]?.port ?? DEFAULT_PORT.muninn;
+  if (topology.muninn?.replicas?.length)
+    endpoints.push({ label: "Muninn", url: `http://${host}:${muninnPort}` });
+  const andvariPort = topology.andvari?.replicas?.[0]?.port ?? DEFAULT_PORT.andvari;
+  if (topology.andvari?.replicas?.length)
+    endpoints.push({ label: "Andvari registry", url: `http://${host}:${andvariPort}` });
+  return endpoints;
+}
+
+function mapStatus(raw: string | undefined): RunSnapshot["status"] {
+  const known: RunSnapshot["status"][] = [
+    "idle",
+    "validating",
+    "booting",
+    "seeding",
+    "deploying",
+    "running",
+    "stopping",
+    "failed",
+  ];
+  return known.includes(raw as RunSnapshot["status"]) ? (raw as RunSnapshot["status"]) : "failed";
+}
+
+function currentPhaseFor(
+  status: RunSnapshot["status"],
+): "validate" | "boot" | "seed" | "deploy" | "active" | null {
+  switch (status) {
+    case "validating":
+      return "validate";
+    case "booting":
+      return "boot";
+    case "seeding":
+      return "seed";
+    case "deploying":
+      return "deploy";
+    case "running":
+      return "active";
+    default:
+      return null;
+  }
+}
+
 /**
- * Talks to a local runner daemon over plain HTTP + SSE.
- * Wire format (v1):
- *   GET  {base}/v1/health              -> { version }
- *   POST {base}/v1/runs                -> RunSnapshot
- *   GET  {base}/v1/runs/:id/events     -> text/event-stream of RunnerEvent
- *   POST {base}/v1/runs/:id/stop       -> RunSnapshot
+ * Talks to the real gimle-ivaldi backend's same-origin /api/runs* surface. No SSE: gimle-ivaldi
+ * reports a coarse status plus a plain-text log, so this polls GET /api/runs/current and
+ * GET /api/runs/{id}/log?cursor=N on an interval and replays them as the same snapshot/log/error
+ * events a real event stream would emit -- useRunStore doesn't know the difference.
+ *
+ * `baseUrl` is `null` for the common case (this same Ivaldi, same-origin relative paths); a
+ * cluster with its own runnerUrl gets an absolute base instead -- see runnerClientFor.
  */
 export class HttpRunnerClient implements RunnerClient {
   readonly mode = "http" as const;
 
-  constructor(readonly baseUrl: string) {}
+  constructor(readonly baseUrl: string | null = null) {}
 
-  private async json<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        "content-type": "application/json",
-
-        ...(init?.headers ?? {}),
-      },
-    });
-    if (!res.ok) throw new Error(`runner ${res.status}: ${await res.text()}`);
-    return (await res.json()) as T;
+  private url(path: string): string {
+    return this.baseUrl ? `${this.baseUrl}${path}` : path;
   }
 
   async health(): Promise<RunnerHealth> {
     try {
-      const body = await this.json<{ version?: string }>("/v1/health");
-      return { ok: true, mode: this.mode, version: body.version ?? null, message: null };
+      const res = await fetch(this.url("/api/health"), { headers: { accept: "application/json" } });
+      if (!res.ok)
+        return { ok: false, mode: this.mode, version: null, message: `HTTP ${res.status}` };
+      return { ok: true, mode: this.mode, version: null, message: null };
     } catch (error) {
       return {
         ok: false,
         mode: this.mode,
         version: null,
-        message: error instanceof Error ? error.message : "runner unreachable",
+        message: error instanceof Error ? error.message : "ivaldi unreachable",
       };
     }
   }
 
-  createRun(request: CreateRunRequest): Promise<RunSnapshot> {
-    return this.json<RunSnapshot>("/v1/runs", {
+  async createRun(request: CreateRunRequest): Promise<RunSnapshot> {
+    const res = await fetch(this.url("/api/runs"), {
       method: "POST",
-      body: JSON.stringify(request),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clusterId: request.clusterId,
+        blueprintId: request.blueprintId,
+        files: request.files,
+      }),
     });
+    if (!res.ok) throw new Error(`ivaldi ${res.status}: ${await res.text()}`);
+    const raw = (await res.json()) as RawRunSnapshot;
+    const endpoints = endpointsFromTopologyText(
+      request.files.find((f) => f.path === "topology.yaml")?.content,
+    );
+    return this.toSnapshot(raw, initialSteps(), endpoints);
   }
 
   subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void {
-    const source = new EventSource(`${this.baseUrl}/v1/runs/${runId}/events`);
-    source.onmessage = (message) => {
+    let steps = initialSteps();
+    let endpoints: RunEndpoint[] = [];
+    let cursor = 0;
+    let seq = 0;
+    let stopped = false;
+
+    const poll = async () => {
+      if (stopped) return;
       try {
-        onEvent(JSON.parse(message.data) as RunnerEvent);
-      } catch {
-        onEvent({ type: "error", message: "malformed runner event" });
+        const [snapshotRes, logRes] = await Promise.all([
+          fetch(this.url("/api/runs/current"), { headers: { accept: "application/json" } }),
+          fetch(this.url(`/api/runs/${encodeURIComponent(runId)}/log?cursor=${cursor}`), {
+            headers: { accept: "application/json" },
+          }),
+        ]);
+        if (logRes.ok) {
+          const page = (await logRes.json()) as { lines?: string[]; nextCursor?: number };
+          for (const line of page.lines ?? []) {
+            steps = applyLogLine(steps, line);
+            onEvent({
+              type: "log",
+              line: logLineOf(seq++, line),
+            });
+          }
+          cursor = page.nextCursor ?? cursor;
+        }
+        if (!snapshotRes.ok) {
+          onEvent({ type: "error", message: `HTTP ${snapshotRes.status}` });
+          return;
+        }
+        const raw = (await snapshotRes.json()) as RawRunSnapshot;
+        if (raw.id && raw.id !== runId) return; // a later run superseded this one
+        if (endpoints.length === 0 && raw.clusterId) {
+          endpoints = await this.fetchEndpoints(raw.clusterId);
+        }
+        const status = mapStatus(raw.status);
+        const phase = currentPhaseFor(status);
+        if (phase) steps = markCurrentPhase(steps, phase);
+        if (status === "running" || status === "failed") {
+          steps = finalizeSteps(steps, status);
+          stopped = true;
+        }
+        onEvent({ type: "snapshot", snapshot: this.toSnapshot(raw, steps, endpoints) });
+        if (stopped) window.clearInterval(timer);
+      } catch (error) {
+        onEvent({ type: "error", message: error instanceof Error ? error.message : "poll failed" });
       }
     };
-    source.onerror = () => onEvent({ type: "error", message: "runner stream lost" });
-    return () => source.close();
+
+    void poll();
+    const timer = window.setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
   }
 
-  stopRun(runId: string): Promise<RunSnapshot> {
-    return this.json<RunSnapshot>(`/v1/runs/${runId}/stop`, { method: "POST" });
+  async stopRun(runId: string): Promise<RunSnapshot> {
+    const res = await fetch(this.url("/api/runs/current"), { method: "DELETE" });
+    if (!res.ok) throw new Error(`ivaldi ${res.status}: ${await res.text()}`);
+    const raw = (await res.json()) as RawRunSnapshot;
+    return this.toSnapshot({ ...raw, id: raw.id ?? runId }, [], []);
   }
+
+  /** The cluster's own last-applied topology, fetched once per subscription and cached by the
+   * caller -- there is no per-run topology endpoint, only a per-cluster one. */
+  private async fetchEndpoints(clusterId: string): Promise<RunEndpoint[]> {
+    try {
+      const res = await fetch(this.url(`/api/clusters/${encodeURIComponent(clusterId)}/topology`), {
+        headers: { accept: "application/json" },
+      });
+      if (!res.ok) return [];
+      const body = (await res.json()) as { topology?: string | null };
+      return body.topology ? endpointsFromTopologyText(body.topology) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private toSnapshot(raw: RawRunSnapshot, steps: RunStep[], endpoints: RunEndpoint[]): RunSnapshot {
+    const status = mapStatus(raw.status);
+    const settled = status === "idle" || status === "running" || status === "failed";
+    return {
+      runId: raw.id ?? "",
+      status,
+      steps,
+      endpoints: status === "running" ? endpoints : [],
+      artifacts: [],
+      startedAt: raw.startedAt ?? new Date().toISOString(),
+      finishedAt: settled ? (raw.updatedAt ?? null) : null,
+      error: raw.error ?? null,
+    };
+  }
+}
+
+function logLineOf(seq: number, text: string): RunLogLine {
+  return {
+    seq,
+    ts: new Date().toISOString(),
+    level: text.includes("FAILED:") ? "error" : "info",
+    source: "ivaldi",
+    text,
+  };
 }

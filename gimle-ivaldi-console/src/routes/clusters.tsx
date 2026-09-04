@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowLeft, Plug, Plus, Trash2 } from "lucide-react";
 import { useEffect } from "react";
+import { toast } from "sonner";
 
 import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
 import { cn } from "@/lib/utils";
@@ -29,13 +30,28 @@ export const Route = createFileRoute("/clusters")({
 });
 
 function ClustersPage() {
-  const { clusters, selectedId, status, checking, refresh, add, patch, remove, select, connect } =
-    useClustersStore();
+  const {
+    clusters,
+    selectedId,
+    status,
+    checking,
+    error,
+    refresh,
+    add,
+    patch,
+    remove,
+    select,
+    connect,
+  } = useClustersStore();
 
   useEffect(() => {
     applyTheme(storedTheme());
-    refresh();
+    void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (error) toast.error("Couldn't load clusters", { description: error });
+  }, [error]);
 
   return (
     <main className="min-h-screen bg-background">

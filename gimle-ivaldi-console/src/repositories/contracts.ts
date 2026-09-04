@@ -63,10 +63,10 @@ export interface ClusterStatus {
 }
 
 export interface ClustersRepository {
-  list(): ClusterConnection[];
-  get(id: string): ClusterConnection | undefined;
-  save(cluster: ClusterConnection): ClusterConnection;
-  delete(id: string): void;
+  list(): Promise<ClusterConnection[]>;
+  get(id: string): Promise<ClusterConnection | undefined>;
+  save(cluster: ClusterConnection): Promise<ClusterConnection>;
+  delete(id: string): Promise<void>;
 }
 
 /** One jar-sourced workload pushed to the control plane's artifact service. */

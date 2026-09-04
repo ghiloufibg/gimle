@@ -50,16 +50,18 @@ function write(list: ClusterConnection[]): void {
   window.localStorage.setItem(KEY, JSON.stringify(list));
 }
 
+/** Kept only for Vitest coverage and as a reference implementation; not the composition root's
+ * choice any more now that a real /api/clusters backend exists (see HttpClustersRepository). */
 export class LocalStorageClustersRepository implements ClustersRepository {
-  list(): ClusterConnection[] {
+  async list(): Promise<ClusterConnection[]> {
     return read().sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  get(id: string): ClusterConnection | undefined {
+  async get(id: string): Promise<ClusterConnection | undefined> {
     return read().find((c) => c.id === id);
   }
 
-  save(cluster: ClusterConnection): ClusterConnection {
+  async save(cluster: ClusterConnection): Promise<ClusterConnection> {
     const next: ClusterConnection = { ...cluster, updatedAt: now() };
     const list = read();
     const idx = list.findIndex((c) => c.id === next.id);
@@ -69,7 +71,7 @@ export class LocalStorageClustersRepository implements ClustersRepository {
     return next;
   }
 
-  delete(id: string): void {
+  async delete(id: string): Promise<void> {
     write(read().filter((c) => c.id !== id));
   }
 }
