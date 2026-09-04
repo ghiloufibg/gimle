@@ -3,8 +3,10 @@ package com.gimle.cli;
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Renders a parsed JSON response as either a tab-separated human-readable table (default) or raw
@@ -65,7 +67,7 @@ public final class OutputFormat {
       out.println("No resources found.");
       return;
     }
-    List<String> columns = new ArrayList<>(items.get(0).keySet());
+    List<String> columns = unionColumns(items);
     out.println(String.join("\t", columns));
     for (Map<String, Object> item : items) {
       List<String> row = new ArrayList<>();
@@ -74,6 +76,21 @@ public final class OutputFormat {
       }
       out.println(String.join("\t", row));
     }
+  }
+
+  /**
+   * The full column set across every row, not just the first one -- a field a later row carries but
+   * the first (e.g. the newest {@code events} row) doesn't, such as {@code causeSummary} on an
+   * event that recorded no failure cause, still gets its own column, blank for the rows that lack
+   * it, rather than vanishing from the table entirely. Column order follows first appearance: every
+   * key the first row carries, in its own order, then any further key a later row introduces.
+   */
+  private static List<String> unionColumns(List<Map<String, Object>> items) {
+    Set<String> columns = new LinkedHashSet<>();
+    for (Map<String, Object> item : items) {
+      columns.addAll(item.keySet());
+    }
+    return new ArrayList<>(columns);
   }
 
   private static String formatValue(Object value) {

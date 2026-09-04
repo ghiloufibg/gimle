@@ -48,6 +48,24 @@ final class Flags {
       if (!token.startsWith("--")) {
         throw new CliException("unexpected argument: " + token + "\n\n" + usage);
       }
+      // A single --flag=value token carries its own value inline, the same syntax getopt-style
+      // parsers accept alongside the space-separated form -- an operator reaching for either
+      // spelling of "give this flag a value" should never be told the flag doesn't exist.
+      int equals = token.indexOf('=');
+      if (equals >= 0) {
+        String name = token.substring(0, equals);
+        String value = token.substring(equals + 1);
+        if (booleanFlagNames.contains(name)) {
+          throw new CliException(name + " does not take a value\n\n" + usage);
+        }
+        if (repeatableFlagNames.contains(name)) {
+          flags.repeatedValues.computeIfAbsent(name, k -> new ArrayList<>()).add(value);
+        } else {
+          flags.values.put(name, value);
+        }
+        i++;
+        continue;
+      }
       if (booleanFlagNames.contains(token)) {
         flags.setBooleanFlags.add(token);
         i++;

@@ -180,6 +180,37 @@ class LogsCommandTest {
   }
 
   @Test
+  void a_space_separated_tenant_flag_travels_to_the_backend_as_a_query_parameter() {
+    pageLines = List.of(line("INFO", "order accepted"));
+
+    run("instance/orders-service/0", "--tenant", "acme");
+
+    assertEquals(1, receivedUris.size());
+    String uri = receivedUris.get(0);
+    assertTrue(uri.contains("tenant=acme"), uri);
+  }
+
+  @Test
+  void an_inline_equals_tenant_flag_still_works_the_same_way() {
+    pageLines = List.of(line("INFO", "order accepted"));
+
+    run("instance/orders-service/0", "--tenant=acme");
+
+    assertEquals(1, receivedUris.size());
+    String uri = receivedUris.get(0);
+    assertTrue(uri.contains("tenant=acme"), uri);
+  }
+
+  @Test
+  void a_space_separated_tenant_flag_missing_its_value_fails_before_any_request_is_sent() {
+    CliException thrown =
+        assertThrows(CliException.class, () -> run("instance/orders-service/0", "--tenant"));
+
+    assertTrue(thrown.getMessage().contains("--tenant requires a value"), thrown.getMessage());
+    assertTrue(receivedUris.isEmpty(), "a bad flag must not cost a round trip");
+  }
+
+  @Test
   void the_usage_text_documents_both_filtering_flags() {
     assertTrue(LogsCommand.usage().contains("--level"));
     assertTrue(LogsCommand.usage().contains("--contains"));

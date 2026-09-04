@@ -25,13 +25,18 @@ final class TenantQuery {
    * consumed by the caller -- this never sees the name, only flags.
    */
   static String appendTo(String path, List<String> argsAfterName) {
-    if (argsAfterName.isEmpty()) {
-      return path;
-    }
-    Flags flags = Flags.parse(argsAfterName, Set.of(), "usage: ... [--tenant <id>]");
-    String tenant = flags.getOrDefault(FLAG, null);
+    String tenant = valueOf(argsAfterName);
     return tenant == null
         ? path
         : path + "?tenant=" + URLEncoder.encode(tenant, StandardCharsets.UTF_8);
+  }
+
+  /** The bare {@code --tenant} value, or {@code null} if the flag wasn't given. */
+  static String valueOf(List<String> args) {
+    if (args.isEmpty()) {
+      return null;
+    }
+    Flags flags = Flags.parse(args, Set.of(), "usage: ... [--tenant <id>]");
+    return flags.getOrDefault(FLAG, null);
   }
 }

@@ -56,7 +56,9 @@ public final class LogsCommand {
     String contains = null;
     String tenant = null;
 
-    for (String arg : args.subList(1, args.size())) {
+    List<String> rest = args.subList(1, args.size());
+    for (int i = 0; i < rest.size(); i++) {
+      String arg = rest.get(i);
       if (arg.equals("--follow") || arg.equals("-f")) {
         follow = true;
       } else if (arg.startsWith("--category=")) {
@@ -69,6 +71,14 @@ public final class LogsCommand {
         contains = arg.substring("--contains=".length());
       } else if (arg.startsWith("--tenant=")) {
         tenant = arg.substring("--tenant=".length());
+      } else if (arg.equals("--tenant")) {
+        // Every other by-name workload command accepts --tenant as a separate, space-separated
+        // token (see TenantQuery); this command's own flags otherwise use inline --flag=value
+        // exclusively, so both spellings are accepted here rather than only one.
+        if (i + 1 >= rest.size()) {
+          throw new CliException("--tenant requires a value\n\n" + usage());
+        }
+        tenant = rest.get(++i);
       } else {
         throw new CliException("unknown flag: " + arg + "\n\n" + usage());
       }
@@ -220,7 +230,7 @@ public final class LogsCommand {
   static String usage() {
     return """
         usage: gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
-                                   [--level=LEVEL] [--contains=TEXT] [--tenant=<id>]
+                                   [--level=LEVEL] [--contains=TEXT] [--tenant <id>|--tenant=<id>]
           target: controlplane | node/<nodeId> | instance/<deploymentName>/<instanceIndex>
           --category: APPLICATION|PLATFORM for instances, PLATFORM|SYSTEM for nodes/controlplane
                       (defaults to APPLICATION for instances, PLATFORM otherwise)

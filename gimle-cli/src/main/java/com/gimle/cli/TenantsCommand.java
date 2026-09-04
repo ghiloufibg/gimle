@@ -29,13 +29,15 @@ public final class TenantsCommand {
     this.out = out;
   }
 
+  private static final String GET_USAGE = "usage: gimle get tenants [id]";
+
   public void get(List<String> args) {
-    String id = GimleCli.requireAtMostOne(args, "tenant");
-    if (id == null) {
+    GetCommandArgs.Split split = GetCommandArgs.split(args, Set.of(), "tenant", GET_USAGE);
+    if (split.name() == null) {
       OutputFormat.printList(output, client.getList("/tenants"), out);
       return;
     }
-    OutputFormat.printObject(output, client.getObject("/tenants/" + id), out);
+    OutputFormat.printObject(output, client.getObject("/tenants/" + split.name()), out);
   }
 
   public void set(List<String> args) {

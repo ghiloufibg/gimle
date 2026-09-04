@@ -3,6 +3,7 @@ package com.gimle.cli;
 import com.gimle.core.protocol.Json;
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -21,6 +22,8 @@ import java.util.Set;
  */
 public final class ServicesCommand {
 
+  private static final String GET_USAGE = "usage: gimle get services [name] [--tenant <id>]";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -32,13 +35,35 @@ public final class ServicesCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
-      OutputFormat.printList(output, client.getList("/services"), out);
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "service", GET_USAGE);
+    if (split.name() == null) {
+      List<Map<String, Object>> services =
+          filterByTenant(client.getList("/services"), TenantQuery.valueOf(split.flagArgs()));
+      OutputFormat.printList(output, services, out);
       return;
     }
-    String name = args.get(0);
-    String path = TenantQuery.appendTo("/services/" + name, args.subList(1, args.size()));
+    String path = TenantQuery.appendTo("/services/" + split.name(), split.flagArgs());
     OutputFormat.printObject(output, client.getObject(path), out);
+  }
+
+  /**
+   * Unlike {@code DeploymentsCommand}/{@code JobsCommand}, a Service's own JSON shape has {@code
+   * tenantId} at the top level rather than nested under a {@code spec} object -- a Service isn't
+   * status-wrapped the way a workload kind is -- so the filter reads it directly.
+   */
+  private static List<Map<String, Object>> filterByTenant(
+      List<Map<String, Object>> services, String tenantId) {
+    if (tenantId == null) {
+      return services;
+    }
+    List<Map<String, Object>> filtered = new ArrayList<>();
+    for (Map<String, Object> service : services) {
+      if (tenantId.equals(service.get("tenantId"))) {
+        filtered.add(service);
+      }
+    }
+    return filtered;
   }
 
   public void set(List<String> args, PrintStream err) {

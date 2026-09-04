@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@code get nodes}, {@code get node-assignments <nodeId>}, {@code cordon <nodeId>}, {@code
@@ -32,7 +33,15 @@ public final class NodesCommand {
     this.out = out;
   }
 
-  public void list() {
+  private static final String GET_USAGE = "usage: gimle get nodes";
+
+  /**
+   * {@code get nodes} takes no name and no flags of its own -- any {@code "--"}-prefixed argument
+   * is an unrecognized flag, rejected rather than silently dropped the way an unparsed argument
+   * here previously was.
+   */
+  public void list(List<String> args) {
+    GetCommandArgs.splitNoName(args, Set.of(), GET_USAGE);
     OutputFormat.printList(output, listRows(), out);
   }
 

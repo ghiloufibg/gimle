@@ -188,7 +188,7 @@ gimle backup restore <path>
 gimle audit list [--principal <name>] [--resource <kind>] [--tenant <id>]
                   [--since <epochMillis>] [--limit N] [--cursor <token>] [--all]
 gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
-                    [--level=LEVEL] [--contains=TEXT]
+                    [--level=LEVEL] [--contains=TEXT] [--tenant <id>|--tenant=<id>]
 gimle get roles [name]
 gimle set role <name> --permission <resource>:<verb>[:<tenant>[:<qualifier>]] [--permission ...]
                        (resource, verb, and tenant each accept "*" for every value — quote it,

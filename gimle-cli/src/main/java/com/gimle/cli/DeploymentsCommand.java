@@ -18,6 +18,8 @@ import java.util.Set;
  */
 public final class DeploymentsCommand {
 
+  private static final String GET_USAGE = "usage: gimle get deployments [name] [--tenant <id>]";
+
   private final ControlPlaneClient client;
   private final OutputFormat.Kind output;
   private final PrintStream out;
@@ -29,11 +31,13 @@ public final class DeploymentsCommand {
   }
 
   public void get(List<String> args) {
-    if (args.isEmpty()) {
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "deployment", GET_USAGE);
+    if (split.name() == null) {
       OutputFormat.printList(output, rows(args), out);
       return;
     }
-    Map<String, Object> deployment = client.getObject(pathFor(args));
+    Map<String, Object> deployment = client.getObject(pathFor(split));
     if (output == OutputFormat.Kind.MANIFEST) {
       out.print(ManifestExport.deployment(deployment));
       return;
@@ -48,18 +52,43 @@ public final class DeploymentsCommand {
    * single-row list rather than the object {@link #get} prints for it, since a watch diffs lists.
    */
   public List<Map<String, Object>> rows(List<String> args) {
-    if (args.isEmpty()) {
-      List<Map<String, Object>> deployments = client.getList("/deployments");
+    GetCommandArgs.Split split =
+        GetCommandArgs.split(args, Set.of("--tenant"), "deployment", GET_USAGE);
+    if (split.name() == null) {
+      List<Map<String, Object>> deployments =
+          filterByTenant(client.getList("/deployments"), TenantQuery.valueOf(split.flagArgs()));
       // Humanization is table-only -- see NodesCommand#list's identical reasoning: -o json keeps
       // the raw spec/instances/quota shape at full fidelity for scripting.
       return output == OutputFormat.Kind.TABLE ? humanizeAll(deployments) : deployments;
     }
-    Map<String, Object> deployment = client.getObject(pathFor(args));
+    Map<String, Object> deployment = client.getObject(pathFor(split));
     return List.of(output == OutputFormat.Kind.TABLE ? humanize(deployment) : deployment);
   }
 
-  private static String pathFor(List<String> args) {
-    return TenantQuery.appendTo("/deployments/" + args.get(0), args.subList(1, args.size()));
+  private static String pathFor(GetCommandArgs.Split split) {
+    return TenantQuery.appendTo("/deployments/" + split.name(), split.flagArgs());
+  }
+
+  /**
+   * The control plane's own {@code /deployments} list route has no {@code ?tenant=} filter of its
+   * own (it returns everything the caller is authorized to read across every tenant) -- {@code
+   * --tenant} on the list form is applied here instead, against each entry's own {@code
+   * spec.tenantId}, absent for an untenanted deployment and therefore never matched by a non-null
+   * filter.
+   */
+  private static List<Map<String, Object>> filterByTenant(
+      List<Map<String, Object>> deployments, String tenantId) {
+    if (tenantId == null) {
+      return deployments;
+    }
+    List<Map<String, Object>> filtered = new ArrayList<>();
+    for (Map<String, Object> deployment : deployments) {
+      if (deployment.get("spec") instanceof Map<?, ?> spec
+          && tenantId.equals(spec.get("tenantId"))) {
+        filtered.add(deployment);
+      }
+    }
+    return filtered;
   }
 
   public void apply(List<String> args, PrintStream err) {

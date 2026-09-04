@@ -19,6 +19,7 @@ import com.gimle.mimir.rpc.StoreClient;
 import com.gimle.mimir.rpc.StoreNode;
 import com.gimle.mimir.rpc.StoreTransport;
 import com.gimle.mimir.store.StateStore;
+import com.gimle.module.testsupport.TestModuleBuilder;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -222,6 +223,31 @@ class GimleCliTest {
                 InstanceEventKind.ACTIVE,
                 "instance became active",
                 Optional.empty(),
+                occurredAtEpochMilli)));
+  }
+
+  /**
+   * Mirrors {@link #appendTenantedInstanceEvent} but records a real {@code TRANSITION_FAILED} event
+   * carrying its own {@code causeSummary} -- the field {@code get events}' table output must never
+   * drop from the whole table just because a later (newer) row happens to lack it.
+   */
+  private void appendTenantedFailedInstanceEvent(
+      String tenantId,
+      String deploymentName,
+      int instanceIndex,
+      String id,
+      long occurredAtEpochMilli,
+      String causeSummary) {
+    storeClient.propose(
+        new StateMutation.AppendInstanceEvent(
+            Optional.of(tenantId),
+            new InstanceEvent(
+                id,
+                deploymentName,
+                instanceIndex,
+                InstanceEventKind.TRANSITION_FAILED,
+                "instance failed to transition",
+                Optional.of(causeSummary),
                 occurredAtEpochMilli)));
   }
 
@@ -1820,6 +1846,239 @@ class GimleCliTest {
     assertTrue(stdout().contains("\"artifactPath\""));
   }
 
+  // ---- get <kind> --tenant on the list form, and unknown-flag rejection across the get verb
+  // family (M7, M38) ----
+
+  /**
+   * Unlike {@link #writeManifest}'s dangling {@code artifactPath}, this points at a real fixture
+   * jar: a quota-bound tenant (any tenant carrying a real numeric quota, unlike the default
+   * tenant's unbounded one in this fixture) makes {@link
+   * com.gimle.controlplane.admission.TenantQuotaPlugin} actually resolve and read the artifact to
+   * size the request against the quota, so a never-built path is rejected outright with "artifact
+   * unreadable" -- the same real-jar convention {@code DryRunCliTest#fixtureJar} already
+   * establishes.
+   */
+  private Path writeTenantedManifest(String name, String tenantId) throws IOException {
+    Path jar = tenantedFixtureJar();
+    Path file = tempDir.resolve(name + ".yaml");
+    Files.writeString(
+        file,
+        """
+        kind: Deployment
+        name: %s
+        module:
+          name: com.gimle.fixture.cli.tenanted
+          version: 1.0.0
+        artifactPath: %s
+        replicas: 1
+        tenantId: %s
+        """
+            .formatted(name, jar.toAbsolutePath(), tenantId));
+    return file;
+  }
+
+  /**
+   * Built once per {@link #writeTenantedManifest} call rather than shared/cached -- the module name
+   * it declares must match the manifest's own {@code module.name}, and every call site here uses
+   * the identical fixture name, so a fresh jar per call keeps each test's own {@code tempDir}
+   * self-contained rather than racing a shared file across parallel test execution.
+   */
+  private Path tenantedFixtureJar() {
+    return TestModuleBuilder.module("module com.gimle.fixture.cli.tenanted {\n}\n")
+        .withDescriptor(
+            TestModuleBuilder.minimalDescriptor("com.gimle.fixture.cli.tenanted", "1.0.0"))
+        .build(tempDir.resolve("jars"), "cli-tenanted-fixture-" + System.nanoTime() + ".jar");
+  }
+
+  @Test
+  void get_deployments_with_a_space_separated_tenant_flag_on_the_list_form_filters_by_tenant()
+      throws Exception {
+    createTenant("acme");
+    assertEquals(
+        0,
+        run("apply", "-f", writeTenantedManifest("acme-deployment", "acme").toString()),
+        stderr());
+    run("apply", "-f", writeManifest("untenanted-deployment", 1).toString());
+
+    outBuffer.reset();
+    int exit = run("get", "deployments", "--tenant", "acme");
+    assertEquals(0, exit, stderr());
+    String out = stdout();
+    assertTrue(out.contains("acme-deployment"), out);
+    assertFalse(out.contains("untenanted-deployment"), out);
+  }
+
+  @Test
+  void get_deployments_with_an_inline_equals_tenant_flag_on_the_list_form_also_filters()
+      throws Exception {
+    createTenant("acme");
+    run("apply", "-f", writeTenantedManifest("acme-deployment-eq", "acme").toString());
+    run("apply", "-f", writeManifest("untenanted-deployment-eq", 1).toString());
+
+    outBuffer.reset();
+    int exit = run("get", "deployments", "--tenant=acme");
+    assertEquals(0, exit, stderr());
+    String out = stdout();
+    assertTrue(out.contains("acme-deployment-eq"), out);
+    assertFalse(out.contains("untenanted-deployment-eq"), out);
+  }
+
+  @Test
+  void get_deployments_list_form_with_the_flag_before_the_output_flag_still_works()
+      throws Exception {
+    createTenant("acme");
+    run("apply", "-f", writeTenantedManifest("acme-deployment-order", "acme").toString());
+
+    outBuffer.reset();
+    int exit = run("get", "deployments", "--tenant", "acme", "-o", "table");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("acme-deployment-order"), stdout());
+  }
+
+  @Test
+  void get_jobs_with_a_tenant_flag_on_the_list_form_filters_by_tenant() throws Exception {
+    createTenant("acme");
+    Path jar = tenantedFixtureJar();
+    Path tenanted = tempDir.resolve("acme-job.yaml");
+    Files.writeString(
+        tenanted,
+        """
+        kind: Job
+        name: acme-job
+        module:
+          name: com.gimle.fixture.cli.tenanted
+          version: 1.0.0
+        artifactPath: %s
+        backoffLimit: 3
+        tenantId: acme
+        """
+            .formatted(jar.toAbsolutePath()));
+    assertEquals(0, run("apply", "-f", tenanted.toString()), stderr());
+    run("apply", "-f", writeJobManifest("untenanted-job").toString());
+
+    outBuffer.reset();
+    int exit = run("get", "jobs", "--tenant", "acme");
+    assertEquals(0, exit, stderr());
+    String out = stdout();
+    assertTrue(out.contains("acme-job"), out);
+    assertFalse(out.contains("untenanted-job"), out);
+  }
+
+  @Test
+  void get_services_with_a_tenant_flag_on_the_list_form_filters_by_tenant() {
+    assertEquals(
+        0,
+        run(
+            "set",
+            "service",
+            "acme-service",
+            "--deployment",
+            "acme-deployment",
+            "--port",
+            "8080",
+            "--tenant",
+            "acme"),
+        errBuffer::toString);
+    assertEquals(
+        0,
+        run(
+            "set",
+            "service",
+            "untenanted-service",
+            "--deployment",
+            "some-deployment",
+            "--port",
+            "8080"),
+        errBuffer::toString);
+
+    outBuffer.reset();
+    int exit = run("get", "services", "--tenant", "acme");
+    assertEquals(0, exit, stderr());
+    String out = stdout();
+    assertTrue(out.contains("acme-service"), out);
+    assertFalse(out.contains("untenanted-service"), out);
+  }
+
+  @Test
+  void get_deployments_named_lookup_with_a_tenant_flag_still_works_as_before() throws Exception {
+    createTenant("acme");
+    run("apply", "-f", writeTenantedManifest("acme-named", "acme").toString());
+
+    outBuffer.reset();
+    int exit = run("get", "deployments", "acme-named", "--tenant", "acme");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("acme-named"), stdout());
+  }
+
+  @Test
+  void get_deployments_list_form_with_an_unrecognized_flag_fails_with_unknown_flag() {
+    int exit = run("get", "deployments", "--bogus-flag-xyz", "default");
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("unknown flag"), stderr());
+    assertTrue(stderr().contains("--bogus-flag-xyz"), stderr());
+  }
+
+  @Test
+  void get_deployments_named_lookup_with_an_unrecognized_flag_fails_with_unknown_flag()
+      throws Exception {
+    run("apply", "-f", writeManifest("named-with-bad-flag", 1).toString());
+
+    int exit = run("get", "deployments", "named-with-bad-flag", "--bogus-flag-xyz");
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("unknown flag"), stderr());
+    // Rejected as a bad flag, never silently treated as the resource name -- the pre-fix behavior
+    // that produced a misleading "not found" error instead.
+    assertFalse(stderr().contains("not found"), stderr());
+  }
+
+  @Test
+  void get_jobs_list_form_with_an_unrecognized_flag_fails_with_unknown_flag() {
+    int exit = run("get", "jobs", "--bogus-flag-xyz");
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("unknown flag"), stderr());
+  }
+
+  @Test
+  void get_services_list_form_with_an_unrecognized_flag_fails_with_unknown_flag() {
+    int exit = run("get", "services", "--bogus-flag-xyz");
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("unknown flag"), stderr());
+  }
+
+  @Test
+  void get_nodes_with_an_unrecognized_flag_fails_instead_of_silently_succeeding() {
+    int exit = run("get", "nodes", "--bogus-flag-abc");
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("unknown flag"), stderr());
+    assertTrue(stderr().contains("--bogus-flag-abc"), stderr());
+  }
+
+  @Test
+  void get_nodes_with_no_arguments_still_lists_every_node() throws Exception {
+    registerNode("plain-node");
+
+    int exit = run("get", "nodes");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("plain-node"), stdout());
+  }
+
+  @Test
+  void get_tenants_with_an_unrecognized_flag_is_rejected_rather_than_treated_as_the_tenant_id() {
+    int exit = run("get", "tenants", "--bogus-flag-xyz");
+    assertNotEquals(0, exit);
+    assertTrue(stderr().contains("unknown flag"), stderr());
+    assertFalse(stderr().contains("not found"), stderr());
+  }
+
+  @Test
+  void get_tenants_with_a_real_id_still_works_after_the_flag_validation_fix() {
+    createTenant("acme-plain");
+
+    int exit = run("get", "tenants", "acme-plain");
+    assertEquals(0, exit, stderr());
+    assertTrue(stdout().contains("acme-plain"), stdout());
+  }
+
   // ---- events --limit -- previously unsupported by this command ----
 
   @Test
@@ -1885,6 +2144,30 @@ class GimleCliTest {
     assertEquals(0, exit, stderr());
     assertTrue(stdout().contains("evt-beta-private"));
     assertFalse(stdout().contains("evt-acme-private"));
+  }
+
+  // ---- events table output keeps a column even when only an older row carries it (M20) ----
+
+  @Test
+  void events_table_output_keeps_the_causesummary_column_even_when_the_newest_row_lacks_it()
+      throws Exception {
+    appendTenantedFailedInstanceEvent(
+        "acme", "orders-service", 0, "evt-failed", 1_000L, "IllegalStateException: boom");
+    // Newest event (higher timestamp), no cause of its own -- GET /events answers newest-first, so
+    // this is items.get(0), the row a naive first-row-only column derivation would key off.
+    appendTenantedInstanceEvent("acme", "orders-service", 0, "evt-recovered", 2_000L);
+
+    int exit = run("events", "orders-service", "0", "--tenant", "acme");
+    assertEquals(0, exit, stderr());
+    String out = stdout();
+    assertTrue(out.contains("causeSummary"), out);
+    assertTrue(out.contains("IllegalStateException: boom"), out);
+
+    // -o json already carried the field correctly before this fix -- confirms both forms agree on
+    // the same underlying data, not just that the table now prints something.
+    outBuffer.reset();
+    assertEquals(0, run("-o", "json", "events", "orders-service", "0", "--tenant", "acme"));
+    assertTrue(stdout().contains("\"causeSummary\":\"IllegalStateException: boom\""), stdout());
   }
 
   // ---- apply -f against an unreadable manifest file -- the reason is stated, not just the path

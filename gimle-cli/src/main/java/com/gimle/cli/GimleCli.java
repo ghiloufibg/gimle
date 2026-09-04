@@ -598,7 +598,7 @@ public final class GimleCli {
       case "cronjob", "cronjobs" -> new CronJobsCommand(client, output, out).get(rest);
       case "daemonset", "daemonsets" -> new DaemonSetsCommand(client, output, out).get(rest);
       case "statefulset", "statefulsets" -> new StatefulSetsCommand(client, output, out).get(rest);
-      case "node", "nodes" -> new NodesCommand(client, output, out).list();
+      case "node", "nodes" -> new NodesCommand(client, output, out).list(rest);
       case "node-assignments" ->
           new NodesCommand(client, output, out).assignments(requireOne(rest, "node-assignments"));
       case "service", "services" -> new ServicesCommand(client, output, out).get(rest);
