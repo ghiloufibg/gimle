@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 800
+- **Total requirements**: 801
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 673
+- **Not covered by automated test**: 674
 - **Release-readiness (automated coverage)**: 15.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -30,7 +30,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-cli | 41 | 0 | 41 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
-| gimle-console | 54 | 0 | 54 | 0.0% |
+| gimle-console | 55 | 0 | 55 | 0.0% |
 | gimle-fafnir-console | 6 | 0 | 6 | 0.0% |
 | gimle-andvari-console | 8 | 0 | 8 | 0.0% |
 | gimle-saga-console | 7 | 0 | 7 | 0.0% |
@@ -2053,6 +2053,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-775 | Console addon screens declare their own sidebar entry, and the sidebar is grouped rather than one flat list | Given a console route file exporting its own `navEntry` descriptor When the console is built Then that screen appears in the sidebar under the group its descriptor names And deleting the route file removes both the route and its sidebar entry, with nothing left naming it | No |
 | [ ] | GIMLE-778 | Console addons are a catalog, a registry and a per-addon sidebar group, with a disabled addon explaining itself instead of 404ing | Given a control plane advertising no console addons When an operator opens a bundled addon's route directly Then the page names the property that would enable it rather than answering 404 And the sidebar shows no entry for it in the group its catalog entry names | No |
 | [ ] | GIMLE-787 | An Applications addon presenting every deployable resource as one application, with health and sync as separate verdicts and a resource tree beneath each | Given a Deployment whose replicas are all placed but one instance is FAILED When I open the Applications screen Then it reads Degraded on health and Synced on sync, with a condition naming the failed instance and its node Given a Deployment placing 1 of 2 desired replicas, that one healthy Then it reads Progressing on health and OutOfSync on sync Given a Job that has SUCCEEDED Then it reads Healthy, because a Job's desired state is having run Given a CronJob whose newest generated Job FAILED Then it reads Degraded, naming that Job Given a custom resource whose status reports an observedGeneration behind its generation Then it reads Progressing and OutOfSync, naming both generations Given a control plane whose consoleAddons property does not name this addon Then the sidebar carries no Applications entry and its route explains which property would enable it | No |
+| [ ] | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away. Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner. | No |
 
 #### Web Console / Testing
 

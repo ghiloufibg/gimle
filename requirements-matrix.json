@@ -1,7 +1,7 @@
 {
   "title": "Gimlé Requirements Matrix",
   "preamble": "This matrix was reverse-engineered directly from the Gimlé codebase as it stood at commit `919bd4063ab8ef5a430e1e3ed8bf2f12ddacd640` (2026-08-17), on branch `claude/gimle-requirements-matrix-lfkqqe`. Every entry below is grounded in code and test source actually read in the repository — main sources, `module-info.java` files, test classes, Gherkin `.feature` files, and (for the web console family) frontend routes/stores/repositories — not in the project's own planning docs (`gimle-PROJECT-v2.md`, `CLAUDE.md`) or aspirational design intent. Where behavior is stubbed, deliberately deferred, or documented as an accepted v1 limitation, the entry is marked `Partial` in the Status column with the reason inline; nothing here describes intended-but-unimplemented behavior.\n\n**Scope**: all 27 Maven modules in the reactor — 564 distinct requirements identified, grouped by module below. IDs are sequential (`GIMLE-001`…`GIMLE-564`) in module order; they are stable identifiers for this document only, not references to any other tracker.\n\n**Method note on Test Coverage classification**: `Yes` means the entry cites one or more real test class/method names; `Partial` means no dedicated test exists but the behavior is exercised indirectly (through another module's integration test, a smoke test, or a Holmgang scenario); `None` means no test — direct or indirect — was found for that specific behavior.",
-  "requirementCount": 800,
+  "requirementCount": 801,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -16324,6 +16324,27 @@
       "gherkinSteps": [
         "Given greeter-provider-deployment is deployed from its own bundled jar and reaches ACTIVE, When a Service is created fronting it with no targetPort declared, Then GET /services/{name}/endpoints resolves exactly one live endpoint at the real port GreeterProviderHooks opened and reported.",
         "Given that same Service now has a live endpoint, When a real SkaldMain instance is queried for the Service's DNS name, Then it answers NOERROR with a real address instead of NXDOMAIN."
+      ],
+      "statusSummary": "Fixed",
+      "testCoverageLevel": "Yes"
+    },
+    {
+      "id": "GIMLE-801",
+      "module": "gimle-console",
+      "feature": "The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast",
+      "category": "Web Console / Frontend",
+      "userStory": "As an operator submitting a deployment the control plane rejects (e.g. naming a module Andvari has no coordinate for), I want the rejection reason to stay visible on the page, so a toast I glance away from for a moment doesn't leave the failure looking identical to nothing having happened.",
+      "statusDetail": "Fixed defensively. The New Deployment form's submit handler already called `notifyApiError` on a rejected `create()` -- reproduced directly against `HttpDeploymentsRepository#create`, which correctly rejects with the control plane's own `ApiError` (status and body text intact) for a 400 admission refusal such as a moduleId Andvari has no coordinate for, and `useDeploymentsStore#create` propagates that rejection to its caller unchanged rather than absorbing it into `store.error` the way its other methods do. The only trace of that failure was therefore a single toast, which auto-dismisses on its own timer and is easy to miss entirely -- leaving the form looking exactly as submitted, as though nothing happened, once that timer has elapsed. The form now also keeps a persistent inline error banner (the same border-l-2/bg-status-bad-bg style `login.tsx` already uses for its own sign-in error) that stays on the page, cleared only by the next submit attempt, so the control plane's real rejection reason survives past a toast nobody happened to be looking at.",
+      "confidence": "Medium",
+      "sourceLocations": [
+        "`gimle-console/src/routes/deployments.new.tsx` (`submit`, inline error banner)",
+        "`gimle-console/src/repositories/http/deployments.ts` (`HttpDeploymentsRepository#create`)",
+        "`gimle-console/src/stores/useDeploymentsStore.ts` (`create`)"
+      ],
+      "testCoverageDetail": "`repositories/http/deployments.test.ts` gained create()_rejects_with_the_control_plane's_own_reason_when_the_PUT_itself_is_denied (asserting the exact status/body reach the caller, and that a denied PUT never triggers a follow-up GET) and create()'s_rejection_is_a_real_ApiError,_not_a_generic_Error,_so_callers_can_inspect_status. `stores/useDeploymentsStore.test.ts` gained create_rejects_with_the_repository's_own_error_instead_of_swallowing_it_into_store.error and a_successful_create_prepends_the_new_deployment_to_the_store's_items, pinning that `create` deliberately does not catch-and-absorb the way `loadFirstPage`/`poll`/`rollback` do.",
+      "gherkinSteps": [
+        "Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away.",
+        "Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner."
       ],
       "statusSummary": "Fixed",
       "testCoverageLevel": "Yes"

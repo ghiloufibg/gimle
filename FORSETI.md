@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 800 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 801 | The whole denominator before any classification. |
 | Out of scope | 69 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 198 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 172, uncited 0). |
-| **User-observable** | **533** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 533 | **100.0%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **534** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 534 | **100.0%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 0 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -124,7 +124,7 @@ not carry over to the new one.
 |---|---|---|---|---:|---:|
 | **OPS** | Ops — Platform operator | The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day. | A B C | 15 | 65 |
 | **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 6 | 49 |
-| **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 60 |
+| **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 61 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 55 |
 | **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 38 |
 | **NET** | Fabric & Networking | Whoever wires two teams' services together: Services, DNS, the node proxy, the gateway, network policy. | A B C | 10 | 65 |
@@ -196,7 +196,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **DEP-9** | A | Scale a deployment 1→4→2 by re-applying `replicas`. | Replica count converges each time; scale-down removes exactly the surplus and nothing else. | GIMLE-219, GIMLE-220 |
 | **DEP-10** | A | Deploy a manifest naming a probe class that does not exist in the jar; deploy a jar whose install fails inside the worker. | Both end in FAILED with a durable event that names the cause — never stuck at INSTALLED with no explanation. | GIMLE-666, GIMLE-114 |
 | **DEP-11** | A | `gimle get deployment <name> --watch` during an apply; `gimle get deployment <name> -o manifest \| gimle apply -f -`. | Watch streams the convergence and exits cleanly; the round trip is a no-op re-apply (same generation), proving `get`'s manifest projection is complete. | GIMLE-767, GIMLE-718 |
-| **DEP-12** | A | Create a deployment through the console's New-deployment form, browse its detail page with 60 instances, force a write failure. | The form applies a valid manifest; instance tables are bounded and paginated; the failure surfaces as a toast; the screen keeps itself current without a manual reload. | GIMLE-439, GIMLE-757, GIMLE-632, GIMLE-759 |
+| **DEP-12** | A | Create a deployment through the console's New-deployment form, browse its detail page with 60 instances, force a write failure. | The form applies a valid manifest; instance tables are bounded and paginated; the failure surfaces as a toast and, because a toast auto-dismisses on its own timer, also as a persistent inline error banner naming the same rejection reason; the screen keeps itself current without a manual reload. | GIMLE-439, GIMLE-757, GIMLE-632, GIMLE-759, GIMLE-801 |
 | **DEP-13** | A | Deploy a module that `requires` another within a version range, first with an in-range provider present, then out-of-range, then with a dependency cycle. | In-range resolves and starts; out-of-range and cyclic both fail resolution with a message naming the module and range/cycle. | GIMLE-002, GIMLE-043, GIMLE-001 |
 
 #### App-2 — Batch, Cron, Node & Stateful workloads
@@ -1297,4 +1297,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-798 | `gimle-agent` | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | observable | FLEET | DEP-7 |
 | GIMLE-799 | `gimle-gateway` | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | observable | FLEET | NET-5 |
 | GIMLE-800 | `gimle-examples` | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | observable | FLEET | NET-1 |
+| GIMLE-801 | `gimle-console` | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | observable | FLEET | DEP-12 |
 <!-- /forseti:generated -->

@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 800,
+    "totalRequirements": 801,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 673,
+    "notCoveredByAutomatedTest": 674,
     "releaseReadinessPercent": 15.9
   },
   "items": [
@@ -8802,6 +8802,17 @@
       "category": "Networking/Service Discovery",
       "feature": "A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve",
       "step": "Given greeter-provider-deployment is deployed from its own bundled jar and reaches ACTIVE, When a Service is created fronting it with no targetPort declared, Then GET /services/{name}/endpoints resolves exactly one live endpoint at the real port GreeterProviderHooks opened and reported. Given that same Service now has a live endpoint, When a real SkaldMain instance is queried for the Service's DNS name, Then it answers NOERROR with a real address instead of NXDOMAIN.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-801",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast",
+      "step": "Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away. Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

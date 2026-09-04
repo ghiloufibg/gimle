@@ -810,6 +810,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | Complete | Yes |
 | GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | Complete | Yes |
 | GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Networking/Service Discovery | Fixed | Yes |
+| GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Web Console / Frontend | Fixed | Yes |
 
 ## Detailed Requirements
 
@@ -10512,6 +10513,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Then it reads Progressing and OutOfSync, naming both generations
   Given a control plane whose consoleAddons property does not name this addon
   Then the sidebar carries no Applications entry and its route explains which property would enable it
+  ```
+
+#### GIMLE-801 — The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator submitting a deployment the control plane rejects (e.g. naming a module Andvari has no coordinate for), I want the rejection reason to stay visible on the page, so a toast I glance away from for a moment doesn't leave the failure looking identical to nothing having happened.
+- **Status**: Fixed defensively. The New Deployment form's submit handler already called `notifyApiError` on a rejected `create()` -- reproduced directly against `HttpDeploymentsRepository#create`, which correctly rejects with the control plane's own `ApiError` (status and body text intact) for a 400 admission refusal such as a moduleId Andvari has no coordinate for, and `useDeploymentsStore#create` propagates that rejection to its caller unchanged rather than absorbing it into `store.error` the way its other methods do. The only trace of that failure was therefore a single toast, which auto-dismisses on its own timer and is easy to miss entirely -- leaving the form looking exactly as submitted, as though nothing happened, once that timer has elapsed. The form now also keeps a persistent inline error banner (the same border-l-2/bg-status-bad-bg style `login.tsx` already uses for its own sign-in error) that stays on the page, cleared only by the next submit attempt, so the control plane's real rejection reason survives past a toast nobody happened to be looking at.
+- **Confidence**: Medium
+- **Source location(s)**: `gimle-console/src/routes/deployments.new.tsx` (`submit`, inline error banner), `gimle-console/src/repositories/http/deployments.ts` (`HttpDeploymentsRepository#create`), `gimle-console/src/stores/useDeploymentsStore.ts` (`create`)
+- **Test coverage**: `repositories/http/deployments.test.ts` gained create()_rejects_with_the_control_plane's_own_reason_when_the_PUT_itself_is_denied (asserting the exact status/body reach the caller, and that a denied PUT never triggers a follow-up GET) and create()'s_rejection_is_a_real_ApiError,_not_a_generic_Error,_so_callers_can_inspect_status. `stores/useDeploymentsStore.test.ts` gained create_rejects_with_the_repository's_own_error_instead_of_swallowing_it_into_store.error and a_successful_create_prepends_the_new_deployment_to_the_store's_items, pinning that `create` deliberately does not catch-and-absorb the way `loadFirstPage`/`poll`/`rollback` do.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away.
+  Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner.
   ```
 
 ### gimle-fafnir-console

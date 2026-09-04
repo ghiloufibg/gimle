@@ -9,11 +9,12 @@ vi.mock("@/repositories", () => ({
     fetchOne: vi.fn(),
     fetchRevisions: vi.fn(),
     rollback: vi.fn(),
+    create: vi.fn(),
   },
 }));
 
 import { deploymentsRepo } from "@/repositories";
-import { SessionExpiredError } from "@/repositories/http/apiClient";
+import { ApiError, SessionExpiredError } from "@/repositories/http/apiClient";
 import type { Deployment } from "@/types";
 import { useDeploymentsStore } from "./useDeploymentsStore";
 
@@ -164,6 +165,46 @@ describe("useDeploymentsStore error surfacing", () => {
     await useDeploymentsStore.getState().rollback("checkout-service", 99);
 
     expect(useDeploymentsStore.getState().error).toBe("no such revision");
+  });
+
+  // Regression: create() deliberately does NOT catch-and-swallow the way loadFirstPage/poll/
+  // loadRevisions/rollback above do -- the new-deployment form is the one place that renders a
+  // rejection itself (toast + inline banner), so the store must let it through unchanged rather
+  // than absorbing it into store.error, where that form never looks.
+  it("create rejects with the repository's own error instead of swallowing it into store.error", async () => {
+    vi.mocked(deploymentsRepo.create).mockRejectedValueOnce(
+      new ApiError(400, "module checkout-service@9.9.9 not found in registry"),
+    );
+
+    await expect(
+      useDeploymentsStore.getState().create({
+        name: "checkout-service-01",
+        moduleId: { name: "checkout-service", version: "9.9.9" },
+        artifactPath: "",
+        replicas: 1,
+        tenantId: null,
+      }),
+    ).rejects.toThrow(/not found in registry/);
+
+    // The rejection propagated to the caller -- it must not also have been absorbed here.
+    expect(useDeploymentsStore.getState().error).toBeNull();
+    expect(useDeploymentsStore.getState().items).toEqual([]);
+  });
+
+  it("a successful create prepends the new deployment to the store's items", async () => {
+    const created = deployment("checkout-service-01");
+    vi.mocked(deploymentsRepo.create).mockResolvedValueOnce(created);
+
+    const result = await useDeploymentsStore.getState().create({
+      name: "checkout-service-01",
+      moduleId: { name: "checkout-service", version: "1.0.0" },
+      artifactPath: "",
+      replicas: 1,
+      tenantId: null,
+    });
+
+    expect(result).toBe(created);
+    expect(useDeploymentsStore.getState().items).toEqual([created]);
   });
 });
 

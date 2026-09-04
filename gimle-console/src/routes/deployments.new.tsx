@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { notifyApiError } from "@/lib/api-error";
+import { describeApiError, isSessionExpired, notifyApiError } from "@/lib/api-error";
 import type { AutoscalePolicy, DisruptionBudget } from "@/types";
 
 export const Route = createFileRoute("/deployments/new")({
@@ -35,6 +35,11 @@ function NewDeployment() {
   const tenants = useTenantsStore((s) => s.items);
   const loadTenants = useTenantsStore((s) => s.loadFirstPage);
   const [saving, setSaving] = useState(false);
+  // Kept alongside the toast in the catch block below, not instead of it: a toast is ephemeral and
+  // easy to miss (it auto-dismisses on its own timer), so a rejected write -- e.g. naming a module
+  // Andvari doesn't have -- needs a trace that survives on the page itself, not only a message that
+  // may already be gone by the time anyone looks.
+  const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: "",
     moduleName: "",
@@ -110,6 +115,7 @@ function NewDeployment() {
       return;
     }
     setSaving(true);
+    setError(null);
     try {
       await create({
         name: form.name,
@@ -124,6 +130,7 @@ function NewDeployment() {
       navigate({ to: "/deployments/$name", params: { name: form.name } });
     } catch (e) {
       notifyApiError(e);
+      if (!isSessionExpired(e)) setError(describeApiError(e));
       setSaving(false);
     }
   }
@@ -143,6 +150,11 @@ function NewDeployment() {
         onSubmit={submit}
         className="max-w-xl grid gap-4 rounded border border-border bg-card p-4"
       >
+        {error && (
+          <p className="text-xs font-mono text-status-bad border-l-2 border-status-bad bg-status-bad-bg/40 px-2 py-1.5">
+            {error}
+          </p>
+        )}
         <div className="grid gap-1.5">
           <Label htmlFor="name" className="text-xs">
             Name *

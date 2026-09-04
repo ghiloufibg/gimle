@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "./apiClient";
 import { HttpDeploymentsRepository } from "./deployments";
-import { jsonResponse, okResponse, stubFetchSequence } from "./testUtil";
+import { jsonResponse, okResponse, stubFetchSequence, textResponse } from "./testUtil";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -183,6 +184,47 @@ describe("HttpDeploymentsRepository", () => {
 
     const [getUrl] = fetchMock.mock.calls[1] as [string];
     expect(getUrl).toBe("/deployments/checkout-service");
+  });
+
+  // Regression: an admission rejection (e.g. a moduleId Andvari has no coordinate for) must reach
+  // the caller as a real, message-carrying rejection -- not a resolved "ok" that a screen then
+  // treats as a successful create, and not a re-fetch attempt against a deployment that was never
+  // actually written.
+  it("create() rejects with the control plane's own reason when the PUT itself is denied", async () => {
+    const fetchMock = stubFetchSequence([
+      () => textResponse("module checkout-service@9.9.9 not found in registry", 400),
+    ]);
+    const repo = new HttpDeploymentsRepository();
+
+    await expect(
+      repo.create({
+        name: "checkout-service-01",
+        moduleId: { name: "checkout-service", version: "9.9.9" },
+        artifactPath: "",
+        replicas: 1,
+        tenantId: null,
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      body: "module checkout-service@9.9.9 not found in registry",
+    });
+    // Only the rejected PUT -- no follow-up GET for a deployment that was never created.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("create()'s rejection is a real ApiError, not a generic Error, so callers can inspect status", async () => {
+    stubFetchSequence([() => textResponse("forbidden", 403)]);
+    const repo = new HttpDeploymentsRepository();
+
+    await expect(
+      repo.create({
+        name: "checkout-service-01",
+        moduleId: { name: "checkout-service", version: "1.0.0" },
+        artifactPath: "",
+        replicas: 1,
+        tenantId: null,
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
   });
 
   it("fetchOne passes a raw spec.disruption block through unchanged", async () => {
