@@ -921,7 +921,8 @@
         "GIMLE-601",
         "GIMLE-602",
         "GIMLE-714",
-        "GIMLE-001"
+        "GIMLE-001",
+        "GIMLE-797"
       ]
     },
     {
@@ -935,7 +936,8 @@
       "requirements": [
         "GIMLE-601",
         "GIMLE-602",
-        "GIMLE-714"
+        "GIMLE-714",
+        "GIMLE-797"
       ]
     },
     {

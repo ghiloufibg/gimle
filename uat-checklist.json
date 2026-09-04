@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 796,
+    "totalRequirements": 797,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 669,
-    "releaseReadinessPercent": 16.0
+    "notCoveredByAutomatedTest": 670,
+    "releaseReadinessPercent": 15.9
   },
   "items": [
     {
@@ -8758,6 +8758,17 @@
       "category": "Observability",
       "feature": "Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging",
       "step": "Given a node registered with an advertised log-server address nothing is actually listening on; When GET /logs/instances/{name}/{idx}?follow=true is requested with Muninn configured; Then the response falls back to Muninn's own shipped history within seconds, not indefinitely. Given the identical setup with no Muninn configured; When the same follow request is made; Then the response is a fast 502 naming the agent as unreachable, never an indefinitely open connection.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-797",
+      "module": "gimle-fabric",
+      "category": "Service Fabric",
+      "feature": "A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice",
+      "step": "Given a service-exporting instance registered in the fabric catalog When it is disposed (unregistered) and a replacement instance registers under a new worker/module identity Then the registry's own candidate list for that service contains only the replacement's endpoint, never the disposed one And repeating this redeploy four times in a row never leaves more than one live candidate behind",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

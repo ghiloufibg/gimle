@@ -1593,7 +1593,9 @@ public final class AgentMain {
             instanceShippers,
             workerShippers,
             volumeManager,
-            false);
+            false,
+            catalog,
+            nodeId);
       }
       if (!supervised.containsKey(key)) {
         // A rename hint (DeploymentReconciler#handleSurge promoting a surge instance to a
@@ -1673,7 +1675,9 @@ public final class AgentMain {
             instanceShippers,
             workerShippers,
             volumeManager,
-            true);
+            true,
+            catalog,
+            nodeId);
       }
     }
     for (String key : List.copyOf(supervisedVessels.keySet())) {
@@ -3707,7 +3711,9 @@ public final class AgentMain {
       Map<String, List<MuninnShipper>> instanceShippers,
       Map<String, WorkerShipperPair> workerShippers,
       VolumeManager volumeManager,
-      boolean releaseVolume) {
+      boolean releaseVolume,
+      ServiceCatalog catalog,
+      String nodeId) {
     // Not removed from `supervised` until after the graceful-uninstall wait below: the
     // connection's own readLoop finds this instance (to apply an incoming ModuleStateChanged)
     // by searching `supervised`, so evicting it here would make that wait unable to ever observe
@@ -3728,7 +3734,17 @@ public final class AgentMain {
         // UninstallModule follow-up needed or wanted here.
         connection.send(
             new ControlMessage.StopModule(nextCorrelationId(), instance.assigned.moduleId()));
-        awaitGracefulUninstall(instance, key);
+        if (!awaitGracefulUninstall(instance, key) && instance.fabricWorkerId != null) {
+          // The worker never confirmed UNINSTALLED within its grace period, so its own
+          // ServiceUnregistered notification for this export -- WorkerRuntime#onUninstalled's
+          // job, reached only once ModuleController#stop's drain-and-uninstall sequence actually
+          // finishes -- may never have been sent before the force-kill below tears its process
+          // (and the control channel carrying that notification) down. Without this, the fabric
+          // catalog would be left with no path to learn this endpoint is gone beyond its circuit
+          // breaker eventually tripping against it -- the same backstop a genuine worker crash
+          // already gets via onWorkerCrash's own evictWorker call.
+          catalog.evictWorker(nodeId, instance.fabricWorkerId);
+        }
       } catch (IOException e) {
         log.warn("failed to send StopModule to instance {}: {}", key, e.getMessage());
       }
@@ -3768,36 +3784,43 @@ public final class AgentMain {
    * own drain wait, {@code WorkerRuntime#onUninstalled}, and {@code FabricServiceRegistry#remove}'s
    * resulting {@code ServiceUnregistered} message (sent back over this exact connection, strictly
    * before the {@code ModuleStateChanged("UNINSTALLED")} this method polls for -- see {@code
-   * WorkerMain#handleLifecycleEvent}'s own send order) had any real chance to complete. The worker
+   * WorkerMain#handleUninstalled}'s own send order) had any real chance to complete. The worker
    * process died mid-shutdown essentially every time, so that deregistration message was never sent
    * or never read -- leaving this instance's exports permanently stuck in this agent's shared
    * {@link ServiceCatalog} pointing at a worker that no longer exists, for every future lookup to
    * keep resolving to and failing against. Every rolling update or scale-down of a Tier 2 module
    * hit this, not just a Job-kind one.
    *
-   * <p>Gives up past the deadline and returns anyway, logging a warning -- {@link #stopInstance}
-   * force-kills the worker either way; this only decides whether that kill has a fair chance to
-   * lose the race against a graceful shutdown already well underway, not whether one happens at
-   * all. A worker that's simply gone (crashed, never connected) is handled by {@code connection ==
-   * null} in the caller and never reaches this method to begin with.
+   * <p>Gives up past the deadline and returns {@code false} anyway, logging a warning -- {@link
+   * #stopInstance} force-kills the worker either way; the return value only tells the caller
+   * whether that kill had a fair chance to lose the race against a graceful shutdown already well
+   * underway, so it knows whether it must fall back to {@link ServiceCatalog#evictWorker} itself
+   * rather than trusting the worker's own {@code ServiceUnregistered} to have gotten out in time. A
+   * worker that's simply gone (crashed, never connected) is handled by {@code connection == null}
+   * in the caller and never reaches this method to begin with.
+   *
+   * @return {@code true} once the worker actually confirmed {@code UNINSTALLED} within the grace
+   *     period, {@code false} if the deadline (or an interrupt) was hit first
    */
-  private static void awaitGracefulUninstall(SupervisedInstance instance, String key) {
+  private static boolean awaitGracefulUninstall(SupervisedInstance instance, String key) {
     Instant deadline = Instant.now().plus(STOP_GRACE_PERIOD);
     while (!"UNINSTALLED".equals(instance.lifecycleState) && Instant.now().isBefore(deadline)) {
       try {
         Thread.sleep(STOP_GRACE_POLL_INTERVAL.toMillis());
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
-        return;
+        return false;
       }
     }
-    if (!"UNINSTALLED".equals(instance.lifecycleState)) {
+    boolean confirmed = "UNINSTALLED".equals(instance.lifecycleState);
+    if (!confirmed) {
       log.warn(
           "instance {} did not confirm graceful uninstall within {}; force-killing its worker"
               + " anyway",
           key,
           STOP_GRACE_PERIOD);
     }
+    return confirmed;
   }
 
   /**
