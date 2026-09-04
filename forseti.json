@@ -2675,13 +2675,14 @@
       "environments": [
         "forge"
       ],
-      "objective": "`mvn gimle:ivaldi` (twice — the second must reuse the running server); create a Blueprint via `POST /api/blueprints`, list it, GET it back by id, and delete it; `POST /api/validate` a rendered `topology.yaml` with no agents declared and one missing Fafnir; `GET /console` and confirm the bundled Ivaldi web console is actually served, not just the API; `mvn gimle:ivaldi-stop`.",
-      "oracle": "The second `gimle:ivaldi` invocation logs reusing the running server rather than spawning a second one; the created blueprint's id is minted from its name, its GET body round-trips exactly, and it is gone after delete; validate reports `NO_AGENTS` (warning) and `NO_FAFNIR` (error) naming `topology.yaml`, the same codes `hilmir validate` itself would report; `/console` returns 200 with the Ivaldi console's own title in the served HTML; stop is idempotent.",
+      "objective": "`mvn gimle:ivaldi` (twice — the second must reuse the running server); create a Blueprint via `POST /api/blueprints`, list it, GET it back by id, and delete it; `POST /api/validate` a rendered `topology.yaml` with no agents declared and one missing Fafnir; `GET /console` and confirm the bundled Ivaldi web console is actually served, not just the API; `mvn gimle:ivaldi-stop`. POST /api/clusters (a local, no-auth connection); POST /api/runs against it with a topology naming no agents and a bundle with one tenant; confirm the run reaches `failed` or `running` rather than hanging, and that /api/clusters/{id}/topology reflects whatever the run actually applied.",
+      "oracle": "The second `gimle:ivaldi` invocation logs reusing the running server rather than spawning a second one; the created blueprint's id is minted from its name, its GET body round-trips exactly, and it is gone after delete; validate reports `NO_AGENTS` (warning) and `NO_FAFNIR` (error) naming `topology.yaml`, the same codes `hilmir validate` itself would report; `/console` returns 200 with the Ivaldi console's own title in the served HTML; stop is idempotent. The run's terminal status and GET /api/runs/{id}/log both name the same outcome; the cluster's own /topology reads back exactly the topology.yaml the run submitted once it reaches running, and stays null if the run never got that far.",
       "requirements": [
         "GIMLE-906",
         "GIMLE-907",
         "GIMLE-908",
-        "GIMLE-910"
+        "GIMLE-910",
+        "GIMLE-911"
       ]
     }
   ]

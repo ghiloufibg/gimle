@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 909,
+    "totalRequirements": 910,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 779,
+    "notCoveredByAutomatedTest": 780,
     "releaseReadinessPercent": 14.3
   },
   "items": [
@@ -10001,6 +10001,17 @@
       "category": "Developer tooling / Internal-Infra",
       "feature": "Ivaldi web console: blueprint designer canvas",
       "step": "Given a saved Blueprint with a clean topology and application, When I open it in the Designer, Then tier-1 validation reports only its known shape advisories and no errors. Given the Ivaldi backend is reachable, When I create a new Blueprint, Then it is created through POST /api/blueprints and appears in the list on the next refresh.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-911",
+      "module": "gimle-ivaldi",
+      "category": "Developer tooling / Internal-Infra",
+      "feature": "Ivaldi run engine: cluster connections and running a Blueprint in-process",
+      "step": "Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

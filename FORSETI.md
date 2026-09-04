@@ -102,11 +102,11 @@ given run actually executed against environments that were actually built).
 <!-- forseti:generated coverage-summary -->
 | Bucket | Count | Meaning |
 |---|---:|---|
-| Requirements in `requirements-matrix.json` | 910 | The whole denominator before any classification. |
+| Requirements in `requirements-matrix.json` | 911 | The whole denominator before any classification. |
 | Out of scope | 70 | Not built, a documented limitation, or a test asset itself — see the exclusions table. |
 | Internal | 203 | Real platform behaviour a user cannot observe from outside a process; every row carries its unit-test or Holmgang citation (Holmgang 26, unit 177, uncited 0). |
-| **User-observable** | **637** | The capability set the fleet is measured against. |
-| Reached by a fleet scenario | 613 | **96.2%** of the user-observable set — meets the 90% target. |
+| **User-observable** | **638** | The capability set the fleet is measured against. |
+| Reached by a fleet scenario | 614 | **96.2%** of the user-observable set — meets the 90% target. |
 | Observable, not fleet-reached | 24 | Each carries its unit/Holmgang citation in the residual table. |
 <!-- /forseti:generated -->
 
@@ -123,7 +123,7 @@ not carry over to the new one.
 | ID | Persona | Who they are | Environments | Scenarios | Requirements reached |
 |---|---|---|---|---:|---:|
 | **OPS** | Ops — Platform operator | The person who unpacks the archives and stands the cluster up, keeps it up, upgrades it, and restores it after a bad day. | A B C | 15 | 76 |
-| **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 7 | 59 |
+| **DEV** | Dev — Module author | A developer writing their first module against the docs, using the Maven plugin and hilmir tooling from a source checkout — never a running production cluster. | G A | 7 | 60 |
 | **DEP** | App-1 — Deployments | A developer shipping a long-running service and living with it: redeploys, rollbacks, probes, tiers. | A | 13 | 67 |
 | **BATCH** | App-2 — Batch, Cron, Node & Stateful workloads | Whoever owns the nightly jobs, the per-node agents, the ordered stateful sets, the plain-process vessels and their volumes. | A B | 9 | 62 |
 | **SCHED** | Scheduling & Resilience | An SRE deciding whether the platform can be trusted unattended across several machines. | B | 10 | 48 |
@@ -180,7 +180,7 @@ Environment letters: **G** Forge, **A** Midgard, **B** Fleet, **C** Vault.
 | **DEV-4** | G | `mvn gimle:saga` (twice — the second must reuse the running server); `mvn gimle:saga-import` of existing surefire reports; `mvn gimle:verify -pl gimle-core` under tracking; browse the Saga console; `mvn gimle:saga-stop`. | Runs appear live with a streaming test feed; imported runs show their totals; a test's detail and cross-run history resolve; two runs diff; the flake scoreboard ranks `@Tag("flaky")` tests as quarantined; a run's event stream can be tailed as NDJSON; stop is idempotent. | GIMLE-427, GIMLE-428, GIMLE-429, GIMLE-430, GIMLE-475, GIMLE-476, GIMLE-477, GIMLE-478, GIMLE-479, GIMLE-480, GIMLE-481, GIMLE-482, GIMLE-485, GIMLE-487, GIMLE-488, GIMLE-491, GIMLE-492, GIMLE-493, GIMLE-495, GIMLE-898 |
 | **DEV-5** | G A | Build the documentation site (`mvn gimle:docs`) and follow its four tutorials command by command against Midgard, including the orders-platform NetworkPolicy example in both its API and CLI forms. | Every command works as written or the page is filed as a defect; the `--deny-all-callers` form does what the page says. | GIMLE-425, GIMLE-636 |
 | **DEV-6** | G A | In a scratch module, exercise the `ModuleContext` downward API: instance identity, config key enumeration, named `dataDirectory(name)` volumes, and a config-change subscription; then change and delete a config key while it runs. | Identity matches what `gimle get instances` shows; enumeration lists exactly the delivered keys; each named volume is distinct and durable; the subscription fires on change and the deleted key is retracted from the running instance. | GIMLE-053, GIMLE-616, GIMLE-617, GIMLE-630, GIMLE-738, GIMLE-840 |
-| **DEV-7** | G | `mvn gimle:ivaldi` (twice — the second must reuse the running server); create a Blueprint via `POST /api/blueprints`, list it, GET it back by id, and delete it; `POST /api/validate` a rendered `topology.yaml` with no agents declared and one missing Fafnir; `GET /console` and confirm the bundled Ivaldi web console is actually served, not just the API; `mvn gimle:ivaldi-stop`. | The second `gimle:ivaldi` invocation logs reusing the running server rather than spawning a second one; the created blueprint's id is minted from its name, its GET body round-trips exactly, and it is gone after delete; validate reports `NO_AGENTS` (warning) and `NO_FAFNIR` (error) naming `topology.yaml`, the same codes `hilmir validate` itself would report; `/console` returns 200 with the Ivaldi console's own title in the served HTML; stop is idempotent. | GIMLE-906, GIMLE-907, GIMLE-908, GIMLE-910 |
+| **DEV-7** | G | `mvn gimle:ivaldi` (twice — the second must reuse the running server); create a Blueprint via `POST /api/blueprints`, list it, GET it back by id, and delete it; `POST /api/validate` a rendered `topology.yaml` with no agents declared and one missing Fafnir; `GET /console` and confirm the bundled Ivaldi web console is actually served, not just the API; `mvn gimle:ivaldi-stop`. POST /api/clusters (a local, no-auth connection); POST /api/runs against it with a topology naming no agents and a bundle with one tenant; confirm the run reaches `failed` or `running` rather than hanging, and that /api/clusters/{id}/topology reflects whatever the run actually applied. | The second `gimle:ivaldi` invocation logs reusing the running server rather than spawning a second one; the created blueprint's id is minted from its name, its GET body round-trips exactly, and it is gone after delete; validate reports `NO_AGENTS` (warning) and `NO_FAFNIR` (error) naming `topology.yaml`, the same codes `hilmir validate` itself would report; `/console` returns 200 with the Ivaldi console's own title in the served HTML; stop is idempotent. The run's terminal status and GET /api/runs/{id}/log both name the same outcome; the cluster's own /topology reads back exactly the topology.yaml the run submitted once it reaches running, and stays null if the run never got that far. | GIMLE-906, GIMLE-907, GIMLE-908, GIMLE-910, GIMLE-911 |
 
 #### App-1 — Deployments
 
@@ -1434,4 +1434,5 @@ a Holmgang feature and scenario, a unit-test citation, or the exclusion reason.
 | GIMLE-908 | `gimle-maven-plugin` | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | observable | FLEET | DEV-7 |
 | GIMLE-909 | `gimle-dist` | Ivaldi ships as a distribution archive (standalone and platform-bundled) | observable | FLEET | OPS-1 |
 | GIMLE-910 | `gimle-ivaldi-console` | Ivaldi web console: blueprint designer canvas | observable | FLEET | DEV-7 |
+| GIMLE-911 | `gimle-ivaldi` | Ivaldi run engine: cluster connections and running a Blueprint in-process | observable | FLEET | DEV-7 |
 <!-- /forseti:generated -->

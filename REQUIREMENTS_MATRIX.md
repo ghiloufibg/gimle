@@ -920,6 +920,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-908 | Ivaldi server lifecycle Maven goals (gimle:ivaldi / gimle:ivaldi-stop) | Developer tooling / Internal-Infra | Complete | Yes |
 | GIMLE-909 | Ivaldi ships as a distribution archive (standalone and platform-bundled) | Distribution / Internal-Infra | Complete | Manual |
 | GIMLE-910 | Ivaldi web console: blueprint designer canvas | Developer tooling / Internal-Infra | Complete | Yes |
+| GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Developer tooling / Internal-Infra | Partial | Yes |
 
 ## Detailed Requirements
 
@@ -13903,6 +13904,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 - **Gherkin scenario**:
   ```gherkin
   Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report.
+  ```
+
+#### GIMLE-911 — Ivaldi run engine: cluster connections and running a Blueprint in-process
+
+- **Category**: Developer tooling / Internal-Infra
+- **User story**: As a developer or operator, I want Ivaldi to save the local clusters I can target, and to actually run a Blueprint against one -- booting or leaving the platform process tree alone depending on whether the topology actually changed, pushing jar-sourced artifacts, and deploying the application -- without hand-running hilmir myself.
+- **Status**: GET/POST /api/clusters, GET/PUT/DELETE /api/clusters/{id}, and GET /api/clusters/{id}/topology are implemented over a flat-file ClusterStore (the same pattern BlueprintStore already established), storing a connection's controlPlaneUrl/runnerUrl/clientCertPath/clientKeyPath verbatim -- mTLS client-certificate fields, never a username or password, matching how every other Gimlé process authenticates. POST /api/runs, GET /api/runs/current, GET /api/runs/{id}/log?cursor=N, and DELETE /api/runs/current are implemented via RunController: tier-2 validation, a topology-text diff against what ClusterStore recorded as last applied to decide deploy-only vs. reboot, a port preflight before any reboot, MachineLauncher.up/down for the platform process tree (in-process, not a hilmir subprocess -- a deliberate simplification over the original subprocess design once MachineLauncher/PkiInit/the release-verb classes were confirmed already public), artifact pushes via ControlPlaneApi.putFile for jar-sourced workloads, and BundleRenderer/ReleaseReconciler (deploy or upgrade, whichever the release ledger already holds) for the application. Not implemented: the tier-3 POST /api/runs/current/dry-run proxy, and per-cluster TLS identity for this controller's own outbound calls (follows IvaldiMain's own process-wide transport config today).
+- **Confidence**: Medium
+- **Source location(s)**: `gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/{RunController,RunStatus,RunSnapshot,RunLog,PortPreflight}.java`, `gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java` (`/api/clusters*`, `/api/runs*` routing)
+- **Test coverage**: `ClusterStoreTest.java` (CRUD, id minting, applied-topology round-trip and clearing); `PortPreflightTest.java` (a bound port is reported as a conflict, an unbound one and a different machine's ports are not); `RunControllerTest.java` (unknown-cluster start refused, stop-with-nothing-running refused, unknown-run log lookup, a started run's synchronous response shape); `IvaldiServerTest.java` additions (cluster CRUD and topology endpoints over real HTTP, run-start 404/400 paths, idle current-run shape). Manually verified end to end against a real running IvaldiMain on the full runtime classpath (every process-kind jar resolved via dependency:tree): cluster CRUD, and a real run reaching VALIDATING then failing cleanly on a missing bundle.yaml with the exact error surfaced through GET /api/runs/current. A real MachineLauncher.up/deploy/down round trip against a genuinely booted cluster is not exercised by an automated test yet -- that belongs in gimle-smoke-tests, the same real-subprocess-cluster convention every other end-to-end scenario in this repo already follows, not a unit test.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys.
+  Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied.
   ```
 
 ### gimle-ivaldi-console

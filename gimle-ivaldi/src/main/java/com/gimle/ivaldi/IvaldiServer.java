@@ -7,6 +7,8 @@ import com.gimle.core.web.RootRedirectHandler;
 import com.gimle.core.web.SpaStaticHandler;
 import com.gimle.ivaldi.blueprint.BlueprintStore;
 import com.gimle.ivaldi.blueprint.BlueprintSummary;
+import com.gimle.ivaldi.cluster.ClusterStore;
+import com.gimle.ivaldi.run.RunController;
 import com.gimle.ivaldi.validate.FileSetValidator;
 import com.gimle.ivaldi.validate.Finding;
 import com.gimle.ivaldi.validate.RenderedFile;
@@ -32,14 +34,12 @@ import org.slf4j.LoggerFactory;
 /**
  * Ivaldi's HTTP surface: Blueprint CRUD ({@code /api/blueprints[/{id}]}) over a flat-file {@link
  * BlueprintStore}, tier-2 validation ({@code POST /api/validate}) running the real Hilmir/Mimir
- * parsers against already-rendered YAML, remote shutdown, and the bundled console SPA at {@code
- * /console} when one is on the classpath. Deliberately no authentication or TLS -- a local
- * development tool, bound to loopback by default by {@link IvaldiMain}, never one of a deployed
- * cluster's own processes.
- *
- * <p>The run-locally surface ({@code /api/runs/*}) is deliberately not implemented yet: driving a
- * real {@code hilmir up}/{@code deploy} subprocess is scoped to land once the console's own {@code
- * RunsRepository} contract is settled, rather than guessing at its shape twice.
+ * parsers against already-rendered YAML, saved cluster connections ({@code
+ * /api/clusters[/{id}[/topology]]}) over a flat-file {@link ClusterStore}, running a Blueprint
+ * against one of them ({@code /api/runs*}) via {@link RunController}, remote shutdown, and the
+ * bundled console SPA at {@code /console} when one is on the classpath. Deliberately no
+ * authentication or TLS -- a local development tool, bound to loopback by default by {@link
+ * IvaldiMain}, never one of a deployed cluster's own processes.
  */
 public final class IvaldiServer implements AutoCloseable {
 
@@ -47,15 +47,27 @@ public final class IvaldiServer implements AutoCloseable {
   private static final long MAX_BODY_BYTES = 8L * 1024 * 1024;
 
   private final BlueprintStore store;
+  private final ClusterStore clusters;
+  private final RunController runs;
   private final HttpServer server;
   private final ExecutorService executor;
 
-  public IvaldiServer(BlueprintStore store, InetAddress address, int port) throws IOException {
+  public IvaldiServer(
+      BlueprintStore store,
+      ClusterStore clusters,
+      RunController runs,
+      InetAddress address,
+      int port)
+      throws IOException {
     this.store = store;
+    this.clusters = clusters;
+    this.runs = runs;
     this.server = HttpServer.create(new InetSocketAddress(address, port), 0);
     server.createContext("/api/health", this::handleHealth);
     server.createContext("/api/blueprints", this::handleBlueprints);
     server.createContext("/api/validate", this::handleValidate);
+    server.createContext("/api/clusters", this::handleClusters);
+    server.createContext("/api/runs", this::handleRuns);
     server.createContext("/api/shutdown", this::handleShutdown);
     this.executor = Executors.newVirtualThreadPerTaskExecutor();
     server.setExecutor(executor);
@@ -154,6 +166,196 @@ public final class IvaldiServer implements AutoCloseable {
       }
       default -> respond(exchange, 405, "method not allowed");
     }
+  }
+
+  // ---- /api/clusters, /api/clusters/{id}, /api/clusters/{id}/topology ----
+
+  private void handleClusters(HttpExchange exchange) {
+    try {
+      String tail = exchange.getRequestURI().getPath().substring("/api/clusters".length());
+      String method = exchange.getRequestMethod();
+      if (tail.isEmpty() || "/".equals(tail)) {
+        handleClustersCollection(exchange, method);
+        return;
+      }
+      String[] segments = tail.substring(1).split("/", 2);
+      String id = URLDecoder.decode(segments[0], StandardCharsets.UTF_8);
+      if (segments.length == 1) {
+        handleOneCluster(exchange, method, id);
+      } else if ("topology".equals(segments[1])) {
+        handleClusterTopology(exchange, method, id);
+      } else {
+        respond(exchange, 404, "no such route");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("clusters request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleClustersCollection(HttpExchange exchange, String method) throws IOException {
+    switch (method) {
+      case "GET" -> respondJson(exchange, 200, clusters.list());
+      case "POST" -> respondJson(exchange, 201, clusters.create(readBody(exchange)));
+      default -> respond(exchange, 405, "method not allowed");
+    }
+  }
+
+  private void handleOneCluster(HttpExchange exchange, String method, String id)
+      throws IOException {
+    switch (method) {
+      case "GET" -> {
+        Optional<String> body = clusters.get(id);
+        if (body.isEmpty()) {
+          respond(exchange, 404, "no such cluster: " + id);
+        } else {
+          respondRawJson(exchange, 200, body.get());
+        }
+      }
+      case "PUT" -> respondJson(exchange, 200, clusters.save(id, readBody(exchange)));
+      case "DELETE" -> {
+        boolean deleted = clusters.delete(id);
+        respond(exchange, deleted ? 200 : 404, deleted ? "deleted" : "no such cluster: " + id);
+      }
+      default -> respond(exchange, 405, "method not allowed");
+    }
+  }
+
+  private void handleClusterTopology(HttpExchange exchange, String method, String id)
+      throws IOException {
+    if (!"GET".equals(method)) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    if (clusters.get(id).isEmpty()) {
+      respond(exchange, 404, "no such cluster: " + id);
+      return;
+    }
+    Optional<String> topology = clusters.appliedTopology(id);
+    // Map.of rejects a null value outright -- a cluster with nothing applied yet is exactly the
+    // case this endpoint exists to report, so the response body carries a real null, not a
+    // missing key.
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("topology", topology.orElse(null));
+    respondJson(exchange, 200, body);
+  }
+
+  // ---- POST /api/runs, GET /api/runs/current, GET /api/runs/{id}/log, DELETE /api/runs/current
+  // ----
+
+  private void handleRuns(HttpExchange exchange) {
+    try {
+      String tail = exchange.getRequestURI().getPath().substring("/api/runs".length());
+      String method = exchange.getRequestMethod();
+      if (tail.isEmpty() || "/".equals(tail)) {
+        if (!"POST".equals(method)) {
+          respond(exchange, 405, "method not allowed");
+          return;
+        }
+        respondJson(exchange, 201, parseAndStartRun(readBody(exchange)));
+        return;
+      }
+      String[] segments = tail.substring(1).split("/", 3);
+      if ("current".equals(segments[0]) && segments.length == 1) {
+        handleRunsCurrent(exchange, method);
+      } else if (segments.length == 2 && "log".equals(segments[1])) {
+        handleRunLog(exchange, method, URLDecoder.decode(segments[0], StandardCharsets.UTF_8));
+      } else {
+        respond(exchange, 404, "no such route");
+      }
+    } catch (IllegalArgumentException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
+    } catch (BodyTooLargeException e) {
+      respondQuietly(exchange, 413, String.valueOf(e.getMessage()));
+    } catch (RunController.NotFoundException e) {
+      respondQuietly(exchange, 404, String.valueOf(e.getMessage()));
+    } catch (RunController.RunInProgressException e) {
+      respondQuietly(exchange, 409, String.valueOf(e.getMessage()));
+    } catch (IOException | RuntimeException e) {
+      log.warn("runs request failed: {}", e.getMessage());
+      respondQuietly(exchange, 500, "internal error");
+    } finally {
+      exchange.close();
+    }
+  }
+
+  private void handleRunsCurrent(HttpExchange exchange, String method) throws IOException {
+    switch (method) {
+      case "GET" -> respondJson(exchange, 200, runs.currentSnapshotJson());
+      case "DELETE" -> respondJson(exchange, 200, runs.stop());
+      default -> respond(exchange, 405, "method not allowed");
+    }
+  }
+
+  private void handleRunLog(HttpExchange exchange, String method, String runId) throws IOException {
+    if (!"GET".equals(method)) {
+      respond(exchange, 405, "method not allowed");
+      return;
+    }
+    int cursor = parseCursor(exchange.getRequestURI().getRawQuery());
+    Optional<RunController.LogPage> page = runs.log(runId, cursor);
+    if (page.isEmpty()) {
+      respond(exchange, 404, "no such run: " + runId);
+      return;
+    }
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("lines", page.get().lines());
+    body.put("nextCursor", page.get().nextCursor());
+    respondJson(exchange, 200, body);
+  }
+
+  private static int parseCursor(String rawQuery) {
+    if (rawQuery == null) {
+      return 0;
+    }
+    for (String pair : rawQuery.split("&")) {
+      int eq = pair.indexOf('=');
+      if (eq > 0 && "cursor".equals(pair.substring(0, eq))) {
+        try {
+          return Integer.parseInt(pair.substring(eq + 1));
+        } catch (NumberFormatException ignored) {
+          return 0;
+        }
+      }
+    }
+    return 0;
+  }
+
+  /** Parses {@code {clusterId, blueprintId?, files:[{path,content}], values?}} and starts a run. */
+  private Map<String, Object> parseAndStartRun(String body) {
+    Object parsed;
+    try {
+      parsed = Json.parse(body);
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException("request body is not valid JSON: " + e.getMessage(), e);
+    }
+    if (!(parsed instanceof Map<?, ?> root)
+        || !(root.get("clusterId") instanceof String clusterId)
+        || clusterId.isBlank()) {
+      throw new IllegalArgumentException(
+          "request body must be {\"clusterId\": string, \"files\": [...], \"values\"?: object}");
+    }
+    if (!(root.get("files") instanceof List<?>)) {
+      throw new IllegalArgumentException("request body must include a \"files\" array");
+    }
+    List<RenderedFile> files = parseFiles(Json.write(Map.of("files", root.get("files"))));
+    Optional<String> blueprintId =
+        root.get("blueprintId") instanceof String s && !s.isBlank()
+            ? Optional.of(s)
+            : Optional.empty();
+    Map<String, String> values = new LinkedHashMap<>();
+    if (root.get("values") instanceof Map<?, ?> rawValues) {
+      for (Map.Entry<?, ?> entry : rawValues.entrySet()) {
+        values.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+      }
+    }
+    return runs.start(clusterId, blueprintId, files, values);
   }
 
   // ---- POST /api/validate ----

@@ -4,6 +4,8 @@ import com.gimle.core.banner.GimleBanner;
 import com.gimle.core.banner.GimleVersion;
 import com.gimle.core.web.BundledSpa;
 import com.gimle.ivaldi.blueprint.BlueprintStore;
+import com.gimle.ivaldi.cluster.ClusterStore;
+import com.gimle.ivaldi.run.RunController;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Path;
@@ -46,7 +48,9 @@ public final class IvaldiMain {
         host == null ? InetAddress.getLoopbackAddress() : InetAddress.getByName(host);
 
     BlueprintStore store = new BlueprintStore(dataRoot.resolve("blueprints"));
-    IvaldiServer server = new IvaldiServer(store, address, port);
+    ClusterStore clusters = new ClusterStore(dataRoot.resolve("clusters"));
+    RunController runs = new RunController(clusters, dataRoot);
+    IvaldiServer server = new IvaldiServer(store, clusters, runs, address, port);
 
     Optional<Path> consoleRoot =
         BundledSpa.resolve(IvaldiMain.class.getClassLoader(), "ivaldi-console/index.html");

@@ -1,10 +1,13 @@
 package com.gimle.ivaldi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.gimle.core.protocol.Json;
 import com.gimle.ivaldi.blueprint.BlueprintStore;
+import com.gimle.ivaldi.cluster.ClusterStore;
+import com.gimle.ivaldi.run.RunController;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
@@ -37,7 +40,9 @@ class IvaldiServerTest {
   @BeforeEach
   void setUp() throws Exception {
     BlueprintStore store = new BlueprintStore(tempDir.resolve("blueprints"));
-    server = new IvaldiServer(store, InetAddress.getLoopbackAddress(), 0);
+    ClusterStore clusters = new ClusterStore(tempDir.resolve("clusters"));
+    RunController runs = new RunController(clusters, tempDir);
+    server = new IvaldiServer(store, clusters, runs, InetAddress.getLoopbackAddress(), 0);
     server.start();
     baseUrl = "http://127.0.0.1:" + server.port();
   }
@@ -168,6 +173,93 @@ class IvaldiServerTest {
     HttpResponse<String> response = post("/api/validate", "{\"notFiles\":[]}");
 
     assertEquals(400, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void creates_lists_reads_and_deletes_a_cluster() throws Exception {
+    HttpResponse<String> created =
+        post(
+            "/api/clusters",
+            "{\"name\":\"local-dev\",\"controlPlaneUrl\":\"http://127.0.0.1:8080\"}");
+    assertEquals(201, created.statusCode());
+    String id = String.valueOf(Json.asObject(Json.parse(created.body())).get("id"));
+    assertEquals("local-dev", id);
+
+    HttpResponse<String> listed = get("/api/clusters");
+    assertEquals(200, listed.statusCode());
+    assertEquals(1, Json.asArray(Json.parse(listed.body())).size());
+
+    HttpResponse<String> fetched = get("/api/clusters/" + id);
+    assertEquals(200, fetched.statusCode());
+    assertEquals(
+        "http://127.0.0.1:8080", Json.asObject(Json.parse(fetched.body())).get("controlPlaneUrl"));
+
+    HttpResponse<String> deleted = delete("/api/clusters/" + id);
+    assertEquals(200, deleted.statusCode());
+    assertEquals(404, get("/api/clusters/" + id).statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void cluster_topology_is_null_until_a_run_records_one() throws Exception {
+    HttpResponse<String> created = post("/api/clusters", "{\"name\":\"local\"}");
+    String id = String.valueOf(Json.asObject(Json.parse(created.body())).get("id"));
+
+    HttpResponse<String> topology = get("/api/clusters/" + id + "/topology");
+
+    assertEquals(200, topology.statusCode());
+    assertNull(Json.asObject(Json.parse(topology.body())).get("topology"));
+  }
+
+  @Test
+  @Timeout(10)
+  void cluster_topology_of_an_unknown_cluster_is_404() throws Exception {
+    assertEquals(404, get("/api/clusters/no-such-cluster/topology").statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void runs_current_is_idle_when_nothing_has_ever_run() throws Exception {
+    HttpResponse<String> response = get("/api/runs/current");
+
+    assertEquals(200, response.statusCode());
+    assertEquals("idle", Json.asObject(Json.parse(response.body())).get("status"));
+  }
+
+  @Test
+  @Timeout(10)
+  void stopping_with_no_run_at_all_is_404() throws Exception {
+    assertEquals(404, delete("/api/runs/current").statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void log_of_an_unknown_run_is_404() throws Exception {
+    assertEquals(404, get("/api/runs/no-such-run/log").statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void starting_a_run_against_an_unknown_cluster_is_404() throws Exception {
+    String body =
+        Json.write(
+            Map.of(
+                "clusterId",
+                "no-such-cluster",
+                "files",
+                List.of(Map.of("path", "topology.yaml", "content", "name: t"))));
+
+    HttpResponse<String> response = post("/api/runs", body);
+
+    assertEquals(404, response.statusCode());
+  }
+
+  @Test
+  @Timeout(10)
+  void starting_a_run_rejects_a_body_shaped_wrong() throws Exception {
+    assertEquals(400, post("/api/runs", "{\"files\":[]}").statusCode());
+    assertEquals(400, post("/api/runs", "{\"clusterId\":\"x\"}").statusCode());
   }
 
   @Test

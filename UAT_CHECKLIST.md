@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 909
+- **Total requirements**: 910
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 779
+- **Not covered by automated test**: 780
 - **Release-readiness (automated coverage)**: 14.3%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -43,7 +43,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-dist | 8 | 0 | 8 | 0.0% |
 | gimle-skald | 7 | 0 | 7 | 0.0% |
 | gimle-hugin | 22 | 3 | 19 | 13.6% |
-| gimle-ivaldi | 2 | 0 | 2 | 0.0% |
+| gimle-ivaldi | 3 | 0 | 3 | 0.0% |
 | gimle-ivaldi-console | 1 | 0 | 1 | 0.0% |
 
 ## Checklist
@@ -2547,6 +2547,12 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 |---|---|---|---|---|
 | [ ] | GIMLE-906 | Blueprint document storage API | Given a blueprint document named "orders-platform-local", When I POST it to /api/blueprints, Then it is stored under a minted id and a subsequent GET returns the exact body I sent. | No |
 | [ ] | GIMLE-907 | Blueprint tier-2 validation against the real platform parsers | Given a rendered topology.yaml declaring no agents, When I POST it to /api/validate, Then the response includes a NO_AGENTS warning naming that file, the same code hilmir validate itself would report. | No |
+
+#### Developer tooling / Internal-Infra
+
+| Sign-off | ID | Feature | Test Step | Covered by automated test |
+|---|---|---|---|---|
+| [ ] | GIMLE-911 | Ivaldi run engine: cluster connections and running a Blueprint in-process | Given a saved cluster with no topology previously applied, When I run a Blueprint against it, Then the platform process tree is booted fresh and the run reaches running once the bundle deploys. Given a cluster a prior run already booted with the same topology, When I run the Blueprint again unchanged, Then MachineLauncher.up/down are never called and only the bundle is re-applied. | No |
 
 ### gimle-ivaldi-console
 

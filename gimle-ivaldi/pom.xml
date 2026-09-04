@@ -16,11 +16,13 @@
   <name>Gimle Ivaldi</name>
   <description>
     The cluster designer's backend: a standalone local process (IvaldiMain) that stores Blueprint
-    documents as flat JSON files and validates their rendered topology.yaml/bundle.yaml/manifest
+    documents as flat JSON files, validates their rendered topology.yaml/bundle.yaml/manifest
     output against the real Hilmir and Mimir parsers -- the same TopologyParser/TopologyValidator/
-    BundleParser/ManifestParser a real hilmir up/deploy would run -- so a design is checked against
-    the platform's own rules before anything is run. Driving a real local hilmir up/deploy is a
-    later addition, once the console's own run-panel contract is settled. Deliberately
+    BundleParser/ManifestParser a real hilmir up/deploy would run -- and, given a saved cluster
+    connection, actually runs a Blueprint against it: MachineLauncher.up/down for the platform
+    processes (rebooting only when the topology actually changed, deploying straight onto an
+    unchanged one), artifact push for jar-sourced workloads, and BundleRenderer/ReleaseReconciler
+    for the application deploy itself -- all in-process, no hilmir subprocess. Deliberately
     unauthenticated and loopback-bound by default, the same posture gimle-saga already
     established, but -- unlike Saga -- meant to reach an operator or developer with no source
     checkout: it ships in gimle-dist (standalone archive and bundled into the platform archive),
@@ -47,12 +49,52 @@
       <artifactId>gimle-mimir</artifactId>
     </dependency>
     <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-module</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.yaml</groupId>
       <artifactId>snakeyaml</artifactId>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
+    </dependency>
+    <!-- Runtime scope only: gimle-ivaldi never calls into these process kinds' own classes.
+         com.gimle.hilmir.launch.MachineLauncher spawns each platform process as a fresh JVM using
+         System.getProperty("java.class.path") verbatim as that child's classpath (see
+         ResolvedRuntime#resolve), so every role a topology can declare must already be reachable
+         from gimle-ivaldi's own classpath, the same flat lib/ directory bin/ivaldi already uses
+         in the distribution archives (see gimle-dist/src/main/assembly/ivaldi.xml). -->
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-controlplane</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-fafnir</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-muninn</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-andvari</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-agent</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.gimle</groupId>
+      <artifactId>gimle-worker</artifactId>
+      <scope>runtime</scope>
     </dependency>
     <!-- No Java sources of its own: just the built web console SPA bundled at
          ivaldi-console/** inside its own jar (see that module's pom.xml). IvaldiMain resolves

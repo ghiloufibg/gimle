@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 910,
+  "requirementCount": 911,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -15727,6 +15727,23 @@
         "`gimle-ivaldi-console/src/repositories/{httpBlueprints,httpValidation,index}.ts`",
         "`gimle-ivaldi-console/src/routes/{index,designer.$blueprintId}.tsx`",
         "`gimle-ivaldi-console/src/stores/{useBlueprintStore,useBlueprintsListStore,useValidationStore}.ts`"
+      ]
+    },
+    {
+      "id": "GIMLE-911",
+      "module": "gimle-ivaldi",
+      "feature": "Ivaldi run engine: cluster connections and running a Blueprint in-process",
+      "category": "Developer tooling / Internal-Infra",
+      "status": "New",
+      "statusNote": "Dry-run proxy and per-cluster TLS identity remain unbuilt; a real MachineLauncher boot/deploy/down round trip against a genuinely running cluster is not yet exercised by an automated test.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario runs a Blueprint through Ivaldi yet. Covered instead by gimle-ivaldi's own unit/integration suite (ClusterStoreTest, PortPreflightTest, RunControllerTest, IvaldiServerTest); a real end-to-end boot-through-deploy scenario belongs in gimle-smoke-tests, following the same real-subprocess-cluster pattern GreeterClusterTopologyIT already establishes, and does not exist yet.",
+      "otherTestCoverage": "`ClusterStoreTest.java`, `PortPreflightTest.java`, `RunControllerTest.java`, `IvaldiServerTest.java` (cluster + run endpoint additions) in gimle-ivaldi's own test suite",
+      "sourceLocations": [
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/cluster/ClusterStore.java`",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/run/{RunController,RunStatus,RunSnapshot,RunLog,PortPreflight}.java`",
+        "`gimle-ivaldi/src/main/java/com/gimle/ivaldi/IvaldiServer.java`"
       ]
     }
   ]
