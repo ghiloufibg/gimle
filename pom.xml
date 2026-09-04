@@ -61,10 +61,18 @@
     <!-- Surefire/failsafe already bind their own -DskipTests handling internally; declaring the
          property here too (default false, overridden by -DskipTests on the command line the same
          way) is what lets gimle-console/gimle-fafnir-console/gimle-andvari-console's own bun-test
-         exec-maven-plugin execution reference ${skipTests} and actually honor the flag, since
+         exec-maven-plugin execution reference it and actually honor the flag, since
          exec-maven-plugin has no built-in notion of "this is a test" the way surefire does;
          without an explicit binding, -DskipTests silently has no effect on it at all. -->
     <skipTests>false</skipTests>
+    <!-- What every console module's own bun-test execution actually binds its skip to. The
+         indirection exists because Maven has two conventional ways to turn tests off and
+         exec-maven-plugin understands neither: -DskipTests (above) and -Dmaven.test.skip, which
+         additionally skips test compilation and which surefire and maven-compiler-plugin both
+         honour on their own. Binding the consoles straight to ${skipTests} left the second one
+         silently running the whole Vitest suite anyway, so the maven-test-skip profile below
+         flips this one too. -->
+    <gimle.console.skipTests>${skipTests}</gimle.console.skipTests>
     <!-- Bound to Surefire's own excludedGroups below via this indirection (rather than a literal
          "flaky" string) so gimle:flaky-tests can clear it with -Dgimle.excludedGroups= on its own
          child mvn invocation: an explicit POM value always wins over the CLI's ${excludedGroups}
@@ -565,6 +573,26 @@
   </build>
 
   <profiles>
+    <!--
+      -Dmaven.test.skip=true means "no tests, and do not even compile them" to surefire and
+      maven-compiler-plugin. exec-maven-plugin has no such notion, so every console module's own
+      Bun/Vitest run has to be told separately: this profile is the telling. Activated by the
+      property itself rather than listed in the command line, so `mvn install -Dmaven.test.skip=true`
+      behaves the way anyone typing it expects, with no extra flag to remember.
+    -->
+    <profile>
+      <id>maven-test-skip</id>
+      <activation>
+        <property>
+          <name>maven.test.skip</name>
+          <value>true</value>
+        </property>
+      </activation>
+      <properties>
+        <gimle.console.skipTests>true</gimle.console.skipTests>
+      </properties>
+    </profile>
+
     <!--
       Opt-in per-role runtime image (CLAUDE.md's own "jlink/jpackage: minimal per-node-role runtime
       images"). Not part of the default build (it's a packaging
