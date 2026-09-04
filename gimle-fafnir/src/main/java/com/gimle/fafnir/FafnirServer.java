@@ -1346,14 +1346,9 @@ public final class FafnirServer implements AutoCloseable {
    * is not its own grantable permission today -- but every recorded {@link AuditEvent} names {@link
    * ResourceKind#SECRETS_KEY}, not {@code SECRET}, so the trail can tell a key-ring admin action
    * apart from an ordinary tenant secret write at a glance.
-   */
-  private boolean authorizeGlobalSecretsAdmin(HttpExchange exchange, Verb verb) {
-    return authorizeGlobalSecretsAdmin(exchange, verb, false);
-  }
-
-  /**
-   * As above, with {@code deferAllowAudit} for the one caller whose audit entry can't be written
-   * here: {@link #handleRotateKey} and {@link #handleRetireSecretsKey} both name the key id their
+   *
+   * <p>{@code deferAllowAudit} exists for the one caller whose audit entry can't be written here:
+   * {@link #handleRotateKey} and {@link #handleRetireSecretsKey} both name the key id their
    * operation actually touched (the newly-active id, the retired id), which isn't known until the
    * operation itself has run. Only the allow path is deferred -- a denial has no key id to wait for
    * and is always recorded here, mirroring {@link #authorizeSecrets}'s own {@code deferAllowAudit}
