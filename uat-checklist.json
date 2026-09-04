@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 801,
+    "totalRequirements": 802,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 674,
-    "releaseReadinessPercent": 15.9
+    "notCoveredByAutomatedTest": 675,
+    "releaseReadinessPercent": 15.8
   },
   "items": [
     {
@@ -8813,6 +8813,17 @@
       "category": "Web Console / Frontend",
       "feature": "The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast",
       "step": "Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away. Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-802",
+      "module": "gimle-console",
+      "category": "Web Console / Frontend",
+      "feature": "Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli",
+      "step": "Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare \"saved\" message. Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

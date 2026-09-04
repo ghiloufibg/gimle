@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 801,
+  "requirementCount": 802,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13914,6 +13914,25 @@
         "`gimle-console/src/routes/deployments.new.tsx`",
         "`gimle-console/src/repositories/http/deployments.ts`",
         "`gimle-console/src/stores/useDeploymentsStore.ts`"
+      ]
+    },
+    {
+      "id": "GIMLE-802",
+      "module": "gimle-console",
+      "feature": "Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli",
+      "category": "Web Console / Frontend",
+      "status": "New",
+      "statusNote": "New requirement: Fixed. The console's HttpServicesRepository#save read the response body but dropped the X-Gimle-Warning header the control plane attaches to a Service POST carrying an overlap/advisory warning -- gimle-cli already prints this header verbatim. A new requestOkWithWarning apiClient primitive, threaded through ServicesRepository#save -> useServicesStore#save -> the Networking screen's submit handler, now shows it as its own toast.warning alongside the success toast.",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang Cucumber scenario drives the console's Service creation form against a real overlap-advisory response; coverage today is Vitest repository/store tests only.",
+      "otherTestCoverage": "`repositories/http/apiClient.test.ts`, `repositories/http/services.test.ts`, `repositories/services.test.ts`, `stores/useServicesStore.test.ts` -- see requirements-matrix.json for detail",
+      "sourceLocations": [
+        "`gimle-console/src/repositories/http/apiClient.ts`",
+        "`gimle-console/src/repositories/http/services.ts`",
+        "`gimle-console/src/repositories/services.ts`",
+        "`gimle-console/src/stores/useServicesStore.ts`",
+        "`gimle-console/src/routes/networking.tsx`"
       ]
     }
   ]

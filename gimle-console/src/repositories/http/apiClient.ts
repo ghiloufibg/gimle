@@ -97,6 +97,30 @@ export async function requestOk(method: string, path: string, body?: unknown): P
   if (!res.ok) throw new ApiError(res.status, await res.text());
 }
 
+/**
+ * Like {@link requestOk}, but also returns any {@code X-Gimle-Warning} response header the control
+ * plane attached (e.g. `ServiceAdvisories`' own Service-overlap warning) -- a 2xx isn't necessarily
+ * a clean save, and gimle-cli's own `ManifestFiles#printWarnings` already surfaces this header for
+ * exactly that reason. `null` when the header is absent. The Fetch `Headers` object joins repeated
+ * same-name headers into one comma-separated string (there is no way to recover the original list
+ * from a plain `Response`), so more than one attached warning still reaches the caller, just as a
+ * single combined string rather than a list.
+ */
+export async function requestOkWithWarning(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<string | null> {
+  const init: RequestInit & { method: string } = { method };
+  if (body !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
+  const res = await send(init, path);
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return res.headers.get("x-gimle-warning");
+}
+
 /** For JSON-bodied endpoints that themselves return a JSON body, not the literal "ok" every write
  * endpoint above returns -- currently only /auth/login, which returns the logged-in Principal. */
 export async function requestJsonWithBody<T>(

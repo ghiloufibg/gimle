@@ -811,6 +811,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | Complete | Yes |
 | GIMLE-800 | A bundled example module reports a real listening port, so Midgard ships a real workload a Service can resolve | Networking/Service Discovery | Fixed | Yes |
 | GIMLE-801 | The New Deployment form keeps a rejected write visible as a persistent inline error, not only an ephemeral toast | Web Console / Frontend | Fixed | Yes |
+| GIMLE-802 | Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli | Web Console / Frontend | Fixed | Yes |
 
 ## Detailed Requirements
 
@@ -10527,6 +10528,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   ```gherkin
   Given a New Deployment submission naming a module Andvari has no coordinate for, When the control plane's PUT /deployments/{name} rejects it with 400, Then the form shows both a toast and a persistent inline banner naming the real rejection reason, and the page stays put rather than navigating away.
   Given that same rejected submission, When the operator looks at the page after the toast's own auto-dismiss timer has elapsed, Then the rejection reason is still visible in the inline banner.
+  ```
+
+#### GIMLE-802 — Service creation surfaces the control plane's X-Gimle-Warning header, matching gimle-cli
+
+- **Category**: Web Console / Frontend
+- **User story**: As an operator creating a Service the control plane accepts but flags with an overlap/advisory warning, I want the console to show me that warning the same way gimle-cli already does, rather than a bare success toast that reads identically to a fully clean save.
+- **Status**: Fixed. `ApiServer`'s `POST /services` handler attaches each `ServiceAdvisories` warning (a same-tenant deployment overlap, or an unreported target port) as its own `X-Gimle-Warning` response header on an otherwise-200 response whose body is the literal string "ok" -- the exact header `gimle-cli`'s own `ManifestFiles#printWarnings` already reads and prints verbatim. The console's `HttpServicesRepository#save` read the body but never that header, so the identical overlap the CLI prints showed only a bare "Service saved" toast in the console -- confirmed via network capture that the control plane does send the warning. A new `apiClient.ts` primitive, `requestOkWithWarning` (alongside the existing `requestOk`/`requestJson`), returns the header's value or `null`; `ServicesRepository#save`'s return type changed from `Promise<void>` to `Promise<string | null>` and is threaded through `useServicesStore#save` to the Networking screen's own submit handler, which now shows the warning as its own `toast.warning` alongside -- not instead of -- the existing success toast.
+- **Confidence**: High
+- **Source location(s)**: `gimle-console/src/repositories/http/apiClient.ts` (`requestOkWithWarning`), `gimle-console/src/repositories/http/services.ts` (`HttpServicesRepository#save`), `gimle-console/src/repositories/services.ts` (`ServicesRepository#save`, `MockServicesRepository#save`), `gimle-console/src/stores/useServicesStore.ts` (`save`), `gimle-console/src/routes/networking.tsx` (`ServicesTab#submit`)
+- **Test coverage**: `repositories/http/apiClient.test.ts` gained a `requestOkWithWarning` describe block (null when absent, the header's value when present, still throws ApiError on a non-2xx response). `repositories/http/services.test.ts` gained save_returns_the_control_plane's_X-Gimle-Warning_header,_not_just_the_bare_'ok'_body and save_resolves_to_null_when_the_control_plane_attaches_no_warning. `repositories/services.test.ts` (mock) gained a test pinning the mock returns null (no overlap-advisory computation of its own). A new `stores/useServicesStore.test.ts` covers the warning reaching the caller, resolving to null when none is attached, and a repository rejection not being swallowed into `store.error`.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a Service POST the control plane accepts but flags with a same-tenant deployment-overlap advisory (an X-Gimle-Warning header on the 200), When the console's Networking screen submits the creation form, Then a warning toast shows the exact advisory text alongside the existing success toast, not a bare "saved" message.
+  Given a Service POST the control plane accepts with no advisory, When the same form submits, Then no warning toast appears.
   ```
 
 ### gimle-fafnir-console

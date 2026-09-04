@@ -1,6 +1,6 @@
 import type { Service, ServiceEndpoints } from "@/types";
 import type { ServicesRepository } from "@/repositories/services";
-import { requestJson, requestOk, tenantQuery } from "./apiClient";
+import { requestJson, requestOk, requestOkWithWarning, tenantQuery } from "./apiClient";
 
 /**
  * `GET`/`POST`/`DELETE /services*` -- flat array response, no pagination, matching
@@ -29,8 +29,11 @@ export class HttpServicesRepository implements ServicesRepository {
     );
   }
 
-  async save(spec: Service): Promise<void> {
-    await requestOk("POST", "/services", spec);
+  async save(spec: Service): Promise<string | null> {
+    // Unlike every other write in this file, a Service POST can come back 200 carrying its own
+    // X-Gimle-Warning (ServiceAdvisories' overlap/unreported-target-port advisories) -- a plain
+    // requestOk would read the body correctly but silently drop that header.
+    return requestOkWithWarning("POST", "/services", spec);
   }
 
   async remove(name: string, tenantId?: string | null): Promise<void> {

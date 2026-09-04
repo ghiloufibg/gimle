@@ -5,7 +5,10 @@ export interface ServicesRepository {
   fetchAll(): Promise<Service[]>;
   fetchOne(name: string): Promise<Service>;
   fetchEndpoints(name: string, tenantId?: string | null): Promise<ServiceEndpoints>;
-  save(spec: Service): Promise<void>;
+  /** Resolves to the control plane's own `X-Gimle-Warning` (e.g. a same-tenant Service-overlap
+   * advisory from `ServiceAdvisories`), or `null` when the save carried none -- a 2xx response
+   * isn't necessarily a fully clean save. */
+  save(spec: Service): Promise<string | null>;
   remove(name: string, tenantId?: string | null): Promise<void>;
 }
 
@@ -55,11 +58,13 @@ export class MockServicesRepository implements ServicesRepository {
     });
   }
 
-  async save(spec: Service): Promise<void> {
+  async save(spec: Service): Promise<string | null> {
+    // No overlap/advisory computation here -- this is a reference implementation of the
+    // interface's shape for Vitest coverage, not a re-implementation of ServiceAdvisories.
     const i = mockServices.findIndex((x) => x.name === spec.name);
     if (i >= 0) mockServices[i] = spec;
     else mockServices.push(spec);
-    return delay(undefined);
+    return delay(null);
   }
 
   async remove(name: string, _tenantId?: string | null): Promise<void> {
