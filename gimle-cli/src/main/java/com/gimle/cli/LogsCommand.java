@@ -55,6 +55,7 @@ public final class LogsCommand {
     String level = null;
     String contains = null;
     String tenant = null;
+    String before = null;
 
     List<String> rest = args.subList(1, args.size());
     for (int i = 0; i < rest.size(); i++) {
@@ -65,6 +66,8 @@ public final class LogsCommand {
         category = arg.substring("--category=".length());
       } else if (arg.startsWith("--since=")) {
         since = arg.substring("--since=".length());
+      } else if (arg.startsWith("--before=")) {
+        before = arg.substring("--before=".length());
       } else if (arg.startsWith("--level=")) {
         level = arg.substring("--level=".length());
       } else if (arg.startsWith("--contains=")) {
@@ -94,15 +97,25 @@ public final class LogsCommand {
       throw new CliException(e.getMessage(), e);
     }
 
+    // The two cursors run in opposite directions over the same stream, so asking for both at once
+    // has no answer to give.
+    if (since != null && before != null) {
+      throw new CliException("--since and --before page in opposite directions; pass one");
+    }
+    if (before != null && follow) {
+      throw new CliException(
+          "--before pages backward through history; --follow only moves forward");
+    }
+
     if (follow) {
       runFollow(path, category, since, tenant, filter);
     } else {
-      runOnce(path, category, since, tenant, filter);
+      runOnce(path, category, since, before, tenant, filter);
     }
   }
 
   private void runOnce(
-      String path, String category, String since, String tenant, LogFilter filter) {
+      String path, String category, String since, String before, String tenant, LogFilter filter) {
     // "since" here means "everything after this point" (LogFileReader.readAfter), a different
     // operation from the plain GET route's own "cursor" param ("page backward from here",
     // readOlder) -- passing --since as cursor would silently invert the result to "older than",
@@ -110,6 +123,11 @@ public final class LogsCommand {
     StringBuilder query = new StringBuilder("?category=").append(category).append("&limit=200");
     if (since != null) {
       query.append("&since=").append(since);
+    }
+    // The route's own "cursor" param is the backward direction the console's "Load older" button
+    // already uses; --before is simply that same page-backward operation, exposed here too.
+    if (before != null) {
+      query.append("&cursor=").append(before);
     }
     appendTenant(query, tenant);
     appendFilter(query, filter);
@@ -127,6 +145,13 @@ public final class LogsCommand {
       // filtered on, so an operator can tell "nothing matched" from "nothing was logged".
       out.println(
           filter.isEmpty() ? "(no log lines)" : "(no log lines matched " + filter.describe() + ")");
+      return;
+    }
+    // Printed rather than left in the JSON only: paging backward is useless if the cursor for the
+    // next page back is invisible to the caller who just ran this.
+    Object olderCursor = body.get("olderCursor");
+    if (olderCursor != null && !String.valueOf(olderCursor).isBlank()) {
+      out.println("(older lines: --before=" + olderCursor + ")");
     }
   }
 
@@ -230,12 +255,15 @@ public final class LogsCommand {
   static String usage() {
     return """
         usage: gimle logs <target> [--category=CAT] [--follow|-f] [--since=<cursor>]
+               [--before=<cursor>]
                                    [--level=LEVEL] [--contains=TEXT] [--tenant <id>|--tenant=<id>]
           target: controlplane | node/<nodeId> | instance/<deploymentName>/<instanceIndex>
           --category: APPLICATION|PLATFORM for instances, PLATFORM|SYSTEM for nodes/controlplane
                       (defaults to APPLICATION for instances, PLATFORM otherwise)
           --follow, -f: stream new lines as they arrive, like kubectl logs -f
-          --since: resume from an opaque cursor returned by a previous call
+          --since: resume forward from an opaque cursor returned by a previous call
+          --before: page backward through history from a cursor this command prints as
+                    "(older lines: --before=...)"; not combinable with --since or --follow
           --level: TRACE|DEBUG|INFO|WARN|ERROR -- a threshold, so --level=WARN keeps WARN and
                    ERROR; a line with no level (raw SYSTEM capture) is never kept by one
           --contains: keep only lines whose message, logger, stack trace or raw text contains

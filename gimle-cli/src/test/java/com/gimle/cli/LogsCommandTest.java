@@ -36,6 +36,7 @@ class LogsCommandTest {
   private ByteArrayOutputStream outBuffer;
   private PrintStream out;
   private volatile List<Map<String, Object>> pageLines = List.of();
+  private volatile String olderCursor;
 
   @BeforeEach
   void startStub() throws IOException {
@@ -70,7 +71,7 @@ class LogsCommandTest {
     } else {
       Map<String, Object> page = new LinkedHashMap<>();
       page.put("lines", pageLines);
-      page.put("olderCursor", null);
+      page.put("olderCursor", olderCursor);
       page.put("newerCursor", null);
       body = Json.write(page);
     }
@@ -109,6 +110,36 @@ class LogsCommandTest {
 
   private String printed() {
     return outBuffer.toString(StandardCharsets.UTF_8);
+  }
+
+  @Test
+  void paging_backward_sends_the_routes_own_cursor_parameter_and_never_since() {
+    run("instance/orders/0", "--before=abc123");
+
+    String uri = receivedUris.get(0);
+    assertTrue(uri.contains("cursor=abc123"), uri);
+    assertFalse(uri.contains("since="), uri);
+  }
+
+  @Test
+  void a_page_that_has_older_lines_prints_the_cursor_that_reaches_them() {
+    pageLines = List.of(line("INFO", "handled request"));
+    olderCursor = "next-page-cursor";
+
+    run("instance/orders/0");
+
+    assertTrue(printed().contains("--before=next-page-cursor"), printed());
+  }
+
+  @Test
+  void the_two_cursor_directions_cannot_be_combined_with_each_other_or_with_follow() {
+    CliException both =
+        assertThrows(CliException.class, () -> run("instance/orders/0", "--since=a", "--before=b"));
+    assertTrue(both.getMessage().contains("opposite directions"), both.getMessage());
+
+    CliException withFollow =
+        assertThrows(CliException.class, () -> run("instance/orders/0", "--before=b", "--follow"));
+    assertTrue(withFollow.getMessage().contains("only moves forward"), withFollow.getMessage());
   }
 
   @Test

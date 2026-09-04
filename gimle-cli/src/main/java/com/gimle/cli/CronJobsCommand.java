@@ -43,7 +43,8 @@ public final class CronJobsCommand {
       out.print(ManifestExport.cronJob(cronJob));
       return;
     }
-    OutputFormat.printObject(output, cronJob, out);
+    OutputFormat.printObject(
+        output, output == OutputFormat.Kind.TABLE ? humanize(cronJob) : cronJob, out);
   }
 
   /**
@@ -53,9 +54,45 @@ public final class CronJobsCommand {
    */
   public List<Map<String, Object>> rows(List<String> args) {
     if (args.isEmpty()) {
-      return client.getList("/cronjobs");
+      List<Map<String, Object>> cronJobs = client.getList("/cronjobs");
+      return output == OutputFormat.Kind.TABLE ? humanizeAll(cronJobs) : cronJobs;
     }
-    return List.of(client.getObject(pathFor(args)));
+    Map<String, Object> cronJob = client.getObject(pathFor(args));
+    return List.of(output == OutputFormat.Kind.TABLE ? humanize(cronJob) : cronJob);
+  }
+
+  /**
+   * Flattens one CronJob's nested status into flat table columns -- the schedule and job template
+   * live a level down, so a table row rendered straight off the response held a whole nested object
+   * printed as raw JSON, unlike every other workload verb's own named columns.
+   */
+  private static List<Map<String, Object>> humanizeAll(List<Map<String, Object>> cronJobs) {
+    return cronJobs.stream().map(CronJobsCommand::humanize).toList();
+  }
+
+  private static Map<String, Object> humanize(Map<String, Object> status) {
+    Map<?, ?> spec = status.get("spec") instanceof Map<?, ?> m ? m : Map.of();
+    Map<?, ?> template = spec.get("jobTemplate") instanceof Map<?, ?> t ? t : Map.of();
+    Map<String, Object> row = new LinkedHashMap<>();
+    row.put("name", spec.get("name"));
+    row.put("schedule", orDash(spec.get("schedule")));
+    row.put("module", moduleCoordinate(template.get("moduleId")));
+    row.put("tenantId", orDash(spec.get("tenantId")));
+    row.put("suspend", orDash(spec.get("suspend")));
+    row.put("concurrency", orDash(spec.get("concurrencyPolicy")));
+    row.put("lastSchedule", orDash(status.get("lastScheduleTime")));
+    return row;
+  }
+
+  private static String moduleCoordinate(Object rawModuleId) {
+    if (rawModuleId instanceof Map<?, ?> moduleId) {
+      return moduleId.get("name") + "@" + moduleId.get("version");
+    }
+    return "-";
+  }
+
+  private static String orDash(Object value) {
+    return value == null || String.valueOf(value).isBlank() ? "-" : String.valueOf(value);
   }
 
   private static String pathFor(List<String> args) {

@@ -44,7 +44,7 @@ public final class JobsCommand {
       out.print(ManifestExport.job(job));
       return;
     }
-    OutputFormat.printObject(output, job, out);
+    OutputFormat.printObject(output, output == OutputFormat.Kind.TABLE ? humanize(job) : job, out);
   }
 
   /**
@@ -55,10 +55,54 @@ public final class JobsCommand {
   public List<Map<String, Object>> rows(List<String> args) {
     GetCommandArgs.Split split = GetCommandArgs.split(args, Set.of("--tenant"), "job", GET_USAGE);
     if (split.name() == null) {
-      return filterByTenant(
-          client.getList("/jobs"), TenantQuery.valueOf(split.flagArgs(), TENANT_USAGE));
+      List<Map<String, Object>> jobs =
+          filterByTenant(
+              client.getList("/jobs"), TenantQuery.valueOf(split.flagArgs(), TENANT_USAGE));
+      return output == OutputFormat.Kind.TABLE ? humanizeAll(jobs) : jobs;
     }
-    return List.of(client.getObject(pathFor(split)));
+    Map<String, Object> job = client.getObject(pathFor(split));
+    return List.of(output == OutputFormat.Kind.TABLE ? humanize(job) : job);
+  }
+
+  /**
+   * Flattens one job's nested status into the flat columns a table can actually render. Without
+   * this a table cell held a whole {@code spec}/{@code currentRun} object printed as raw JSON --
+   * unreadable, and unlike every other workload verb, whose own table has named columns.
+   */
+  private static List<Map<String, Object>> humanizeAll(List<Map<String, Object>> jobs) {
+    return jobs.stream().map(JobsCommand::humanize).toList();
+  }
+
+  private static Map<String, Object> humanize(Map<String, Object> status) {
+    Map<?, ?> spec = status.get("spec") instanceof Map<?, ?> m ? m : Map.of();
+    Map<?, ?> currentRun = status.get("currentRun") instanceof Map<?, ?> r ? r : Map.of();
+    Map<?, ?> observation = currentRun.get("observation") instanceof Map<?, ?> o ? o : Map.of();
+    Map<String, Object> row = new LinkedHashMap<>();
+    row.put("name", spec.get("name"));
+    row.put("module", moduleCoordinate(spec.get("moduleId")));
+    row.put("tenantId", orDash(spec.get("tenantId")));
+    row.put("phase", orDash(status.get("phase")));
+    row.put("attempt", orDash(currentRun.get("attempt")));
+    row.put("node", orDash(currentRun.get("nodeId")));
+    // A terminal job carries a reason instead of a live observation, and a running one the other
+    // way round -- one column shows whichever of the two this job actually has.
+    row.put(
+        "state",
+        observation.get("lifecycleState") != null
+            ? String.valueOf(observation.get("lifecycleState"))
+            : orDash(currentRun.get("reason")));
+    return row;
+  }
+
+  private static String moduleCoordinate(Object rawModuleId) {
+    if (rawModuleId instanceof Map<?, ?> moduleId) {
+      return moduleId.get("name") + "@" + moduleId.get("version");
+    }
+    return "-";
+  }
+
+  private static String orDash(Object value) {
+    return value == null || String.valueOf(value).isBlank() ? "-" : String.valueOf(value);
   }
 
   private static String pathFor(GetCommandArgs.Split split) {
