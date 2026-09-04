@@ -1,11 +1,12 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowLeft, Plug, Plus, Trash2 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
 import { cn } from "@/lib/utils";
-import { ENVIRONMENTS, useClustersStore } from "@/stores/useClustersStore";
+import type { ClusterConnection } from "@/repositories";
+import { ENVIRONMENTS, newCluster, useClustersStore } from "@/stores/useClustersStore";
 import { applyTheme, storedTheme } from "@/stores/useUiStore";
 
 export const Route = createFileRoute("/clusters")({
@@ -37,12 +38,17 @@ function ClustersPage() {
     checking,
     error,
     refresh,
-    add,
+    save,
     patch,
     remove,
     select,
     connect,
   } = useClustersStore();
+  // A new cluster stays a local draft until it is saved: clicking "Add cluster" used to persist a
+  // placeholder record straight away, so two clicks left two junk rows and nothing offered a cancel.
+  const [draft, setDraft] = useState<ClusterConnection | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const patchDraft = (p: Partial<ClusterConnection>) => setDraft((d) => (d ? { ...d, ...p } : d));
 
   useEffect(() => {
     applyTheme(storedTheme());
@@ -70,7 +76,10 @@ function ClustersPage() {
             <ArrowLeft className="size-3" /> Blueprints
           </Link>
           <button
-            onClick={() => add(`cluster-${clusters.length + 1}`)}
+            onClick={() => {
+              setDraftError(null);
+              setDraft((d) => d ?? newCluster(`cluster-${clusters.length + 1}`));
+            }}
             className="inline-flex h-7 items-center gap-1.5 rounded-sm bg-primary px-2.5 font-mono text-[11px] text-primary-foreground"
           >
             <Plus className="size-3" /> Add cluster
@@ -84,7 +93,103 @@ function ClustersPage() {
           when you run a blueprint.
         </p>
 
-        {clusters.length === 0 && (
+        {draft && (
+          <article className="rounded-sm border border-dashed border-primary bg-card p-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="hud-label">New cluster (not saved)</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (!draft.name.trim()) {
+                      setDraftError("Name is required.");
+                      return;
+                    }
+                    // The backend refuses a blank control plane URL with a 400; catch it here so
+                    // the draft stays on screen with its own message instead of a failed request.
+                    if (!draft.controlPlaneUrl.trim()) {
+                      setDraftError("Control plane URL is required.");
+                      return;
+                    }
+                    void save(draft);
+                    select(draft.id);
+                    setDraft(null);
+                    setDraftError(null);
+                  }}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-primary bg-primary px-2 font-mono text-[11px] text-primary-foreground"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => {
+                    setDraft(null);
+                    setDraftError(null);
+                  }}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-border px-2 font-mono text-[11px] text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <Field label="Name">
+                <input
+                  value={draft.name}
+                  onChange={(e) => patchDraft({ name: e.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Environment">
+                <select
+                  value={draft.environment}
+                  onChange={(e) =>
+                    patchDraft({ environment: e.target.value as (typeof ENVIRONMENTS)[number] })
+                  }
+                  className={inputClass}
+                >
+                  {ENVIRONMENTS.map((env) => (
+                    <option key={env} value={env}>
+                      {env}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Control plane URL">
+                <input
+                  value={draft.controlPlaneUrl}
+                  placeholder="127.0.0.1:8080"
+                  onChange={(e) => patchDraft({ controlPlaneUrl: e.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Client certificate path (mTLS)">
+                <input
+                  value={draft.clientCertPath}
+                  placeholder="/etc/gimle/tls/client.crt"
+                  onChange={(e) => patchDraft({ clientCertPath: e.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Client key path (mTLS)">
+                <input
+                  value={draft.clientKeyPath}
+                  placeholder="/etc/gimle/tls/client.key"
+                  onChange={(e) => patchDraft({ clientKeyPath: e.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Notes" className="md:col-span-2 lg:col-span-3">
+                <input
+                  value={draft.description}
+                  onChange={(e) => patchDraft({ description: e.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+            {draftError && <p className="mt-2 text-[10px] text-status-bad">{draftError}</p>}
+          </article>
+        )}
+
+        {clusters.length === 0 && !draft && (
           <p className="rounded-sm border border-dashed border-border p-6 text-center text-[11px] text-muted-foreground">
             No clusters yet. Add one to target your runs.
           </p>

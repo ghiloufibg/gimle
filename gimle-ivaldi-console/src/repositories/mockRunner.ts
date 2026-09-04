@@ -347,6 +347,13 @@ export class MockRunnerClient implements RunnerClient {
     return snapshot;
   }
 
+  async currentRun(): Promise<RunSnapshot | null> {
+    for (const session of this.sessions.values()) {
+      if (session.snapshot.status !== "idle") return session.snapshot;
+    }
+    return null;
+  }
+
   subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void {
     const session = this.sessions.get(runId);
     if (!session) {

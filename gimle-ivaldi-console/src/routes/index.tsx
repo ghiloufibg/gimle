@@ -5,6 +5,16 @@ import { toast } from "sonner";
 
 import { IvaldiWordmark } from "@/components/ivaldi/IvaldiEmblem";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -61,6 +71,7 @@ function BlueprintsList() {
   const refreshClusters = useClustersStore((s) => s.refresh);
   const selectCluster = useClustersStore((s) => s.select);
   const [askCluster, setAskCluster] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     applyTheme(storedTheme());
@@ -211,7 +222,7 @@ function BlueprintsList() {
                           title="Delete"
                           onClick={(e) => {
                             e.stopPropagation();
-                            void remove(bp.id);
+                            setPendingDelete({ id: bp.id, name: bp.name });
                           }}
                           className="rounded-sm border border-border p-1 text-muted-foreground hover:border-destructive hover:text-destructive"
                         >
@@ -233,6 +244,37 @@ function BlueprintsList() {
           </table>
         </div>
       </section>
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+      >
+        <AlertDialogContent className="rounded-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-mono text-sm">
+              Delete {pendingDelete?.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs">
+              This removes the blueprint and its saved layout. It cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-sm font-mono text-[11px]">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-sm bg-destructive font-mono text-[11px] text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const target = pendingDelete;
+                setPendingDelete(null);
+                if (target) void remove(target.id);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={askCluster} onOpenChange={setAskCluster}>
         <DialogContent className="max-w-md rounded-sm">

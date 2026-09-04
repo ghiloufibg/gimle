@@ -69,10 +69,6 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap",
-      },
       { rel: "icon", href: IVALDI_FAVICON, type: "image/svg+xml" },
     ],
   }),

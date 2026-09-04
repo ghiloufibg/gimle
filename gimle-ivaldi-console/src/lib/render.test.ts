@@ -99,6 +99,22 @@ describe("renderFiles", () => {
     expect(bundle.workloads.map((w) => w.file)).toEqual(manifestPaths);
   });
 
+  /**
+   * A workload manifest deliberately carries no resources block: the real parser answers one with
+   * "not a recognized field for this manifest kind and was ignored", so emitting it would add a
+   * tier-2 warning to every workload and change nothing that gets deployed. The request/limit a
+   * module actually runs under come from its own gimle-module.yaml inside the jar; the values on
+   * the Blueprint node feed tier-1 quota and limit-range arithmetic instead.
+   */
+  it("leaves resources out of a workload manifest, where the platform has no such field", () => {
+    const files = renderFiles(ordersPlatform!);
+    const deployment = parse(
+      fileNamed(files, "manifests/02-web-ui-deployment.yaml").content,
+    ) as Record<string, unknown>;
+
+    expect(deployment).not.toHaveProperty("resources");
+  });
+
   it("never puts a secret's actual value anywhere in the rendered files", () => {
     const files = renderFiles(ordersPlatform!);
     for (const file of files) {

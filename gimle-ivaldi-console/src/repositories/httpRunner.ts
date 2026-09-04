@@ -158,6 +158,29 @@ export class HttpRunnerClient implements RunnerClient {
     return this.toSnapshot(raw, initialSteps(), endpoints);
   }
 
+  /**
+   * The run gimle-ivaldi is currently holding, or null when it holds none. Written against the
+   * real backend rather than Lovable's own `/v1/runs/current` sketch: there is one run at a time
+   * and `GET /api/runs/current` is its whole state, so a reloaded page can pick a live (or failed,
+   * still-holding-a-process-tree) run back up instead of showing "nothing ever ran". Steps are
+   * rebuilt from the log by the subscription that follows, so an attached run's timeline fills in
+   * from its first poll -- see lib/runPhases.ts.
+   */
+  async currentRun(): Promise<RunSnapshot | null> {
+    try {
+      const res = await fetch(this.url("/api/runs/current"), {
+        headers: { accept: "application/json" },
+      });
+      if (!res.ok) return null;
+      const raw = (await res.json()) as RawRunSnapshot;
+      if (!raw.id || mapStatus(raw.status) === "idle") return null;
+      const endpoints = raw.clusterId ? await this.fetchEndpoints(raw.clusterId) : [];
+      return this.toSnapshot(raw, initialSteps(), endpoints);
+    } catch {
+      return null;
+    }
+  }
+
   subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void {
     let steps = initialSteps();
     let endpoints: RunEndpoint[] = [];

@@ -129,6 +129,8 @@ export interface RunnerClient {
   readonly baseUrl: string | null;
   health(): Promise<RunnerHealth>;
   createRun(request: CreateRunRequest): Promise<RunSnapshot>;
+  /** The run the backend is currently holding, if any -- how a reloaded page finds its way back. */
+  currentRun(): Promise<RunSnapshot | null>;
   subscribe(runId: string, onEvent: (event: RunnerEvent) => void): () => void;
   stopRun(runId: string): Promise<RunSnapshot>;
 }

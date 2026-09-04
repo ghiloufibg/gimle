@@ -21,7 +21,7 @@ export const Route = createFileRoute("/runner/$blueprintId")({
       {
         name: "description",
         content:
-          "Run a Gimlé blueprint on a local runner: topology.yaml and manifests are sent to the runner daemon and the console streams back live.",
+          "Run a Gimlé blueprint: topology.yaml and manifests are sent to the same-origin Ivaldi backend and the console streams back live.",
       },
       { property: "og:title", content: "Cluster runner — Ivaldi" },
       {
@@ -52,8 +52,10 @@ function RunnerPage() {
     health,
     reason,
     busy,
+    runId,
     transport,
     checkHealth,
+    attach,
     start,
     stop,
     clearLog,
@@ -69,10 +71,15 @@ function RunnerPage() {
 
   useEffect(() => {
     void checkHealth();
-  }, [checkHealth]);
+    // A run outlives this page: pick up whatever the backend is still holding.
+    void attach();
+  }, [checkHealth, attach]);
 
   const errorCount = problems.filter((p) => p.severity === "error").length;
   const active = status !== "idle" && status !== "failed";
+  // Not `active`: a failed run can still own a live process tree, and Stop is the only way
+  // to tear it down from here.
+  const canStop = Boolean(runId) && status !== "idle";
 
   if (!blueprint)
     return (
@@ -133,7 +140,7 @@ function RunnerPage() {
             <Play className="size-3" /> Run
           </button>
           <button
-            disabled={!active || busy}
+            disabled={!canStop || busy}
             onClick={() => void stop()}
             className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-border px-2 font-mono text-[11px] text-foreground disabled:opacity-40"
           >

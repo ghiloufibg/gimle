@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useParams, useRouter } from "@tanstack/react-router";
 import {
   CheckCircle2,
   Download,
@@ -47,7 +47,44 @@ export const Route = createFileRoute("/designer/$blueprintId")({
     ],
   }),
   component: Designer,
+  errorComponent: DesignerError,
 });
+
+/**
+ * A blueprint the designer cannot open used to strand the user here for good: the default error
+ * screen's Retry re-rendered the same failing component with no way back to the list.
+ */
+function DesignerError({ error, reset }: { error: Error; reset: () => void }) {
+  const router = useRouter();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="max-w-md text-center">
+        <div className="hud-label">Designer error</div>
+        <h1 className="mt-2 text-sm font-semibold text-foreground">
+          This blueprint could not be opened
+        </h1>
+        <p className="mt-2 font-mono text-[11px] text-muted-foreground">{error.message}</p>
+        <div className="mt-4 flex justify-center gap-2">
+          <button
+            onClick={() => {
+              void router.invalidate();
+              reset();
+            }}
+            className="inline-flex h-7 items-center rounded-sm border border-primary bg-primary px-2.5 font-mono text-[11px] text-primary-foreground"
+          >
+            Retry
+          </button>
+          <Link
+            to="/"
+            className="inline-flex h-7 items-center rounded-sm border border-border px-2.5 font-mono text-[11px] text-foreground hover:border-primary"
+          >
+            Back to blueprints
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Counter({
   count,
@@ -156,7 +193,9 @@ function Designer() {
     () => [...ivaldiProblems, ...hilmirProblems],
     [ivaldiProblems, hilmirProblems],
   );
-  const { drawer, toggleDrawer, drawerHeight, theme, toggleTheme, setTheme } = useUiStore();
+  const { drawer, toggleDrawer, setDrawer, drawerHeight, theme, toggleTheme, setTheme } =
+    useUiStore();
+  const hilmirRunning = useValidationStore((s) => s.hilmir.running);
   const startRun = useRunStore((s) => s.start);
   const navigate = useNavigate();
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -179,13 +218,37 @@ function Designer() {
     void load(blueprintId);
   }, [blueprintId, load]);
 
+  const pendingSave = useRef(false);
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
   useEffect(() => {
     if (!blueprint || !dirty) return;
+    pendingSave.current = true;
     const t = setTimeout(() => {
-      void save();
+      pendingSave.current = false;
+      void saveRef.current();
     }, 600);
-    return () => clearTimeout(t);
-  }, [blueprint, dirty, save]);
+    // Flush rather than cancel: unmounting inside the debounce window used to discard the edit
+    // outright, with "UNSAVED" looking identical whether a save was 50ms away or already gone.
+    return () => {
+      clearTimeout(t);
+      if (pendingSave.current) {
+        pendingSave.current = false;
+        void saveRef.current();
+      }
+    };
+  }, [blueprint, dirty]);
+
+  useEffect(() => {
+    const flush = () => {
+      if (!pendingSave.current) return;
+      pendingSave.current = false;
+      void saveRef.current();
+    };
+    window.addEventListener("beforeunload", flush);
+    return () => window.removeEventListener("beforeunload", flush);
+  }, []);
 
   const tallies = useMemo(
     () => ({
@@ -244,13 +307,23 @@ function Designer() {
           </div>
           <ToolbarButton
             icon={CheckCircle2}
-            label="Validate"
+            label={hilmirRunning ? "Validating…" : "Validate"}
             onClick={() => {
-              useValidationStore.getState().recompute(blueprint);
-              toggleDrawer("problems");
-              toast.message("Validated", {
-                description: `${tallies.errors} errors, ${tallies.warnings} warnings.`,
-              });
+              if (hilmirRunning) return;
+              // setDrawer, not toggleDrawer: validating with the drawer already open used to
+              // close it, leaving the next Problems click looking like it did nothing.
+              setDrawer("problems");
+              void useValidationStore
+                .getState()
+                .validateWithHilmir(blueprint)
+                .then(() => {
+                  const state = useValidationStore.getState();
+                  const errors = state.errorCount();
+                  const warnings = state.warningCount();
+                  toast.message("Validated", {
+                    description: `${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}.`,
+                  });
+                });
             }}
           />
           <ToolbarButton
