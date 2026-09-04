@@ -3564,7 +3564,14 @@ public final class AgentMain {
    */
   private static Optional<String> workloadTokenFor(
       SupervisedInstance instance, String nodeId, HttpClient httpClient, URI baseUrl) {
-    String cacheKey = instance.assigned.deploymentName() + "#" + nodeId;
+    // Tenant-scoped for the same reason instanceKey() is: two different tenants' identically-named
+    // workload on this same node must never share a cached token minted for only one of them.
+    String cacheKey =
+        instance.assigned.tenantId().orElse("")
+            + '\0'
+            + instance.assigned.deploymentName()
+            + "#"
+            + nodeId;
     long now = System.currentTimeMillis();
     MintedWorkloadToken cached = workloadTokenCache.get(cacheKey);
     if (cached != null
@@ -3894,12 +3901,26 @@ public final class AgentMain {
     }
   }
 
-  private static String instanceKey(AssignedInstance assigned) {
-    return instanceKey(assigned.deploymentName(), assigned.instanceIndex());
+  static String instanceKey(AssignedInstance assigned) {
+    return instanceKey(assigned.tenantId(), assigned.deploymentName(), assigned.instanceIndex());
   }
 
-  private static String instanceKey(String deploymentName, int instanceIndex) {
-    return deploymentName + "#" + instanceIndex;
+  /**
+   * Tenant-scoped: two different tenants' identically-named workload at the same index must never
+   * collapse onto the same {@code supervised}/{@code instanceShippers}/{@code capacityTracker} key.
+   * Before {@code tenantId} was part of this key, whichever tenant's assignment this agent
+   * processed first "owned" the bare {@code deploymentName#index} slot -- the control plane still
+   * believed both were placed here (both showed up in {@code get node-assignments}), but the second
+   * one's own {@code containsKey} check below always read true against the first one's already-
+   * running {@code SupervisedInstance}, so this agent never started a real worker for it at all,
+   * permanently, even after the first tenant's own workload was deleted and the key genuinely freed
+   * -- nothing ever re-evaluates a key already believed occupied. Never used as a boundary a
+   * rolling update needs to cross: a workload's own tenant cannot change mid-rollout, so the
+   * deliberate same-key reuse {@code requiresReplacement}'s own javadoc describes is untouched by
+   * this.
+   */
+  static String instanceKey(Optional<String> tenantId, String deploymentName, int instanceIndex) {
+    return tenantId.orElse("") + '\0' + deploymentName + "#" + instanceIndex;
   }
 
   /**
@@ -3988,7 +4009,10 @@ public final class AgentMain {
       return Optional.empty();
     }
     String sourceKey =
-        instanceKey(assigned.deploymentName(), assigned.renamedFromInstanceIndex().getAsInt());
+        instanceKey(
+            assigned.tenantId(),
+            assigned.deploymentName(),
+            assigned.renamedFromInstanceIndex().getAsInt());
     SupervisedInstance source = supervised.get(sourceKey);
     if (source == null || requiresReplacement(assigned, source)) {
       return Optional.empty();
