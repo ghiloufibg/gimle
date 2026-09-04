@@ -1492,11 +1492,12 @@
       "environments": [
         "vault"
       ],
-      "objective": "Turn on gateway TLS termination with two virtual hosts carrying different certificates.",
-      "oracle": "Plaintext no longer answers; each host is served the certificate matching the client's SNI; fabric calls behind the gateway succeed over mTLS.",
+      "objective": "Turn on gateway TLS termination with two virtual hosts carrying different certificates. Then, without restarting the instance, update gateway.tlsCertificates to add a third virtual host's binding and dial its SNI.",
+      "oracle": "Plaintext no longer answers; each host is served the certificate matching the client's SNI; fabric calls behind the gateway succeed over mTLS. The newly-added third host is served its own certificate on the very next handshake with no restart, and the original two hosts keep being served correctly across the config change.",
       "requirements": [
         "GIMLE-722",
-        "GIMLE-196"
+        "GIMLE-196",
+        "GIMLE-799"
       ]
     },
     {

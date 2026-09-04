@@ -29,9 +29,11 @@ import java.util.Set;
  * <p>No {@code caFile} per binding: trust is cluster-wide and already carried by {@code
  * gimle.tls.caFile}. What varies per virtual host is only which identity the gateway presents.
  *
- * <p>Read once, at {@code onStart} -- unlike {@code gateway.routes}, swapping the certificate an
- * already-established listener presents is not a table swap, so a certificate change stays a
- * redeploy the same way changing {@code gateway.port} does.
+ * <p>Re-parsed on the same background interval {@code gateway.routes} is: SNI certificate selection
+ * already runs fresh on every new handshake ({@code SniKeyManager} in {@code gimle-core}), so
+ * swapping which certificate a hostname resolves to is not a rebind the way changing {@code
+ * gateway.port} is, and a config change reaches an already-running instance the same way a
+ * route-table change does.
  *
  * <p>Example:
  *

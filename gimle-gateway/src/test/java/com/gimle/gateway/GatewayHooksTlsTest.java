@@ -1,6 +1,7 @@
 package com.gimle.gateway;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.gimle.core.module.ModuleId;
 import com.gimle.core.module.Version;
@@ -64,6 +65,11 @@ class GatewayHooksTlsTest {
   private static final String CERT_FILE_PROPERTY = "gimle.tls.certFile";
   private static final String KEY_FILE_PROPERTY = "gimle.tls.keyFile";
   private static final String CA_FILE_PROPERTY = "gimle.tls.caFile";
+
+  // Mirrors GatewayHooksRouteReloadTest's own reload-interval seam: shrinks the background reload
+  // tick to milliseconds so a live gateway.tlsCertificates change is observed in test time.
+  private static final Duration RELOAD_INTERVAL = Duration.ofMillis(20);
+  private static final Duration AWAIT_TIMEOUT = Duration.ofSeconds(2);
 
   @TempDir(cleanup = CleanupMode.NEVER)
   private Path tempDir;
@@ -166,6 +172,66 @@ class GatewayHooksTlsTest {
   }
 
   @Test
+  void a_gateway_tlscertificates_update_is_picked_up_without_a_restart() throws Exception {
+    // M55 regression: gateway.tlsCertificates used to be parsed exactly once at onStart, so a
+    // config change reaching an already-running instance (the same live-delivery path
+    // gateway.routes already reloads through) had no effect at all -- every hostname kept getting
+    // whichever certificate set (or lack of one) happened to be in place at boot.
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
+    TlsSettings shop = issueLeaf(ca, "shop.example.com", List.of("shop.example.com"));
+    TlsSettings client = issueLeaf(ca, "caller", List.of());
+
+    ConcurrentHashMap<String, String> configValues = configWithTlsCertificates(bindings(orders));
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
+    hooks.onStart(contextWithLiveConfig(configValues));
+
+    assertEquals(
+        "CN=orders.example.com",
+        presentedCertificateSubject(Optional.of("orders.example.com"), client));
+    // shop.example.com isn't bound yet -- falls back to the cluster-wide default certificate.
+    assertEquals(
+        "CN=gimle-gateway", presentedCertificateSubject(Optional.of("shop.example.com"), client));
+
+    configValues.put("gateway.tlsCertificates", bindings(orders, shop));
+
+    awaitCertificateSubject(client, "shop.example.com", "CN=shop.example.com");
+    // The pre-existing binding keeps working across the swap too.
+    assertEquals(
+        "CN=orders.example.com",
+        presentedCertificateSubject(Optional.of("orders.example.com"), client));
+  }
+
+  @Test
+  void a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving()
+      throws Exception {
+    CertificateAuthority ca =
+        CertificateAuthority.generateSelfSignedCa(
+            new X500Name("CN=test-cluster-ca"), Duration.ofDays(1));
+    configureServerTls(ca);
+    TlsSettings orders = issueLeaf(ca, "orders.example.com", List.of("orders.example.com"));
+    TlsSettings client = issueLeaf(ca, "caller", List.of());
+
+    ConcurrentHashMap<String, String> configValues = configWithTlsCertificates(bindings(orders));
+    hooks = new GatewayHooks(RELOAD_INTERVAL);
+    hooks.onStart(contextWithLiveConfig(configValues));
+    assertEquals(
+        "CN=orders.example.com",
+        presentedCertificateSubject(Optional.of("orders.example.com"), client));
+
+    configValues.put("gateway.tlsCertificates", "not a valid binding line");
+    // Give the reload task several ticks to (fail to) apply the bad config.
+    Thread.sleep(RELOAD_INTERVAL.toMillis() * 10);
+
+    assertEquals(
+        "CN=orders.example.com",
+        presentedCertificateSubject(Optional.of("orders.example.com"), client));
+  }
+
+  @Test
   void a_route_still_serves_normally_with_per_host_certificates_configured() throws Exception {
     CertificateAuthority ca =
         CertificateAuthority.generateSelfSignedCa(
@@ -222,6 +288,60 @@ class GatewayHooksTlsTest {
     config.put(
         "gateway.routes", "FABRIC /greet " + TestGreeter.class.getName() + " 1 greet STRING\n");
     return new SimpleModuleContext(gatewayId, registry, new ConcurrentHashMap<>(config));
+  }
+
+  /**
+   * A live, mutable config map -- unlike {@link #contextWithGreeterRoute(Map)}, which copies
+   * whatever's handed to it twice over before it ever reaches {@link SimpleModuleContext}, this
+   * hands the module context the exact same {@link ConcurrentHashMap} instance the caller keeps a
+   * reference to, so a later {@code configValues.put(...)} is exactly what {@code ConfigRelay}'s
+   * own delivery does to a real running instance's shared config map.
+   */
+  private static ConcurrentHashMap<String, String> configWithTlsCertificates(
+      String tlsCertificatesConfig) {
+    ConcurrentHashMap<String, String> configValues = new ConcurrentHashMap<>();
+    configValues.put("gateway.port", "0");
+    configValues.put(
+        "gateway.routes", "FABRIC /greet " + TestGreeter.class.getName() + " 1 greet STRING\n");
+    configValues.put("gateway.tlsCertificates", tlsCertificatesConfig);
+    return configValues;
+  }
+
+  private static SimpleModuleContext contextWithLiveConfig(
+      ConcurrentHashMap<String, String> configValues) {
+    SimpleServiceRegistry registry = new SimpleServiceRegistry();
+    ModuleId gatewayId = new ModuleId("com.gimle.gateway", Version.parse("1.0.0"));
+    registry.register(gatewayId, TestGreeter.class, name -> "hello, " + name);
+    return new SimpleModuleContext(gatewayId, registry, configValues);
+  }
+
+  /**
+   * Polls {@link #presentedCertificateSubject} until {@code sniHostname} resolves to {@code
+   * expectedSubject} or {@link #AWAIT_TIMEOUT} elapses -- the certificate-selection analogue of
+   * {@code GatewayHooksRouteReloadTest#awaitStatus}, needed for the same reason: the reload tick
+   * that applies a config change runs on a background schedule, not synchronously with the test's
+   * own {@code configValues.put(...)}.
+   */
+  private void awaitCertificateSubject(
+      TlsSettings clientSettings, String sniHostname, String expectedSubject) throws Exception {
+    long deadlineNanos = System.nanoTime() + AWAIT_TIMEOUT.toNanos();
+    String lastSubject = null;
+    while (System.nanoTime() < deadlineNanos) {
+      lastSubject = presentedCertificateSubject(Optional.of(sniHostname), clientSettings);
+      if (expectedSubject.equals(lastSubject)) {
+        return;
+      }
+      Thread.sleep(10);
+    }
+    fail(
+        "expected SNI hostname "
+            + sniHostname
+            + " to resolve to certificate subject "
+            + expectedSubject
+            + " within "
+            + AWAIT_TIMEOUT
+            + ", last saw "
+            + lastSubject);
   }
 
   /** A {@code gateway.tlsCertificates} value binding each leaf's own CN to its own key pair. */

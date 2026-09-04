@@ -32,19 +32,48 @@ import javax.net.ssl.X509ExtendedKeyManager;
  * failed handshake. That is deliberate rather than installing an {@code SNIMatcher}: a matcher
  * refuses the connection outright, which would break the host-unconstrained fallback routing such a
  * listener is expected to keep serving.
+ *
+ * <p>The per-hostname binding set can be replaced in place via {@link #updateHostBindings} without
+ * rebuilding this key manager or the {@code SSLContext}/listener it's installed on -- selection
+ * already runs fresh on every new handshake, so there is nothing about an already-bound socket that
+ * needs to change for a config-driven certificate update to take effect.
  */
 final class SniKeyManager extends X509ExtendedKeyManager {
 
   private static final String DEFAULT_ALIAS = "gimle-default";
   private static final String HOST_ALIAS_PREFIX = "gimle-sni:";
 
-  private final Map<String, KeyEntry> byAlias = new LinkedHashMap<>();
+  private final KeyEntry defaultEntry;
+
+  // Read on every handshake (chooseAlias et al.), written only by updateHostBindings -- a plain
+  // volatile reference swap is enough: a handshake in flight keeps whatever fully-built map it
+  // already read, and the very next handshake sees the new one, with no lock needed on either side.
+  private volatile Map<String, KeyEntry> byAlias;
 
   SniKeyManager(KeyEntry defaultEntry, Map<String, KeyEntry> byHostname) {
-    byAlias.put(DEFAULT_ALIAS, defaultEntry);
+    this.defaultEntry = defaultEntry;
+    this.byAlias = buildAliasMap(defaultEntry, byHostname);
+  }
+
+  private static Map<String, KeyEntry> buildAliasMap(
+      KeyEntry defaultEntry, Map<String, KeyEntry> byHostname) {
+    Map<String, KeyEntry> map = new LinkedHashMap<>();
+    map.put(DEFAULT_ALIAS, defaultEntry);
     byHostname.forEach(
-        (hostname, entry) ->
-            byAlias.put(HOST_ALIAS_PREFIX + hostname.toLowerCase(Locale.ROOT), entry));
+        (hostname, entry) -> map.put(HOST_ALIAS_PREFIX + hostname.toLowerCase(Locale.ROOT), entry));
+    return Map.copyOf(map);
+  }
+
+  /**
+   * Replaces the live per-hostname bindings this key manager selects among -- what lets a listener
+   * built on this key manager pick up a config-driven change to its virtual-host certificates
+   * without rebinding: SNI selection already happens fresh on every new handshake (see {@link
+   * #chooseAlias}), so swapping which certificate an alias resolves to is enough on its own. An
+   * already-established connection is unaffected -- a TLS session's negotiated certificate never
+   * changes mid-connection -- and the default alias this key manager started with is untouched.
+   */
+  void updateHostBindings(Map<String, KeyEntry> byHostname) {
+    byAlias = buildAliasMap(defaultEntry, byHostname);
   }
 
   @Override

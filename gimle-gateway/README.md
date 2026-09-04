@@ -139,9 +139,11 @@ as a single-certificate listener always did. Selection deliberately never *rejec
 route, and failing its handshake closed would take that fallback routing down with it.
 
 Bindings carry no `caFile` of their own — trust is cluster-wide and already carried by
-`gimle.tls.caFile`; what varies per virtual host is only the identity the gateway presents. The key
-is read once at `onStart`, like `gateway.port` and unlike `gateway.routes`: swapping what an
-already-established listener presents is a rebind, not a table swap.
+`gimle.tls.caFile`; what varies per virtual host is only the identity the gateway presents.
+`gateway.tlsCertificates` is re-read on the same background interval `gateway.routes` is: SNI
+selection already runs fresh on every new handshake, so swapping which certificate a hostname
+resolves to is not a rebind the way changing `gateway.port` is — a config change reaches an
+already-running instance the same way a route-table change does.
 
 Each inbound request runs on its own virtual thread (`Executors.newVirtualThreadPerTaskExecutor()`)
 — a request blocks synchronously on a real fabric round trip, possibly cross-machine, so a

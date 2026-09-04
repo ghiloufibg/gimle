@@ -808,6 +808,7 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | Observability | Complete | Yes |
 | GIMLE-797 | A disposed instance's fabric endpoint is actively pruned on redeploy, not left for its circuit breaker to eventually notice | Service Fabric | Fixed | Yes |
 | GIMLE-798 | A hosted module's own readiness probe result reaches the agent, not just its ACTIVE lifecycle state | Health / Self-Healing | Complete | Yes |
+| GIMLE-799 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | Complete | Yes |
 
 ## Detailed Requirements
 
@@ -8501,6 +8502,20 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a gateway whose route-reload scheduler starts during onStart
   When a reload tick fires before onStart returns
   Then it observes a fully applied route table rather than partial state
+  ```
+
+#### GIMLE-799 — Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart
+
+- **Category**: Transport Security
+- **User story**: As a platform operator updating a running TLS-terminating gateway's gateway.tlsCertificates config (adding, changing, or removing a virtual host's certificate binding), I want every already-running gateway instance to pick up the change on its own, the same way a gateway.routes change already does, so a DaemonSet-deployed fleet of gateway instances doesn't keep presenting a stale or missing per-host certificate to callers until whichever instances happen to restart next.
+- **Status**: Fixed. GatewayHooks#onStart parsed gateway.tlsCertificates exactly once and baked it into a fixed SniKeyManager built at HttpsServer construction time, with no listener, poll, or re-parse anywhere afterward -- unlike gateway.routes, which already gained a background reload (GIMLE-679). The gap was real, not merely a documented v1 limitation: SNI certificate selection already runs fresh on every new TLS handshake (see SniKeyManager#chooseServerAlias), so swapping which certificate a hostname resolves to was never actually a rebind the way changing gateway.port is -- there was nothing about an already-bound listener that needed to change, only a missing reload path to trigger the swap. Fixed by making the per-hostname binding set mutable in place: SniKeyManager now holds its alias map behind a volatile reference with a package-private updateHostBindings method, SslContexts.forMutualTls(TlsSettings, List<HostCertificate>) returns a new ReloadableSniContext (wrapping the built SSLContext together with the means to reload its bindings) instead of a bare SSLContext, and is now always built on a SniKeyManager -- even when the starting per-host list is empty -- rather than delegating to the plain KeyManagerFactory path for that case, since an empty starting set still needs to be able to gain bindings later. GatewayHooks#reloadTlsCertificatesIfChanged runs on the exact same background reload tick gateway.routes already reloads on: it re-reads gateway.tlsCertificates, and if it differs from what was last applied, calls ReloadableSniContext#reloadHostCertificates with the freshly parsed binding list -- no HttpsServer rebind, no new HttpsConfigurator, no new listener socket. A malformed update, or one naming unreadable certificate material, is rejected and logged the same way a malformed gateway.routes update already is, keeping whichever bindings are already selecting traffic.
+- **Confidence**: High
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java` (`updateHostBindings`), `gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java` (`forMutualTls(TlsSettings, List<HostCertificate>)`, `ReloadableSniContext`), `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java` (`reloadTlsCertificatesIfChanged`, `createHttpServer`, `BoundServer`)
+- **Test coverage**: `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart` (a hostname gains a binding on a live instance and the very next handshake to it presents the new certificate, with the pre-existing binding still serving correctly across the swap), `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`; every pre-existing GatewayHooksTlsTest case re-verified passing unchanged.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged.
+  Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged.
   ```
 
 ### gimle-cli

@@ -13856,6 +13856,23 @@
         "`gimle-agent/src/main/java/com/gimle/agent/SupervisedInstance.java` (`readinessReported`)",
         "`gimle-core/src/main/java/com/gimle/core/protocol/ControlMessage.java` (`HealthReport`, pre-existing)"
       ]
+    },
+    {
+      "id": "GIMLE-799",
+      "module": "gimle-gateway",
+      "feature": "Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart",
+      "category": "Transport Security",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises a live gateway.tlsCertificates update. To close: add a scenario that boots a TLS-terminating gateway DaemonSet with a per-host certificate binding, updates gateway.tlsCertificates through the real API, and asserts (without restarting any instance) that a client's SNI-selected certificate changes to the new binding on its very next handshake.",
+      "otherTestCoverage": "`GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java`",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
+      ]
     }
   ]
 }

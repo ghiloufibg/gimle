@@ -581,6 +581,48 @@ class GatewayDispatcherTest {
   }
 
   @Test
+  void a_vessel_prefix_route_matches_a_bare_trailing_slash_on_its_own_base_path()
+      throws IOException {
+    // M32 regression: a bare trailing slash on a prefix route's own base path ("/api/orders/",
+    // nothing after it) has to fall through to that same prefix -- distinct from
+    // a_prefix_route_matches_its_own_root_path_exactly (no slash at all) and from the longer
+    // sub-path case above, since matchesPrefix's own "path.startsWith(prefix + \"/\")" check is
+    // exactly what a naive exact-literal-path lookup, or an off-by-one in that check, would miss.
+    AtomicReference<String> seenPath = new AtomicReference<>();
+    HttpServer stub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    stub.createContext(
+        "/",
+        exchange -> {
+          seenPath.set(exchange.getRequestURI().getPath());
+          exchange.sendResponseHeaders(200, 0);
+          exchange.close();
+        });
+    stub.start();
+    this.vesselStub = stub;
+    int port = stub.getAddress().getPort();
+
+    RelayResult relayResult =
+        new RelayResult(
+            200,
+            "[{\"instanceIndex\":0,\"nodeId\":\"node-a\",\"host\":\"127.0.0.1\","
+                + "\"ports\":{\"HTTP_PORT\":"
+                + port
+                + "}}]");
+    SimpleModuleContext ctx = contextWithRelay(relayResult);
+    GatewayDispatcher dispatcher =
+        new GatewayDispatcher(
+            ctx,
+            List.of(
+                new VesselRoute(
+                    Optional.empty(), "/api/orders", true, "orders-service", "HTTP_PORT")));
+
+    GatewayResponse response = dispatcher.dispatch("GET", "/api/orders/", "");
+
+    assertEquals(200, response.status());
+    assertEquals("/api/orders/", seenPath.get());
+  }
+
+  @Test
   void a_service_prefix_route_matches_a_longer_inbound_path_and_forwards_it_verbatim()
       throws IOException {
     AtomicReference<String> seenPath = new AtomicReference<>();
