@@ -820,6 +820,8 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
 | GIMLE-808 | The terminal view reads the control plane's own health alongside what it is running | CLI UX | Complete | Unit only |
 | GIMLE-809 | The terminal view reads a worker's shipped traces for the instance it is inspecting | CLI UX | Complete | Unit only |
 | GIMLE-810 | The terminal view narrows every screen to one tenant | CLI UX | Complete | Unit only |
+| GIMLE-811 | The terminal view scans the cluster for what is wrong | CLI UX | Complete | Unit only |
+| GIMLE-812 | The terminal view shows what the calling certificate may do | CLI UX | Complete | Unit only |
 
 ## Detailed Requirements
 
@@ -12281,4 +12283,34 @@ This matrix was reverse-engineered directly from the Gimlé codebase as it stood
   Given a cluster running two tenants' workloads
   When an operator types `:tenant acme`
   Then every screen shows only that tenant's rows, and the bar names the tenant
+  ```
+
+#### GIMLE-811 — The terminal view scans the cluster for what is wrong
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want one screen listing everything currently wrong with the cluster, worst first, so that I do not have to already know which table a problem would appear in.
+- **Status**: Complete. `S` from the cluster view, or `:scan`, derives findings from readings the view already holds and orders them by severity. ERROR covers replicas the scheduler placed nowhere, an instance FAILED or failing its liveness probe, a node whose agent has stopped heartbeating, a Service resolving to no endpoint, and a Service fronting a workload the cluster does not have. WARNING covers an instance active but not ready, one placed on a node that has reported nothing about it yet, a workload over its tenant's quota or outside its limit range, and a node committed to almost all of its own cpu or memory -- said before placement actually fails, because by then the finding is a workload's unplaced replicas and no longer names the machine that ran out. NOTE covers the deliberate states that look like faults from a distance: a cordoned node, a workload scaled to zero. An instance still starting is never reported for being unready, since it is unready by design. A check whose input is missing is never silently skipped: a Services read that has not landed is reported as a finding of its own, because a clean result that came back clean because half the checks never ran is worse than no scan. A filter matching nothing says so rather than borrowing the clean-cluster wording. No request is made beyond the Services read the services screen already costs.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/Scan.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/ScanFinding.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/ScanScreen.java`
+- **Test coverage**: ScanTest covers each finding kind and its severity, a scaled-to-zero workload and a cordoned node reading as notes rather than faults, a starting instance never being reported unready, an unreadable endpoint count never being reported as resolving to nothing, a Services read that never landed being reported rather than skipped, a healthy cluster producing nothing at all, severity ordering, tenant-qualified subjects, and a Service and workload in different tenants never being matched to each other. ScanScreenTest covers a finding reading on its own without its heading, worst-first ordering on screen, the fix-now and to-watch counts on the label, a clean cluster stating what it checked, a filter matching nothing never being reported as clean, the frame fitting the viewport and ending in the key bar, and no escape sequences with colour off.
+- **Gherkin scenario**:
+  ```gherkin
+  Given a cluster with an unplaced replica, an unready instance and a cordoned node
+  When an operator presses `S`
+  Then the three findings are listed worst first, each saying what is wrong on its own line
+  ```
+
+#### GIMLE-812 — The terminal view shows what the calling certificate may do
+
+- **Category**: CLI UX
+- **User story**: As an operator, I want to see what my own certificate is permitted to do, kind by kind and verb by verb, so that I can answer 'may I delete this' without reading roles and bindings back into a verdict myself.
+- **Status**: Complete. `R` from the cluster view, or `:can`, draws a grid of every resource kind against every verb. The kinds and verbs come from `GET /authz/vocabulary` rather than a list hard-coded here, so a kind added to the platform later still appears; every cell is the control plane's own answer from `GET /authz/can-i`, never a verdict recomputed here from the RBAC objects, which would be a second implementation of the authorizer able to disagree with the real one. A cell the control plane did not answer reads `unknown` and never `no` -- denial and silence are indistinguishable once drawn and only one is a statement about anybody's grants -- and the label counts the unanswered cells so a partial read is visible. Over a plaintext transport there is no client certificate to identify anyone, so the control plane answers as an unidentified caller and allows everything; the screen says so in place of the grid's meaning, since an unbroken column of yes is what an over-privileged account would also produce. It is one request per cell, so it is read once when opened and again only on `r`, through the poller's on-demand mode; changing the tenant scope re-asks it, since the answer differs per tenant.
+- **Confidence**: High
+- **Source location(s)**: `gimle-hugin/src/main/java/com/gimle/hugin/model/PermissionReader.java`, `gimle-hugin/src/main/java/com/gimle/hugin/model/PermissionSnapshot.java`, `gimle-hugin/src/main/java/com/gimle/hugin/render/PermissionScreen.java`
+- **Test coverage**: PermissionReaderTest covers the grid following the vocabulary the control plane names, an unanswered cell never reading as denied, the answering identity being carried, an unidentified caller being recognisable, an unreadable vocabulary being reported rather than shown as an empty grid, the tenant scope reaching every question, query escaping, and the filter narrowing by kind and by granted verb. PermissionScreenTest covers every cell being a word rather than a mark, an unanswered cell drawn as unknown, the identity named on screen, the unidentified-caller warning appearing only when it applies, an unreadable grid saying so instead of showing nothing permitted, the unanswered count on the label, the frame fitting the viewport, and no escape sequences with colour off.
+- **Gherkin scenario**:
+  ```gherkin
+  Given an operator connected with a certificate holding a subset of the cluster's permissions
+  When they press `R`
+  Then each resource kind is listed against each verb with the control plane's own yes or no
   ```

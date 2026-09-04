@@ -171,6 +171,53 @@ tree. Both halves are already drawn elsewhere; what is only visible here is the 
 - It costs exactly what the services screen costs — one request per declared Service — because it is
   a join of two readings rather than a read of its own.
 
+**Scan** — `S` from the cluster view, or `:scan`:
+
+Everything wrong with the cluster, worst first, on one screen. Nothing here is a reading the other
+screens could not be made to show; what it adds is that an unplaced replica, a Service resolving to
+nothing and a node that stopped heartbeating are three tables apart and one problem.
+
+- `ERROR` is something not running that was asked to run, or unreachable: replicas the scheduler
+  placed nowhere, an instance `FAILED` or failing its liveness probe, a node whose agent has stopped
+  reporting, a Service resolving to no endpoint, a Service fronting a workload this cluster does not
+  have.
+- `WARNING` is degraded or heading that way: an instance active but not ready, one placed on a node
+  that has reported nothing about it yet, a workload over its tenant's quota or outside its limit
+  range, a node committed to almost all of its own cpu or memory. A node close to full is said
+  before placement actually fails, because by then the finding is a workload's unplaced replicas and
+  no longer names the machine that ran out.
+- `NOTE` is deliberate and only looks like a fault from a distance: a cordoned node, a workload
+  scaled to zero.
+- An instance still starting is never reported for being unready — it is unready by design, and
+  reporting it would fill the screen with findings that resolve themselves.
+- A check whose input is missing is never silently skipped. If the Services read has not landed, the
+  scan says so as a finding of its own: a clean result that came back clean because half the checks
+  never ran is worse than no scan.
+- A filter matching nothing says `nothing matches`, never the clean-cluster wording — the two read
+  identically as an empty table and only one of them is good news.
+- It makes no request of its own beyond the Services read the services screen also costs.
+
+**Permissions** — `R` from the cluster view, or `:can`:
+
+What your own certificate may do, as a grid of every resource kind against every verb. The one
+cluster fact no other screen can show: roles, bindings and accounts are all browsable as tables, but
+reading a grant out of them is the authorizer's job, and three tables plus mental arithmetic is not
+an answer to "may I delete this".
+
+- Every cell is the control plane's own answer from `GET /authz/can-i`, not a verdict computed here
+  from the RBAC objects — a second implementation of the authorizer could disagree with the real one.
+- The kinds and verbs come from `GET /authz/vocabulary`, so a kind added to the platform after this
+  view was written still appears.
+- A cell the control plane did not answer reads `unknown`, never `no`. Denial and silence are
+  indistinguishable once drawn, and only one of them is a statement about anybody's grants; the
+  label counts the unanswered cells so a partial read is visible.
+- Over a plaintext transport there is no client certificate to identify anyone, so the control plane
+  answers as an unidentified caller and allows everything. The screen says so in place of the grid's
+  meaning: an unbroken column of `yes` is exactly what an over-privileged account would also produce.
+- It is one request per cell, so it is read once when opened and again only on `r` — a grant arrives
+  by someone editing a Role, which is not a thing that happens while you are reading the screen about
+  it. Changing `:tenant` while it is open re-asks it, since the answer differs per tenant.
+
 **Pulse** — `P` from the cluster view:
 
 One screen answering "is this cluster all right", from the two readings that together say so.
@@ -247,6 +294,8 @@ carry, since they differ per cluster.
 | `o` | cycle the sort: name, state, then each metric worst-first |
 | `1` … `9` | sort by that column outright, on whichever table has the cursor |
 | `d` | describe the workload behind the selected instance |
+| `S` | scan: everything wrong with the cluster, worst first |
+| `R` | what your own certificate may do, kind by kind |
 | `s` | services and the endpoints they resolve to |
 | `x` | the dependency tree: service → deployment → instance |
 | `P` | one-screen health: the control plane and what it runs |
@@ -255,6 +304,7 @@ carry, since they differ per cluster.
 | `:` then `enter` | list every kind this cluster can show |
 | `:ctx NAME` | point at another control plane, by context name or `host:port` |
 | `:tenant ID` | narrow every screen to one tenant; `:tenant all` undoes it |
+| `:scan` / `:can` | the same two screens `S` and `R` open, by name |
 | `T` | this instance's shipped traces (instance view) |
 | `w` / `t` | wrap long log lines / show the clock column (instance view) |
 | `m` | load older entries (activity view, audit and lifecycle feeds) |

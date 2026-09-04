@@ -208,6 +208,53 @@ class UiStateTest {
     assertTrue(ui.viewingResources());
   }
 
+  // ---- the scan and the permissions grid ----
+
+  @Test
+  void the_scan_opens_at_the_top_however_far_the_last_look_was_scrolled() {
+    ui.showScan();
+    ui.scrollScan(12);
+    assertEquals(12, ui.scanOffset());
+
+    ui.closeScan();
+    ui.showScan();
+
+    assertEquals(0, ui.scanOffset(), "a second look starts at the worst finding, not where it was");
+  }
+
+  @Test
+  void the_permissions_grid_opens_at_the_top_the_same_way() {
+    ui.showPermissions();
+    ui.scrollPermissions(5);
+    ui.closePermissions();
+    ui.showPermissions();
+
+    assertEquals(0, ui.permissionOffset());
+  }
+
+  @Test
+  void neither_screen_can_be_scrolled_above_its_first_row() {
+    ui.showScan();
+    ui.scrollScan(-3);
+    ui.showPermissions();
+    ui.scrollPermissions(-3);
+
+    assertEquals(0, ui.scanOffset());
+    assertEquals(0, ui.permissionOffset());
+  }
+
+  @Test
+  void pointing_at_another_control_plane_closes_both_of_them_too() {
+    // Both describe one cluster: a finding and a grant alike mean nothing under another's name.
+    ui.showScan();
+    ui.showPermissions();
+
+    ui.leaveEveryView();
+
+    assertFalse(ui.viewingScan());
+    assertFalse(ui.viewingPermissions());
+  }
+
   // ---- picking an ordering outright ----
 
   @Test

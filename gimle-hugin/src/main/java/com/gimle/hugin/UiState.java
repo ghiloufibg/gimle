@@ -52,6 +52,10 @@ public final class UiState {
   private boolean viewingXray;
   private boolean viewingPulse;
   private int xrayScroll;
+  private boolean viewingScan;
+  private int scanScroll;
+  private boolean viewingPermissions;
+  private int permissionScroll;
   private boolean logWrap;
   private boolean logTimestamps = true;
   private Optional<String> selectedResource = Optional.empty();
@@ -209,6 +213,70 @@ public final class UiState {
     traceScroll = Integer.MAX_VALUE - 1;
   }
 
+  // ---- the sanity scan ----
+
+  /** Whether the findings list is showing. */
+  public boolean viewingScan() {
+    return viewingScan;
+  }
+
+  public void showScan() {
+    viewingScan = true;
+    scanScroll = 0;
+  }
+
+  public void closeScan() {
+    viewingScan = false;
+  }
+
+  public int scanOffset() {
+    return scanScroll;
+  }
+
+  public void scrollScan(final int delta) {
+    scanScroll = Math.max(0, scanScroll + delta);
+  }
+
+  public void scrollScanToTop() {
+    scanScroll = 0;
+  }
+
+  public void scrollScanToBottom() {
+    scanScroll = Integer.MAX_VALUE - 1;
+  }
+
+  // ---- what this caller may do ----
+
+  /** Whether the permissions grid is showing. */
+  public boolean viewingPermissions() {
+    return viewingPermissions;
+  }
+
+  public void showPermissions() {
+    viewingPermissions = true;
+    permissionScroll = 0;
+  }
+
+  public void closePermissions() {
+    viewingPermissions = false;
+  }
+
+  public int permissionOffset() {
+    return permissionScroll;
+  }
+
+  public void scrollPermissions(final int delta) {
+    permissionScroll = Math.max(0, permissionScroll + delta);
+  }
+
+  public void scrollPermissionsToTop() {
+    permissionScroll = 0;
+  }
+
+  public void scrollPermissionsToBottom() {
+    permissionScroll = Integer.MAX_VALUE - 1;
+  }
+
   /** Whether the one-screen health reading is showing. */
   public boolean viewingPulse() {
     return viewingPulse;
@@ -268,6 +336,10 @@ public final class UiState {
     viewingXray = false;
     viewingPulse = false;
     xrayScroll = 0;
+    viewingScan = false;
+    scanScroll = 0;
+    viewingPermissions = false;
+    permissionScroll = 0;
     viewingResources = false;
     viewingServices = false;
     viewingActivity = false;

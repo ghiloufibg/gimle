@@ -34,6 +34,18 @@ public final class SnapshotPoller<T extends Staleable<T>> implements AutoCloseab
     this.threadName = threadName;
   }
 
+  /**
+   * A poller that reads once and then only when asked, for a screen whose read is too expensive to
+   * repeat on a clock and whose answer does not change on its own between two keystrokes.
+   *
+   * <p>Still a poller rather than a bare thread, so such a screen keeps the same staleness
+   * reporting, pausing and {@code r} refresh every other one has instead of growing its own.
+   */
+  public static <T extends Staleable<T>> SnapshotPoller<T> onDemand(
+      final Supplier<T> read, final T initial, final String threadName) {
+    return new SnapshotPoller<>(read, initial, Duration.ZERO, threadName);
+  }
+
   public void start() {
     thread = Thread.ofVirtual().name(threadName).start(this::loop);
   }
@@ -75,7 +87,13 @@ public final class SnapshotPoller<T extends Staleable<T>> implements AutoCloseab
       if (!paused.get()) {
         pollOnce();
       }
-      LockSupport.parkNanos(this, interval.toNanos());
+      // A zero interval means "never on a clock": park until something asks, which is what an
+      // on-demand poller waits for and the one case a timed park would get wrong by re-reading.
+      if (interval.isZero()) {
+        LockSupport.park(this);
+      } else {
+        LockSupport.parkNanos(this, interval.toNanos());
+      }
     }
   }
 

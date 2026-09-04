@@ -291,8 +291,9 @@ class ClusterScreenTest {
     String bar = lines.getLast();
     assertTrue(bar.contains("q quit"), bar);
     assertTrue(Ansi.visibleWidth(bar) <= 80, bar);
-    // Every key that reaches a screen an operator cannot otherwise find has to be on it.
-    for (String key : List.of(": kind", "d yaml", "s svc", "x tree", "P pulse", "a activity")) {
+    // Every key that reaches a screen an operator cannot otherwise find has to be on it. "d" and
+    // "R" are the exceptions and deliberately are not: ":" already reaches both of those by name.
+    for (String key : List.of(": kind", "S scan", "s svc", "x tree", "P pulse", "a activity")) {
       assertTrue(bar.contains(key), key + " missing from: " + bar);
     }
   }

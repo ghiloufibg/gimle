@@ -1,9 +1,9 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 810,
+    "totalRequirements": 812,
     "coveredByAutomatedTest": 130,
-    "notCoveredByAutomatedTest": 680,
+    "notCoveredByAutomatedTest": 682,
     "releaseReadinessPercent": 16.0
   },
   "items": [
@@ -8912,6 +8912,28 @@
       "category": "CLI UX",
       "feature": "The terminal view narrows every screen to one tenant",
       "step": "Given a cluster running two tenants' workloads When an operator types `:tenant acme` Then every screen shows only that tenant's rows, and the bar names the tenant",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-811",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view scans the cluster for what is wrong",
+      "step": "Given a cluster with an unplaced replica, an unready instance and a cordoned node When an operator presses `S` Then the three findings are listed worst first, each saying what is wrong on its own line",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-812",
+      "module": "gimle-hugin",
+      "category": "CLI UX",
+      "feature": "The terminal view shows what the calling certificate may do",
+      "step": "Given an operator connected with a certificate holding a subset of the cluster's permissions When they press `R` Then each resource kind is listed against each verb with the control plane's own yes or no",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

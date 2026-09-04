@@ -278,6 +278,35 @@ final class StatusBar {
         List.of("esc back", "↑↓ scroll", "/ filter", "p pause", "? help", "q quit"));
   }
 
+  static String scanKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    if (ui.commandError().isPresent()) {
+      return commandError(painter, ui.commandError().get(), viewport);
+    }
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
+    return keyBar(
+        painter,
+        viewport,
+        List.of("esc back", "↑↓ scroll", "/ filter", "p pause", "r rescan", "? help", "q quit"));
+  }
+
+  static String permissionKeys(final Painter painter, final UiState ui, final Viewport viewport) {
+    if (ui.commandEditing()) {
+      return commandPrompt(painter, ui, viewport);
+    }
+    if (ui.filterEditing()) {
+      return filterPrompt(painter, ui, viewport);
+    }
+    return keyBar(
+        painter,
+        viewport,
+        List.of("esc back", "↑↓ scroll", "/ filter", "r re-ask", "? help", "q quit"));
+  }
+
   static String traceKeys(final Painter painter, final UiState ui, final Viewport viewport) {
     if (ui.commandEditing()) {
       return commandPrompt(painter, ui, viewport);
@@ -316,11 +345,12 @@ final class StatusBar {
         // Eighty columns is the budget, and what it buys is every key that reaches a screen an
         // operator could not otherwise find. Everything else is one "?" away: the arrow keys,
         // which nobody needs told move a cursor; "o", whose orderings the instance table's own
-        // label already names beside the digits that pick one; and "p"/"r", which act on the
-        // screen already in front of you rather than leading anywhere.
+        // label already names beside the digits that pick one; "p"/"r", which act on the screen
+        // already in front of you rather than leading anywhere; and "d" and "R", each of which
+        // reaches a screen ":" already reaches by name.
         List.of(
             "⏎ open",
-            "d yaml",
+            "S scan",
             "s svc",
             "x tree",
             "P pulse",

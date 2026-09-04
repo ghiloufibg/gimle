@@ -9,6 +9,8 @@ import com.gimle.hugin.model.InstanceRow;
 import com.gimle.hugin.model.InstanceWatcher;
 import com.gimle.hugin.model.LogCategory;
 import com.gimle.hugin.model.NodeRow;
+import com.gimle.hugin.model.PermissionReader;
+import com.gimle.hugin.model.PermissionSnapshot;
 import com.gimle.hugin.model.PulseReader;
 import com.gimle.hugin.model.PulseSnapshot;
 import com.gimle.hugin.model.ResourceCatalog;
@@ -30,8 +32,10 @@ import com.gimle.hugin.render.InstanceScreen;
 import com.gimle.hugin.render.KindsScreen;
 import com.gimle.hugin.render.NodeScreen;
 import com.gimle.hugin.render.Painter;
+import com.gimle.hugin.render.PermissionScreen;
 import com.gimle.hugin.render.PulseScreen;
 import com.gimle.hugin.render.ResourceScreen;
+import com.gimle.hugin.render.ScanScreen;
 import com.gimle.hugin.render.ServiceScreen;
 import com.gimle.hugin.render.TraceScreen;
 import com.gimle.hugin.render.Viewport;
@@ -80,6 +84,9 @@ public final class Hugin {
   private final DescribeScreen describeScreen;
   private final KindsScreen kindsScreen;
   private final XrayScreen xrayScreen;
+  private final ScanScreen scanScreen;
+  private final PermissionScreen permissionScreen;
+  private SnapshotPoller<PermissionSnapshot> permissionPoller;
   private final PulseScreen pulseScreen;
   private final TraceScreen traceScreen;
   private SnapshotPoller<TraceSnapshot> tracePoller;
@@ -106,6 +113,8 @@ public final class Hugin {
     this.describeScreen = new DescribeScreen(painter);
     this.kindsScreen = new KindsScreen(painter);
     this.xrayScreen = new XrayScreen(painter);
+    this.scanScreen = new ScanScreen(painter);
+    this.permissionScreen = new PermissionScreen(painter);
     this.pulseScreen = new PulseScreen(painter);
     this.traceScreen = new TraceScreen(painter);
     this.helpOverlay = new HelpOverlay(painter);
@@ -128,6 +137,7 @@ public final class Hugin {
       closeActivityPoller();
       closeResourcePoller();
       closePulsePoller();
+      closePermissionPoller();
       closeTracePoller();
       closeClusterPoller();
     }
@@ -169,6 +179,7 @@ public final class Hugin {
     closeActivityPoller();
     closeResourcePoller();
     closePulsePoller();
+    closePermissionPoller();
     ui.leaveEveryView();
     catalog = null;
     reader = reader.forContext(target);
@@ -185,6 +196,13 @@ public final class Hugin {
     // looked at, not of any one view, and threading it through each render call would let one
     // screen quietly forget it.
     ClusterSnapshot snapshot = full.scopedTo(ui.tenantScope());
+    if (ui.viewingScan()) {
+      return scanScreen.render(snapshot, scannedServices(), ui, viewport, paused, now);
+    }
+    if (ui.viewingPermissions() && permissionPoller != null) {
+      return permissionScreen.render(
+          permissionPoller.current(), ui, viewport, permissionPoller.paused(), now);
+    }
     if (ui.viewingPulse() && pulsePoller != null) {
       return pulseScreen.render(
           pulsePoller.current(), snapshot, ui, viewport, pulsePoller.paused(), now);
@@ -265,6 +283,14 @@ public final class Hugin {
       // Any key closes the help: an operator who opened it by accident should not have to work out
       // which key gets them back.
       ui.hideHelp();
+      return;
+    }
+    if (ui.viewingScan()) {
+      handleScanKey(key);
+      return;
+    }
+    if (ui.viewingPermissions()) {
+      handlePermissionKey(key);
       return;
     }
     if (ui.viewingPulse()) {
@@ -354,6 +380,10 @@ public final class Hugin {
       openXray();
     } else if (key.isChar('P')) {
       openPulse();
+    } else if (key.isChar('S')) {
+      openScan();
+    } else if (key.isChar('R')) {
+      openPermissions();
     } else if (key.isChar(':')) {
       ui.beginCommand();
     } else if (key.isChar('d') && !onNodes) {
@@ -460,6 +490,14 @@ public final class Hugin {
       scopeToTenant(command.substring("tenant".length()).trim());
       return;
     }
+    if (command.equals("scan")) {
+      openScan();
+      return;
+    }
+    if (command.equals("can")) {
+      openPermissions();
+      return;
+    }
     openResources(command);
   }
 
@@ -487,6 +525,141 @@ public final class Hugin {
     }
   }
 
+  private void handleScanKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      closeScan();
+    } else if (key.is(Key.Kind.UP) || key.isChar('k')) {
+      ui.scrollScan(-1);
+    } else if (key.is(Key.Kind.DOWN) || key.isChar('j')) {
+      ui.scrollScan(1);
+    } else if (key.isChar('g')) {
+      ui.scrollScanToTop();
+    } else if (key.isChar('G')) {
+      ui.scrollScanToBottom();
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
+    } else if (key.isChar('p') && servicePoller != null) {
+      servicePoller.togglePaused();
+    } else if (key.isChar('r') && servicePoller != null) {
+      servicePoller.refreshNow();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  private void handlePermissionKey(final Key key) {
+    if (key.is(Key.Kind.ESCAPE)) {
+      closePermissions();
+    } else if (key.is(Key.Kind.UP) || key.isChar('k')) {
+      ui.scrollPermissions(-1);
+    } else if (key.is(Key.Kind.DOWN) || key.isChar('j')) {
+      ui.scrollPermissions(1);
+    } else if (key.isChar('g')) {
+      ui.scrollPermissionsToTop();
+    } else if (key.isChar('G')) {
+      ui.scrollPermissionsToBottom();
+    } else if (key.isChar('/')) {
+      ui.beginFilter();
+    } else if (key.isChar(':')) {
+      ui.beginCommand();
+    } else if (key.isChar('r') && permissionPoller != null) {
+      permissionPoller.refreshNow();
+    } else if (key.isChar('?')) {
+      ui.toggleHelp();
+    } else if (key.isChar('q')) {
+      running = false;
+    }
+  }
+
+  /**
+   * The findings list. Every check is arithmetic over readings the view already takes, so the one
+   * thing opening this costs is the Services poll the services screen also costs -- and the scan
+   * says so itself when that read has not landed, rather than reporting a clean cluster it only
+   * half looked at.
+   */
+  private void openScan() {
+    leaveOpenScreen();
+    ui.showScan();
+    startServicePoller();
+  }
+
+  private void closeScan() {
+    ui.closeScan();
+    closeServicePoller();
+  }
+
+  /** Whatever the Services read currently holds, or nothing read at all, narrowed to the scope. */
+  private ServiceSnapshot scannedServices() {
+    return servicePoller == null
+        ? ServiceSnapshot.connecting(reader.serverAddress())
+        : servicePoller.current().scopedTo(ui.tenantScope());
+  }
+
+  /**
+   * The permissions grid, asked once and then only when asked again: it is one request per cell of
+   * a grid the size of the cluster's whole resource vocabulary, and the answer does not change
+   * between two keystrokes -- a grant arrives by someone editing a Role, which is not a thing that
+   * happens while you are reading the screen about it.
+   */
+  private void openPermissions() {
+    leaveOpenScreen();
+    ui.showPermissions();
+    closePermissionPoller();
+    permissionPoller =
+        SnapshotPoller.onDemand(
+            new PermissionReader(reader, ui.tenantScope())::read,
+            PermissionSnapshot.connecting(reader.serverAddress()),
+            "hugin-permissions");
+    permissionPoller.start();
+  }
+
+  private void closePermissions() {
+    ui.closePermissions();
+    closePermissionPoller();
+  }
+
+  /**
+   * Leaves whichever full-screen view is open before another is opened over it. Each of these
+   * screens is the whole terminal, so two open at once is not a layering question but a bug: one of
+   * them is drawn and the other is a poll nobody is reading. Reached from every opener rather than
+   * left to each to remember, since the one that forgets is the one that leaks.
+   */
+  private void leaveOpenScreen() {
+    if (ui.viewingScan()) {
+      closeScan();
+    }
+    if (ui.viewingPermissions()) {
+      closePermissions();
+    }
+    if (ui.viewingXray()) {
+      closeXray();
+    }
+    if (ui.viewingPulse()) {
+      closePulse();
+    }
+    if (ui.viewingServices()) {
+      closeServices();
+    }
+    if (ui.viewingActivity()) {
+      closeActivity();
+    }
+    if (ui.viewingResources()) {
+      closeResources();
+    }
+    ui.closeKinds();
+  }
+
+  private void closePermissionPoller() {
+    if (permissionPoller != null) {
+      permissionPoller.close();
+      permissionPoller = null;
+    }
+  }
+
   private void handlePulseKey(final Key key) {
     if (key.is(Key.Kind.ESCAPE)) {
       closePulse();
@@ -508,6 +681,7 @@ public final class Hugin {
    * services screen costs -- one request per declared Service -- and nothing beyond it.
    */
   private void openXray() {
+    leaveOpenScreen();
     ui.showXray();
     startServicePoller();
   }
@@ -519,6 +693,7 @@ public final class Hugin {
 
   /** Two small reads on the slower interval: neither changes faster than a person can read it. */
   private void openPulse() {
+    leaveOpenScreen();
     ui.showPulse();
     closePulsePoller();
     pulsePoller =
@@ -557,6 +732,11 @@ public final class Hugin {
       ui.clearTenantScope();
     } else {
       ui.scopeToTenant(tenantId);
+    }
+    // The grid was asked under the old scope and the control plane answers a different one per
+    // tenant, so it is re-asked rather than left showing answers to a question no longer being put.
+    if (ui.viewingPermissions()) {
+      openPermissions();
     }
   }
 
@@ -669,6 +849,7 @@ public final class Hugin {
               + String.join(", ", catalog.suggestionsFor(typed)));
       return;
     }
+    leaveOpenScreen();
     ui.showResources();
     startResourcePoller(kind.get());
   }
@@ -690,6 +871,7 @@ public final class Hugin {
       ui.failCommand("nothing browsable describes a " + row.kind().label());
       return;
     }
+    leaveOpenScreen();
     ui.showResources();
     ui.describe(row.key().deploymentName());
     startResourcePoller(kind.get());
@@ -837,6 +1019,7 @@ public final class Hugin {
    * caller even has -- the alert feed additionally costing one request per declared rule.
    */
   private void openActivity() {
+    leaveOpenScreen();
     ui.showActivity();
     startActivityPoller();
   }
@@ -902,6 +1085,7 @@ public final class Hugin {
    * a price to keep paying on a two-second interval while nobody is looking at the answer.
    */
   private void openServices() {
+    leaveOpenScreen();
     ui.showServices();
     startServicePoller();
   }

@@ -21,11 +21,11 @@ import java.util.Locale;
 public final class KindsScreen {
 
   /**
-   * Rows the layout spends on everything that isn't a kind: the title, a blank, the label, the
-   * header -- and one held back for the note saying how many kinds did not fit, which is worth a
-   * row precisely when there is no room for it.
+   * Rows the layout spends on everything that isn't a kind: the title, a blank, the label, the line
+   * naming what else the prompt takes, the header -- and one held back for the note saying how many
+   * kinds did not fit, which is worth a row precisely when there is no room for it.
    */
-  private static final int CHROME_ROWS = 6;
+  private static final int CHROME_ROWS = 7;
 
   private static final int KEY_CELLS = 22;
   private static final int ROUTE_CELLS = 26;
@@ -48,6 +48,19 @@ public final class KindsScreen {
             .add("  type one after ", Style.fg(Palette.MUTED_FOREGROUND))
             .add(":", Style.fg(Palette.PRIMARY))
             .add(" to open it", Style.fg(Palette.MUTED_FOREGROUND))
+            .build());
+    // The prompt takes more than kinds, and a list that showed only kinds would be read as the
+    // whole of what ":" accepts.
+    lines.add(
+        new Line(painter)
+            .add("  it also takes ", Style.fg(Palette.MUTED_FOREGROUND))
+            .add("scan", Style.fg(Palette.PRIMARY))
+            .add(", ", Style.fg(Palette.MUTED_FOREGROUND))
+            .add("can", Style.fg(Palette.PRIMARY))
+            .add(", ", Style.fg(Palette.MUTED_FOREGROUND))
+            .add("ctx <name>", Style.fg(Palette.PRIMARY))
+            .add(" and ", Style.fg(Palette.MUTED_FOREGROUND))
+            .add("tenant <id>", Style.fg(Palette.PRIMARY))
             .build());
     lines.add(header());
 

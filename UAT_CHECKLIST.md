@@ -6,9 +6,9 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 810
+- **Total requirements**: 812
 - **Covered by automated (Holmgang Cucumber) test**: 130
-- **Not covered by automated test**: 680
+- **Not covered by automated test**: 682
 - **Release-readiness (automated coverage)**: 16.0%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
@@ -42,7 +42,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-ragnarok | 8 | 1 | 7 | 12.5% |
 | gimle-dist | 7 | 0 | 7 | 0.0% |
 | gimle-skald | 6 | 0 | 6 | 0.0% |
-| gimle-hugin | 18 | 3 | 15 | 16.7% |
+| gimle-hugin | 20 | 3 | 17 | 15.0% |
 
 ## Checklist
 
@@ -2354,6 +2354,8 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | [ ] | GIMLE-808 | The terminal view reads the control plane's own health alongside what it is running | Given a control plane that has lost its store When an operator presses `P` in the terminal view Then the control plane is reported as unhealthy rather than the cluster reading as serene | No |
 | [ ] | GIMLE-809 | The terminal view reads a worker's shipped traces for the instance it is inspecting | Given an instance whose worker ships traces When an operator presses `T` in its drill-down Then that worker's recent spans are shown grouped into their traces | No |
 | [ ] | GIMLE-810 | The terminal view narrows every screen to one tenant | Given a cluster running two tenants' workloads When an operator types `:tenant acme` Then every screen shows only that tenant's rows, and the bar names the tenant | No |
+| [ ] | GIMLE-811 | The terminal view scans the cluster for what is wrong | Given a cluster with an unplaced replica, an unready instance and a cordoned node When an operator presses `S` Then the three findings are listed worst first, each saying what is wrong on its own line | No |
+| [ ] | GIMLE-812 | The terminal view shows what the calling certificate may do | Given an operator connected with a certificate holding a subset of the cluster's permissions When they press `R` Then each resource kind is listed against each verb with the control plane's own yes or no | No |
 
 #### Distribution
 
