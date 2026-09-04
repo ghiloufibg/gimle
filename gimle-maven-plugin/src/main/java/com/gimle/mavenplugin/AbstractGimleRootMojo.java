@@ -1,5 +1,6 @@
 package com.gimle.mavenplugin;
 
+import java.nio.file.Path;
 import org.apache.maven.execution.MavenSession;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -45,4 +46,17 @@ public abstract class AbstractGimleRootMojo extends AbstractMojo {
 
   /** Runs exactly once per reactor invocation, in the orchestration project chosen above. */
   protected abstract void executeAtRoot() throws MojoExecutionException, MojoFailureException;
+
+  /**
+   * The directory Maven was actually invoked from -- not {@link MavenProject#getBasedir()} of
+   * whichever project ended up being the orchestration project above. Those two coincide when the
+   * reactor includes the execution-root project itself, but for a {@code -pl <submodules>}
+   * invocation that excludes it, the orchestration project is some other module entirely (the
+   * reactor's first project), whose own basedir is the wrong directory for anything meaning "the
+   * whole checkout": a recursive sweep across every module, or the working directory a spawned
+   * child {@code mvn -pl <module>} needs to resolve its own {@code -pl} argument against.
+   */
+  protected final Path reactorRoot() {
+    return Path.of(session.getExecutionRootDirectory());
+  }
 }
