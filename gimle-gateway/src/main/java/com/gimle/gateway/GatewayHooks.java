@@ -1,9 +1,11 @@
 package com.gimle.gateway;
 
+import com.gimle.core.exception.GimleTlsException;
 import com.gimle.core.io.SizeLimitedInputStream;
 import com.gimle.core.tenant.Tenant;
 import com.gimle.core.tls.HostCertificate;
 import com.gimle.core.tls.SslContexts;
+import com.gimle.core.tls.SslContexts.ReloadableSniContext;
 import com.gimle.core.tls.TlsSettings;
 import com.gimle.core.tls.TransportProtocol;
 import com.gimle.module.lifecycle.ModuleContext;
@@ -34,7 +36,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,9 +68,12 @@ import org.slf4j.LoggerFactory;
  *       #reloadRoutesIfChanged} for why a route table baked in once at startup was a real gap for a
  *       {@code DaemonSet}-deployed, independently-restarting fleet of gateway instances.
  *   <li>{@code gateway.tlsCertificates} -- optional; per-hostname certificate bindings in {@link
- *       GatewayTlsConfig}'s own format, used only when TLS is on. Read once, at {@code onStart},
- *       for the same reason {@code gateway.port} is: swapping what an already-established listener
- *       presents is a rebind, not a table swap.
+ *       GatewayTlsConfig}'s own format, used only when TLS is on. Re-read on the same background
+ *       interval {@code gateway.routes} is (see {@link #reloadRoutesIfChanged}): unlike {@code
+ *       gateway.port}, swapping which certificate SNI selection resolves a hostname to is not a
+ *       rebind -- selection already happens fresh on every new handshake (see {@code SniKeyManager}
+ *       in {@code gimle-core}) -- so a config change reaches an already-running instance the same
+ *       way a route-table change does.
  * </ul>
  *
  * <p>Whether TLS is on at all is not a {@code ctx.config(...)} key: it is the same cluster-wide
@@ -114,6 +118,14 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
   private String appliedRoutesConfig;
   private Set<String> registeredPaths = Set.of();
 
+  // Same synchronized-access discipline as appliedRoutesConfig/registeredPaths above. tlsContext is
+  // null for a plaintext listener (nothing to reload) and otherwise fixed once onStart sets it --
+  // only its own live-mutable certificate bindings change on a reload tick, never this reference
+  // itself, so no rebind of the underlying HttpsServer is ever needed for a certificate update to
+  // take effect.
+  private ReloadableSniContext tlsContext;
+  private String appliedTlsCertificatesConfig = "";
+
   public GatewayHooks() {
     this(DEFAULT_ROUTE_RELOAD_INTERVAL);
   }
@@ -140,8 +152,8 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
     int port = requiredIntConfig(ctx, "gateway.port");
     String routesConfig = requiredConfig(ctx, "gateway.routes");
     List<GatewayRoute> routes = GatewayRouteConfig.parse(routesConfig);
-    List<HostCertificate> hostCertificates =
-        ctx.config("gateway.tlsCertificates").map(GatewayTlsConfig::parse).orElse(List.of());
+    String tlsCertificatesConfig = ctx.config("gateway.tlsCertificates").orElse("");
+    List<HostCertificate> hostCertificates = GatewayTlsConfig.parse(tlsCertificatesConfig);
     dispatcher = new GatewayDispatcher(ctx, routes);
     // Deliberately not the applied fingerprint: onStart binds from config alone so the gateway is
     // serving before it has ever talked to a control plane, and leaving this unset makes the first
@@ -149,9 +161,12 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
     // nothing changed and never picking the Ingresses up.
     appliedRoutesConfig = null;
     registeredPaths = distinctPaths(routes);
+    appliedTlsCertificatesConfig = tlsCertificatesConfig;
 
     try {
-      server = createHttpServer(port, hostCertificates);
+      BoundServer bound = createHttpServer(port, hostCertificates);
+      server = bound.server();
+      tlsContext = bound.tlsContext();
       // One context per distinct path, not one per route: a host-constrained route and a
       // host-unconstrained (or differently-host-constrained) sibling can now share the same path,
       // and HttpServer#createContext rejects a second context registered at a path already bound.
@@ -261,7 +276,44 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
     }
   }
 
+  /**
+   * Re-reads {@code gateway.tlsCertificates} and, if it differs from what this instance last
+   * applied, replaces the live per-hostname certificate bindings a TLS listener's SNI selection
+   * picks from -- called from the same reload tick {@link #reloadRoutesIfChanged} runs on, so both
+   * config keys reach an already-running instance on the same schedule. A no-op on a plaintext
+   * listener ({@link #tlsContext} is null -- there is no certificate selection to update) and
+   * silently a no-op the very first time it would apply nothing new, since {@link #onStart} already
+   * applied whatever {@code gateway.tlsCertificates} held at boot. A malformed update, or one
+   * naming unreadable certificate material, is rejected the same way a malformed route table is --
+   * logged and skipped, keeping whichever bindings are already selecting traffic.
+   */
+  private void reloadTlsCertificatesIfChanged(ModuleContext ctx) {
+    if (tlsContext == null) {
+      return;
+    }
+    String tlsCertificatesConfig = ctx.config("gateway.tlsCertificates").orElse("");
+    if (tlsCertificatesConfig.equals(appliedTlsCertificatesConfig)) {
+      return;
+    }
+    List<HostCertificate> hostCertificates;
+    try {
+      hostCertificates = GatewayTlsConfig.parse(tlsCertificatesConfig);
+      tlsContext.reloadHostCertificates(hostCertificates);
+    } catch (GatewayConfigException | GimleTlsException e) {
+      log.warn(
+          "gimle-gateway rejected a gateway.tlsCertificates update, keeping the previous per-host"
+              + " certificate bindings: {}",
+          e.getMessage());
+      return;
+    }
+    appliedTlsCertificatesConfig = tlsCertificatesConfig;
+    log.info(
+        "gimle-gateway reloaded its per-host TLS certificate bindings ({} binding(s))",
+        hostCertificates.size());
+  }
+
   private synchronized void reloadRoutesIfChanged(ModuleContext ctx) {
+    reloadTlsCertificatesIfChanged(ctx);
     String routesConfig = ctx.config("gateway.routes").orElse("");
     List<GatewayRoute> declaredRoutes = fetchIngressRoutes(ctx);
     // Both sources are compared together: an Ingress edit with an unchanged config string still has
@@ -334,9 +386,12 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
    * dialed, so with one certificate every routed hostname outside that certificate's SAN fails TLS
    * before its route is ever consulted. No {@code SNIMatcher} is installed alongside it -- a
    * matcher refuses an unrecognized name outright, which would take the host-unconstrained fallback
-   * routes down with it; an unmatched name gets the default certificate instead.
+   * routes down with it; an unmatched name gets the default certificate instead. The returned
+   * {@link BoundServer#tlsContext} is what {@link #reloadTlsCertificatesIfChanged} later mutates in
+   * place on a config change -- {@code null} for a plaintext listener, which has no certificate
+   * selection to reload.
    */
-  private static HttpServer createHttpServer(int port, List<HostCertificate> hostCertificates)
+  private static BoundServer createHttpServer(int port, List<HostCertificate> hostCertificates)
       throws IOException {
     if (TransportProtocol.fromConfig() == TransportProtocol.PLAINTEXT) {
       if (!hostCertificates.isEmpty()) {
@@ -345,12 +400,13 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
                 + " certificate(s) are unused -- set gimle.transport.protocol=tls to terminate TLS",
             hostCertificates.size());
       }
-      return HttpServer.create(new InetSocketAddress(port), 0);
+      return new BoundServer(HttpServer.create(new InetSocketAddress(port), 0), null);
     }
-    SSLContext sslContext = SslContexts.forMutualTls(TlsSettings.fromConfig(), hostCertificates);
+    ReloadableSniContext tlsContext =
+        SslContexts.forMutualTls(TlsSettings.fromConfig(), hostCertificates);
     HttpsServer httpsServer = HttpsServer.create(new InetSocketAddress(port), 0);
     httpsServer.setHttpsConfigurator(
-        new HttpsConfigurator(sslContext) {
+        new HttpsConfigurator(tlsContext.sslContext()) {
           @Override
           public void configure(HttpsParameters params) {
             // Order matters: setSSLParameters(...) copies its argument's own wantClientAuth value
@@ -363,8 +419,15 @@ public final class GatewayHooks implements ModuleLifecycleHooks {
             params.setSSLParameters(sslParameters);
           }
         });
-    return httpsServer;
+    return new BoundServer(httpsServer, tlsContext);
   }
+
+  /**
+   * What {@link #createHttpServer} binds: the listener itself, plus the reloadable TLS context it
+   * was built on ({@code null} for a plaintext listener) -- kept together since {@link #onStart}
+   * needs both, one to register request contexts on and the other to hand later reload ticks.
+   */
+  private record BoundServer(HttpServer server, ReloadableSniContext tlsContext) {}
 
   /**
    * The actual bound port -- distinct from the configured {@code gateway.port} when a test binds to

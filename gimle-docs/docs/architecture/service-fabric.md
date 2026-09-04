@@ -498,6 +498,10 @@ single-certificate listener that already existed. Selection never *rejects* a co
 `SNIMatcher` is installed): an unrecognized hostname is still served by a host-unconstrained route,
 and failing its handshake closed would take that fallback routing down with it. Bindings carry no
 CA of their own; trust stays cluster-wide, and only the presented identity varies per virtual host.
+`gateway.tlsCertificates` is re-read on the same background interval `gateway.routes` is: SNI
+selection already picks a certificate fresh on every new handshake, so swapping which certificate a
+hostname resolves to needs no listener rebind, and a config change reaches an already-running
+instance the same way a route-table change does.
 
 See `gimle-gateway/deployment.yaml` for a complete worked example, including the two `/config/
 gimle-system/*` API calls a real deployment needs alongside the manifest itself.

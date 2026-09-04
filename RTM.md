@@ -811,6 +811,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 | GIMLE-794 | The agent's own tick loop exits the process on a fatal Error instead of surviving as a silent zombie | New | Not Covered | — |
 | GIMLE-795 | Tenant-scoped instance supervision keying (instanceKey) | New | Not Covered | — |
 | GIMLE-796 | Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging | New | Not Covered | — |
+| GIMLE-797 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | New | Not Covered | — |
 
 ## Detailed Requirements
 
@@ -5900,6 +5901,15 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 - **Other test coverage (non-Holmgang, informational only)**: Existing gimle-gateway suite (99 tests) green with spotbugs:check clean; verified against clean master that the two findings pre-existed this change set.
 - **Source location(s)**: `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`
 
+#### GIMLE-797 — Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart
+
+- **Category**: Transport Security
+- **Status**: New
+- **Coverage**: Not Covered
+- **Gap note**: No Holmgang scenario exercises a live gateway.tlsCertificates update. To close: add a scenario that boots a TLS-terminating gateway DaemonSet with a per-host certificate binding, updates gateway.tlsCertificates through the real API, and asserts (without restarting any instance) that a client's SNI-selected certificate changes to the new binding on its very next handshake.
+- **Other test coverage (non-Holmgang, informational only)**: `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`.
+- **Source location(s)**: `gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java`, `gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java`, `gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`
+
 ### gimle-cli
 
 #### GIMLE-371 — Deployment resource management (get/apply/delete)
@@ -8360,7 +8370,7 @@ A requirement is **Covered** only if a Cucumber `.feature` file + step definitio
 
 Every requirement below has **no** Holmgang Cucumber scenario exercising it, per the strict rule. Sorted by Category. This is the checklist: closing a row means either adding/extending a Holmgang scenario (see each row's Gap note for the shape) or making a deliberate, recorded decision that a given capability does not warrant real-cluster Cucumber coverage (e.g. pure build tooling, console frontend behavior, or low-level wire-codec internals — flagged as such in the Gap note itself).
 
-**669 of 796 requirements are Not Covered.**
+**670 of 797 requirements are Not Covered.**
 
 | ID | Module | Feature | Category | Other test coverage (non-Holmgang) |
 |---|---|---|---|---|
@@ -8943,6 +8953,7 @@ Every requirement below has **no** Holmgang Cucumber scenario exercising it, per
 | GIMLE-722 | gimle-gateway | Gateway TLS selects a per-virtual-host certificate from the client's SNI extension | Transport Security | GatewayTlsConfigTest and GatewayHooksTlsTest (11 new): per-host certificate presented for each SNI name, no-SNI falls back to the cluster-wide certificate, an unbound hostname falls back rather than failing the handshake, wildcards/duplicate hostnames/wrong field counts/missing files rejected at parse time. |
 | GIMLE-742 | gimle-pki | The one-time bootstrap password never reaches a build log or any other persistent sink | Transport Security | PkiBootstrapMainTest (9): file-mode delivery, the password absent from the captured stream, the written password verifying against bootstrap-account.yaml's hash, owner-only file mode, refusal generating nothing at all, and interactive mode printing without writing a file. PkiInitTest (18) covers the hilmir path. |
 | GIMLE-743 | gimle-controlplane | The unauthenticated CSR bootstrap endpoint is rate limited | Transport Security | RequestRateLimiterTest (8): burst, refusal with a retry instant, no lockout extension, refill, capacity cap, 200 distinct keys admitted while one is exhausted, exact admission count under 64 concurrent virtual threads, argument validation. BootstrapCsrRateLimitTest (4), including the explicit legitimate-fleet case: 50 simultaneous submissions from one address at shipped defaults, all accepted. |
+| GIMLE-797 | gimle-gateway | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Transport Security | `GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`. |
 | GIMLE-703 | gimle-mimir | RaftCodec/StoreCodec reject a wire-protocol version mismatch instead of silently misdecoding | Upgrade path | RaftCodecTest#rejects_an_unrecognized_rpc_version_before_decoding_the_tag and #rejects_an_unrecognized_snapshot_version; StoreCodecTest#rejects_an_unrecognized_version_before_decoding_the_tag -- each forges a frame carrying an out-of-range version byte and asserts GimleCodecException naming both the declared and max-supported version, decoded before any tag/field is touched. Full gimle-mimir module suite (500+ pre-existing cases across both codecs) re-verified against the new framing. |
 | GIMLE-435 | gimle-console | Operator session login / logout | Web Console / Auth | `src/stores/useAuthStore.test.ts` — "a successful login sets status authenticated and clears any previous error", "login failure surfaces a generic error and leaves status unauthenticated" |
 | GIMLE-436 | gimle-console | Session bootstrap & 401 handling | Web Console / Auth | `useAuthStore.test.ts` — "init() only calls session() once even if invoked twice", "handleUnauthorized clears principal and sets status unauthenticated" |

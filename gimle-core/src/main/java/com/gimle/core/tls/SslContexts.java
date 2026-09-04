@@ -38,7 +38,10 @@ import javax.net.ssl.TrustManagerFactory;
  *
  * <p>{@link #forMutualTls(TlsSettings, java.util.List)} additionally serves a listener fronting
  * several virtual hosts on one port, choosing among per-hostname certificates from the client's SNI
- * extension instead of committing to one certificate at startup.
+ * extension instead of committing to one certificate at startup -- and returns a {@link
+ * ReloadableSniContext} so a caller whose per-host bindings are config-driven (see {@code
+ * gimle-gateway}'s {@code GatewayHooks}) can swap them in place later without rebuilding the {@code
+ * SSLContext} or rebinding the listener.
  */
 public final class SslContexts {
 
@@ -60,28 +63,27 @@ public final class SslContexts {
   /**
    * {@link #forMutualTls(TlsSettings)} for a listener terminating TLS for several virtual hosts on
    * one port: {@code settings} still supplies the trust anchor and the certificate presented by
-   * default, and each {@link HostCertificate} additionally binds one hostname to its own
-   * certificate, selected per connection from the client's SNI extension (see {@link
-   * SniKeyManager}). An empty list is exactly the single-certificate case and is answered by {@link
-   * #forMutualTls(TlsSettings)} itself, so a caller never needs to branch on it.
+   * default -- both fixed for the returned context's whole lifetime -- and each {@link
+   * HostCertificate} additionally binds one hostname to its own certificate, selected per
+   * connection from the client's SNI extension (see {@link SniKeyManager}). Always built on a
+   * {@link SniKeyManager} -- even when {@code perHost} starts empty -- rather than delegating to
+   * {@link #forMutualTls(TlsSettings)}'s plain {@code KeyManagerFactory} path for that case: an
+   * empty starting set still needs to be able to gain bindings later via {@link
+   * ReloadableSniContext#reloadHostCertificates}, and a {@link SniKeyManager} with no host bindings
+   * at all already behaves identically to the single-certificate path (every handshake resolves the
+   * one default alias).
    *
    * <p>Every host certificate must chain to the same cluster CA {@code settings} names -- there is
    * one trust anchor per cluster, and what varies per virtual host is only the identity presented.
    */
-  public static SSLContext forMutualTls(TlsSettings settings, List<HostCertificate> perHost) {
-    if (perHost.isEmpty()) {
-      return forMutualTls(settings);
-    }
+  public static ReloadableSniContext forMutualTls(
+      TlsSettings settings, List<HostCertificate> perHost) {
     try {
       X509Certificate caCertificate = loadCertificate(settings.caFile());
       SniKeyManager.KeyEntry defaultEntry =
           loadKeyEntry(settings.certFile(), settings.keyFile(), caCertificate);
-      Map<String, SniKeyManager.KeyEntry> byHostname = new LinkedHashMap<>();
-      for (HostCertificate hostCertificate : perHost) {
-        byHostname.put(
-            hostCertificate.hostname(),
-            loadKeyEntry(hostCertificate.certFile(), hostCertificate.keyFile(), caCertificate));
-      }
+      SniKeyManager keyManager =
+          new SniKeyManager(defaultEntry, loadHostCertificates(perHost, caCertificate));
 
       KeyStore trustStore = KeyStore.getInstance(KEY_STORE_TYPE);
       trustStore.load(null, null);
@@ -91,11 +93,8 @@ public final class SslContexts {
       trustManagerFactory.init(trustStore);
 
       SSLContext context = SSLContext.getInstance(TLS_PROTOCOL);
-      context.init(
-          new KeyManager[] {new SniKeyManager(defaultEntry, byHostname)},
-          trustManagerFactory.getTrustManagers(),
-          null);
-      return context;
+      context.init(new KeyManager[] {keyManager}, trustManagerFactory.getTrustManagers(), null);
+      return new ReloadableSniContext(context, keyManager, caCertificate);
     } catch (GeneralSecurityException | IOException e) {
       throw GimleTlsException.invalidMaterial(
           settings.certFile(), settings.keyFile(), settings.caFile(), e);
@@ -106,6 +105,65 @@ public final class SslContexts {
       Path certFile, Path keyFile, X509Certificate caCertificate) throws IOException {
     return new SniKeyManager.KeyEntry(
         loadPrivateKey(keyFile), new X509Certificate[] {loadCertificate(certFile), caCertificate});
+  }
+
+  /**
+   * Loads every {@link HostCertificate}'s key material eagerly (not lazily on first handshake), the
+   * same "fail before serving traffic" posture {@link #build} already applies to the single-cert
+   * path -- a malformed binding is rejected at parse/reload time with the specific file(s) at fault
+   * named in the failure, not discovered mid-handshake against a real caller.
+   */
+  private static Map<String, SniKeyManager.KeyEntry> loadHostCertificates(
+      List<HostCertificate> perHost, X509Certificate caCertificate) {
+    Map<String, SniKeyManager.KeyEntry> byHostname = new LinkedHashMap<>();
+    for (HostCertificate hostCertificate : perHost) {
+      try {
+        byHostname.put(
+            hostCertificate.hostname(),
+            loadKeyEntry(hostCertificate.certFile(), hostCertificate.keyFile(), caCertificate));
+      } catch (IOException e) {
+        throw GimleTlsException.invalidMaterial(
+            hostCertificate.certFile(), hostCertificate.keyFile(), null, e);
+      }
+    }
+    return byHostname;
+  }
+
+  /**
+   * A TLS server context built by {@link #forMutualTls(TlsSettings, List)} together with the means
+   * to replace its live per-hostname certificate bindings -- what lets a config-driven caller (see
+   * {@code gimle-gateway}'s {@code GatewayHooks}) pick up a changed {@code gateway.tlsCertificates}
+   * value on an already-running listener the same way it already picks up a changed {@code
+   * gateway.routes} table, with no rebind: SNI selection happens fresh on every new handshake (see
+   * {@link SniKeyManager}), so there is nothing about the already-bound socket that needs to
+   * change. The cluster-wide default certificate this context was built with is fixed for its whole
+   * lifetime -- only the per-hostname bindings are reloadable.
+   */
+  public static final class ReloadableSniContext {
+    private final SSLContext sslContext;
+    private final SniKeyManager keyManager;
+    private final X509Certificate caCertificate;
+
+    private ReloadableSniContext(
+        SSLContext sslContext, SniKeyManager keyManager, X509Certificate caCertificate) {
+      this.sslContext = sslContext;
+      this.keyManager = keyManager;
+      this.caCertificate = caCertificate;
+    }
+
+    public SSLContext sslContext() {
+      return sslContext;
+    }
+
+    /**
+     * Replaces the live per-hostname bindings selected by SNI with {@code perHost}, wholesale --
+     * not merged with whatever was bound before, the same "new set replaces the old one entirely"
+     * semantics {@code GatewayHooks}'s own route-table reload already uses. An already-established
+     * connection is unaffected; the next new handshake sees the new set.
+     */
+    public void reloadHostCertificates(List<HostCertificate> perHost) {
+      keyManager.updateHostBindings(loadHostCertificates(perHost, caCertificate));
+    }
   }
 
   /**

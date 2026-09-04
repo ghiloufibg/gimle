@@ -11,7 +11,7 @@
     "coverageRule": "A requirement is **Covered** only if a Cucumber `.feature` file + step definitions in `gimle-holmgang` exist that exercise that exact capability against a real, running cluster — matched on scenario *intent* (the Given/When/Then steps actually driving that behavior), not on naming similarity. Unit tests, integration tests, and JUnit `*IT` classes in `gimle-smoke-tests`, and every other module's own test suite — **including Holmgang's own plain-JUnit `*IT` classes** (`HaTopologyIT`, `MinimalTopologyIT`, the `Utgard*IT` suite, `SurtrIT`) which are real-cluster tests but not Cucumber scenarios — do **not** count toward Coverage here. Where such tests exist they are listed under **Other test coverage (non-Holmgang)**, informationally, and do not change the Coverage column.",
     "holmgangSurfaceNote": "**Holmgang's entire Cucumber surface at current HEAD**: 12 `.feature` files, 21 scenarios total (catalogued in full below). One of those 12 files — `raft-resilience.feature` — exists at the baseline commit but was never catalogued as its own entry in `REQUIREMENTS_MATRIX.md`'s original scan; it is used here as a coverage source for the requirements it actually exercises, without retroactively editing the baseline."
   },
-  "requirementCount": 796,
+  "requirementCount": 797,
   "requirements": [
     {
       "id": "GIMLE-001",
@@ -13817,6 +13817,23 @@
       "otherTestCoverage": "`ApiServerLogsFallbackTest#follow_true_against_an_unreachable_agent_falls_back_to_muninn_instead_of_hanging`, `#follow_true_against_an_unreachable_agent_fails_fast_with_no_muninn_configured`",
       "sourceLocations": [
         "`gimle-controlplane/src/main/java/com/gimle/controlplane/api/ApiServer.java` (`isAgentReachable`, `proxyToAgent`)"
+      ]
+    },
+    {
+      "id": "GIMLE-797",
+      "module": "gimle-gateway",
+      "feature": "Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart",
+      "category": "Transport Security",
+      "status": "New",
+      "statusNote": "",
+      "coverage": "Not Covered",
+      "holmgangScenarios": [],
+      "gapNote": "No Holmgang scenario exercises a live gateway.tlsCertificates update. To close: add a scenario that boots a TLS-terminating gateway DaemonSet with a per-host certificate binding, updates gateway.tlsCertificates through the real API, and asserts (without restarting any instance) that a client's SNI-selected certificate changes to the new binding on its very next handshake.",
+      "otherTestCoverage": "`GatewayHooksTlsTest#a_gateway_tlscertificates_update_is_picked_up_without_a_restart`, `#a_malformed_tlscertificates_update_is_rejected_and_the_previous_bindings_keep_serving`.",
+      "sourceLocations": [
+        "`gimle-core/src/main/java/com/gimle/core/tls/SniKeyManager.java`",
+        "`gimle-core/src/main/java/com/gimle/core/tls/SslContexts.java`",
+        "`gimle-gateway/src/main/java/com/gimle/gateway/GatewayHooks.java`"
       ]
     }
   ]

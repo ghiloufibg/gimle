@@ -1,10 +1,10 @@
 {
   "generatedFrom": "rtm.json",
   "summary": {
-    "totalRequirements": 796,
+    "totalRequirements": 797,
     "coveredByAutomatedTest": 127,
-    "notCoveredByAutomatedTest": 669,
-    "releaseReadinessPercent": 16.0
+    "notCoveredByAutomatedTest": 670,
+    "releaseReadinessPercent": 15.9
   },
   "items": [
     {
@@ -8758,6 +8758,17 @@
       "category": "Observability",
       "feature": "Control-plane follow-log proxy fails fast on an unreachable agent instead of hanging",
       "step": "Given a node registered with an advertised log-server address nothing is actually listening on; When GET /logs/instances/{name}/{idx}?follow=true is requested with Muninn configured; Then the response falls back to Muninn's own shipped history within seconds, not indefinitely. Given the identical setup with no Muninn configured; When the same follow request is made; Then the response is a fast 502 naming the agent as unreachable, never an indefinitely open connection.",
+      "automatedCoverage": false,
+      "signedOff": false,
+      "signedOffBy": null,
+      "signedOffAt": null
+    },
+    {
+      "id": "GIMLE-797",
+      "module": "gimle-gateway",
+      "category": "Transport Security",
+      "feature": "Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart",
+      "step": "Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged. Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged.",
       "automatedCoverage": false,
       "signedOff": false,
       "signedOffBy": null,

@@ -6,10 +6,10 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 
 ## Summary
 
-- **Total requirements**: 796
+- **Total requirements**: 797
 - **Covered by automated (Holmgang Cucumber) test**: 127
-- **Not covered by automated test**: 669
-- **Release-readiness (automated coverage)**: 16.0%
+- **Not covered by automated test**: 670
+- **Release-readiness (automated coverage)**: 15.9%
 
 | Module | Requirements | Covered | Not Covered | Coverage % |
 |---|---|---|---|---|
@@ -26,7 +26,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | gimle-andvari | 24 | 2 | 22 | 8.3% |
 | gimle-muninn | 24 | 0 | 24 | 0.0% |
 | gimle-observability | 19 | 1 | 18 | 5.3% |
-| gimle-gateway | 20 | 0 | 20 | 0.0% |
+| gimle-gateway | 21 | 0 | 21 | 0.0% |
 | gimle-cli | 41 | 0 | 41 | 0.0% |
 | gimle-hilmir | 32 | 0 | 32 | 0.0% |
 | gimle-maven-plugin | 17 | 0 | 17 | 0.0% |
@@ -1784,6 +1784,7 @@ Derived from `rtm.json` (the Holmgang-Cucumber-coverage-validated Requirements T
 | Sign-off | ID | Feature | Test Step | Covered by automated test |
 |---|---|---|---|---|
 | [ ] | GIMLE-722 | Gateway TLS selects a per-virtual-host certificate from the client's SNI extension | Given a gateway terminating TLS for two routed hostnames When a client connects with SNI naming the second hostname Then the gateway presents that hostname's own certificate And a client sending no SNI receives the cluster-wide certificate | No |
+| [ ] | GIMLE-797 | Gateway per-host TLS certificate bindings (gateway.tlsCertificates) reload on a config change without a restart | Given a running TLS-terminating gateway instance with gateway.tlsCertificates bound for one hostname; When gateway.tlsCertificates is updated to add a second hostname's binding; Then a client dialing the new hostname's SNI is served its own certificate on the very next handshake, with no restart, and the pre-existing binding keeps serving unchanged. Given the same running instance; When gateway.tlsCertificates is updated to a malformed value; Then the update is rejected and logged, and the previously-applied bindings keep being presented unchanged. | No |
 
 ### gimle-cli
 
