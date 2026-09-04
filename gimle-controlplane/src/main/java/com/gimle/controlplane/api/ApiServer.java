@@ -161,6 +161,7 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -1153,6 +1154,13 @@ public final class ApiServer implements AutoCloseable {
           // denial is always final.
           Optional<Principal> auditPrincipal =
               requireAuthorizedForWrite(exchange, kind, submittedTenant);
+          if (auditPrincipal.isPresent()
+              && !requireDoubleAuthorizedForRetenanting(
+                  exchange, kind, name, submittedTenant, existingTenant, auditPrincipal.get())) {
+            // The helper has already written the 403 (and its own audit event) by this point --
+            // nothing left to do for this request.
+            return;
+          }
           if (auditPrincipal.isPresent()) {
             if (isDryRun(exchange)) {
               // No audit event: a dry-run proposes nothing, so there is no write for the audit
@@ -1209,6 +1217,8 @@ public final class ApiServer implements AutoCloseable {
       }
     } catch (GimleRaftException e) {
       respondStoreUnavailable(exchange);
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (GimleManifestException | IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -1231,6 +1241,71 @@ public final class ApiServer implements AutoCloseable {
       HttpExchange exchange, TenantLookup existingTenant, String name) {
     Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
     return declared.isPresent() ? declared : existingTenant.lookup(name);
+  }
+
+  /**
+   * GIMLE-249's double-authorization: {@code name} moving to {@code submittedTenant} -- whether
+   * it's a brand-new name, or already lives under {@code submittedTenant} itself -- needs nothing
+   * beyond the ordinary write grant {@link #requireAuthorizedForWrite} already checked. But when
+   * {@code existingTenant} says the name currently lives under one or more <em>different</em>
+   * tenants, this is a re-tenanting write: the two tenants' own stored copies never collide (each
+   * is keyed independently), so nothing here stops the write from *corrupting* anything -- what it
+   * stops is a caller who can write only {@code submittedTenant} conjuring a name that already
+   * means something under a tenant it has no access to at all, silently new to anyone who reads or
+   * deletes that name unqualified expecting the tenant they know about. Requires a real WRITE grant
+   * on every one of those other tenants too, not just the one being written into; a caller lacking
+   * even one is refused with a {@code 403} naming which tenant it still needs, and that denial is
+   * audited against the tenant it was actually denied on, the same way {@link
+   * #requireAuthorizedForWrite}'s own denial path audits its tenant.
+   *
+   * <p>{@code existingTenant.lookup} throwing {@link AmbiguousTenantException} (the name already
+   * collides across more than one tenant before this write even lands) is not an error here -- it's
+   * simply more than one "other" tenant to check, so this unwraps the exception's own tenant list
+   * instead of letting it propagate.
+   *
+   * <p>Plaintext mode has no identity to check at all (matching {@link
+   * #requireAuthorizedForWrite}'s own carve-out) -- {@code exchange} not being an {@link
+   * HttpsExchange} skips this gate entirely rather than ever calling {@link Authorizer#authorize}
+   * with the synthetic {@code anonymous} principal {@code requireAuthorizedForWrite} hands back
+   * there, which holds no grant at all and would otherwise turn "no auth in this mode" into a
+   * spurious, unconditional 403 on every re-tenanting write.
+   */
+  private boolean requireDoubleAuthorizedForRetenanting(
+      HttpExchange exchange,
+      ResourceKind kind,
+      String name,
+      Optional<String> submittedTenant,
+      TenantLookup existingTenant,
+      Principal principal)
+      throws IOException {
+    if (!(exchange instanceof HttpsExchange)) {
+      return true;
+    }
+    List<String> existingTenants;
+    try {
+      existingTenants = existingTenant.lookup(name).map(List::of).orElse(List.of());
+    } catch (AmbiguousTenantException e) {
+      existingTenants = e.tenantIds();
+    }
+    for (String other : existingTenants) {
+      if (submittedTenant.isPresent() && submittedTenant.get().equals(other)) {
+        continue;
+      }
+      if (!authorizer.authorize(
+          principal, kind, Verb.WRITE, Optional.of(other), Optional.empty())) {
+        recordAuditEvent(principal, kind, Verb.WRITE, Optional.of(other), Optional.empty(), false);
+        respondQuietly(
+            exchange,
+            403,
+            "forbidden: '"
+                + name
+                + "' already exists under tenant '"
+                + other
+                + "'; write access to that tenant is required to re-tenant it");
+        return false;
+      }
+    }
+    return true;
   }
 
   private AuditOutcome handlePutDeployment(
@@ -2228,6 +2303,8 @@ public final class ApiServer implements AutoCloseable {
         }
         default -> respond(exchange, 405, "method not allowed");
       }
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -3252,9 +3329,14 @@ public final class ApiServer implements AutoCloseable {
    * follows it) so {@link #dispatchResourceRequest}'s own blank-name check reports it the same way
    * every other resource kind's does; a present, non-blank second segment is handled entirely here,
    * returning {@code Optional.empty()} to tell the caller "already handled, skip the ordinary
-   * dispatch." The sub-route's tenant is the caller-declared {@code ?tenant=} hint, same as {@link
-   * #resolveDeploymentNameOrHandleSubRoute}'s own -- see {@link #dispatchResourceRequest}'s
-   * javadoc.
+   * dispatch." The sub-route's tenant follows the exact same convention {@link
+   * #dispatchResourceRequest}'s own GET/DELETE branches use for every other bare-name lookup: an
+   * explicit {@code ?tenant=} wins outright, and only when the caller declares none does this fall
+   * back to a real cross-tenant search for whichever tenant's CronJob is actually named this --
+   * never a blind default to the untenanted namespace regardless of where the CronJob actually
+   * lives (that silently fired a same-named CronJob under a different tenant than the caller
+   * intended, with the wrong one picked whenever the untenanted namespace also happened to hold
+   * nothing by this name).
    */
   private Optional<String> resolveCronJobNameOrHandleSubRoute(HttpExchange exchange)
       throws IOException {
@@ -3269,7 +3351,9 @@ public final class ApiServer implements AutoCloseable {
       respond(exchange, 404, "unknown cronjob endpoint: " + action);
       return Optional.empty();
     }
-    Optional<String> tenant = workloadTenantHint(exchange);
+    Optional<String> tenant =
+        declaredOrExistingTenant(
+            exchange, n -> findTenantByName(storeClient.listCronJobSpecs(), n), name);
     if (requireAuthorized(exchange, ResourceKind.JOB, Verb.WRITE, tenant)) {
       handleCronJobTrigger(exchange, tenant, name);
     }
@@ -4105,6 +4189,8 @@ public final class ApiServer implements AutoCloseable {
         return;
       }
       respond(exchange, 404, "no such workload: " + name);
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("endpoints request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -4142,28 +4228,78 @@ public final class ApiServer implements AutoCloseable {
   /**
    * The tenant of whichever Service is named {@code name}, for a caller that gave no {@code
    * ?tenant=} hint of its own. {@link ServiceSpec} is not a {@link WorkloadSpec}, so this cannot
-   * reuse {@link #findTenantByName}; the resolution rule is otherwise identical, including how an
-   * untenanted Service and an unknown one collapse to the same empty answer.
+   * reuse {@link #findTenantByName}; the resolution rule is otherwise identical, including the
+   * {@link AmbiguousTenantException} thrown when more than one tenant owns the name -- see that
+   * method's own javadoc.
    */
   private Optional<String> resolveTenantForServiceName(String name) {
-    return serviceRegistry.list().stream()
-        .filter(spec -> spec.name().equals(name))
-        .findFirst()
-        .flatMap(ServiceSpec::tenantId);
+    List<String> tenantIds =
+        serviceRegistry.list().stream()
+            .filter(spec -> spec.name().equals(name))
+            .flatMap(spec -> spec.tenantId().stream())
+            .distinct()
+            .toList();
+    if (tenantIds.size() > 1) {
+      throw new AmbiguousTenantException("service", name, tenantIds);
+    }
+    return tenantIds.stream().findFirst();
   }
 
   /**
    * The tenant of whichever spec in {@code specs} is named {@code name} -- {@link Optional#empty()}
    * if none is, collapsing "no such resource" and "found, but genuinely untenanted" into the one
    * answer every {@link TenantLookup}/{@link #resolveTenantForWorkloadName} caller already treats
-   * identically (a caller must declare a real tenant grant to read/delete either).
+   * identically (a caller must declare a real tenant grant to read/delete either). When {@code
+   * name} exists under more than one tenant -- a real cross-tenant name collision, not a hash-order
+   * artifact of iterating {@code specs} (previously this picked whichever tenant's copy happened to
+   * come first in an unordered backing collection, silently and inconsistently across workload
+   * kinds, with no sign to the caller a second copy even existed) -- this refuses to guess and
+   * throws {@link AmbiguousTenantException} instead, forcing the caller to disambiguate with an
+   * explicit {@code ?tenant=}, exactly as it already must for two tenants sharing nothing else.
    */
   private static Optional<String> findTenantByName(
       List<? extends WorkloadSpec> specs, String name) {
-    return specs.stream()
-        .filter(s -> s.name().equals(name))
-        .findFirst()
-        .flatMap(WorkloadSpec::tenantId);
+    List<String> tenantIds =
+        specs.stream()
+            .filter(s -> s.name().equals(name))
+            .flatMap(s -> s.tenantId().stream())
+            .distinct()
+            .toList();
+    if (tenantIds.size() > 1) {
+      throw new AmbiguousTenantException("workload", name, tenantIds);
+    }
+    return tenantIds.stream().findFirst();
+  }
+
+  /**
+   * Thrown by {@link #findTenantByName}/{@link #resolveTenantForServiceName} when a bare,
+   * untenanted name resolves to more than one tenant's own copy -- a real collision, not a hint to
+   * guess from. Every caller of those two methods sits inside a try block that maps this to a
+   * {@code 400} telling the caller to add {@code ?tenant=}, the same way an explicit tenant is
+   * already required to disambiguate a {@code GET}/{@code DELETE} once a caller knows the collision
+   * exists; this is what makes that disambiguation discoverable in the first place, instead of one
+   * tenant's copy being silently substituted for another's with no sign the substitution ever
+   * happened.
+   */
+  private static final class AmbiguousTenantException extends RuntimeException {
+    private final List<String> tenantIds;
+
+    AmbiguousTenantException(String resourceNoun, String name, List<String> tenantIds) {
+      super(
+          "ambiguous "
+              + resourceNoun
+              + " name '"
+              + name
+              + "' exists in multiple tenants ("
+              + String.join(", ", tenantIds)
+              + "); specify ?tenant= to disambiguate");
+      this.tenantIds = tenantIds;
+    }
+
+    /** Every tenant currently holding a same-named copy -- what triggered the ambiguity. */
+    List<String> tenantIds() {
+      return tenantIds;
+    }
   }
 
   /**
@@ -4674,11 +4810,15 @@ public final class ApiServer implements AutoCloseable {
    * own deployment/instance identity, unrelated to which node happened to relay it. {@code
    * InstanceEvent} carries no {@code tenantId} of its own (it predates per-tenant store scoping and
    * crosses the agent/worker wire, neither of which otherwise needs to know about tenancy), so the
-   * tenant to key this event's timeline under is joined from whichever live {@link
-   * InstanceAssignment} currently matches this (deploymentName, instanceIndex) pair -- the same
-   * join {@link #handleAssignments} already does in the opposite direction. Untenanted (rather than
-   * rejected) if no matching assignment is found, e.g. a final lifecycle event arriving just after
-   * the assignment itself was already torn down.
+   * tenant to key this event's timeline under is joined from whichever live assignment currently
+   * matches this (deploymentName, instanceIndex) pair, tried across all four kinds via {@link
+   * #resolveInstanceEventTenant} -- the same cross-kind join {@link #resolveInstancePlacement}
+   * already uses for {@code /instances/.../fabric-endpoint}. Checking only {@link
+   * InstanceAssignment} (Deployment-kind bookkeeping alone) here left every StatefulSet/DaemonSet
+   * instance's own relayed events permanently misfiled under the untenanted namespace regardless of
+   * their real tenant, indistinguishable from "genuinely untenanted" to any later {@code ?tenant=}
+   * read. Untenanted (rather than rejected) if no matching assignment is found in any of the four,
+   * e.g. a final lifecycle event arriving just after the assignment itself was already torn down.
    */
   private void handleAppendInstanceEvent(HttpExchange exchange) throws IOException {
     if (!"POST".equals(exchange.getRequestMethod())) {
@@ -4698,16 +4838,57 @@ public final class ApiServer implements AutoCloseable {
             (String) body.get("message"),
             causeSummary == null ? Optional.empty() : Optional.of((String) causeSummary),
             ((Number) body.get("occurredAtEpochMilli")).longValue());
-    Optional<String> tenant =
+    Optional<String> tenant = resolveInstanceEventTenant(deploymentName, instanceIndex);
+    storeClient.propose(new StateMutation.AppendInstanceEvent(tenant, event));
+    respond(exchange, 200, "ok");
+  }
+
+  /**
+   * The tenant owning {@code (deploymentName, instanceIndex)}, tried across all four assignment
+   * kinds in turn -- Deployment ({@link InstanceAssignment}), StatefulSet, DaemonSet (index always
+   * {@code 0}, keyed by node instead), then Job (matched by attempt number) -- exactly the same
+   * kind-priority order {@link #resolveInstancePlacement} already uses, except unscoped by tenant
+   * since the whole point here is discovering which tenant owns the name in the first place. {@link
+   * Optional#empty()} (the untenanted namespace) if none of the four currently has a matching
+   * assignment.
+   */
+  private Optional<String> resolveInstanceEventTenant(String deploymentName, int instanceIndex) {
+    Optional<Optional<String>> deployment =
         storeClient.listAssignments().stream()
             .filter(
                 a ->
                     a.deploymentName().equals(deploymentName) && a.instanceIndex() == instanceIndex)
             .map(InstanceAssignment::tenantId)
-            .findFirst()
-            .orElse(Optional.empty());
-    storeClient.propose(new StateMutation.AppendInstanceEvent(tenant, event));
-    respond(exchange, 200, "ok");
+            .findFirst();
+    if (deployment.isPresent()) {
+      return deployment.get();
+    }
+    Optional<Optional<String>> statefulSet =
+        storeClient.listStatefulSetAssignments().stream()
+            .filter(
+                a ->
+                    a.statefulSetName().equals(deploymentName)
+                        && a.instanceIndex() == instanceIndex)
+            .map(StatefulSetAssignment::tenantId)
+            .findFirst();
+    if (statefulSet.isPresent()) {
+      return statefulSet.get();
+    }
+    if (instanceIndex == 0) {
+      Optional<Optional<String>> daemonSet =
+          storeClient.listDaemonSetAssignments().stream()
+              .filter(a -> a.daemonSetName().equals(deploymentName))
+              .map(DaemonSetAssignment::tenantId)
+              .findFirst();
+      if (daemonSet.isPresent()) {
+        return daemonSet.get();
+      }
+    }
+    return storeClient.listJobRuns().stream()
+        .filter(run -> run.jobName().equals(deploymentName) && run.attempt() == instanceIndex)
+        .map(JobRun::tenantId)
+        .findFirst()
+        .orElse(Optional.empty());
   }
 
   /**
@@ -4721,13 +4902,17 @@ public final class ApiServer implements AutoCloseable {
    * only one of {@code deployment}/{@code instance} is rejected rather than silently falling back
    * to the cluster-wide mode, since that combination can only ever be a caller's mistake.
    *
-   * <p>Both modes authorize as {@code DEPLOYMENT:READ} scoped to {@code tenant} -- the same
-   * caller-declared hint {@link #dispatchResourceRequest}'s own javadoc explains is now required to
-   * address a per-tenant name at all, an event itself carrying no tenant of its own to resolve one
-   * from instead. For the single-instance mode, an omitted {@code tenant} means the untenanted
-   * namespace specifically, matching every other route's own convention -- {@link
-   * #handleClusterInstanceEvents} instead matches every tenant when it is omitted, since a cluster-
-   * wide read has no one instance's key to address.
+   * <p>Both modes authorize as {@code DEPLOYMENT:READ} scoped to {@code tenant}. For the
+   * single-instance mode, an explicit {@code ?tenant=} always wins; an omitted one now resolves via
+   * {@link #resolveInstanceEventTenant} -- the exact same live-assignment join {@link
+   * #handleAppendInstanceEvent} itself used to decide which tenant to file the event under in the
+   * first place, so a read can never disagree with where a write actually landed the way it did
+   * defaulting straight to the untenanted namespace: a bare {@code gimle events <name> <idx>} for
+   * an ordinary, currently-assigned instance used to come back empty every time regardless of its
+   * real tenant, requiring an exact {@code --tenant} match to see anything at all, unlike every
+   * other verb this class exposes. {@link #handleClusterInstanceEvents} instead matches every
+   * tenant when {@code tenant} is omitted, since a cluster-wide read has no one instance's key to
+   * address in the first place.
    */
   private void handleEvents(HttpExchange exchange) {
     try {
@@ -4746,11 +4931,15 @@ public final class ApiServer implements AutoCloseable {
         respond(exchange, 400, "expected ?deployment=<name>&instance=<index>");
         return;
       }
-      Optional<String> tenant = Optional.ofNullable(query.get("tenant"));
+      int instanceIndex = Integer.parseInt(instanceParam);
+      Optional<String> declaredTenant = Optional.ofNullable(query.get("tenant"));
+      Optional<String> tenant =
+          declaredTenant.isPresent()
+              ? declaredTenant
+              : resolveInstanceEventTenant(deploymentName, instanceIndex);
       if (!requireAuthorized(exchange, ResourceKind.DEPLOYMENT, Verb.READ, tenant)) {
         return;
       }
-      int instanceIndex = Integer.parseInt(instanceParam);
       List<Map<String, Object>> events = new ArrayList<>();
       for (InstanceEvent event :
           storeClient.listInstanceEvents(tenant, deploymentName, instanceIndex)) {
@@ -4759,6 +4948,8 @@ public final class ApiServer implements AutoCloseable {
       respondJson(exchange, 200, events);
     } catch (NumberFormatException e) {
       respondQuietly(exchange, 400, "instance/since/limit must be numeric");
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
       log.warn("events request failed: {}", e.getMessage());
       respondQuietly(exchange, 500, "internal error");
@@ -8354,12 +8545,20 @@ public final class ApiServer implements AutoCloseable {
           tail.startsWith("nodes/")
               ? Optional.of(tail.substring("nodes/".length()))
               : Optional.empty();
-      // An instance-log request is scoped to its own ?tenant=<id> (the same convention every
-      // other tenant-scoped route uses) so the RBAC check below -- and resolveInstanceNodeId's
-      // own lookup, further down -- both stay within the caller's own tenant rather than any
-      // tenant that happens to share the requested deploymentName.
+      // An instance-log request honors an explicit ?tenant=<id> the same way every other
+      // tenant-scoped route does; when the caller gives none, this resolves the owning tenant by
+      // searching across workload kinds for the named deployment -- the same {@link
+      // #resolveTenantForWorkloadName} search {@code /endpoints/{name}} already uses (and, since
+      // GIMLE-746, ambiguity-safe: two tenants genuinely sharing this deploymentName raise a clear
+      // 400 instead of silently picking one and 404ing the other). Previously this defaulted
+      // straight to the untenanted namespace with no search at all, so a real, ACTIVE instance
+      // whose owning tenant wasn't literally "default" 404'd on this live path forever -- workable
+      // only through Muninn's own fallback store -- even though {@code resolveInstanceNodeId}
+      // itself has always been able to resolve it correctly once given the right tenant.
       Optional<String> tenantId =
-          tail.startsWith("instances/") ? workloadTenantHint(exchange) : Optional.empty();
+          tail.startsWith("instances/")
+              ? resolveInstanceLogsTenant(exchange, tail)
+              : Optional.empty();
       if (!requireAuthorized(exchange, ResourceKind.LOGS, Verb.READ, tenantId, targetNodeId)) {
         return;
       }
@@ -8368,10 +8567,12 @@ public final class ApiServer implements AutoCloseable {
       } else if (tail.startsWith("nodes/")) {
         handleNodeLogsProxy(exchange, tail.substring("nodes/".length()));
       } else if (tail.startsWith("instances/")) {
-        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()));
+        handleInstanceLogsProxy(exchange, tail.substring("instances/".length()), tenantId);
       } else {
         respond(exchange, 404, "unknown logs endpoint: " + tail);
       }
+    } catch (AmbiguousTenantException e) {
+      respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IllegalArgumentException e) {
       respondQuietly(exchange, 400, String.valueOf(e.getMessage()));
     } catch (IOException | RuntimeException e) {
@@ -8380,6 +8581,30 @@ public final class ApiServer implements AutoCloseable {
     } finally {
       exchange.close();
     }
+  }
+
+  /**
+   * The tenant an instance-log request should be authorized and resolved against: an explicit
+   * {@code ?tenant=} always wins, exactly like every other tenant-scoped route in this class;
+   * otherwise this searches for whichever tenant currently owns a workload named the request's own
+   * {@code deploymentName} segment, the same {@link #resolveTenantForWorkloadName} search {@code
+   * /endpoints/{name}} already relies on. Only when that search finds no such workload spec under
+   * any tenant at all (e.g. a name only Muninn still remembers, its own spec long gone) does this
+   * fall back to {@link Tenant#DEFAULT_TENANT_ID}, matching the default every manifest without its
+   * own {@code tenantId} already resolves to at parse time -- not {@link Optional#empty()}, which
+   * is a distinct, effectively-dead store bucket nothing ever actually writes into. {@code tail} is
+   * the full post-{@code /logs/} path (still carrying its {@code instances/} prefix), matching what
+   * {@link #handleLogs} already has in hand.
+   */
+  private Optional<String> resolveInstanceLogsTenant(HttpExchange exchange, String tail) {
+    Optional<String> declared = Optional.ofNullable(parseQuery(exchange).get("tenant"));
+    if (declared.isPresent()) {
+      return declared;
+    }
+    String instanceTail = tail.substring("instances/".length());
+    String deploymentName = instanceTail.split("/", 2)[0];
+    Optional<String> resolved = resolveTenantForWorkloadName(deploymentName);
+    return resolved.isPresent() ? resolved : Optional.of(Tenant.DEFAULT_TENANT_ID);
   }
 
   /**
@@ -8478,7 +8703,8 @@ public final class ApiServer implements AutoCloseable {
     proxyToAgent(exchange, nodeId, "/logs/nodes/" + nodeId, muninnFallbackPath);
   }
 
-  private void handleInstanceLogsProxy(HttpExchange exchange, String tail) throws IOException {
+  private void handleInstanceLogsProxy(
+      HttpExchange exchange, String tail, Optional<String> tenantId) throws IOException {
     // limit=3: deploymentName, instanceIndex, and an optional sub-path (e.g. AgentLogServer's
     // "crashdumps" or "crashdumps/<name>") -- a plain 2-way split on the first slash used to
     // swallow anything past the instanceIndex into a failed Integer.parseInt, breaking any
@@ -8506,10 +8732,9 @@ public final class ApiServer implements AutoCloseable {
         subPath != null || muninnClient == null
             ? null
             : muninnInstanceLogsPath(deploymentName, instanceIndex, exchange);
-    // The owning tenant, if any, travels as ?tenant=<id> -- the same convention every other
-    // tenant-scoped route in this class uses -- and is what keeps this resolution (and the RBAC
-    // check above it) from crossing into a different tenant's identically-named workload.
-    Optional<String> tenantId = workloadTenantHint(exchange);
+    // tenantId was already resolved by handleLogs (see resolveInstanceLogsTenant) -- computed once
+    // there, before the RBAC check, rather than re-derived here a second time with a chance of
+    // disagreeing with what was actually authorized.
     String nodeId = resolveInstanceNodeId(tenantId, deploymentName, instanceIndex);
     if (nodeId == null) {
       if (muninnFallbackPath != null) {
@@ -8663,6 +8888,42 @@ public final class ApiServer implements AutoCloseable {
   }
 
   /**
+   * How long a bare TCP connect to an agent's advertised log-server address may take before {@link
+   * #isAgentReachable} gives up -- matches {@code agentHttpClient}'s own {@code connectTimeout},
+   * the bound the ordinary (non-follow) proxy path already accepts for the identical address.
+   */
+  private static final Duration AGENT_REACHABILITY_TIMEOUT = Duration.ofSeconds(5);
+
+  /**
+   * A bare TCP connect probe to {@code apiAddress} ({@code host:port}), bounded by {@link
+   * #AGENT_REACHABILITY_TIMEOUT} -- used only to decide whether a {@code follow=true} session is
+   * safe to commit to (see its call site's own javadoc for why that path can't simply try and
+   * recover the way the bounded, non-follow path does). Never opens an HTTP request of its own: a
+   * plain connect/refuse is all that's needed to distinguish "the agent process is down" from
+   * "reachable, proceed."
+   */
+  private static boolean isAgentReachable(String apiAddress) {
+    int colon = apiAddress.lastIndexOf(':');
+    if (colon < 0) {
+      return false;
+    }
+    String host = apiAddress.substring(0, colon);
+    int port;
+    try {
+      port = Integer.parseInt(apiAddress.substring(colon + 1));
+    } catch (NumberFormatException e) {
+      return false;
+    }
+    try (Socket socket = new Socket()) {
+      socket.connect(
+          new InetSocketAddress(host, port), (int) AGENT_REACHABILITY_TIMEOUT.toMillis());
+      return true;
+    } catch (IOException e) {
+      return false;
+    }
+  }
+
+  /**
    * Looks up the owning node's self-reported log-server address and forwards the request as-is --
    * falling back to Muninn whenever a live agent genuinely isn't reachable: an unregistered node, a
    * registered node with no advertised log-server address yet, or a registered-and-advertised node
@@ -8700,6 +8961,23 @@ public final class ApiServer implements AutoCloseable {
         URI.create("http://" + apiAddress.get() + path + (query != null ? "?" + query : ""));
 
     if (query != null && query.contains("follow=true")) {
+      // A follow session commits to a chunked 200 the moment proxyFollowToAgent starts (there is
+      // no clean way to downgrade that to an error or a fallback once bytes may already be
+      // flowing), so unlike the bounded, non-follow path below, an agent that is actually down
+      // must be caught *before* that commitment -- otherwise the caller is left staring at an
+      // indefinitely open, silent connection instead of either a real fallback or a clear error.
+      // A plain TCP connect probe, bounded the same way agentHttpClient's own connectTimeout
+      // already bounds the non-follow path, catches exactly the case a real agent process being
+      // stopped produces (the port refuses outright) without needing to speak HTTP at all.
+      if (!isAgentReachable(apiAddress.get())) {
+        if (muninnFallbackPath != null) {
+          proxyToMuninn(exchange, muninnFallbackPath);
+          return;
+        }
+        respond(
+            exchange, 502, "agent " + apiAddress.get() + " unreachable, cannot follow live logs");
+        return;
+      }
       HttpRequest request = HttpRequest.newBuilder(target).GET().build();
       proxyFollowToAgent(exchange, apiAddress.get(), request);
       return;

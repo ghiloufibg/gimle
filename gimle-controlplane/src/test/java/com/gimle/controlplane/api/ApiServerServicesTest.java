@@ -747,4 +747,44 @@ class ApiServerServicesTest {
                 .build())
             .statusCode());
   }
+
+  /**
+   * QA finding: a long-lived Service's own {@code /endpoints} sub-route started 404ing "no such
+   * service" while {@code GET /services} kept listing it fine -- both read the identical store, but
+   * the bare-name fallback ({@code resolveTenantForServiceName}) used to pick whichever tenant's
+   * same-named Service happened to iterate first out of an unordered collection, silently and
+   * inconsistently. Two tenants genuinely sharing a name must now surface a clear 400 asking for
+   * {@code ?tenant=}, never a coin-flip between "found" and "not found" for the exact same request.
+   */
+  @Test
+  @Timeout(10)
+  void an_ambiguous_service_name_across_two_tenants_is_a_400_not_a_flaky_404() throws Exception {
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    """
+                    {"name": "orders", "tenantId": "acme",
+                     "deploymentNames": ["orders-service"], "port": 8080}
+                    """))
+            .build());
+    send(
+        HttpRequest.newBuilder(URI.create(baseUrl + "/services"))
+            .POST(
+                HttpRequest.BodyPublishers.ofString(
+                    """
+                    {"name": "orders", "tenantId": "globex",
+                     "deploymentNames": ["orders-service"], "port": 8080}
+                    """))
+            .build());
+
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(URI.create(baseUrl + "/services/orders/endpoints"))
+                .GET()
+                .build());
+
+    assertEquals(400, response.statusCode());
+    assertTrue(response.body().contains("ambiguous"), response.body());
+  }
 }

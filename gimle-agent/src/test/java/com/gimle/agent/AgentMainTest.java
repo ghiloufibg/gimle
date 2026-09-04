@@ -1556,8 +1556,38 @@ class AgentMainTest {
     assertFalse(AgentMain.requiresReplacement(assignedWithVessel, existing));
   }
 
+  // ---- instanceKey: tenant-scoped so two tenants' identically-named workload never collapse
+  // onto the same supervised/instanceShippers/capacityTracker slot ----
+
+  /**
+   * QA finding: two StatefulSets sharing a name across two tenants at the same index were placed by
+   * the control plane onto the same node, but this agent's own {@code supervised} map used to key
+   * purely on {@code deploymentName#index} -- whichever tenant's assignment this agent processed
+   * first "owned" that bare key, so the second tenant's identically-shaped assignment always read
+   * as already-supervised and this agent never started a real worker for it, even after the first
+   * tenant's workload was deleted and the key genuinely freed.
+   */
+  @Test
+  void instance_key_is_scoped_by_tenant_not_just_deployment_name_and_index() {
+    String acmeKey = AgentMain.instanceKey(Optional.of("acme"), "session-store", 0);
+    String globexKey = AgentMain.instanceKey(Optional.of("globex"), "session-store", 0);
+    String untenantedKey = AgentMain.instanceKey(Optional.empty(), "session-store", 0);
+
+    assertFalse(acmeKey.equals(globexKey), "two different tenants must never share a key");
+    assertFalse(acmeKey.equals(untenantedKey), "a real tenant must never collide with untenanted");
+    assertEquals(
+        acmeKey,
+        AgentMain.instanceKey(Optional.of("acme"), "session-store", 0),
+        "the same tenant/name/index must always resolve to the identical key");
+  }
+
   // ---- findRenameSource / renameInPlace: surge promotion retargeting an already-running worker
   // instance in place, no restart -- see DeploymentReconciler#handleSurge's own promotion step ----
+
+  /** The untenanted (matching every {@code AssignedInstance} built below) form of instanceKey(). */
+  private static String key(String deploymentName, int instanceIndex) {
+    return AgentMain.instanceKey(Optional.empty(), deploymentName, instanceIndex);
+  }
 
   private static AssignedInstance renamedAssignment(
       String deploymentName, int instanceIndex, ModuleDescriptor descriptor, int renamedFrom) {
@@ -1576,7 +1606,7 @@ class AgentMainTest {
     AssignedInstance surgeAssigned = assignedInstance("orders-service", v2, Optional.empty());
     SupervisedInstance surgeInstance = supervisedInstance(surgeAssigned, v2, null);
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
-    supervised.put("orders-service#5", surgeInstance);
+    supervised.put(key("orders-service", 5), surgeInstance);
 
     AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
 
@@ -1626,7 +1656,7 @@ class AgentMainTest {
     AssignedInstance staleAssigned = assignedInstance("orders-service", v1, Optional.empty());
     SupervisedInstance staleInstance = supervisedInstance(staleAssigned, v1, null);
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
-    supervised.put("orders-service#5", staleInstance);
+    supervised.put(key("orders-service", 5), staleInstance);
 
     // The hint points at index 5, but whatever is actually running there is still v1 -- not a
     // healthy surge instance proven on v2, so this must not be mistaken for a legitimate rename.
@@ -1646,27 +1676,27 @@ class AgentMainTest {
             "orders-service", 5, v2.id(), "/does/not/matter.jar", Optional.empty());
     SupervisedInstance instance = supervisedInstance(surgeAssigned, v2, null);
     Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
-    supervised.put("orders-service#5", instance);
+    supervised.put(key("orders-service", 5), instance);
     Map<String, List<MuninnShipper>> instanceShippers = new LinkedHashMap<>();
-    instanceShippers.put("orders-service#5", List.of());
+    instanceShippers.put(key("orders-service", 5), List.of());
     CapacityTracker capacityTracker = new CapacityTracker(1_000_000_000L, 4000L);
-    capacityTracker.tryAssign("orders-service#5", v2.resourceRequest());
+    capacityTracker.tryAssign(key("orders-service", 5), v2.resourceRequest());
 
     AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
     AgentMain.renameInPlace(
-        "orders-service#1", renamed, instance, supervised, instanceShippers, capacityTracker);
+        key("orders-service", 1), renamed, instance, supervised, instanceShippers, capacityTracker);
 
-    assertFalse(supervised.containsKey("orders-service#5"));
-    assertEquals(instance, supervised.get("orders-service#1"));
+    assertFalse(supervised.containsKey(key("orders-service", 5)));
+    assertEquals(instance, supervised.get(key("orders-service", 1)));
     assertEquals(renamed, instance.assigned);
-    assertFalse(instanceShippers.containsKey("orders-service#5"));
-    assertTrue(instanceShippers.containsKey("orders-service#1"));
+    assertFalse(instanceShippers.containsKey(key("orders-service", 5)));
+    assertTrue(instanceShippers.containsKey(key("orders-service", 1)));
     // The capacity reservation must have moved with the key, not stayed leaked under the old one
     // or been dropped -- see CapacityTracker#rekey's own dedicated test for the full behavior.
-    assertTrue(capacityTracker.tryAssign("orders-service#5", v2.resourceRequest()));
+    assertTrue(capacityTracker.tryAssign(key("orders-service", 5), v2.resourceRequest()));
     assertThrows(
         IllegalStateException.class,
-        () -> capacityTracker.tryAssign("orders-service#1", v2.resourceRequest()));
+        () -> capacityTracker.tryAssign(key("orders-service", 1), v2.resourceRequest()));
   }
 
   @Test
@@ -1687,12 +1717,12 @@ class AgentMainTest {
             WorkerConnection agentSide = new WorkerConnection(agentRaw);
             SupervisedInstance instance = supervisedInstance(surgeAssigned, v2, agentSide);
             Map<String, SupervisedInstance> supervised = new LinkedHashMap<>();
-            supervised.put("orders-service#5", instance);
+            supervised.put(key("orders-service", 5), instance);
             Map<String, List<MuninnShipper>> instanceShippers = new LinkedHashMap<>();
 
             AssignedInstance renamed = renamedAssignment("orders-service", 1, v2, 5);
             AgentMain.renameInPlace(
-                "orders-service#1",
+                key("orders-service", 1),
                 renamed,
                 instance,
                 supervised,

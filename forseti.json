@@ -516,6 +516,13 @@
           "GIMLE-793",
           "GIMLE-794"
         ]
+      },
+      "tenant-and-proxy-hardening": {
+        "note": "A real, shipped bugfix closing a Forseti finding directly (M61's agent-side same-node cross-tenant supervision collision, M41's control-plane follow-log-proxy hang) -- exercised today by targeted JUnit tests against a real AgentMain/ApiServer, not yet by a dedicated fleet scenario driving the same collision or agent-down condition against a live cluster.",
+        "ids": [
+          "GIMLE-795",
+          "GIMLE-796"
+        ]
       }
     }
   },
